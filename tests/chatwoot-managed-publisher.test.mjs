@@ -224,6 +224,7 @@ function validate(workflowSource, gateSource) {
     'chmod 0777 "$results"',
     'tests/chatwoot_full_japanese_test.rb',
     'Rake::Task["db:migrate"].invoke',
+    'bundle exec rails db:toybaco_prepare',
     'bundle exec rspec',
     'tests/chatwoot-production-smoke.rb',
     'tests/chatwoot-http-smoke.rb',
@@ -232,6 +233,7 @@ function validate(workflowSource, gateSource) {
   ]) {
     assert.ok(gateSource.includes(required), `essential quality gate missing: ${required}`);
   }
+  assert.match(gateSource, /^  verify_toybaco_database_prepare$/m);
   assert.match(gateSource, /^  run_ruby_quality$/m);
   assert.match(gateSource, /^  build_and_smoke_production_image$/m);
   assert.ok(
@@ -274,6 +276,7 @@ const mutations = [
     'docker buildx version\n          ./scripts/publish-chatwoot-image.sh',
   ), gate],
   [workflow, gate.replace('  run_ruby_quality\n', '  : # RSpec quality removed\n')],
+  [workflow, gate.replace('  verify_toybaco_database_prepare\n', '  : # database prepare regression removed\n')],
   [workflow, gate.replace(
     '  find "$CONTROL_ROOT" -type d -exec chmod 0755 {} +\n',
     '',

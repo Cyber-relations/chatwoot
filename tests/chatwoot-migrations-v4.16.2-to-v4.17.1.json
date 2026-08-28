@@ -47,7 +47,7 @@
       "bundle",
       "exec",
       "rails",
-      "db:chatwoot_prepare"
+      "db:toybaco_prepare"
     ],
     "runtime_prerequisites": {
       "DISABLE_ENTERPRISE": "true"

@@ -189,6 +189,41 @@ resource "aws_ecs_task_definition" "sidekiq" {
   tags = local.tags
 }
 
+# Chatwoot migration直前のread-only schema_migrations基線検査。
+# task roleを持たず、DB password以外のapplication secretも渡さない。
+resource "aws_ecs_task_definition" "chatwoot_schema_preflight" {
+  family                   = "${local.project}-chatwoot-schema-preflight"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.execution.arn
+
+  container_definitions = jsonencode([{
+    name      = "chatwoot-schema-preflight"
+    image     = local.chatwoot_image
+    essential = true
+    command   = ["/app/bin/toybaco-chatwoot-schema-preflight"]
+    environment = [
+      { name = "PGHOST", value = aws_db_instance.main.address },
+      { name = "PGPORT", value = "5432" },
+      { name = "PGDATABASE", value = "chatwoot" },
+      { name = "PGUSER", value = "chatwoot" },
+      { name = "PGSSLMODE", value = "require" },
+      { name = "PGOPTIONS", value = "-c default_transaction_read_only=on" },
+      { name = "TOYBACO_CHATWOOT_SCHEMA_BOOTSTRAP", value = "false" },
+      { name = "TOYBACO_CHATWOOT_SCHEMA_REQUIRE_TARGET", value = "false" },
+      { name = "TOYBACO_APP_SECRET_VERSION", value = aws_secretsmanager_secret_version.app.version_id },
+    ]
+    secrets = [
+      { name = "PGPASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:POSTGRES_PASSWORD::" },
+    ]
+    logConfiguration = local.log_config
+  }])
+
+  tags = local.tags
+}
+
 # DBマイグレーション用（デプロイ時に aws ecs run-task で単発実行）
 resource "aws_ecs_task_definition" "migrate" {
   family                   = "${local.project}-migrate"
@@ -200,11 +235,13 @@ resource "aws_ecs_task_definition" "migrate" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
-    name             = "migrate"
-    image            = local.chatwoot_image
-    essential        = true
-    command          = ["bundle", "exec", "rails", "db:chatwoot_prepare"]
-    environment      = local.app_environment
+    name      = "migrate"
+    image     = local.chatwoot_image
+    essential = true
+    command   = ["bundle", "exec", "rails", "db:toybaco_prepare"]
+    environment = concat(local.app_environment, [
+      { name = "TOYBACO_CHATWOOT_BOOTSTRAP", value = "false" },
+    ])
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])

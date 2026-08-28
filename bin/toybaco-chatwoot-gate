@@ -295,6 +295,8 @@ assert_control_contract() {
 
   sh -n "$CONTROL_ROOT/overlay/app/bin/toybaco-chatwoot-schema-preflight" || fail \
     'Chatwoot schema preflightのshell syntaxが不正です'
+  ruby -c "$CONTROL_ROOT/overlay/app/lib/tasks/toybaco_db.rake" >/dev/null || fail \
+    'Chatwoot managed database prepare taskのRuby syntaxが不正です'
   bash -n "$CONTROL_ROOT/bin/toybaco-chatwoot-gate"
   ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" >/dev/null
 }
@@ -460,6 +462,8 @@ start_services() {
 create_test_databases() {
   STAGE='test database作成'
   docker exec "$POSTGRES_NAME" createdb -U postgres chatwoot_test
+  docker exec "$POSTGRES_NAME" createdb -U postgres chatwoot_bootstrap_test
+  docker exec "$POSTGRES_NAME" createdb -U postgres chatwoot_recovery_test
   docker exec "$POSTGRES_NAME" createdb -U postgres postiz_identity_test
   docker exec -i "$POSTGRES_NAME" psql --set ON_ERROR_STOP=1 -U postgres -d postiz_identity_test \
     < "$CONTROL_ROOT/tests/postiz_identity_contract.sql"
@@ -467,6 +471,127 @@ create_test_databases() {
     "CREATE ROLE toybaco_sync_gate LOGIN PASSWORD '$SYNC_TEST_PASSWORD'"
   docker exec "$POSTGRES_NAME" psql --set ON_ERROR_STOP=1 -U postgres -d postiz_identity_test -c \
     'GRANT USAGE ON SCHEMA public TO toybaco_sync_gate; GRANT USAGE ON TYPE "Provider", "Role", "ShortLinkPreference" TO toybaco_sync_gate; GRANT SELECT, INSERT, UPDATE ON "Organization", "User", "UserOrganization" TO toybaco_sync_gate'
+}
+
+verify_schema_migration_set() {
+  local database="$1" expected_count="$2" expected_sha256="$3" label="$4"
+  local versions_file="$RUN_ROOT/${database}-schema-migrations"
+  local count sha256
+
+  docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$database" -c \
+    'SELECT version::text FROM public.schema_migrations ORDER BY version::text COLLATE "C";' \
+    > "$versions_file"
+  count="$(wc -l < "$versions_file" | tr -d '[:space:]')"
+  sha256="$(sha256_file "$versions_file")"
+  [[ "$count" == "$expected_count" && "$sha256" == "$expected_sha256" ]] || fail \
+    "$label schema_migrationsが不一致です: count=$count sha256=$sha256"
+}
+
+verify_toybaco_database_prepare() {
+  local bootstrap_database='chatwoot_bootstrap_test'
+  local recovery_database='chatwoot_recovery_test'
+  local upstream_sha256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
+  local target_sha256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
+  local config_count locale_default metadata_guard_log metadata_missing_log
+
+  STAGE='Chatwoot managed fresh database prepare'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$bootstrap_database" \
+    --env TOYBACO_CHATWOOT_BOOTSTRAP=true \
+    "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
+  verify_schema_migration_set "$bootstrap_database" 178 "$target_sha256" 'fresh prepare'
+  config_count="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$bootstrap_database" -c 'SELECT count(*) FROM public.installation_configs;')"
+  [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
+  locale_default="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$bootstrap_database" -c \
+    "SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='public.accounts'::regclass AND a.attname='locale';")"
+  [[ "$locale_default" == '7' ]] || fail "fresh prepare後のaccount locale defaultが日本語ではありません: $locale_default"
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$bootstrap_database" \
+    "$TEST_IMAGE" bundle exec rails runner \
+    'abort "initial seed missing" unless Redis::Alfred.get(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)'
+
+  STAGE='Chatwoot interrupted bootstrap recovery'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    "$TEST_IMAGE" bundle exec rails db:schema:load
+  verify_schema_migration_set "$recovery_database" 177 "$upstream_sha256" 'schema-only recovery fixture'
+  [[ "$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$recovery_database" -c 'SELECT count(*) FROM public.installation_configs;')" == '0' ]] || fail \
+    'schema-only recovery fixtureにinstallation configが混入しました'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    "$TEST_IMAGE" bundle exec rails runner \
+    'Redis::Alfred.delete(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING); abort "onboarding marker delete failed" if Redis::Alfred.get(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    --env TOYBACO_CHATWOOT_BOOTSTRAP=true \
+    "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
+  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'interrupted bootstrap recovery'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    "$TEST_IMAGE" bundle exec rails runner \
+    'abort "recovery seed missing" unless Redis::Alfred.get(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)'
+
+  STAGE='Chatwoot initialized database idempotency'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    "$TEST_IMAGE" bundle exec rails runner \
+    'Redis::Alfred.delete(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    --env TOYBACO_CHATWOOT_BOOTSTRAP=false \
+    "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
+  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'initialized database rerun'
+  run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    "$TEST_IMAGE" bundle exec rails runner \
+    'abort "initial seed reran" if Redis::Alfred.get(Redis::Alfred::CHATWOOT_INSTALLATION_ONBOARDING)'
+
+  STAGE='Chatwoot inconsistent metadata fail-closed'
+  docker exec "$POSTGRES_NAME" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$recovery_database" -c \
+    "CREATE TABLE public.toybaco_preservation_probe (marker text PRIMARY KEY); INSERT INTO public.toybaco_preservation_probe VALUES ('preserved'); DROP TABLE public.ar_internal_metadata;"
+  metadata_guard_log="$RUN_ROOT/chatwoot-metadata-guard.log"
+  if run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    --env TOYBACO_CHATWOOT_BOOTSTRAP=false \
+    "$TEST_IMAGE" bundle exec rails db:toybaco_prepare >"$metadata_guard_log" 2>&1; then
+    fail '不整合なdatabase metadataをdb:toybaco_prepareが拒否しませんでした'
+  fi
+  grep -F 'Chatwoot database metadata tables are inconsistent' "$metadata_guard_log" >/dev/null || fail \
+    '不整合なdatabase metadataが意図した理由で拒否されませんでした'
+  [[ "$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$recovery_database" -c 'SELECT marker FROM public.toybaco_preservation_probe;')" == 'preserved' ]] || fail \
+    'database metadata拒否時に既存dataが保持されませんでした'
+  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'metadata guard preservation'
+
+  docker exec "$POSTGRES_NAME" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$recovery_database" -c \
+    'DROP TABLE public.schema_migrations;'
+  metadata_missing_log="$RUN_ROOT/chatwoot-metadata-missing.log"
+  if run_test_container \
+    --env RAILS_ENV=production \
+    --env "POSTGRES_DATABASE=$recovery_database" \
+    --env TOYBACO_CHATWOOT_BOOTSTRAP=false \
+    "$TEST_IMAGE" bundle exec rails db:toybaco_prepare >"$metadata_missing_log" 2>&1; then
+    fail 'application tableを含むmetadataなしDBをdb:toybaco_prepareが拒否しませんでした'
+  fi
+  grep -F 'Chatwoot database has application tables without migration metadata' "$metadata_missing_log" >/dev/null || fail \
+    'application tableを含むmetadataなしDBが意図した理由で拒否されませんでした'
+  [[ "$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$recovery_database" -c 'SELECT marker FROM public.toybaco_preservation_probe;')" == 'preserved' ]] || fail \
+    'metadataなしDB拒否時に既存dataが保持されませんでした'
 }
 
 test_env_args() {
@@ -1221,6 +1346,7 @@ main() {
   build_test_image
   start_services
   create_test_databases
+  verify_toybaco_database_prepare
   run_ruby_quality
   build_and_smoke_production_image
   assert_final_boundaries
