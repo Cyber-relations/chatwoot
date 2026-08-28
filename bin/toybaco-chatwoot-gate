@@ -293,6 +293,8 @@ assert_control_contract() {
     "統合境界Ruby allowlistが縮退しています: $integration_ruby_count"
   [[ "$spec_count" -ge "$EXPECTED_MIN_SPEC_FILES" ]] || fail "Toybaco spec名簿が縮退しています: $spec_count"
 
+  sh -n "$CONTROL_ROOT/overlay/app/bin/toybaco-chatwoot-schema-preflight" || fail \
+    'Chatwoot schema preflightのshell syntaxが不正です'
   bash -n "$CONTROL_ROOT/bin/toybaco-chatwoot-gate"
   ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" >/dev/null
 }

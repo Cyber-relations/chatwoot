@@ -1,0 +1,123 @@
+#!/bin/sh
+set -eu
+
+umask 077
+export LC_ALL=C
+
+BASE_COUNT='158'
+BASE_SHA256='8ecbf17886bbdb41fcff953b3a792d9fc8635b3ee5aea399898b7bb2ed370074'
+TARGET_COUNT='177'
+TARGET_SHA256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
+
+deny() {
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=NO-GO reason=%s\n' "$1" >&2
+  exit 78
+}
+
+query() {
+  psql -X -q -A -t -v ON_ERROR_STOP=1 -c "$1"
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 -r "$1" | awk '{print $1}'
+  else
+    deny 'sha256_implementation_missing'
+  fi
+}
+
+bootstrap="${TOYBACO_CHATWOOT_SCHEMA_BOOTSTRAP:-}"
+case "$bootstrap" in
+  true|false) ;;
+  *) deny 'bootstrap_flag_must_be_true_or_false' ;;
+esac
+
+[ -n "${PGHOST:-}" ] || deny 'PGHOST_missing'
+[ -n "${PGDATABASE:-}" ] || deny 'PGDATABASE_missing'
+[ -n "${PGUSER:-}" ] || deny 'PGUSER_missing'
+[ -n "${PGPASSWORD:-}" ] || deny 'PGPASSWORD_missing'
+command -v psql >/dev/null 2>&1 || deny 'psql_missing'
+
+# ECS側の定義に加えてここでも強制し、overrideや手動実行でもDB writeを許可しない。
+PGOPTIONS='-c default_transaction_read_only=on'
+PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-15}"
+export PGOPTIONS PGCONNECT_TIMEOUT
+
+if ! transaction_read_only="$(query 'SHOW transaction_read_only;')"; then
+  deny 'database_connection_failed'
+fi
+[ "$transaction_read_only" = 'on' ] || deny 'transaction_read_only_is_not_on'
+
+if ! schema_migrations_exists="$(query \
+  "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN 'false' ELSE 'true' END;")"; then
+  deny 'schema_migrations_lookup_failed'
+fi
+
+if [ "$schema_migrations_exists" = 'false' ]; then
+  if ! user_relation_count="$(query "
+    SELECT count(*)
+    FROM pg_catalog.pg_class AS c
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+      AND n.nspname = 'public';
+  ")"; then
+    deny 'empty_database_check_failed'
+  fi
+  case "$user_relation_count" in
+    ''|*[!0-9]*) deny 'empty_database_relation_count_invalid' ;;
+  esac
+  [ "$user_relation_count" = '0' ] || deny 'schema_migrations_missing_from_nonempty_database'
+  [ "$bootstrap" = 'true' ] || deny 'empty_database_requires_bootstrap_staging'
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=empty count=0\n'
+  exit 0
+fi
+
+[ "$schema_migrations_exists" = 'true' ] || deny 'schema_migrations_lookup_invalid'
+
+if ! invalid_version_count="$(query "
+  SELECT count(*)
+  FROM public.schema_migrations
+  WHERE version IS NULL OR version !~ '^[0-9]{14}$';
+")"; then
+  deny 'schema_migrations_format_check_failed'
+fi
+[ "$invalid_version_count" = '0' ] || deny 'schema_migrations_contains_invalid_version'
+
+versions_file="$(mktemp /tmp/toybaco-chatwoot-schema-migrations.XXXXXX)" || deny 'temporary_file_creation_failed'
+cleanup() {
+  rm -f "$versions_file"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if ! query "
+  SELECT version::text
+  FROM (
+    SELECT DISTINCT version::text AS version
+    FROM public.schema_migrations
+  ) AS canonical_versions
+  ORDER BY version COLLATE \"C\";
+" > "$versions_file"; then
+  deny 'schema_migrations_read_failed'
+fi
+
+count="$(wc -l < "$versions_file" | tr -d '[:space:]')"
+case "$count" in
+  ''|*[!0-9]*) deny 'schema_migrations_count_invalid' ;;
+esac
+sha256="$(sha256_file "$versions_file")"
+
+if [ "$count" = "$BASE_COUNT" ] && [ "$sha256" = "$BASE_SHA256" ]; then
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=base count=%s sha256=%s\n' \
+    "$count" "$sha256"
+elif [ "$count" = "$TARGET_COUNT" ] && [ "$sha256" = "$TARGET_SHA256" ]; then
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=target count=%s sha256=%s\n' \
+    "$count" "$sha256"
+else
+  deny "unreviewed_schema_migrations count=$count sha256=$sha256"
+fi
