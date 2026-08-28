@@ -70,7 +70,7 @@ exact_keys!(policy, %w[automatic_database_rollback forward_compatibility_basis m
                        old_services runtime_prerequisites unknown_or_changed_migration], 'migration policy')
 abort 'old service version mismatch' unless policy['old_service_version'] == 'v4.16.2'
 abort 'old service set mismatch' unless policy['old_services'] == %w[rails sidekiq]
-abort 'migration command mismatch' unless policy['migration_command'] == %w[bundle exec rails db:chatwoot_prepare]
+abort 'migration command mismatch' unless policy['migration_command'] == %w[bundle exec rails db:toybaco_prepare]
 abort 'runtime prerequisite mismatch' unless policy['runtime_prerequisites'] == { 'DISABLE_ENTERPRISE' => 'true' }
 abort 'database rollback must remain manual' unless policy['automatic_database_rollback'] == false
 abort 'unknown migration policy must fail closed' unless policy['unknown_or_changed_migration'] == 'reject'
