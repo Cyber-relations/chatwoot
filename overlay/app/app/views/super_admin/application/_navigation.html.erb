@@ -1,0 +1,57 @@
+<%#
+# Navigation(トイバコ差し替え)
+
+元: Chatwoot v4.16.2 app/views/super_admin/application/_navigation.html.erb
+変更点: ヘッダのブランド表記をトイバコへ、固定ラベルを日本語へ。
+リソース名(アカウント/ユーザー等)は activerecord.models の ja 訳で出る。
+%>
+
+<%= vite_client_tag %>
+<%= vite_javascript_tag 'superadmin_pages' %>
+
+<%
+  sidebar_icons = {
+    accounts: 'icon-building-4-line',
+    users: 'icon-user-follow-line',
+    platform_apps: 'icon-apps-2-line',
+    agent_bots: 'icon-robot-line',
+    platform_banners: 'icon-megaphone-line',
+  }
+%>
+
+<div class="border-slate-100 border-r w-56 flex-shrink-0 justify-between h-full flex flex-col" role="navigation">
+  <div>
+    <div class="flex mx-4 mb-4 border-slate-100 border-b py-6">
+      <%= link_to image_tag('/brand-assets/logo_thumbnail.svg', alt: 'トイバコ 管理コンソール', class: 'h-10'), super_admin_root_url %>
+      <div class="flex flex-col ml-3">
+        <div class="text-sm">トイバコ</div>
+        <div class="text-xs text-slate-700 mt-0.5">管理コンソール</div>
+      </div>
+    </div>
+
+    <ul class="my-4">
+      <%= render partial: "nav_item", locals: { icon: 'icon-grid-line', url: super_admin_root_url, label: 'ダッシュボード' } %>
+      <% Administrate::Namespace.new(namespace).resources.each do |resource| %>
+        <% next if ["account_users", "access_tokens", "installation_configs", "dashboard", "devise/sessions", "app_configs", "instance_statuses", "settings", "push_diagnostics"].include?  resource.resource %>
+        <% next if resource.resource == "platform_banners" && !ChatwootApp.chatwoot_cloud? %>
+        <%= render partial: "nav_item", locals: {
+            icon: sidebar_icons[resource.resource.to_sym],
+            url: resource_index_route(resource),
+            label: display_resource_name(resource),
+          }
+        %>
+
+      <% end %>
+      <%= render 'settings_menu', open: settings_open? %>
+    </ul>
+  </div>
+  <div>
+    <ul class="my-4">
+      <%= render partial: "nav_item", locals: { icon: 'icon-mist-fill', url: sidekiq_web_url, label: 'Sidekiq ダッシュボード' } %>
+      <%= render partial: "nav_item", locals: { icon: 'icon-health-book-line', url: super_admin_instance_status_url, label: 'インスタンス状態' } %>
+      <%= render partial: "nav_item", locals: { icon: 'icon-mail-send-fill', url: super_admin_push_diagnostics_url, label: 'Push 通知診断' } %>
+      <%= render partial: "nav_item", locals: { icon: 'icon-dashboard-line', url: '/', label: 'エージェント画面へ' } %>
+      <%= render partial: "nav_item", locals: { icon: 'icon-logout-circle-r-line', url: super_admin_logout_url, label: 'ログアウト' } %>
+    </ul>
+  </div>
+</div>

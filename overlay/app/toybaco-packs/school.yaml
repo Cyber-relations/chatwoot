@@ -1,0 +1,88 @@
+# 業界パック: スクール・塾
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: school
+label: スクール・塾
+emoji: "🎓"
+accent: pink
+
+canned_responses:
+  - short_code: taiken-moushikomi
+    content: |
+      体験授業へのお申し込みありがとうございます。
+      ご希望のコースと日時、参加される方の学年または年代をお知らせください。
+      空き状況を確認してご案内します。
+  - short_code: taiken-kakutei
+    content: |
+      体験授業のお申し込みを承りました。
+      日時は◯月◯日◯曜日の◯時から、コースは◯です。
+      当日は受付へお越しください。
+  - short_code: furikae-uketsuke
+    content: |
+      振替希望のご連絡ありがとうございます。
+      欠席される授業の日程と、ご希望の振替日時をお知らせください。
+      空き状況を確認して、あらためてご案内します。
+  - short_code: furikae-kakutei
+    content: |
+      振替を承りました。
+      振替後の授業は◯月◯日◯曜日の◯時からです。
+      ご都合が変わった場合は、このメッセージにご返信ください。
+  - short_code: kesseki-renraku
+    content: |
+      欠席のご連絡ありがとうございます。
+      ◯月◯日の授業を欠席として承りました。
+      振替をご希望の場合は、ご希望の日時をお知らせください。
+  - short_code: gessha-annai
+    content: |
+      月謝と諸費用の一覧はこちらです: <URL>
+      コースにより金額が異なるため、ご希望のコースをお知らせいただければ該当する内容をご案内します。
+  - short_code: course-annai
+    content: |
+      コースと対象学年または年代の一覧はこちらです: <URL>
+      ご希望や通える曜日をお知らせいただければ、該当するコースをご案内します。
+  - short_code: mochimono-annai
+    content: |
+      当日のお持ち物は◯です。
+      服装や事前準備についてはこちらからご確認ください: <URL>
+  - short_code: eigyo-access
+    content: |
+      受付時間は◯時から◯時まで、◯曜日はお休みです。
+      所在地とアクセス方法はこちらからご確認ください: <URL>
+
+labels:
+  - title: 体験申込
+    description: 体験授業と体験会の申し込み
+    color: "#E05C7A"
+  - title: 振替希望
+    description: 授業の振替に関する連絡
+    color: "#F09A3E"
+  - title: 欠席連絡
+    description: 授業の欠席に関する連絡
+    color: "#2FA35C"
+  - title: 月謝確認
+    description: 月謝と諸費用の問い合わせ
+    color: "#4A79B8"
+  - title: 入会検討
+    description: コースと入会に関する問い合わせ
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま受付時間外のため、受付開始後に順番にご返信します。
+  体験授業のお申し込みや振替、欠席のご連絡は、このままメッセージをお送りください。
+
+post_templates:
+  - title: 体験授業の空き枠
+    body: |
+      【◯月◯日の体験授業】
+      ◯時と◯時の体験授業に空きがあります。
+      参加をご希望の方はメッセージでご相談ください。
+  - title: 体験会のお知らせ
+    body: |
+      【◯月の体験会】
+      ◯月◯日に◯向けの体験会を開催します。
+      内容とお申し込み方法はこちらからご確認ください: <URL>
+  - title: 受講生の成果紹介
+    body: |
+      【受講生の成果をご紹介します】
+      掲載の許可をいただいた◯さんが、◯を達成しました。
+      ※個人の事例で、成果には個人差があります。
+      取り組みの様子はこちらからご覧いただけます: <URL>

@@ -1,0 +1,46 @@
+{
+  "CALLS_PAGE": {
+    "HEADER": "通話",
+    "ALL_CALLS": "すべての通話",
+    "ALL_CALLS_COUNT": "すべてのコール ({count})",
+    "EMPTY_STATE": "コールは見つかりませんでした",
+    "SETUP": {
+      "TITLE": "1 か所で電話をかけたり受けたりできます",
+      "SUBTITLE": "音声チャネルを設定して、チームとの通話処理を開始します。すべての通話とその録音がここに表示されます。",
+      "ACTION": "音声チャンネルを設定する"
+    },
+    "FILTERS": {
+      "MISSED": "見逃した",
+      "NO_REPLY": "返信なし",
+      "OTHER_ACTIVITY": "その他のアクティビティ",
+      "INCOMING": "入ってくる",
+      "OUTGOING": "発信",
+      "IN_PROGRESS": "進行中",
+      "ASSIGNEE": "担当者",
+      "ALL_ASSIGNEES": "すべての譲受人",
+      "MORE_FILTERS": "その他のフィルター",
+      "INBOX": "受信トレイ",
+      "ALL_INBOXES": "すべての受信トレイ"
+    },
+    "STATUS": {
+      "ONGOING": "進行中",
+      "INCOMING": "入ってくる",
+      "OUTGOING": "発信",
+      "MISSED": "見逃した",
+      "NO_REPLY": "返信なし",
+      "FAILED": "失敗"
+    },
+    "ROW": {
+      "PICKED_BY": "ピックした人",
+      "DIALED_BY": "ダイヤル元",
+      "ANSWERED": "回答済み",
+      "RINGING": "リンギング",
+      "IN_PROGRESS": "進行中",
+      "NO_AGENT": "この電話に応答したエージェントはいません",
+      "NO_CONTACT_ANSWER": "連絡先が応答しませんでした",
+      "FAILED": "この通話は接続できませんでした",
+      "YESTERDAY": "昨日",
+      "DELETED_CONTACT": "連絡先を削除しました"
+    }
+  }
+}

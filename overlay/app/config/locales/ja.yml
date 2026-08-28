@@ -1,0 +1,645 @@
+---
+ja:
+  hello: こんにちは世界
+  inbox:
+    reauthorization:
+      success: チャンネルが正常に再認証されました
+      not_required: この受信トレイには再認証は必要ありません
+      invalid_channel: 再認証のチャネルタイプが無効です
+  auth:
+    saml:
+      invalid_email: 正しいメールアドレスを入力してください
+      authentication_failed: 認証が失敗しました。認証情報を確認して、もう一度試してください。
+  messages:
+    reset_password: パスワードリセットのリクエストは成功しました。手順が記載されたメールがある場合は、そのメールに送信されます。
+    reset_password_saml_user: このアカウントは SAML 認証を使用しています。パスワードのリセットはできません。管理者に問い合わせてください。
+    login_saml_user: このアカウントは SAML 認証を使用しています。組織の SAML プロバイダーを通じてサインインしてください。
+    saml_not_available: SAML 認証は、このインストールでは使用できません。
+    inbox_deletetion_response: 受信トレイの削除リクエストは、しばらくしてから処理されます。
+  data_imports:
+    intercom:
+      activities:
+        assignment: "%{actor} が会話を割り当てました"
+        assignment_with_target: "%{actor} が会話を %{target} に割り当てました"
+        assign_and_reopen: "%{actor} が会話を割り当てて再開しました"
+        assign_and_reopen_with_target: "%{actor} が会話を %{target} に割り当てて再開しました"
+        open: "%{actor} が会話を始めました"
+        close: "%{actor} は会話を終了しました"
+        snoozed: "%{actor} が会話をスヌーズしました"
+        participant_added: "%{actor} 参加者が追加されました"
+        participant_added_with_target: "%{actor} が %{target} を参加者として追加しました"
+        participant_removed: "%{actor} が参加者を削除しました"
+        participant_removed_with_target: "%{actor} が %{target} を参加者から削除しました"
+        conversation_attribute_updated: "%{actor} カンバセーションの属性が更新されました"
+        ticket_attribute_updated: "%{actor} がチケット属性を更新しました"
+        ticket_state_updated: "%{actor} がチケットの状態を更新しました"
+        custom_action_started: "%{actor} がカスタムアクションを開始しました"
+        custom_action_finished: "%{actor} はカスタムアクションを終了しました"
+        quick_reply: "%{actor} がクイックリプライを使用しました"
+        generic: "%{actor} レコーディング %{event}"
+  profile_settings:
+    sessions:
+      cannot_revoke_current: 現在のセッションを取り消すことはできません。
+  errors:
+    account:
+      not_authorized: このアカウントにアクセスする権限がありません
+      email_limit_exceeded: このアカウントの1日のメール制限に達しました
+      reporting_timezone:
+        invalid: は有効なタイムゾーンではありません
+      support_email:
+        invalid: は有効なメールアドレスではありません
+    validations:
+      presence: 空白にはできません。
+    webhook:
+      invalid: 無効なイベントです。
+    signup:
+      disposable_email: 使い捨てメールは許可されません
+      blocked_domain: このドメインは許可されていません。これが間違いであると思われる場合は、サポートに連絡してください。
+      invalid_email: 無効なメールアドレスを入力しました。
+      email_already_exists: あなたは既に %{email} でアカウントにサインアップしています
+      invalid_params: 無効な値が入力されました。確認のうえ再度お試しください。
+      failed: サインアップに失敗しました
+    voice:
+      call_already_accepted: "%{agent_name} はすでにコールを処理しています。"
+    assignment_policy:
+      not_found: 割り当てポリシーが見つかりません
+    attachments:
+      invalid: 添付ファイルが無効です
+    upload:
+      missing_input: URL のファイルが提供されていません
+      invalid_url: 入力された URL が無効です
+      fetch_failed: URL からファイルをフェッチできませんでした
+      fetch_failed_with_message: URL からファイルをフェッチできませんでした:%{message}
+      file_too_large: ファイルが最大許容サイズを超えています
+      unsupported_content_type: ファイルタイプはサポートされていません (画像と動画のみ可)
+      unexpected: 予期しないエラーが発生しました
+    database:
+      query_canceled: リクエストが完了するまでに時間がかかりすぎました。もう一度試してください。
+    saml:
+      feature_not_enabled: このアカウントでは SAML 機能が有効になっていません
+      sso_not_enabled: SAML SSO はこのインストールでは有効化されていません
+      multi_account_invitation_not_allowed: SAML が有効になっている間は、別のアカウントに関連付けられているユーザーを追加できません
+    conversations:
+      resolved: 会話は解決され、新しいメッセージは受け付けられません
+      unread_counts:
+        feature_not_enabled: このアカウントでは会話の未読件数機能が有効になっていません
+    data_import:
+      data_type:
+        invalid: 無効なデータ型。
+    contacts:
+      import:
+        failed: ファイルが空です。
+      export:
+        success: ファイルを表示する準備ができたら通知します。
+      email:
+        invalid: 無効なEメールです
+      phone_number:
+        invalid: e164形式である必要があります
+    companies:
+      domain:
+        invalid: 有効なドメイン名でなければなりません
+      search:
+        query_missing: パラメータ q を使用して検索文字列を指定
+    messages:
+      search:
+        time_range_limit_exceeded: 検索は直近の %{days} 日に限定されています
+    categories:
+      locale:
+        unique: カテゴリとポータルで一意である必要があります
+    dyte:
+      invalid_message_type: 無効なメッセージタイプです。アクションは許可されていません
+      realtimekit_credentials_required: Cloudflare RealtimeKit の認証情報が必要です。既存の Dyte
+        インテグレーションを削除し、Cloudflare RealtimeKit 認証情報を使用して再度作成してください。
+    cloudflare:
+      realtimekit:
+        invalid_credentials: Cloudflare RealtimeKit の認証情報が無効です。アカウント ID、RealtimeKit
+          アプリ ID、および API トークンの権限を確認してください。
+        missing_credentials: クラウドフレアアカウント ID、リアルタイムキットアプリ ID、および API トークンが必要です。
+        invalid_api_token: クラウドフレアAPIトークンが無効または非アクティブです。リアルタイム管理者権限で新しいトークンを作成してください。
+        invalid_account_or_permissions: CloudflareアカウントのIDが無効であるか、APIトークンにこのアカウントへのリアルタイム管理者アクセス権がありません。
+        app_not_found: RealtimeKit アプリ ID はこのクラウドフレアアカウントで見つかりませんでした。選択したアプリを確認してください。
+        verification_failed: 現在、Cloudflare RealtimeKit の認証情報を確認できませんでした。もう一度試してください。
+    slack:
+      invalid_channel_id: 無効なSlackチャンネルです。もう一度お試しください。
+    whatsapp:
+      token_exchange_failed: アクセストークンのコードを交換できませんでした。もう一度試してください。
+      invalid_token_permissions: アクセストークンには、WhatsApp に必要な権限がありません。
+      phone_info_fetch_failed: 電話番号情報を取得できませんでした。もう一度試してください。
+      phone_number_already_exists: この電話番号のチャネルは既に存在します:%{phone_number}。エラーが続く場合はサポートに連絡してください
+      message_outside_messaging_window: WhatsApp の 24 時間対応のカスタマーサービスウィンドウが閉じられ、テンプレートパラメータが提供されなかったため、メッセージが送信されませんでした。代わりに、承認済みのテンプレートメッセージを送信してください。
+      reauthorization:
+        generic: WhatsApp を再認証できませんでした。もう一度試してください。
+        not_supported: このタイプの WhatsApp チャネルでは、再認証はサポートされていません。
+      calls:
+        not_enabled: この受信トレイでは通話が有効になっていません
+        already_ended: この電話はすでに終了しています
+        already_accepted: コールはすでに別のエージェントによって受け付けられています
+        no_recording: 記録ファイルが提供されていません
+        no_message: 通話に関連するメッセージはありません
+        sdp_offer_required: sdp_offer が必要です
+        contact_phone_required: 連絡先電話番号が必要です
+        permission_request_failed: 通話許可リクエストを送信できませんでした
+    openai:
+      invalid_api_key: OpenAI API キーが無効であるか、または取り消されています。OpenAI ダッシュボードでキーを確認してください。
+    inboxes:
+      imap:
+        socket_error: ネットワーク接続、IMAPアドレスを確認の上、再度お試しください。
+        no_response_error: IMAPの資格情報を確認の上、再度お試しください。
+        host_unreachable_error: ホストに接続できません。IMAPアドレス、ポートを確認の上、再度お試しください。
+        connection_timed_out_error: "%{address}:%{port} への接続がタイムアウトしました"
+        connection_closed_error: 接続が閉じられました。
+      smtp:
+        authentication_error: SMTP 認証が失敗しました。ログイン認証情報を確認してください。
+        connection_error: SMTP サーバーに接続できませんでした。サーバーのアドレスとポートを確認してください。
+        ssl_error: SSL/TLS エラー。暗号化設定を確認してください。
+        smtp_error: SMTP サーバーエラーです。設定を確認して、もう一度試してください。
+      validations:
+        name: 記号で開始または終了しないでください。< > / \ @ を使用しないでください。
+    custom_filters:
+      number_of_records: 制限に達しました。1つのアカウントにつき、ユーザーごとに許可されるカスタムフィルターの最大数は 1000 です。
+      invalid_attribute: 無効な属性キー - [%{key}]。キーは[%{allowed_keys}]のいずれかである必要があります。または、アカウント内で定義されたカスタム属性でなければなりません。
+      invalid_operator: 無効な演算子です。%{attribute_name} に許可されている演算子は [%{allowed_keys}]
+        です。
+      invalid_query_operator: クエリ演算子は "AND" または "OR" でなければなりません。
+      invalid_value: 無効な値です。%{attribute_name} に提供された値は無効です。
+    custom_attribute_definition:
+      attribute_key_format: 文字、数字、アンダースコア、ハイフン、ドットのみを含める必要があります
+      key_conflict: 指定されたキーはデフォルト属性と競合する可能性があるため、使用できません。
+    mfa:
+      already_enabled: MFA は既に有効になっています
+      not_enabled: MFA は有効化されていません
+      invalid_code: 認証コードが無効です
+      invalid_backup_code: バックアップコードが無効です
+      invalid_token: MFA トークンが無効または期限切れです
+      invalid_credentials: 認証情報または認証コードが無効です
+      feature_unavailable: MFA 機能は使用できません。暗号化キーを設定してください。
+    billing:
+      invalid_currency: 請求通貨が無効です
+      currency_locked: 請求設定後に請求通貨を変更することはできません
+    topup:
+      credits_required: クレジット額が必要です
+      invalid_credits: クレジット金額が無効です
+      invalid_option: トップアップオプションが無効です
+      plan_not_eligible: チャージは有料プランでのみ利用できます。最初にプランをアップグレードしてください。
+      stripe_customer_not_configured: Stripe カスタマーが設定されていません
+      no_payment_method: 支払い方法が見つかりません。購入前に支払い方法を追加してください。
+    reports:
+      date_range_too_long: 日付範囲は 6 か月を超えることはできません
+  profile:
+    mfa:
+      enabled: MFA が正常に有効化されました
+      disabled: MFA は正常に無効化されました
+    account_saml_settings:
+      invalid_certificate: PEM 形式の有効な X.509 証明書である必要があります
+  reports:
+    period: レポート期間 %{since} から %{until} まで
+    utc_warning: 生成されたレポートはUTCタイムゾーンです
+    agent_csv:
+      agent_name: 担当者名
+      conversations_count: 割り当て済みの会話
+      avg_first_response_time: 初回応答の平均時間
+      avg_resolution_time: 解決までの平均時間
+      resolution_count: 処理件数
+      avg_customer_waiting_time: お客様の平均待ち時間
+    inbox_csv:
+      inbox_name: 受信トレイ名
+      inbox_type: 受信トレイの種類
+      conversations_count: 会話数
+      avg_first_response_time: 初回応答の平均時間
+      avg_resolution_time: 解決までの平均時間
+    label_csv:
+      label_title: ラベル
+      conversations_count: 会話数
+      avg_first_response_time: 初回応答の平均時間
+      avg_resolution_time: 解決までの平均時間
+      avg_reply_time: 平均返信時間
+      resolution_count: 処理件数
+    team_csv:
+      team_name: チーム名
+      conversations_count: 会話回数
+      avg_first_response_time: 初回応答の平均時間
+      avg_resolution_time: 解決までの平均時間
+      resolution_count: 処理件数
+      avg_customer_waiting_time: お客様の平均待ち時間
+    conversation_csv:
+      conversations_count: 会話データ
+      incoming_messages_count: 受信メッセージ
+      outgoing_messages_count: 送信メッセージ
+      avg_first_response_time: 初回応答の平均時間
+      avg_resolution_time: 解決までの平均時間
+      resolution_count: 解決回数
+      avg_customer_waiting_time: お客様の平均待ち時間
+    conversation_traffic_csv:
+      timezone: タイムゾーン
+    sla_csv:
+      conversation_id: 会話ID
+      sla_policy_breached: SLAポリシー
+      assignee: 担当者
+      team: チーム
+      inbox: 受信トレイ
+      labels: ラベル
+      conversation_link: 会話へのリンク
+      breached_events: 違反イベント
+    default_group_by: 日
+    csat:
+      headers:
+        contact_name: 連絡先名
+        contact_email_address: 連絡先のメールアドレス
+        contact_phone_number: 連絡先の電話番号
+        link_to_the_conversation: 会話へのリンク
+        agent_name: 担当者名
+        rating: 評価
+        feedback: フィードバックコメント
+        recorded_at: 記録日
+        review_notes: レビューノート
+  notifications:
+    notification_title:
+      conversation_creation: 会話 (#%{display_id}) が %{inbox_name} で作成されました
+      conversation_assignment: 会話 (#%{display_id}) があなたに割り当てられました
+      assigned_conversation_new_message: 会話 (#%{display_id}) に新しいメッセージが作成されました
+      conversation_mention: 会話 (#%{display_id}) であなたが言及されました
+      sla_missed_first_response: 会話 (#%{display_id}) の最初の応答でSLAターゲットを逃しました
+      sla_missed_next_response: 会話 (#%{display_id}) の次の応答でSLAターゲットを逃しました
+      sla_missed_resolution: 会話 (#%{display_id}) の解決でSLAターゲットを逃しました
+    attachment: 添付ファイル
+    no_content: コンテンツなし
+  conversations:
+    captain:
+      handoff: さらなる支援を受けるために別のエージェントに転送します。
+    messages:
+      instagram_story_content: "%{story_sender} さんがストーリーであなたについて言及しました: "
+      instagram_deleted_story_content: このストーリーはもう利用できません。
+      instagram_shared_story_content: 共有ストーリー
+      instagram_shared_post_content: 共有投稿
+      deleted: このメッセージは削除されました
+      whatsapp:
+        list_button_label: アイテムを選択する
+        call_permission_request_body: あなたの会話についてお電話したいと思います。
+        flow_response: フローレスポンスを送信しました
+        unsupported_message: このメッセージは利用できません。
+      voice_call:
+        twilio: 音声通話
+        whatsapp: WhatsApp コール
+      delivery_status:
+        error_code: 'エラーコード: %{error_code}'
+    activity:
+      captain:
+        resolved: 会話が何も操作されなかったため、%{user_name} によって解決済みとマークされました
+        resolved_with_reason: 会話は %{user_name} (%{reason}) によって解決済みとマークされました
+        resolved_by_tool: 会話は %{user_name} によって解決済みとマークされました:%{reason}
+        open: "%{user_name} によって会話が開かれたとマークされました"
+        open_with_reason: 会話は %{user_name} (%{reason}) によってオープンとマークされました
+        auto_opened_after_agent_reply: エージェントからの返信後、会話は自動的にオープンとしてマークされました
+      agent_bot:
+        error_moved_to_open: エージェントボットのエラーにより、会話がシステムによってオープンとマークされました。
+      status:
+        resolved: "%{user_name} によって会話は解決済みになりました"
+        contact_resolved: "%{contact_name} によって会話が解決されました"
+        open: "%{user_name} によって会話が再開されました"
+        pending: "%{user_name} によって会話が保留にされました"
+        snoozed: "%{user_name} によって会話がスヌーズされました"
+        auto_resolved_days: "%{count} 日間会話が非アクティブだったため、システムにより解決済みにされました"
+        auto_resolved_hours: "%{count} 時間何も操作がなかったため、会話がシステムによって解決済みとマークされました"
+        auto_resolved_minutes: "%{count} 分間何も操作がなかったため、会話がシステムによって解決済みとマークされました"
+        system_auto_open: 新しい受信メッセージを受信したため、システムが会話が再開されました
+      priority:
+        added: '%{user_name} が優先度を "%{new_priority}" に設定しました'
+        updated: '%{user_name} が優先度を "%{old_priority}" から "%{new_priority}" に変更しました'
+        removed: "%{user_name} が優先度を削除しました"
+      assignee:
+        self_assigned: "%{user_name} がこの会話を自身に割り当てました"
+        assigned: "%{user_name} によって %{assignee_name} に割り当てられました"
+        removed: "%{user_name} によって割り当てが解除されました"
+      team:
+        assigned: "%{user_name} によって %{team_name} に割り当てられました"
+        assigned_with_assignee: "%{user_name} によって %{team_name} 経由で %{assignee_name}
+          に割り当てられました"
+        removed: "%{user_name} によって %{team_name} から割り当てが解除されました"
+      labels:
+        added: '%{user_name} がラベル "%{labels}" を追加しました'
+        removed: '%{user_name} がラベル "%{labels}" を削除しました'
+      sla:
+        added: '%{user_name} がSLAポリシー "%{sla_name}" を追加しました'
+        removed: '%{user_name} がSLAポリシー "%{sla_name}" を削除しました'
+      linear:
+        issue_created: Linear 問題 %{issue_id} は %{user_name} によって作成されました
+        issue_linked: Linear 号 %{issue_id} は %{user_name} によってリンクされました
+        issue_unlinked: Linear 号 %{issue_id} は %{user_name} によってリンク解除されました
+      whatsapp_call:
+        permission_requested: "%{contact_name}に電話許可リクエストを送信しました。"
+        permission_granted: "%{contact_name} は通話許可のリクエストを受け入れました。"
+      csat:
+        not_sent_due_to_messaging_window: 送信メッセージ制限のため、CSAT アンケートが送信されませんでした
+      auto_resolve:
+        not_sent_due_to_messaging_window: 送信メッセージ制限のため、自動解決メッセージが送信されませんでした
+      muted: "%{user_name} が会話をミュートしました"
+      unmuted: "%{user_name} が会話のミュートを解除しました"
+      auto_resolution_message: 会話がしばらく非アクティブのため、解決済みとして処理します。引き続きサポートが必要な場合は、新しい会話を開始してください。
+    templates:
+      greeting_message_body: "%{account_name} は通常数時間以内に返信します。"
+      ways_to_reach_you_message_body: ご連絡先をご入力ください。
+      email_input_box_message_body: 通知先Eメールアドレス
+      csat_input_message_body: 会話を評価してください
+    reply:
+      email:
+        header:
+          notifications: 通知
+          from_with_name: "%{inbox_name} の %{assignee_name} <%{from_email}>"
+          reply_with_name: "%{inbox_name} <reply+%{reply_email}> から %{assignee_name}"
+          friendly_name: "%{business_name} の %{sender_name} <%{from_email}>"
+          professional_name: "%{business_name} < %{from_email} >"
+      channel_email:
+        header:
+          reply_with_name: "%{inbox_name} の %{assignee_name} <%{from_email}>"
+          reply_with_inbox_name: "%{inbox_name} < %{from_email} >"
+      email_subject: この会話に新着メッセージがあります
+      transcript_subject: 会話の記録
+    survey:
+      response: この会話を評価してください, %{link}
+  contacts:
+    online:
+      delete: "%{contact_name} はオンラインです。後でもう一度お試しください"
+  integration_apps:
+    dashboard_apps:
+      name: ダッシュボードアプリ
+      description: ダッシュボードアプリを使用すると、ユーザー情報、注文、または支払い履歴を表示するアプリケーションを作成して埋め込むことができ、カスタマーサポートエージェントにより多くのコンテキストを提供します。
+    dyte:
+      name: Dyte
+      short_description: トイバコ から顧客とのビデオ通話/音声通話を直接開始します。
+      description: Dyteは、オーディオおよびビデオ機能をアプリケーションに統合する製品です。この統合により、エージェントはトイバコから直接顧客とビデオ/音声通話を開始できます。
+      meeting_name: "%{agent_name} がミーティングを開始しました"
+    slack:
+      name: Slack
+      short_description: 通知を受け取り、Slackで直接会話に応答します。
+      description: トイバコとSlackを統合して、チームを同期させます。この統合により、新しい会話の通知を受け取り、Slackのインターフェース内で直接応答することができます。
+    webhooks:
+      name: ウェブフック
+      description: Webhookイベントは、トイバコアカウント内のアクティビティに関するリアルタイムの更新を提供します。希望するイベントを購読すると、トイバコは更新情報を含むHTTPコールバックを送信します。
+    dialogflow:
+      name: Dialogflow
+      short_description: エージェントに転送する前に、最初のクエリを処理するチャットボットを構築します。
+      description: Dialogflowでチャットボットを構築し、それらを受信トレイに簡単に統合します。これらのボットは、カスタマーサービスエージェントに転送する前に初期の問い合わせを処理できます。
+    google_translate:
+      name: Google 翻訳
+      short_description: エージェント向けの顧客メッセージを自動的に翻訳します。
+      description: Google翻訳を統合して、エージェントが顧客のメッセージを簡単に翻訳できるようにします。この統合は言語を自動的に検出し、エージェントまたは管理者の希望する言語に変換します。
+    openai:
+      name: OpenAI
+      short_description: AI- による返信の提案、要約、メッセージ強化。
+      description: OpenAIの大規模言語モデルの力を活用して、返信の提案、要約、メッセージの言い換え、スペルチェック、ラベル分類などの機能を提供します。
+    linear:
+      name: Linear
+      short_description: Linear 課題を会話から直接作成してリンクできます。
+      description: 会話ウィンドウから直接Linearに問題を作成します。あるいは、既存のLinearの問題をリンクして、より効率的な問題追跡プロセスを実現します。
+      attachment_link_title: "%{name} との会話 (#%{conversation_id})"
+    notion:
+      name: Notion
+      short_description: データベース、文書、ページをAIアシスタントと直接統合できます。
+      description: Notion ワークスペースを接続すると、AIアシスタントがデータベース、ドキュメント、ページのコンテンツにアクセスしてインテリジェントな回答を生成し、より状況に応じたカスタマーサポートを提供できるようになります。
+    shopify:
+      name: Shopify
+      short_description: Shopifyストアから注文の詳細と顧客データにアクセスします。
+      description: Shopifyストアに接続すると、会話の中で注文の詳細、顧客情報、製品データに直接アクセスでき、サポートチームが顧客に迅速かつ状況に応じた支援を提供できるようになります。
+    leadsquared:
+      name: リードスクエア
+      short_description: LeadSquared CRM で連絡先や会話を同期しましょう。
+      description: LeadSquared CRM で連絡先や会話を同期しましょう。この統合により、新しい連絡先が追加されると自動的にLeadSquaredに見込み客が作成され、会話アクティビティを記録して営業チームに完全なコンテキストを提供します。
+  captain:
+    copilot_message_required: メッセージは必須です
+    copilot_error: この受信トレイにアシスタントを接続してCopilotを使用してください
+    copilot_limit: Copilot残高がありません。課金セクションからクレジットを追加購入することができます。
+    upgrade: AIアシスタントを有効にするにはプランをアップグレードしてください。
+    disabled: このアカウントではAIアシスタントが無効化されています。
+    api_key_missing: AIアシスタント APIキーが設定されていません。
+    copilot:
+      using_tool: ツール%{function_name}を使用中
+      completed_tool_call: "%{function_name}ツール呼び出しが完了しました。"
+      invalid_tool_call: 無効なツール呼び出しです。
+      tool_not_available: ツールが利用できません。
+      reply_suggestion_discarded: Copilotが製図している間に会話が変わったため、提案は破棄されました。
+      reply_suggestion_failed: コパイロットは返信を生成できませんでした。もう一度試してください。
+    documents:
+      limit_exceeded: ドキュメントの上限を超えました
+      pdf_format_error: PDF ファイルである必要があります
+      pdf_size_error: 10 MB 未満である必要があります
+      sync_not_supported_for_pdf: PDF ドキュメントでは同期はサポートされていません
+      sync_only_available_documents: 同期は処理済みの文書でのみ使用できます
+      sync_already_in_progress: ドキュメント同期は既に進行中です
+      pdf_upload_failed: PDF を OpenAI にアップロードできませんでした
+      pdf_upload_success: 'PDF は file_ id: %{file_id} で正常にアップロードされました'
+      pdf_processing_failed: PDF ドキュメント %{document_id} を処理できませんでした:%{error}
+      pdf_processing_success: PDF ドキュメント %{document_id} が正常に処理されました
+      faq_generation_complete: FAQ の生成が完了しました。作成されたよくある質問の総数:%{count}
+      using_paginated_faq: ドキュメント %{document_id} にページ分割された FAQ 生成を使用する
+      using_standard_faq: ドキュメント %{document_id} に標準 FAQ 生成を使用する
+      response_creation_error: レスポンスドキュメントの作成中にエラーが発生しました:%{error}
+      missing_openai_file_id: ページ分割処理を行うには、ドキュメントに openai_FILE_id が含まれている必要があります
+      openai_api_error: OpenAI API エラー:%{error}
+      starting_paginated_faq: ページ分割された FAQ 生成の開始 (チャンクあたり %{pages_per_chunk} ページ数)
+      stopping_faq_generation: 処理を停止します。理由:%{reason}
+      paginated_faq_complete: ページ分割の生成が完了しました。よくある質問の合計:%{total_faqs}、処理されたページ数:%{pages_processed}
+      processing_pages: ページ %{start}-%{end} を処理中 (イテレーション %{iteration})
+      chunk_generated: チャンクで生成された %{chunk_faqs} に関するよくある質問。これまでの合計:%{total_faqs}
+      page_processing_error: ページ%{start}～%{end}の処理中にエラーが発生しました：%{error}
+    custom_tool:
+      slug_generation_failed: 5 回試行してもユニークなスラッグを生成できない
+      limit_exceeded: 1 アカウントにつき、最大 %{limit} カスタムツールを作成できます。
+  public_portal:
+    search:
+      search_placeholder: タイトルまたは本文で記事を検索...
+      empty_placeholder: 該当結果が見つかりませんでした。
+      loading_placeholder: 検索中...
+      results_title: 検索結果
+      results: 検索結果
+      results_for: "「%{query}」の検索結果"
+      no_results: "「%{query}」の検索結果が見つかりませんでした"
+      found_results:
+        one: 1 件の結果が見つかりました
+        other: "%{count} の結果が見つかりました"
+      submit: 検索
+    toc_header: このページで
+    sidebar:
+      help_center: ヘルプセンター
+      categories: カテゴリー
+      language: 言語
+      theme: テーマ
+      open_sidebar: サイドバーを開く
+      close_sidebar: サイドバーを閉じる
+      browse: ブラウズ
+      back_to_category: "%{name} に戻る"
+      browse_by_topic: トピック別に閲覧
+      browse_by_topic_subtitle: カテゴリ別に整理されたガイド、チュートリアル、回答を検索できます。
+      popular_articles: 人気の記事
+      popular_articles_subtitle: 他の人が今読んでいるもの。
+      recommended: おすすめ記事
+      recommended_subtitle: 始めるための厳選された記事。
+      popular_label: '人気のトピック:'
+      recommended_label: 'おすすめのトピック:'
+      authors_others: "%{names} と %{count} その他"
+      primary_nav: プライマリ
+    hero:
+      sub_title: ここで記事を検索するか、以下のカテゴリを参照してください。
+    common:
+      home: ホーム
+      last_updated_on: 最終更新日 %{last_updated_on}
+      view_all_articles: すべて表示
+      article: 記事
+      articles: 記事
+      author: 著者
+      authors: 著者
+      other: その他
+      others: その他
+      by: 作成者
+      no_articles: ここには記事がありません
+      previous: 前へ
+      next: "[次へ]"
+    article_actions:
+      label: で開く
+      view_markdown: Markdown として表示
+      open_in_chatgpt: チャットで開く (GPT)
+      open_in_claude: クロードで開く
+      llm_prompt: 次の記事を読んで、理解するのを手伝ってください。%{url}
+    footer:
+      made_with: 作成
+    header:
+      go_to_homepage: ウェブサイト
+      visit_website: ウェブサイトをご覧ください
+      appearance:
+        title: 外観
+        system: システム
+        light: ライト
+        dark: ダーク
+      featured_articles: 注目の記事
+      recommended: おすすめ記事
+      uncategorized: 未分類
+    '404':
+      title: ページが見つかりません
+      description: お探しのページが見つかりませんでした。
+      back_to_home: ホームページに戻る
+    not_active:
+      title: ヘルプセンターはご利用いただけません
+      description: 詳細については、サイト管理者に問い合わせてください。
+      action: 管理者の場合は、プランをアップグレードしてアクセスを回復してください。
+  slack_unfurl:
+    fields:
+      name: 名前
+      email: Eメール
+      phone_number: 電話
+      company_name: 企業
+      inbox_name: 受信トレイ
+      inbox_type: 受信トレイの種類
+    button: 会話を開く
+  time_units:
+    days:
+      one: "%{count} 日"
+      other: "%{count} 日"
+    hours:
+      one: "%{count} アワー"
+      other: "%{count} 時間"
+    minutes:
+      one: "%{count} 分"
+      other: "%{count} 分"
+    seconds:
+      one: "%{count} 秒"
+      other: "%{count} 秒"
+  auto_assignment:
+    default_policy_name: デフォルトポリシー
+    policy_actor: "%{policy_name} 経由のオートメーションシステム"
+  automation:
+    system_name: 自動化システム
+  crm:
+    no_message: 会話にメッセージはありません
+    attachment: "[アタッチメント:%{type}]"
+    no_content: "[コンテンツなし]"
+    created_activity: |
+      %{brand_name} で新しい会話が始まりました
+
+      チャンネル:%{channel_info}
+      作成者:%{formatted_creation_time}
+      カンバセーション ID: %{display_id}
+      %{brand_name} での表示:%{url}
+    transcript_activity: |
+      %{brand_name} からの会話のトランスクリプト
+
+      チャンネル:%{channel_info}
+      カンバセーション ID: %{display_id}
+      %{brand_name} での表示:%{url}
+
+      トランスクリプト:
+      %{format_messages}
+  agent_capacity_policy:
+    inbox_already_assigned: Inbox は既にこのポリシーに割り当てられています
+  portals:
+    analytics:
+      invalid_configuration: アナリティクス設定が無効です
+    articles:
+      captain_not_available: 翻訳にはこのアカウントでAIアシスタントを有効にする必要があります
+      locale_not_available: このポータルではロケールを使用できません
+      category_not_found: このポータルにはカテゴリが見つかりません
+      no_articles_found: 処理する記事が見つかりません
+      invalid_status: ステータス値が無効です
+    send_instructions:
+      email_required: Eメールが必要です
+      invalid_email_format: Eメールの形式が無効です
+      custom_domain_not_configured: カスタムドメインが設定されていません
+      instructions_sent_successfully: 指示は正常に送信されました
+      subject: "%{custom_domain} のセットアップを完了してください"
+    ssl_status:
+      custom_domain_not_configured: カスタムドメインが設定されていません
+  super_admin:
+    account_suspension:
+      categories:
+        spam: スパム
+        non_payment: 未払い
+        other: その他
+      form:
+        category: サスペンションカテゴリー
+        category_prompt: カテゴリを選択する
+        reason: 停止理由
+        reason_hint: 理由を最大 256 文字で入力します。
+      history:
+        suspended_at: で一時停止
+        category: カテゴリ
+        reason: 理由
+        empty: 停止履歴は記録されていません。
+    captain_model_overrides:
+      form:
+        helper_text: その AI フィーチャーのデフォルトルーティングを使用するには、モデルを空白のままにしておきます。
+        customer_features: お客様向け機能
+        internal_features: 内部機能
+        use_default: デフォルトを使用:%{model} (%{model_id})
+        use_installation_model: インストールモデルを使用してください:%{model} (%{model_id})
+      show:
+        summary: モデルルーティングを表示
+        provider: プロバイダー
+        model: モデル
+      sources:
+        account_override: アカウントオーバーライド
+        installation_override: インストール設定
+        default: デフォルト
+      features:
+        conversation_completion: 非アクティブな会話完了エバリュエーター
+        editor: エディター
+        assistant: アシスタント
+        copilot: コパイロット
+        label_suggestion: ラベル提案
+        document_faq_generation: ドキュメント FAQ ジェネレーション
+        conversation_faq_generation: カンバセーション FAQ 世代
+        conversation_faq_matching: カンバセーション FAQ マッチング
+        help_center_article_generation: ヘルプセンターの記事生成
+        onboarding_content_generation: オンボーディングコンテンツ生成
+        help_center_query_translation: ヘルプセンターのクエリ翻訳
+        audio_transcription: 音声文字起こし
+        help_center_search: ヘルプセンター検索
+    push_diagnostics:
+      user_not_found: ユーザーが見つかりません。
+      no_subscriptions_to_test: テストするサブスクリプションを少なくとも 1 つ選択してください。
+      no_subscriptions_to_delete: 削除するサブスクリプションを少なくとも 1 つ選択してください。
+      subscriptions_deleted:
+        one: "%{count} サブスクリプションを削除しました。ユーザーのデバイスは、次回のアプリ起動時に再登録されます。"
+        other: "%{count} サブスクリプションを削除しました。ユーザーのデバイスは、次回のアプリ起動時に再登録されます。"
+    users:
+      resend_confirmation:
+        button: 確認メールを再送信
+        sent: 確認メールが送信されました。
+        already_confirmed: ユーザーは既に確認されています。

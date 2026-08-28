@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>はじめの設定 | トイバコ</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="stylesheet" href="/toybaco-brand.css">
+    <%= vite_client_tag %>
+    <%= vite_javascript_tag 'superadmin' %>
+  </head>
+  <body>
+    <div class="h-full w-full antialiased">
+      <main class="flex flex-col bg-woot-25 min-h-screen w-full py-20 sm:px-6 lg:px-8 dark:bg-slate-900">
+        <section class="max-w-5xl mx-auto">
+          <img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" class="tb-logo mx-auto block dark:hidden">
+          <img src="/brand-assets/toybaco-logo-c4-dark.png" alt="トイバコ" class="tb-logo mx-auto hidden dark:block">
+          <h2 class="mt-6 text-center text-3xl font-medium text-slate-900 dark:text-woot-50">
+            トイバコへようこそ
+          </h2>
+          <p class="tb-lead">問い合わせが、ひとつの箱に収まります。管理者アカウントが、この箱の鍵になります。</p>
+        </section>
+        <section class="bg-white shadow sm:mx-auto mt-11 sm:w-full sm:max-w-lg dark:bg-slate-800 p-11 sm:shadow-lg sm:rounded-lg mb-8 mt-15">
+          <div>
+            <%= form_tag('/installation/onboarding') do %>
+            <div class="space-y-5">
+              <% if flash[:error].present? %>
+                <div class="rounded-md bg-red-500 p-4 text-white text-sm mb-5"><%= flash[:error] %></div>
+              <% end %>
+
+              <div>
+                <label for="user_name" class="flex justify-between text-sm font-medium leading-6 text-slate-900 dark:text-white">
+                  お名前
+                </label>
+                <div class="mt-1">
+                  <%= text_field :user, :name, placeholder: "例：山田 太郎", required: true, class: "block w-full rounded-md border-0 px-3 py-3 appearance-none shadow-sm ring-1 ring-inset text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-woot-500 sm:text-sm sm:leading-6 outline-none dark:bg-slate-700 dark:ring-slate-600 dark:focus:ring-woot-500 ring-slate-200" %>
+                </div>
+              </div>
+
+              <div>
+                <label for="user_company" class="flex justify-between text-sm font-medium leading-6 text-slate-900 dark:text-white">
+                  会社名
+                </label>
+                <div class="mt-1">
+                  <%= text_field :user, :company, placeholder: "例：株式会社サンプル", required: true, class: "block w-full rounded-md border-0 px-3 py-3 appearance-none shadow-sm ring-1 ring-inset text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-woot-500 sm:text-sm sm:leading-6 outline-none dark:bg-slate-700 dark:ring-slate-600 dark:focus:ring-woot-500 ring-slate-200" %>
+                </div>
+              </div>
+
+              <div>
+                <label for="user_email" class="flex justify-between text-sm font-medium leading-6 text-slate-900 dark:text-white">
+                  メールアドレス
+                </label>
+                <div class="mt-1">
+                  <%= email_field :user, :email, placeholder: "例：you@example.com", required: true, class: "block w-full rounded-md border-0 px-3 py-3 appearance-none shadow-sm ring-1 ring-inset text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-woot-500 sm:text-sm sm:leading-6 outline-none dark:bg-slate-700 dark:ring-slate-600 dark:focus:ring-woot-500 ring-slate-200" %>
+                </div>
+              </div>
+
+              <div>
+                <label for="user_password" class="flex justify-between text-sm font-medium leading-6 text-slate-900 dark:text-white">
+                  パスワード
+                </label>
+                <div class="mt-1">
+                  <%= password_field :user, :password, placeholder: "6文字以上", required: true, minlength: 6, class: "block w-full rounded-md border-0 px-3 py-3 appearance-none shadow-sm ring-1 ring-inset text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-woot-500 sm:text-sm sm:leading-6 outline-none dark:bg-slate-700 dark:ring-slate-600 dark:focus:ring-woot-500 ring-slate-200" %>
+                </div>
+              </div>
+
+              <button type="submit" class="tb-submit flex items-center w-full justify-center rounded-md py-3 px-3 text-base font-medium text-white shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 cursor-pointer">
+                はじめる
+              </button>
+            </div>
+            <% end %>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

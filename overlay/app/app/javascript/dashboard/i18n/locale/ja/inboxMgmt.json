@@ -1,0 +1,1410 @@
+{
+  "INBOX_MGMT": {
+    "HEADER": "受信トレイ",
+    "DESCRIPTION": "チャンネルは、顧客があなたとやり取りするために選択する通信手段です。受信トレイは、特定のチャンネルのやり取りを管理する場所です。メール、ライブチャット、ソーシャルメディアなど、さまざまなソースからの通信を含むことができます。",
+    "LEARN_MORE": "受信トレイについて詳しく知る",
+    "COUNT": "{n} 受信トレイ | {n} 受信ボックス",
+    "SEARCH_PLACEHOLDER": "受信トレイを検索...",
+    "NO_RESULTS": "検索条件に一致する受信トレイは見つかりませんでした",
+    "RECONNECTION_REQUIRED": "受信トレイが切断されました。再認証するまで新しいメッセージを受信できません。",
+    "CLICK_TO_RECONNECT": "再接続するにはここをクリック。",
+    "WHATSAPP_REGISTRATION_INCOMPLETE": "WhatsApp ビジネス登録が完了していません。再接続する前に、Meta ビジネスマネージャーで表示名のステータスを確認してください。",
+    "COMPLETE_REGISTRATION": "登録を完了する",
+    "LIST": {
+      "404": "このアカウントに紐付けられている受信トレイはありません。"
+    },
+    "CREATE_FLOW": {
+      "CHANNEL": {
+        "TITLE": "チャンネルを選択",
+        "BODY": "トイバコと統合するプロバイダを選択してください。"
+      },
+      "INBOX": {
+        "TITLE": "受信トレイを作成",
+        "BODY": "アカウントを認証し、受信トレイを作成します。"
+      },
+      "AGENT": {
+        "TITLE": "担当者を追加",
+        "BODY": "作成した受信トレイに担当者を追加します。"
+      },
+      "FINISH": {
+        "TITLE": "出来上がり！",
+        "BODY": "すべての準備が完了しました！"
+      }
+    },
+    "ADD": {
+      "CHANNEL_NAME": {
+        "LABEL": "受信トレイ名",
+        "PLACEHOLDER": "受信トレイ名を入力してください (例: Acme Inc)",
+        "ERROR": "有効な受信トレイ名を入力してください"
+      },
+      "WEBSITE_NAME": {
+        "LABEL": "ウェブサイト名",
+        "PLACEHOLDER": "ウェブサイト名を入力してください(例：Acme Inc)"
+      },
+      "FB": {
+        "HELP": "PS: サインインすることで、私たちはあなたのページのメッセージにのみアクセスできます。あなたのプライベートメッセージはトイバコによってアクセスすることはできません。",
+        "CHOOSE_PAGE": "ページを選択",
+        "CHOOSE_PLACEHOLDER": "リストからページを選択",
+        "INBOX_NAME": "受信トレイ名",
+        "ADD_NAME": "受信トレイに名前をつける",
+        "PICK_NAME": "受信トレイの名前を選択",
+        "PICK_A_VALUE": "値を選択",
+        "CREATE_INBOX": "受信トレイを作成",
+        "RESTRICTED_WARNING": "Facebook 受信ボックスの作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
+        "STATUS_LINK": "ステータス更新を表示"
+      },
+      "INSTAGRAM": {
+        "CONTINUE_WITH_INSTAGRAM": "Instagram を続けてください",
+        "CONNECT_YOUR_INSTAGRAM_PROFILE": "Instagram プロファイルを接続してください",
+        "HELP": "Instagramプロフィールをチャンネルとして追加するには、「Instagramで続行」をクリックしてInstagramプロフィールを認証する必要があります ",
+        "ERROR_MESSAGE": "Instagram への接続中にエラーが発生しました。もう一度試してください",
+        "ERROR_AUTH": "Instagram への接続中にエラーが発生しました。もう一度試してください",
+        "NEW_INBOX_SUGGESTION": "この Instagram アカウントは、以前は別の受信トレイにリンクされていましたが、ここに移行されました。新しいメッセージはすべてここに表示されます。古い受信トレイでは、このアカウントのメッセージを送受信できなくなります。",
+        "DUPLICATE_INBOX_BANNER": "この Instagram アカウントは、新しい Instagram チャンネル受信トレイに移行されました。この受信トレイから Instagram メッセージを送受信することはできなくなります。",
+        "RESTRICTED_WARNING": "Instagram 受信ボックスの作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
+        "SETTINGS_RESTRICTED_WARNING": "Instagram メッセージは現在 Meta 側の API レベルの問題の影響を受けていますが、トイバコ の問題ではありません。メッセージやアクションによっては、遅延が発生したり、利用できなくなったりすることがあります。できるだけ早く問題を解決するために、Meta と緊密に連携しています。",
+        "STATUS_LINK": "ステータス更新を表示"
+      },
+      "TIKTOK": {
+        "CONTINUE_WITH_TIKTOK": "TikTok を続けてください",
+        "CONNECT_YOUR_TIKTOK_PROFILE": "TikTok プロファイルを接続してください",
+        "HELP": "TikTokプロフィールをチャンネルとして追加するには、「TikTokで続行」をクリックしてTikTokプロフィールを認証する必要があります ",
+        "ERROR_MESSAGE": "TikTok への接続中にエラーが発生しました。もう一度試してください",
+        "ERROR_AUTH": "TikTok への接続中にエラーが発生しました。もう一度試してください",
+        "NORTH_AMERICA_WARNING": "TikTok チームからの更新を待つ間、北米アカウントの TikTok 接続は一時的にご利用いただけません。"
+      },
+      "TWITTER": {
+        "HELP": "Twitterプロフィールをチャンネルとして追加するには、「Twitterでサインイン」をクリックしてTwitterプロフィールを認証する必要があります。",
+        "ERROR_MESSAGE": "Twitterへの接続中にエラーが発生しました。もう一度お試しください。",
+        "TWEETS": {
+          "ENABLE": "言及されたツイートから会話を作成する"
+        }
+      },
+      "WEBSITE_CHANNEL": {
+        "TITLE": "ウェブサイトのチャンネル",
+        "DESC": "ウェブサイトのためのチャネルを作成し、ウェブサイトウィジェットを介してあなたの顧客をサポートを開始してください。",
+        "LOADING_MESSAGE": "ウェブサイトサポートチャンネルの作成",
+        "CHANNEL_AVATAR": {
+          "LABEL": "チャネルアバター"
+        },
+        "CHANNEL_WEBHOOK_URL": {
+          "LABEL": "ウェブフック URL",
+          "PLACEHOLDER": "Webhook URLを入力してください",
+          "ERROR": "有効なURLを入力してください"
+        },
+        "CHANNEL_WEBHOOK_SECRET": {
+          "LABEL": "ウェブフックシークレット",
+          "COPY": "シークレットをクリップボードにコピー",
+          "COPY_SUCCESS": "シークレットをクリップボードにコピーしました",
+          "TOGGLE": "シークレットの可視性を切り替える",
+          "RESET_SUCCESS": "Webhook シークレットが正常に再生成されました",
+          "RESET_ERROR": "Webhook シークレットを再生成できません。もう一度試してください。"
+        },
+        "CHANNEL_DOMAIN": {
+          "LABEL": "ウェブサイトのドメイン",
+          "PLACEHOLDER": "ウェブサイトのドメインを入力してください(例：acme.com)"
+        },
+        "CHANNEL_WELCOME_TITLE": {
+          "LABEL": "冒頭の見出し",
+          "PLACEHOLDER": "こんにちは！"
+        },
+        "CHANNEL_WELCOME_TAGLINE": {
+          "LABEL": "冒頭のタグライン",
+          "PLACEHOLDER": "簡単に連絡が取れる状態です。なんでも聞いてください。フィードバックの共有も歓迎です。"
+        },
+        "CHANNEL_GREETING_MESSAGE": {
+          "LABEL": "チャンネルグリーティングメッセージ",
+          "PLACEHOLDER": "Acme Incは通常数時間で返信します。"
+        },
+        "CHANNEL_GREETING_TOGGLE": {
+          "LABEL": "チャンネルグリーティングを有効にする",
+          "HELP_TEXT": "新しい会話が作成されたときに自動的に挨拶メッセージを送信します。",
+          "ENABLED": "有効です",
+          "DISABLED": "無効です"
+        },
+        "REPLY_TIME": {
+          "TITLE": "返信時間を設定",
+          "IN_A_FEW_MINUTES": "数分以内",
+          "IN_A_FEW_HOURS": "数時間以内",
+          "IN_A_DAY": "1日以内",
+          "HELP_TEXT": "この返信時間はライブチャットウィジェットに表示されます"
+        },
+        "WIDGET_COLOR": {
+          "LABEL": "ウィジェットの色",
+          "PLACEHOLDER": "ウィジェットで使用されている色を更新"
+        },
+        "SUBMIT_BUTTON": "受信トレイを作成",
+        "API": {
+          "ERROR_MESSAGE": "ウェブサイトチャンネルを作成できませんでした。もう一度お試しください"
+        }
+      },
+      "TWILIO": {
+        "TITLE": "Twilio SMS/WhatsApp チャンネル",
+        "DESC": "Twilioを統合し、SMSまたはWhatsAppを通じて顧客をサポートし始めましょう。",
+        "ACCOUNT_SID": {
+          "LABEL": "アカウント SID",
+          "PLACEHOLDER": "Twilio アカウント SIDを入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "API_KEY": {
+          "USE_API_KEY": "APIキー認証を使用",
+          "LABEL": "APIキー SID",
+          "PLACEHOLDER": "APIキー SIDを入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "API_KEY_SECRET": {
+          "LABEL": "APIキーシークレット",
+          "PLACEHOLDER": "APIキーシークレットを入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "MESSAGING_SERVICE_SID": {
+          "LABEL": "メッセージングサービス SID",
+          "PLACEHOLDER": "Twilio メッセージングサービス SIDを入力してください",
+          "ERROR": "このフィールドは必須項目です",
+          "USE_MESSAGING_SERVICE": "Twilio メッセージングサービスを使用"
+        },
+        "CHANNEL_TYPE": {
+          "LABEL": "チャンネルタイプ",
+          "ERROR": "チャンネルタイプを選択してください"
+        },
+        "AUTH_TOKEN": {
+          "LABEL": "認証トークン",
+          "PLACEHOLDER": "Twilio 認証トークンを入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "CHANNEL_NAME": {
+          "LABEL": "受信トレイ名",
+          "PLACEHOLDER": "受信トレイ名を入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "PHONE_NUMBER": {
+          "LABEL": "電話番号",
+          "PLACEHOLDER": "送信先の電話番号を入力してください。",
+          "ERROR": "有効な電話番号を提供してください。`+`記号で始まり、スペースを含まない必要があります。"
+        },
+        "API_CALLBACK": {
+          "TITLE": "コールバック URL",
+          "SUBTITLE": "Twilio のメッセージコールバックURLをここで指定する必要があります。"
+        },
+        "SUBMIT_BUTTON": "Twilio チャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "Twilio の認証ができませんでした。もう一度やり直してください。"
+        }
+      },
+      "SMS": {
+        "TITLE": "SMSチャンネル",
+        "DESC": "SMSを通じて顧客をサポートし始めましょう。",
+        "PROVIDERS": {
+          "LABEL": "APIプロバイダー",
+          "TWILIO": "Twilio",
+          "BANDWIDTH": "帯域幅"
+        },
+        "API": {
+          "ERROR_MESSAGE": "SMSチャンネルを保存できませんでした"
+        },
+        "BANDWIDTH": {
+          "ACCOUNT_ID": {
+            "LABEL": "アカウントID",
+            "PLACEHOLDER": "BandwidthアカウントIDを入力してください",
+            "ERROR": "このフィールドは必須項目です"
+          },
+          "API_KEY": {
+            "LABEL": "APIキー",
+            "PLACEHOLDER": "Bandwidth APIキーを入力してください",
+            "ERROR": "このフィールドは必須項目です"
+          },
+          "API_SECRET": {
+            "LABEL": "APIシークレット",
+            "PLACEHOLDER": "Bandwidth APIシークレットを入力してください",
+            "ERROR": "このフィールドは必須項目です"
+          },
+          "APPLICATION_ID": {
+            "LABEL": "アプリケーションID",
+            "PLACEHOLDER": "BandwidthアプリケーションIDを入力してください",
+            "ERROR": "このフィールドは必須項目です"
+          },
+          "INBOX_NAME": {
+            "LABEL": "受信トレイ名",
+            "PLACEHOLDER": "受信トレイ名を入力してください",
+            "ERROR": "このフィールドは必須項目です"
+          },
+          "PHONE_NUMBER": {
+            "LABEL": "電話番号",
+            "PLACEHOLDER": "送信先の電話番号を入力してください。",
+            "ERROR": "有効な電話番号を提供してください。`+`記号で始まり、スペースを含まない必要があります。"
+          },
+          "SUBMIT_BUTTON": "Bandwidthチャンネルを作成",
+          "API": {
+            "ERROR_MESSAGE": "Bandwidthの認証に失敗しました。もう一度お試しください"
+          },
+          "API_CALLBACK": {
+            "TITLE": "コールバック URL",
+            "SUBTITLE": "BandwidthでメッセージコールバックURLをここに記載されたURLで設定する必要があります。"
+          }
+        }
+      },
+      "WHATSAPP": {
+        "TITLE": "WhatsAppチャンネル",
+        "DESC": "WhatsAppを通じて顧客をサポートし始めましょう。",
+        "PROVIDERS": {
+          "LABEL": "APIプロバイダー",
+          "WHATSAPP_EMBEDDED": "WhatsApp ビジネス",
+          "TWILIO": "Twilio",
+          "WHATSAPP_CLOUD": "WhatsApp クラウド",
+          "WHATSAPP_CLOUD_DESC": "Meta によるクイックセットアップ",
+          "WHATSAPP_CLOUD_MANUAL_SETUP_DESC": "クラウド API 認証情報による手動セットアップ",
+          "TWILIO_DESC": "Twilio 認証情報を使用して接続する",
+          "360_DIALOG": "360 ダイアログ"
+        },
+        "SELECT_PROVIDER": {
+          "TITLE": "お使いの API プロバイダーを選択してください",
+          "DESCRIPTION": "お使いの WhatsApp プロバイダーを選択してください。セットアップ不要の Meta 経由で直接接続することも、アカウントの認証情報を使用して Twilio 経由で接続することもできます。",
+          "RESTRICTION_DESCRIPTION": "お使いの WhatsApp プロバイダーを選択してください。クラウド API 認証情報を使用して WhatsApp クラウドに手動で接続することも、アカウントの認証情報を使用して Twilio 経由で接続することもできます。"
+        },
+        "INBOX_NAME": {
+          "LABEL": "受信トレイ名",
+          "PLACEHOLDER": "受信トレイ名を入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "PHONE_NUMBER": {
+          "LABEL": "電話番号",
+          "PLACEHOLDER": "送信先の電話番号を入力してください。",
+          "ERROR": "有効な電話番号を提供してください。`+`記号で始まり、スペースを含まない必要があります。"
+        },
+        "PHONE_NUMBER_ID": {
+          "LABEL": "電話番号ID",
+          "PLACEHOLDER": "Facebook開発者ダッシュボードから取得した電話番号IDを入力してください。",
+          "ERROR": "有効な値を入力してください。"
+        },
+        "BUSINESS_ACCOUNT_ID": {
+          "LABEL": "ビジネスアカウントID",
+          "PLACEHOLDER": "Facebook開発者ダッシュボードから取得したビジネスアカウントIDを入力してください。",
+          "ERROR": "有効な値を入力してください。"
+        },
+        "WEBHOOK_VERIFY_TOKEN": {
+          "LABEL": "Webhook検証トークン",
+          "PLACEHOLDER": "FacebookのWebhookに設定する検証トークンを入力してください。",
+          "ERROR": "有効な値を入力してください。"
+        },
+        "API_KEY": {
+          "LABEL": "APIキー",
+          "SUBTITLE": "WhatsApp APIキーを設定してください。",
+          "PLACEHOLDER": "APIキー",
+          "ERROR": "有効な値を入力してください。"
+        },
+        "API_CALLBACK": {
+          "TITLE": "コールバック URL",
+          "SUBTITLE": "Facebook開発者ポータルでWebhook URLと検証トークンを以下の値で設定する必要があります。",
+          "WEBHOOK_URL": "ウェブフック URL",
+          "WEBHOOK_VERIFICATION_TOKEN": "Webhook検証トークン"
+        },
+        "SUBMIT_BUTTON": "WhatsAppチャンネルを作成",
+        "EMBEDDED_SIGNUP": {
+          "TITLE": "Meta によるクイックセットアップ",
+          "DESC": "Metaのクイックセットアップを使用して、WhatsAppビジネスアプリから新しい番号または既存の番号を接続します。Meta にリダイレクトされ、WhatsApp ビジネスアカウントにログインします。管理者権限があると、セットアップがスムーズかつ簡単になります。",
+          "BENEFITS": {
+            "TITLE": "埋め込み登録のメリット:",
+            "EASY_SETUP": "手動設定は不要",
+            "SECURE_AUTH": "セキュアな OAuth ベースの認証",
+            "AUTO_CONFIG": "ウェブフックと電話番号の自動設定"
+          },
+          "LEARN_MORE": {
+            "TEXT": "クイックセットアップ、価格、制限について詳しくは、{link} をご覧ください。",
+            "LINK_TEXT": "このリンク"
+          },
+          "SUBMIT_BUTTON": "WhatsApp ビジネスとつながる",
+          "AUTH_PROCESSING": "Meta による認証",
+          "WAITING_FOR_BUSINESS_INFO": "Metaウィンドウでビジネスセットアップを完了してください...",
+          "PROCESSING": "WhatsApp ビジネスアカウントのセットアップ",
+          "ENABLING_CALLING": "お使いの番号でWhatsApp通話を有効にしています...",
+          "LOADING_SDK": "Facebook SDK を読み込み中...",
+          "CANCELLED": "WhatsApp サインアップはキャンセルされました",
+          "SUCCESS_TITLE": "WhatsApp ビジネスアカウントが接続されました！",
+          "WAITING_FOR_AUTH": "認証を待っています...",
+          "INVALID_BUSINESS_DATA": "Facebook から受け取ったビジネスデータは無効です。もう一度試してください。",
+          "SIGNUP_ERROR": "サインアップエラーが発生しました",
+          "AUTH_NOT_COMPLETED": "認証は完了していません。プロセスを再開してください。",
+          "SUCCESS_FALLBACK": "WhatsApp ビジネスアカウントは正常に設定されました",
+          "MANUAL_FALLBACK": "電話番号が既にWhatsAppビジネスプラットフォーム（API）に接続されている場合、または技術プロバイダーが独自の番号をオンボーディングしている場合は、{link}フローを使用してください",
+          "MANUAL_LINK_TEXT": "手動設定フロー",
+          "ACCESS_REQUEST": {
+            "TITLE": "Meta によるクイックセットアップ",
+            "DESCRIPTION": "手動設定なしで、WhatsApp ビジネスアプリから新しい番号または既存の番号を接続します。このオプションをリクエストするには、お客様の事業内容、WhatsApp の使用方法、アクセスが必要な トイバコ アカウントを、弊社チームにお知らせください。",
+            "FOOTNOTE": "リクエストを確認して、このオプションを有効にできるかどうかをお知らせします。以下の手動設定を続けることもできます。",
+            "BUTTON": "アクセスをリクエストする"
+          },
+          "RESTRICTED_WARNING": "WhatsAppの埋め込みサインアップは、Meta側のAPIレベルの問題により一時的に利用できません。トイバコ側の問題ではありません。対象となるCloud API番号は手動で設定できます。できるだけ早い解決に向けてMetaと連携しています。",
+          "STATUS_LINK": "ステータス更新を表示",
+          "CALLING_ENABLE_FAILED": "WhatsApp 受信トレイの準備はできていますが、音声通話を有効にできませんでした。この番号は WhatsApp ビジネス通話 API にまだ登録されていません。Meta またはお使いの WhatsApp ビジネスソリューションプロバイダーに連絡してオンボーディングしてもらい、受信トレイの [通話] 設定から通話をオンにします。"
+        },
+        "API": {
+          "ERROR_MESSAGE": "WhatsAppチャンネルを保存できませんでした",
+          "MANUAL_RESTRICTION_WARNING": "WhatsAppの埋め込みサインアップは、Meta側のAPIレベルの問題により一時的に利用できません。トイバコ側の問題ではありません。手動設定は、すでにWhatsApp Cloud APIへ接続済みの番号でのみ利用できます。WhatsApp Businessアプリとの併用番号は、現在この手順ではサポートされていません。できるだけ早い解決に向けてMetaと連携しています。",
+          "STATUS_LINK": "ステータス更新を表示"
+        }
+      },
+      "VOICE": {
+        "TITLE": "ボイスチャネル",
+        "DESC": "Twilio Voiceを統合して、電話による顧客サポートを開始してください。",
+        "PHONE_NUMBER": {
+          "LABEL": "電話番号",
+          "PLACEHOLDER": "電話番号を入力してください (例:+1234567890)",
+          "ERROR": "E.164 形式の有効な電話番号を入力してください (例:+1234567890)"
+        },
+        "TWILIO": {
+          "ACCOUNT_SID": {
+            "LABEL": "アカウント SID",
+            "PLACEHOLDER": "Twilio アカウントを入力してください SID",
+            "REQUIRED": "アカウント SID が必要です"
+          },
+          "AUTH_TOKEN": {
+            "LABEL": "認証トークン",
+            "PLACEHOLDER": "Twilio 認証トークンを入力してください",
+            "REQUIRED": "認証トークンが必要です"
+          },
+          "API_KEY_SID": {
+            "LABEL": "APIキー SID",
+            "PLACEHOLDER": "Twilio API キー SID を入力してください",
+            "REQUIRED": "API キー SID が必要です"
+          },
+          "API_KEY_SECRET": {
+            "LABEL": "APIキーシークレット",
+            "PLACEHOLDER": "Twilio API キーシークレットを入力してください",
+            "REQUIRED": "API キーシークレットが必要です"
+          }
+        },
+        "CONFIGURATION": {
+          "TWILIO_VOICE_URL_TITLE": "Twilio ボイス URL",
+          "TWILIO_VOICE_URL_SUBTITLE": "この URL を Twilio 電話番号と TwiML アプリで Voice URL として設定してください。",
+          "TWILIO_STATUS_URL_TITLE": "Twilio ステータスコールバック URL",
+          "TWILIO_STATUS_URL_SUBTITLE": "この URL を Twilio 電話番号のステータスコールバック URL として設定します。"
+        },
+        "SUBMIT_BUTTON": "ボイスチャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "音声チャンネルを作成できませんでした"
+        }
+      },
+      "API_CHANNEL": {
+        "TITLE": "APIチャンネル",
+        "DESC": "APIチャンネルと連携し、顧客のサポートを開始します。",
+        "CHANNEL_NAME": {
+          "LABEL": "チャンネル名",
+          "PLACEHOLDER": "チャンネル名を入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "WEBHOOK_URL": {
+          "LABEL": "ウェブフック URL",
+          "SUBTITLE": "イベントのコールバックを受け取りたいURLを設定してください。",
+          "PLACEHOLDER": "ウェブフック URL"
+        },
+        "SUBMIT_BUTTON": "APIチャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "APIチャンネルを保存できませんでした"
+        }
+      },
+      "EMAIL_CHANNEL": {
+        "TITLE": "Eメールチャンネル",
+        "DESC": "Eメール受信トレイを統合します。",
+        "CHANNEL_NAME": {
+          "LABEL": "チャンネル名",
+          "PLACEHOLDER": "チャンネル名を入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "EMAIL": {
+          "LABEL": "Eメール",
+          "SUBTITLE": "顧客がサポートチケットを送信するメールアドレス",
+          "PLACEHOLDER": "Eメール"
+        },
+        "SUBMIT_BUTTON": "Eメールチャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "Eメールチャンネルを保存できませんでした"
+        },
+        "FINISH_MESSAGE": "以下のメールアドレスにメールを転送します。",
+        "FINISH_MESSAGE_NO_FORWARDING": "Eメールの受信トレイが正常に作成されました！メールを送受信するには、SMTP と IMAP の認証情報を設定する必要があります。これらの設定がないと、メールは処理されません。",
+        "FORWARDING_ADDRESS_LABEL": "このアドレスにメールを転送:",
+        "CONFIGURE_SMTP_IMAP_LINK": "ここをクリック",
+        "CONFIGURE_SMTP_IMAP_TEXT": " IMAP と SMTP の設定を構成するには"
+      },
+      "LINE_CHANNEL": {
+        "TITLE": "LINEチャンネル",
+        "DESC": "LINEチャンネルと統合し、顧客のサポートを開始します。",
+        "CHANNEL_NAME": {
+          "LABEL": "チャンネル名",
+          "PLACEHOLDER": "チャンネル名を入力してください",
+          "ERROR": "このフィールドは必須項目です"
+        },
+        "LINE_CHANNEL_ID": {
+          "LABEL": "LINEチャンネルID",
+          "PLACEHOLDER": "LINEチャンネルID"
+        },
+        "LINE_CHANNEL_SECRET": {
+          "LABEL": "LINEチャンネルシークレット",
+          "PLACEHOLDER": "LINEチャンネルシークレット"
+        },
+        "LINE_CHANNEL_TOKEN": {
+          "LABEL": "LINEチャンネルトークン",
+          "PLACEHOLDER": "LINEチャンネルトークン"
+        },
+        "SUBMIT_BUTTON": "LINEチャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "LINEチャンネルを保存できませんでした"
+        },
+        "API_CALLBACK": {
+          "TITLE": "コールバックURL",
+          "SUBTITLE": "LINEアプリケーションでWebhook URLをここに記載されたURLで設定する必要があります。"
+        }
+      },
+      "TELEGRAM_CHANNEL": {
+        "TITLE": "Telegramチャンネル",
+        "DESC": "Telegramチャンネルと統合し、顧客のサポートを開始します。",
+        "BOT_TOKEN": {
+          "LABEL": "ボットトークン",
+          "SUBTITLE": "Telegram BotFatherから取得したボットトークンを設定してください。",
+          "PLACEHOLDER": "ボットトークン"
+        },
+        "SUBMIT_BUTTON": "Telegramチャンネルを作成",
+        "API": {
+          "ERROR_MESSAGE": "Telegramチャンネルを保存できませんでした"
+        }
+      },
+      "AUTH": {
+        "TITLE": "チャンネルを選択",
+        "DESC": "トイバコは、ライブチャットウィジェット、Facebook Messenger、Twitterプロフィール、WhatsApp、Eメールなどのチャンネルをサポートしています。カスタムチャンネルを作成したい場合は、APIチャンネルを使用して作成できます。開始するには、以下のチャンネルのいずれかを選択してください。",
+        "TITLE_NEXT": "セットアップを完了する",
+        "TITLE_FINISH": "出来上がり！",
+        "CHANNEL": {
+          "WEBSITE": {
+            "TITLE": "ウェブサイト",
+            "DESCRIPTION": "ライブチャットウィジェットを作成する"
+          },
+          "FACEBOOK": {
+            "TITLE": "Facebook",
+            "DESCRIPTION": "お使いの Facebook ページを接続してください"
+          },
+          "WHATSAPP": {
+            "TITLE": "WhatsApp",
+            "DESCRIPTION": "WhatsApp でお客様をサポートしましょう"
+          },
+          "WHATSAPP_CALL": {
+            "TITLE": "WhatsApp コール",
+            "DESCRIPTION": "WhatsApp番号で音声通話を受ける"
+          },
+          "EMAIL": {
+            "TITLE": "Eメール",
+            "DESCRIPTION": "Gmail、Outlook、その他のプロバイダーとつながる"
+          },
+          "SMS": {
+            "TITLE": "SMS",
+            "DESCRIPTION": "SMSチャネルをTwilioまたは帯域幅と統合します"
+          },
+          "API": {
+            "TITLE": "API",
+            "DESCRIPTION": "APIを使用してカスタムチャンネルを作成してください"
+          },
+          "TELEGRAM": {
+            "TITLE": "Telegram",
+            "DESCRIPTION": "ボットトークンを使用して Telegram チャネルを設定します"
+          },
+          "LINE": {
+            "TITLE": "Line",
+            "DESCRIPTION": "お使いの Line チャンネルを統合してください"
+          },
+          "INSTAGRAM": {
+            "TITLE": "Instagram",
+            "DESCRIPTION": "instagram アカウントを接続してください"
+          },
+          "TIKTOK": {
+            "TITLE": "TikTok",
+            "DESCRIPTION": "TikTok アカウントを接続してください"
+          },
+          "VOICE": {
+            "TITLE": "ボイス",
+            "DESCRIPTION": "Twilio ボイスと統合してください"
+          }
+        }
+      },
+      "AGENTS": {
+        "TITLE": "担当者",
+        "DESC": "ここでは、新しく作成した受信トレイを管理する担当者を追加できます。選択された担当者のみが受信トレイにアクセスできます。この受信トレイに割り当てられていない担当者は、ログイン時にこの受信トレイ内のメッセージを表示または応答することができません。<br><b>PS:</b> 管理者として、すべての受信トレイにアクセスする必要がある場合、あなたが作成したすべての受信トレイに担当者として自分自身を追加する必要があります。",
+        "VALIDATION_ERROR": "新しい受信トレイに少なくとも1人の担当者を追加してください",
+        "PICK_AGENTS": "受信トレイの担当者を選択"
+      },
+      "DETAILS": {
+        "TITLE": "受信トレイの詳細",
+        "DESC": "下のドロップダウンから、トイバコに接続するFacebookページを選択してください。わかりやすくするために受信トレイの名前をカスタマイズすることもできます。"
+      },
+      "FINISH": {
+        "TITLE": "ばっちりです！",
+        "DESC": "Facebookページとトイバコとの統合が正常に完了しました。次回から、あなたのページに送信された顧客からのメッセージや会話は、自動的に受信トレイに表示されます。<br>また、ウェブサイトに簡単に追加できるウィジェットスクリプトを提供しています。一度これをあなたのウェブサイトに設定すれば、顧客は他のツールの助けを借りずにWebサイトから直接メッセージを送信でき、トイバコ上に会話が表示されます。<br><br>素敵でしょ？まあ、私たちはきっとそうしますけどね:)"
+      },
+      "EMAIL_PROVIDER": {
+        "TITLE": "メールプロバイダーを選択",
+        "DESCRIPTION": "以下のリストからメールプロバイダーを選択してください。リストにメールプロバイダーが表示されない場合は、他のプロバイダーオプションを選択し、IMAPおよびSMTPの資格情報を提供してください。"
+      },
+      "MICROSOFT": {
+        "TITLE": "Microsoftメール",
+        "DESCRIPTION": "開始するには、「Microsoftでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信トレイ作成ステップに戻ります。",
+        "EMAIL_PLACEHOLDER": "メールアドレスを入力してください",
+        "SIGN_IN": "Microsoftでサインイン",
+        "ERROR_MESSAGE": "Microsoftへの接続中にエラーが発生しました。もう一度お試しください"
+      },
+      "GOOGLE": {
+        "TITLE": "Googleメール",
+        "DESCRIPTION": "開始するには、「Googleでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信トレイ作成ステップに戻ります。",
+        "SIGN_IN": "Googleでサインイン",
+        "EMAIL_PLACEHOLDER": "メールアドレスを入力してください",
+        "ERROR_MESSAGE": "Googleへの接続中にエラーが発生しました。もう一度お試しください"
+      }
+    },
+    "DETAILS": {
+      "LOADING_FB": "Facebookを認証中...",
+      "ERROR_FB_LOADING": "Facebook SDKの読み込みエラー。広告ブロッカーを無効にして、別のブラウザから再試行してください。",
+      "ERROR_FB_AUTH": "問題が発生しました。ページを更新してください...",
+      "ERROR_FB_UNAUTHORIZED": "この操作を実行する権限がありません。",
+      "ERROR_FB_UNAUTHORIZED_HELP": "Facebookページへの完全なアクセス権があることを確認してください。Facebookの役割については<a href=\"https://www.facebook.com/help/187316341316631\">こちら</a>を参照してください。",
+      "ERROR_CHANNEL_CREATION": "受信トレイを作成できませんでした。もう一度試してください。",
+      "CREATING_CHANNEL": "受信トレイを作成しています...",
+      "TITLE": "受信トレイの詳細の設定",
+      "DESC": ""
+    },
+    "AGENTS": {
+      "BUTTON_TEXT": "担当者を追加",
+      "ADD_AGENTS": "受信トレイに担当者を追加しています..."
+    },
+    "FINISH": {
+      "TITLE": "受信トレイの準備ができました！",
+      "MESSAGE": "新しいチャンネルを通じて顧客と交流できます。サポートを楽しんでください",
+      "BUTTON_TEXT": "受信トレイに移動",
+      "MORE_SETTINGS": "その他の設定",
+      "WEBSITE_SUCCESS": "ウェブサイトチャンネルの作成が正常に完了しました。以下のコードをコピーしてウェブサイトに貼り付けてください。次回、お客様がライブチャットを使用すると、会話は自動的に受信トレイに表示されます。",
+      "WHATSAPP_QR_INSTRUCTION": "上記のQRコードをスキャンして、WhatsApp受信ボックスをすばやくテストしてください",
+      "MESSENGER_QR_INSTRUCTION": "上記のQRコードをスキャンして、Facebookメッセンジャーの受信トレイをすばやくテストしてください",
+      "TELEGRAM_QR_INSTRUCTION": "上記のQRコードをスキャンして、Telegram受信ボックスをすばやくテストしてください"
+    },
+    "REAUTH": "再認証",
+    "VIEW": "表示",
+    "EDIT": {
+      "API": {
+        "SUCCESS_MESSAGE": "受信トレイの設定が正常に更新されました",
+        "AUTO_ASSIGNMENT_SUCCESS_MESSAGE": "自動割り当ての更新に成功しました",
+        "ERROR_MESSAGE": "受信トレイの設定を更新できませんでした。後でもう一度お試しください。"
+      },
+      "EMAIL_COLLECT_BOX": {
+        "ENABLED": "有効です",
+        "DISABLED": "無効です"
+      },
+      "ENABLE_CSAT": {
+        "ENABLED": "有効です",
+        "DISABLED": "無効です"
+      },
+      "SENDER_NAME_SECTION": {
+        "TITLE": "送信者名",
+        "SUB_TEXT": "担当者からのメールを受け取ったときに顧客に表示される名前を選択してください。",
+        "FOR_EG": "例:",
+        "FRIENDLY": {
+          "TITLE": "フレンドリー",
+          "FROM": "から",
+          "SUBTITLE": "返信を送信した担当者の名前を送信者名に追加して、フレンドリーにします。"
+        },
+        "PROFESSIONAL": {
+          "TITLE": "プロフェッショナル",
+          "SUBTITLE": "メールヘッダーの送信者名に設定されたビジネス名のみを使用します。"
+        },
+        "BUSINESS_NAME": {
+          "BUTTON_TEXT": "ビジネス名を設定する",
+          "PLACEHOLDER": "ビジネス名を入力してください",
+          "SAVE_BUTTON_TEXT": "保存"
+        }
+      },
+      "ALLOW_MESSAGES_AFTER_RESOLVED": {
+        "ENABLED": "有効です",
+        "DISABLED": "無効です"
+      },
+      "ENABLE_CONTINUITY_VIA_EMAIL": {
+        "ENABLED": "有効です",
+        "DISABLED": "無効です"
+      },
+      "LOCK_TO_SINGLE_CONVERSATION": {
+        "ENABLED": "同じ会話を再開する",
+        "DISABLED": "新しい会話を作成",
+        "ENABLED_DESCRIPTION": "連絡先が再度メッセージを送ると、前の会話が再開されます。",
+        "DISABLED_DESCRIPTION": "前の会話が解決されるたびに、新しい会話が作成されます。"
+      },
+      "ENABLE_HMAC": {
+        "LABEL": "有効にする"
+      }
+    },
+    "DELETE": {
+      "BUTTON_TEXT": "削除",
+      "AVATAR_DELETE_BUTTON_TEXT": "アバターを削除",
+      "CONFIRM": {
+        "TITLE": "削除の確認",
+        "MESSAGE": "削除してもよろしいですか？",
+        "PLACE_HOLDER": "{inboxName}と入力して確認してください",
+        "YES": "削除する",
+        "NO": "いいえ、保存しておきます"
+      },
+      "API": {
+        "SUCCESS_MESSAGE": "受信トレイの削除に成功しました",
+        "ERROR_MESSAGE": "受信トレイを削除できませんでした。後でもう一度お試しください。",
+        "AVATAR_SUCCESS_MESSAGE": "受信トレイのアバターを正常に削除しました",
+        "AVATAR_ERROR_MESSAGE": "受信トレイのアバターを削除できませんでした。後でもう一度お試しください。"
+      }
+    },
+    "TABS": {
+      "SETTINGS": "設定",
+      "COLLABORATORS": "共同編集者",
+      "CONFIGURATION": "設定",
+      "CAMPAIGN": "キャンペーン",
+      "PRE_CHAT_FORM": "プレチャットフォーム",
+      "BUSINESS_HOURS": "営業時間",
+      "WIDGET_BUILDER": "ウィジェットビルダー",
+      "BOT_CONFIGURATION": "ボット設定",
+      "ACCOUNT_HEALTH": "アカウントヘルス",
+      "CSAT": "顧客満足度",
+      "VOICE": "ボイス",
+      "CALLS": "通話"
+    },
+    "VOICE_CONFIGURATION": {
+      "ENABLE_VOICE": {
+        "LABEL": "音声通話を有効にする",
+        "DESCRIPTION": "この受信トレイで音声通話を有効にします。エージェントは電話をかけたり受けたりできるようになります。"
+      },
+      "CREDENTIALS": {
+        "DESCRIPTION": "音声通話には Twilio API キーの認証情報が必要です。これらはエージェントの音声接続用のトークンを生成するために使用されます。"
+      },
+      "INBOUND": {
+        "LABEL": "着信を許可",
+        "DESCRIPTION": "お客様にこの番号に電話をかけてもらいましょう。オフにすると、着信コールは自動的に拒否され、エージェントには通知されず、会話も作成されません。エージェントは引き続き電話をかけることができます。"
+      }
+    },
+    "WHATSAPP_CALLING": {
+      "ENABLE": {
+        "LABEL": "WhatsApp コールを有効にする",
+        "DESCRIPTION": "エージェントがこの受信トレイでWhatsAppクラウド通話を受信して発信できるようにします。お客様はこのビジネス番号に WhatsApp から直接電話をかけることができます。"
+      },
+      "ENABLE_FAILED": "この番号では音声通話をオンにできませんでした。WhatsApp ビジネスコーリング API にはまだ登録されていません。Meta またはお使いの WhatsApp ビジネスソリューションプロバイダーに連絡してオンボーディングしてもらい、もう一度試してください。",
+      "PHONE_NUMBER": {
+        "LABEL": "勤務先電話番号",
+        "HELP_TEXT": "お客様が電話をかけてくるWhatsApp番号。"
+      },
+      "HOW_IT_WORKS": {
+        "LABEL": "仕組み",
+        "DESCRIPTION": "コールはエージェントのブラウザとMetaの間でピアツーピアで行われます。追加の認証情報は必要ありません。エージェントのブラウザにこのサイトへのマイク権限があることを確認してください。"
+      },
+      "PERMISSION_REQUEST_BODY": {
+        "LABEL": "通話許可リクエストメッセージ",
+        "HELP_TEXT": "連絡先が電話を受けることにまだ同意していないときに表示されます。デフォルトを使用するには空白のままにします。",
+        "PLACEHOLDER": "あなたの会話についてお電話したいと思います。"
+      }
+    },
+    "CHANNEL_PREFERENCES": "チャンネル設定",
+    "WIDGET_FEATURES": "ウィジェット機能",
+    "ACCOUNT_HEALTH": {
+      "TITLE": "WhatsApp アカウントを管理してください",
+      "DESCRIPTION": "WhatsAppの電話番号の状態、メッセージ容量、リンク先のMetaのビジネス詳細を確認してください。",
+      "GO_TO_SETTINGS": "Meta ビジネスマネージャーに移動",
+      "NO_DATA": "健康データはありません",
+      "ERRORS": {
+        "AUTHORIZATION": {
+          "EMBEDDED_TITLE": "WhatsApp 接続を更新する必要があります",
+          "EMBEDDED_DESCRIPTION": "Meta はこの受信トレイの接続を検証できませんでした。「構成」に移動して、埋め込み登録を使用して再構成してください。",
+          "MANUAL_TITLE": "WhatsApp アクセストークンには注意が必要です",
+          "MANUAL_DESCRIPTION": "Meta はこの受信トレイのアクセストークンを検証できませんでした。設定に移動して確認または交換してください。"
+        },
+        "GENERIC_TITLE": "WhatsApp ヘルスデータはご利用いただけません",
+        "GENERIC_DESCRIPTION": "Meta は現在の健康状態の詳細を返すことができませんでした。以下のエラーを確認して、後でもう一度試してください。",
+        "GO_TO_CONFIGURATION": "設定に移動"
+      },
+      "SECTIONS": {
+        "BUSINESS_PROFILE": "ビジネスプロフィール",
+        "PHONE_NUMBER": "電話番号",
+        "HEALTH_AND_CAPACITY": "健康とキャパシティ",
+        "BUSINESS_ACCOUNT": "ビジネスアカウント"
+      },
+      "FIELDS": {
+        "PROFILE_DESCRIPTION": {
+          "LABEL": "[説明]",
+          "TOOLTIP": "WhatsApp ビジネスプロファイルでお客様に表示される説明"
+        },
+        "PROFILE_ADDRESS": {
+          "LABEL": "住所",
+          "TOOLTIP": "WhatsApp ビジネスプロファイルに表示されている会社住所"
+        },
+        "PROFILE_EMAIL": {
+          "LABEL": "電子メール",
+          "TOOLTIP": "WhatsApp ビジネスプロフィールに表示されている連絡先メールアドレス"
+        },
+        "PROFILE_WEBSITES": {
+          "LABEL": "ウェブサイト",
+          "TOOLTIP": "WhatsApp ビジネスプロファイルに表示されているウェブサイトリンク"
+        },
+        "DISPLAY_PHONE_NUMBER": {
+          "LABEL": "電話番号を表示",
+          "TOOLTIP": "お客様に表示される電話番号"
+        },
+        "VERIFIED_NAME": {
+          "LABEL": "WhatsApp ディスプレイネーム",
+          "TOOLTIP": "この電話番号に関連付けられている名前を WhatsApp に表示する"
+        },
+        "PHONE_NUMBER_ID": {
+          "LABEL": "電話番号ID",
+          "TOOLTIP": "この WhatsApp 電話番号の Meta 識別子"
+        },
+        "COEXISTENCE": {
+          "LABEL": "共存",
+          "TOOLTIP": "この番号は、WhatsApp ビジネスアプリとクラウド API の両方に接続されています。"
+        },
+        "DISPLAY_NAME_STATUS": {
+          "LABEL": "名前の状態を表示",
+          "TOOLTIP": "Meta が WhatsApp の表示名を確認して承認したかどうか",
+          "DESCRIPTIONS": {
+            "APPROVED": "表示名は承認済みで、WhatsApp チャットの上部に表示できます。受信者が保存した名前を代わりに表示できます。",
+            "AVAILABLE_WITHOUT_REVIEW": "表示名はWhatsAppプロファイルに保存されますが、Metaが確認して承認するまで、受信者に電話番号が表示されることがあります。Meta は、お客様のビジネスがメッセージの上限値に達した後にこの審査を開始します。",
+            "PENDING_REVIEW": "Metaはディスプレイ名を見直しています。Meta が詳細情報を要求しない限り、何もする必要はありません。",
+            "REJECTED": "Meta はディスプレイ名を承認しませんでした。表示名のガイドラインを確認してから、Meta で名前を更新するか、異議申し立てを行ってください。",
+            "DECLINED": "Meta はディスプレイ名を承認しませんでした。表示名のガイドラインを確認してから、Meta で名前を更新するか、異議申し立てを行ってください。",
+            "EXPIRED": "電話番号の証明書の有効期限が切れているため、この番号をAPI用に登録することはできません。",
+            "UNKNOWN": "Meta は表示名のレビューステータスを返しませんでした。"
+          }
+        },
+        "LAST_ONBOARDED_TIME": {
+          "LABEL": "最終オンボーディング",
+          "TOOLTIP": "Metaがこの電話番号を最後にオンボーディングした日時"
+        },
+        "PHONE_NUMBER_STATUS": {
+          "LABEL": "電話番号ステータス",
+          "TOOLTIP": "WhatsAppでのこの電話番号の現在の接続ステータス"
+        },
+        "QUALITY_RATING": {
+          "LABEL": "品質評価",
+          "TOOLTIP": "Meta が最近のメッセージ信号に基づいてこの電話番号に割り当てる品質評価"
+        },
+        "MESSAGING_LIMIT_TIER": {
+          "LABEL": "ビジネスメッセージの上限",
+          "TOOLTIP": "24時間連続で、貴社がカスタマーサービス窓口以外でメッセージを送ることができるユニークカスタマーの数",
+          "DESCRIPTION": "この制限は、ビジネスポートフォリオ内のすべてのWhatsApp電話番号で共有されます。"
+        },
+        "ACCOUNT_MODE": {
+          "LABEL": "アカウントモード",
+          "TOOLTIP": "この WhatsApp 電話番号の現在の動作モード"
+        },
+        "CODE_VERIFICATION_STATUS": {
+          "LABEL": "コード検証",
+          "TOOLTIP": "Meta がこの電話番号について報告した検証コードステータス"
+        },
+        "THROUGHPUT_LEVEL": {
+          "LABEL": "スループット",
+          "TOOLTIP": "この電話番号に割り当てられたメッセージスループットレベル"
+        },
+        "BUSINESS_ACCOUNT_NAME": {
+          "LABEL": "WhatsApp ビジネスアカウント名",
+          "TOOLTIP": "この電話番号にリンクされているWhatsAppビジネスアカウントの名前"
+        },
+        "BUSINESS_ACCOUNT_ID": {
+          "LABEL": "WhatsApp ビジネスアカウント ID",
+          "TOOLTIP": "リンクされた WhatsApp ビジネスアカウントの Meta 識別子"
+        },
+        "BUSINESS_PORTFOLIO_NAME": {
+          "LABEL": "ビジネスポートフォリオ名",
+          "TOOLTIP": "WhatsAppビジネスアカウントを所有するMetaビジネスポートフォリオの名前"
+        },
+        "BUSINESS_PORTFOLIO_ID": {
+          "LABEL": "ビジネスポートフォリオ ID",
+          "TOOLTIP": "WhatsApp ビジネスアカウントを所有するビジネスポートフォリオの Meta 識別子"
+        }
+      },
+      "VALUES": {
+        "NOT_AVAILABLE": "離席中",
+        "TIERS": {
+          "TIER_250": "24 時間あたり 250 人のお客様",
+          "TIER_1000": "24 時間あたり 1,000 人のお客様",
+          "TIER_1K": "24 時間あたり 1,000 人のお客様",
+          "TIER_2K": "24 時間あたり 2000 人のお客様",
+          "TIER_10K": "24 時間あたり 1 万の顧客",
+          "TIER_100K": "24 時間あたり 10 万人のお客様",
+          "TIER_UNLIMITED": "24 時間あたりの顧客数は無制限",
+          "UNKNOWN": "評価はご利用いただけません"
+        },
+        "STATUSES": {
+          "APPROVED": "承認済み",
+          "CONNECTED": "接続済み",
+          "VERIFIED": "確認済み",
+          "STANDARD": "標準",
+          "ACTIVE": "有効",
+          "EXPIRED": "期限切れ",
+          "FLAGGED": "フラグ付き",
+          "RESTRICTED": "制限付き",
+          "BANNED": "禁止",
+          "DISCONNECTED": "切断されました",
+          "UNKNOWN": "離席中",
+          "PENDING_REVIEW": "審査中",
+          "AVAILABLE_WITHOUT_REVIEW": "まだレビューされていません",
+          "REJECTED": "未承認",
+          "DECLINED": "未承認",
+          "NON_EXISTS": "存在しない"
+        },
+        "MODES": {
+          "SANDBOX": "サンドボックス",
+          "LIVE": "ライブ"
+        }
+      },
+      "BUSINESS_PROFILE": {
+        "PREVIEW_LABEL": "WhatsApp ビジネスプロファイル"
+      },
+      "WEBHOOK": {
+        "TITLE": "ウェブフック設定",
+        "DESCRIPTION": "お客様からのメッセージを受信するには、WhatsApp ビジネスアカウントでウェブフック URL が必要です",
+        "ACTION_REQUIRED": "ウェブフックが設定されていません",
+        "REGISTER_BUTTON": "ウェブフックを登録",
+        "REGISTER_SUCCESS": "ウェブフックは正常に登録されました",
+        "REGISTER_ERROR": "ウェブフックを登録できませんでした。もう一度試してください。",
+        "CONFIGURED_SUCCESS": "ウェブフックは正常に設定されました",
+        "URL_MISMATCH": "ウェブフック URL ミスマッチ",
+        "CONFIGURED_URL": "URL を設定しました",
+        "EXPECTED_URL": "期待値 URL",
+        "COPY_URL": "ウェブフック URL をコピー",
+        "COPY_SUCCESS": "ウェブフック URL がクリップボードにコピーされました"
+      }
+    },
+    "SETTINGS": "設定",
+    "FEATURES": {
+      "LABEL": "機能",
+      "DISPLAY_FILE_PICKER": "ウィジェットにファイルピッカーを表示する",
+      "DISPLAY_EMOJI_PICKER": "ウィジェットに絵文字ピッカーを表示する",
+      "ALLOW_END_CONVERSATION": "ウィジェットからユーザーが会話を終了できるようにする",
+      "USE_INBOX_AVATAR_FOR_BOT": "ボットに受信トレイの名前とアバターを使用する"
+    },
+    "SETTINGS_POPUP": {
+      "MESSENGER_HEADING": "Messengerスクリプト",
+      "MESSENGER_SUB_HEAD": "このボタンをbodyタグの中に配置してください。",
+      "ALLOWED_DOMAINS": {
+        "TITLE": "許可ドメイン",
+        "DESCRIPTION": "チャットウィジェットを埋め込める Web サイトを制限します。セキュリティ上の理由から、自分が所有し信頼できるドメインのみを追加してください。1 つまたは複数のドメインをカンマで区切って追加します。空白のままにするとすべてのドメインが許可されます (本番環境では推奨されません)。",
+        "PLACEHOLDER": "example.com、www.example.com、app.example.com"
+      },
+      "ALLOW_MOBILE_WEBVIEW": {
+        "LABEL": "モバイルアプリのウィジェットを有効にする",
+        "SUBTITLE": "iOS または Android アプリにウィジェットを埋め込む場合は、これを確認してください。モバイルアプリはドメイン情報を送信しないため、これを有効にしない限りドメイン制限によってブロックされます。"
+      },
+      "IDENTITY_VALIDATION": {
+        "TITLE": "本人確認",
+        "DESCRIPTION": "安全なトークンを生成して、ユーザーの信頼性を検証します。これにより、権限のないユーザーがチャットで他人になりすますことを防ぎます。",
+        "SECRET_KEY": "シークレットキー",
+        "VIEW_DOCS": "ドキュメンテーションを見る",
+        "REQUIRE_LABEL": "すべての会話に本人確認を必須にする",
+        "REQUIRE_DESCRIPTION": "有効にすると、ユーザーは会話を開始するために有効なIDトークンを入力する必要があります。有効なトークンがないリクエストは拒否されます。"
+      },
+      "INBOX_AGENTS": "担当者",
+      "INBOX_AGENTS_SUB_TEXT": "この受信トレイから担当者を追加または削除する",
+      "AGENT_ASSIGNMENT": "会話の割り当て",
+      "AGENT_ASSIGNMENT_SUB_TEXT": "会話の割り当て設定を更新する",
+      "UPDATE": "更新",
+      "ENABLE_EMAIL_COLLECT_BOX": "メール収集ボックスを有効にする",
+      "ENABLE_EMAIL_COLLECT_BOX_SUB_TEXT": "新しい会話でメール収集ボックスを有効または無効にする",
+      "AUTO_ASSIGNMENT": "自動割り当てを有効にする",
+      "SENDER_NAME_SECTION": "メールに担当者名を表示する",
+      "SENDER_NAME_SECTION_TEXT": "担当者名をメールに表示するかどうかを設定します。無効にするとビジネス名が表示されます。",
+      "ENABLE_CONTINUITY_VIA_EMAIL": "メールによる会話の継続を有効にする",
+      "ENABLE_CONTINUITY_VIA_EMAIL_SUB_TEXT": "連絡先のメールアドレスが利用可能な場合、会話はメールで継続されます。",
+      "ENABLE_CONTINUITY_VIA_EMAIL_DISABLED_TEXT": "この機能は有料プランで利用できます。アップグレードすると、メールで会話を続けることができます。",
+      "LOCK_TO_SINGLE_CONVERSATION": "会話ルーティング",
+      "LOCK_TO_SINGLE_CONVERSATION_SUB_TEXT": "既存の連絡先の会話作成を設定",
+      "INBOX_UPDATE_TITLE": "受信トレイの設定",
+      "INBOX_UPDATE_SUB_TEXT": "受信トレイの設定を更新する",
+      "AUTO_ASSIGNMENT_SUB_TEXT": "この受信トレイに追加された担当者への新しい会話の自動割り当てを有効または無効にします。",
+      "HMAC_VERIFICATION": "ユーザーIDの検証",
+      "HMAC_DESCRIPTION": "ユーザーのIDを検証するために、各ユーザーに対して`identifier_hash`を渡すことができます。ここに表示されるキーを使用して`identifier`のHMAC sha256ハッシュを生成できます。",
+      "HMAC_LINK_TO_DOCS": "詳細はこちらをご覧ください。",
+      "HMAC_MANDATORY_VERIFICATION": "ユーザーID検証の強制",
+      "HMAC_MANDATORY_DESCRIPTION": "有効にすると、`identifier_hash`が欠落しているリクエストは拒否されます。",
+      "INBOX_IDENTIFIER": "受信トレイ識別子",
+      "INBOX_IDENTIFIER_SUB_TEXT": "ここに表示される`inbox_identifier`トークンを使用してAPIクライアントを認証します。",
+      "FORWARD_EMAIL_TITLE": "メール転送",
+      "FORWARD_EMAIL_SUB_TEXT": "以下のメールアドレスにメールを転送します。",
+      "FORWARD_EMAIL_NOT_CONFIGURED": "このインストールでは、受信トレイへのメールの転送は現在無効になっています。この機能を使用するには、管理者が有効にする必要があります。管理者に連絡して続行してください。",
+      "ALLOW_MESSAGES_AFTER_RESOLVED": "会話解決後のメッセージを許可する",
+      "ALLOW_MESSAGES_AFTER_RESOLVED_SUB_TEXT": "会話が解決された後でもエンドユーザーがメッセージを送信できるようにします。",
+      "WHATSAPP_SECTION_SUBHEADER": "このAPIキーはWhatsApp APIとの統合に使用されます。",
+      "WHATSAPP_SECTION_UPDATE_SUBHEADER": "WhatsApp APIとの統合に使用する新しいAPIキーを入力してください。",
+      "WHATSAPP_SECTION_TITLE": "APIキー",
+      "WHATSAPP_SECTION_UPDATE_TITLE": "APIキーを更新する",
+      "WHATSAPP_SECTION_UPDATE_PLACEHOLDER": "ここに新しいAPIキーを入力してください",
+      "WHATSAPP_SECTION_UPDATE_BUTTON": "更新",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_ADD_TITLE": "ビジネス管理トークンを追加",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_REPLACE_TITLE": "ビジネス管理トークンの交換",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_CONFIGURED": "ビジネス管理トークンが設定されました",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_UPDATE_SUBHEADER": "トイバコがメッセージテンプレートを取得できない場合は、このWhatsApp Businessアカウントへアクセスできるトークンを入力してください。トイバコは、このトークンをテンプレート同期のみに使用します。",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_UPDATE_PLACEHOLDER": "ビジネス管理トークンを入力してください",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_ADD_BUTTON": "追加",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_REPLACE_BUTTON": "置換",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_UPDATE_SUCCESS": "WhatsApp ビジネス管理トークンは正常に更新されました。",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_UPDATE_ERROR": "ビジネス管理トークンを更新できませんでした。WhatsApp ビジネス管理権限とアカウントアクセスを確認して、もう一度試してください。",
+      "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_GUIDE_LINK": "WhatsApp ビジネス管理トークンの生成方法を学ぶ",
+      "WHATSAPP_EMBEDDED_SIGNUP_TITLE": "WhatsApp エンベデッドサインアップ",
+      "WHATSAPP_EMBEDDED_SIGNUP_SUBHEADER": "この受信トレイは、WhatsApp 埋め込みサインアップを介して接続されています。",
+      "WHATSAPP_EMBEDDED_SIGNUP_DESCRIPTION": "この受信トレイを再構成して、WhatsApp ビジネス設定を更新できます。",
+      "WHATSAPP_RECONFIGURE_BUTTON": "再構成",
+      "WHATSAPP_MANUAL_TRANSFER_TITLE": "手動設定に切り替え",
+      "WHATSAPP_MANUAL_TRANSFER_SUBHEADER": "この受信トレイは WhatsApp 埋め込みサインアップを介して接続されましたが、現在はサポートされていません。お使いの Meta アプリから WhatsApp クラウド API 認証情報を入力して、この受信トレイを手動設定に切り替えてください。切り替え前に上記の検証トークンを使用して Meta アプリのウェブフックを設定します。",
+      "WHATSAPP_MANUAL_TRANSFER_PHONE_NUMBER_ID_LABEL": "電話番号 ID",
+      "WHATSAPP_MANUAL_TRANSFER_BUSINESS_ACCOUNT_ID_LABEL": "ビジネスアカウントID",
+      "WHATSAPP_MANUAL_TRANSFER_API_KEY_LABEL": "APIキー",
+      "WHATSAPP_MANUAL_TRANSFER_API_KEY_PLACEHOLDER": "Meta アプリからパーマネントアクセストークンを入力してください",
+      "WHATSAPP_MANUAL_TRANSFER_BUTTON": "手動設定に切り替え",
+      "WHATSAPP_MANUAL_TRANSFER_SUCCESS": "Inbox は手動設定に正常に切り替わりました。",
+      "WHATSAPP_MANUAL_TRANSFER_ERROR": "手動設定に切り替えられませんでした。認証情報を確認して、もう一度試してください。",
+      "WHATSAPP_CONNECT_TITLE": "WhatsApp ビジネスに接続する",
+      "WHATSAPP_CONNECT_SUBHEADER": "WhatsApp 組み込みサインアップにアップグレードすると、管理が容易になります。",
+      "WHATSAPP_CONNECT_DESCRIPTION": "この受信トレイをWhatsApp Businessに接続すると、機能が強化され、管理が容易になります。",
+      "WHATSAPP_CONNECT_BUTTON": "接続",
+      "WHATSAPP_CONNECT_SUCCESS": "WhatsApp ビジネスに正常に接続されました！",
+      "WHATSAPP_CONNECT_ERROR": "WhatsApp ビジネスに接続できませんでした。もう一度試してください。",
+      "WHATSAPP_RECONFIGURE_SUCCESS": "WhatsApp ビジネスの再構成に成功しました!",
+      "WHATSAPP_RECONFIGURE_ERROR": "WhatsApp ビジネスの再構成に失敗しました。もう一度試してください。",
+      "WHATSAPP_APP_ID_MISSING": "WhatsApp アプリ ID は設定されていません。管理者に問い合わせてください。",
+      "WHATSAPP_CONFIG_ID_MISSING": "WhatsApp コンフィギュレーション ID は設定されていません。管理者に問い合わせてください。",
+      "WHATSAPP_LOGIN_CANCELLED": "WhatsApp ログインがキャンセルされました。もう一度試してください。",
+      "WHATSAPP_WEBHOOK_TITLE": "Webhook検証トークン",
+      "WHATSAPP_WEBHOOK_SUBHEADER": "このトークンはWebhookエンドポイントの信頼性を検証するために使用されます。",
+      "WHATSAPP_TEMPLATES_SYNC_TITLE": "テンプレートを同期",
+      "WHATSAPP_TEMPLATES_SYNC_SUBHEADER": "WhatsApp のメッセージテンプレートを手動で同期して、使用可能なテンプレートを更新します。",
+      "WHATSAPP_TEMPLATES_SYNC_BUTTON": "テンプレートを同期",
+      "WHATSAPP_TEMPLATES_SYNC_SUCCESS": "テンプレート同期が正常に開始されました。更新には数分かかる場合があります。",
+      "WHATSAPP_MANUAL_MIGRATION": {
+        "BANNER": {
+          "TITLE": "手動設定推奨",
+          "DESCRIPTION": "この受信トレイは、最近のMetaの制限の影響を受けた埋め込みサインアップに使用される共有Metaアプリを介して接続します。今後同様の問題が発生しないように、お使いの Meta アプリと再接続することをおすすめします。",
+          "START": "手動移行を開始する",
+          "GUIDE": "ガイドを表示"
+        },
+        "DIALOG": {
+          "EYEBROW": "WhatsApp マニュアルマイグレーション",
+          "TITLE": "WhatsApp 受信トレイに再接続",
+          "CLOSE": "閉じる",
+          "ACTION_REQUIRED_TITLE": "お手持ちのMetaアプリと再接続してください",
+          "ACTION_REQUIRED_DESCRIPTION": "独自のMetaアプリを介して接続された受信トレイは、共有埋め込みサインアップアプリの制限の影響を受けません。このガイド付きフローでは、新しい受信トレイを作成せずに WhatsApp API 接続を更新できます。",
+          "GUIDE_LINK": "手動設定ガイドを開く",
+          "PRESERVED_TITLE": "保存済み",
+          "PRESERVED_DESCRIPTION": "会話、連絡先、コラボレーター、ルーティング、営業時間、受信トレイの設定。",
+          "UPDATED_TITLE": "更新済み",
+          "UPDATED_DESCRIPTION": "WABA ID、電話番号 ID、アクセストークン、およびウェブフック設定。",
+          "WABA_ID": "WABA ID",
+          "WABA_PLACEHOLDER": "WABA ID と入力してください",
+          "WABA_HELP": "この電話番号を所有しているWhatsAppビジネスアカウント。",
+          "PHONE_NUMBER_ID": "電話番号 ID",
+          "PHONE_NUMBER_PLACEHOLDER": "電話番号を入力してください ID",
+          "PHONE_NUMBER_HELP": "この受信トレイに接続されているWhatsApp番号用のMeta独自のID番号。",
+          "DISPLAY_PHONE_NUMBER": "電話番号を表示",
+          "DISPLAY_PHONE_NUMBER_PLACEHOLDER": "ディスプレイの電話番号を入力",
+          "DISPLAY_PHONE_NUMBER_HELP": "お客様向けの WhatsApp 番号です。これは移行中には変更できません。",
+          "ACCESS_TOKEN": "パーマネントアクセストークンまたはシステムユーザートークン",
+          "ACCESS_TOKEN_PLACEHOLDER": "アクセストークンを貼り付け",
+          "TOKEN_HELP_PREFIX": "トークンには以下が含まれている必要があります",
+          "TOKEN_HELP_MIDDLE": "追加",
+          "TOKEN_HELP_SUFFIX": "テンプレート同期とテンプレート管理用。",
+          "MESSAGING_PERMISSION": "whatsapp_ビジネス_メッセージング。",
+          "MANAGEMENT_PERMISSION": "whatsapp _ビジネス_マネジメント",
+          "REVIEW_TITLE": "再接続する前に確認する",
+          "INBOX": "受信トレイ",
+          "PHONE_NUMBER": "電話番号",
+          "NOT_ENTERED": "未入力",
+          "VERIFY_NOTICE": "トイバコ は変更を適用する前に Meta でこれらの認証情報を確認します。検証に失敗しても、現在の設定はそのまま残ります。",
+          "BACK": "戻る",
+          "CANCEL": "キャンセル",
+          "CONTINUE": "続行",
+          "REVIEW_MIGRATION": "レビュー移行",
+          "RECONNECT": "WhatsApp 受信トレイに再接続"
+        },
+        "STEPS": {
+          "BEFORE_YOU_START": {
+            "TITLE": "始める前に",
+            "DESCRIPTION": "これにより、この受信トレイの WhatsApp API の詳細が再接続されます。会話、コラボレーター、ルーティング、営業時間、CSAT、ボットの設定は保持されます。"
+          },
+          "BUSINESS_DETAILS": {
+            "TITLE": "事業詳細",
+            "DESCRIPTION": "お客様のMetaビジネスアカウントからWhatsAppアセットを入力します。"
+          },
+          "ACCESS_TOKEN": {
+            "TITLE": "アクセストークン",
+            "DESCRIPTION": "WhatsApp 権限を持つパーマネントアクセストークンまたはシステムユーザートークンを貼り付けます。"
+          },
+          "REVIEW_MIGRATION": {
+            "TITLE": "レビュー移行",
+            "DESCRIPTION": "この受信トレイを再接続する前に、接続情報を確認してください。トイバコは変更を適用する前に、トークン、WABA、電話番号をMetaで検証します。"
+          }
+        }
+      },
+      "WHATSAPP_CALLING_ENABLED": {
+        "LABEL": "音声通話を有効にする",
+        "DESCRIPTION": "エージェントがこの受信トレイでWhatsApp音声通話を開始して受信できるようにします。Meta から通話許可が付与された、埋め込み登録の WhatsApp クラウドチャンネルでのみ利用できます。"
+      },
+      "UPDATE_PRE_CHAT_FORM_SETTINGS": "プレチャットフォーム設定を更新する"
+    },
+    "HELP_CENTER": {
+      "LABEL": "ヘルプセンター",
+      "PLACEHOLDER": "ヘルプセンターを選択",
+      "SELECT_PLACEHOLDER": "ヘルプセンターを選択",
+      "NONE": "なし",
+      "REMOVE": "ヘルプセンターを削除",
+      "SUB_TEXT": "受信トレイにヘルプセンターを添付する"
+    },
+    "AUTO_ASSIGNMENT": {
+      "MAX_ASSIGNMENT_LIMIT": "自動割り当ての制限",
+      "MAX_ASSIGNMENT_LIMIT_RANGE_ERROR": "0より大きい値を入力してください",
+      "MAX_ASSIGNMENT_LIMIT_SUB_TEXT": "この受信トレイから担当者に自動割り当てできる会話の最大数を制限します"
+    },
+    "ASSIGNMENT": {
+      "TITLE": "会話の割り当て",
+      "DESCRIPTION": "割り当てポリシーに基づいて、受信した会話を対応可能なエージェントに自動的に割り当てます",
+      "ENABLE_AUTO_ASSIGNMENT": "会話の自動割り当てを有効にする",
+      "DEFAULT_RULES_TITLE": "既定の割り当てルール",
+      "DEFAULT_RULES_DESCRIPTION": "すべての会話にデフォルトの割り当て動作を使用する",
+      "DEFAULT_RULE_1": "最初に作成された会話が最初",
+      "DEFAULT_RULE_2": "ラウンドロビン分布",
+      "CUSTOMIZE_WITH_POLICY": "割り当てポリシーによるカスタマイズ",
+      "USING_POLICY": "この受信トレイにカスタム割り当てポリシーを使用する",
+      "CUSTOMIZE_POLICY": "割り当てポリシーによるカスタマイズ",
+      "DELETE_POLICY": "ポリシーを削除",
+      "POLICY_LABEL": "アサインメントポリシー",
+      "ASSIGNMENT_ORDER_LABEL": "割り当て順序",
+      "ASSIGNMENT_METHOD_LABEL": "割り当て方法",
+      "POLICY_STATUS": {
+        "ACTIVE": "有効",
+        "INACTIVE": "非アクティブ"
+      },
+      "PRIORITY": {
+        "EARLIEST_CREATED": "作成日が最も早い",
+        "LONGEST_WAITING": "最長の待ち時間"
+      },
+      "METHOD": {
+        "ROUND_ROBIN": "ラウンドロビン",
+        "BALANCED": "バランスのとれた割り当て"
+      },
+      "UPGRADE_PROMPT": "ビジネスプランではカスタム割り当てポリシーを利用できます",
+      "UPGRADE_TO_BUSINESS": "ビジネスへのアップグレード",
+      "DEFAULT_POLICY_LINKED": "デフォルトポリシーがリンクされました",
+      "DEFAULT_POLICY_DESCRIPTION": "カスタム割り当てポリシーをリンクして、このインボックス内のエージェントに会話を割り当てる方法をカスタマイズします。",
+      "LINK_EXISTING_POLICY": "既存のポリシーをリンク",
+      "CREATE_NEW_POLICY": "新しいポリシーの作成",
+      "NO_POLICIES": "割り当てポリシーが見つかりません",
+      "VIEW_ALL_POLICIES": "すべてのポリシーを表示",
+      "CURRENT_BEHAVIOR": "現在使用しているデフォルトの代入動作:",
+      "LINK_SUCCESS": "割り当てポリシーが正常にリンクされました",
+      "LINK_ERROR": "割り当てポリシーをリンクできませんでした"
+    },
+    "ASSIGNMENT_POLICY": {
+      "DELETE_CONFIRM_TITLE": "割り当てポリシーを削除しますか?",
+      "DELETE_CONFIRM_MESSAGE": "この割り当てポリシーをこの受信トレイから削除してもよろしいですか?インボックスは既定の割り当てルールに戻ります。",
+      "CANCEL": "キャンセル",
+      "CONFIRM_DELETE": "削除",
+      "DELETE_SUCCESS": "割り当てポリシーが正常に削除されました",
+      "DELETE_ERROR": "割り当てポリシーを削除できませんでした"
+    },
+    "FACEBOOK_REAUTHORIZE": {
+      "TITLE": "再認証",
+      "SUBTITLE": "Facebookの接続が期限切れになりました。サービスを継続するには、Facebookページを再接続してください。",
+      "MESSAGE_SUCCESS": "再接続に成功しました",
+      "MESSAGE_ERROR": "エラーが発生しました。もう一度お試しください。"
+    },
+    "PRE_CHAT_FORM": {
+      "DESCRIPTION": "プレチャットフォームを使用すると、ユーザーが会話を開始する前に情報を収集できます。",
+      "SET_FIELDS": "プレチャットフォームのフィールド",
+      "SET_FIELDS_HEADER": {
+        "FIELDS": "フィールド",
+        "LABEL": "ラベル",
+        "PLACE_HOLDER": "プレースホルダー",
+        "KEY": "キー",
+        "TYPE": "タイプ",
+        "REQUIRED": "必須"
+      },
+      "ENABLE": {
+        "LABEL": "プレチャットフォームを有効にする",
+        "OPTIONS": {
+          "ENABLED": "はい",
+          "DISABLED": "いいえ"
+        }
+      },
+      "PRE_CHAT_MESSAGE": {
+        "LABEL": "プレチャットメッセージ",
+        "PLACEHOLDER": "このメッセージはフォームと一緒にユーザーに表示されます"
+      },
+      "REQUIRE_EMAIL": {
+        "LABEL": "訪問者はチャットを開始する前に名前とメールアドレスを提供する必要があります"
+      }
+    },
+    "CSAT": {
+      "TITLE": "CSATを有効にする",
+      "SUBTITLE": "会話の最後にCSATアンケートを自動的にトリガーして、顧客がサポート体験についてどのように感じているかを理解します。満足度の傾向を追跡し、時間の経過とともに改善すべき分野を特定します。",
+      "DISPLAY_TYPE": {
+        "LABEL": "ディスプレイタイプ"
+      },
+      "MESSAGE": {
+        "LABEL": "メッセージ",
+        "PLACEHOLDER": "フォームでユーザーに表示するメッセージを入力してください"
+      },
+      "BUTTON_TEXT": {
+        "LABEL": "ボタンテキスト",
+        "PLACEHOLDER": "評価してください"
+      },
+      "LANGUAGE": {
+        "LABEL": "言語",
+        "PLACEHOLDER": "テンプレート言語を選択"
+      },
+      "MESSAGE_PREVIEW": {
+        "LABEL": "メッセージプレビュー",
+        "TOOLTIP": "WhatsAppのプラットフォームでレンダリングした場合、これは若干異なる場合があります。"
+      },
+      "TEMPLATE_STATUS": {
+        "APPROVED": "WhatsApp によって承認されました",
+        "PENDING": "WhatsApp の承認待ちです",
+        "REJECTED": "Meta がテンプレートを拒否しました",
+        "DEFAULT": "WhatsApp の承認が必要です",
+        "NOT_FOUND": "テンプレートはMetaプラットフォームには存在しません。"
+      },
+      "TEMPLATE_CREATION": {
+        "SUCCESS_MESSAGE": "WhatsApp テンプレートが正常に作成され、承認のために送信されました",
+        "ERROR_MESSAGE": "WhatsApp テンプレートを作成できませんでした"
+      },
+      "TEMPLATE_UPDATE_DIALOG": {
+        "TITLE": "アンケートの詳細を編集",
+        "DESCRIPTION": "以前のテンプレートを削除して新しいテンプレートを作成し、WhatsApp 承認のため再度送信します。",
+        "CONFIRM": "新しいテンプレートを作成",
+        "CANCEL": "戻る"
+      },
+      "UTILITY_ANALYZER": {
+        "ACTION": "ユーティリティフィットをチェック",
+        "HELPER_NOTE": "送信前にこのメッセージを確認して、ユーティリティフィットを改善してください。システムは、レポート用のボタンが付いた専用の CSAT テンプレートを作成し、ユーティリティとして送信します。Meta は、それでもコンテンツに基づいて「マーケティング」として再分類することがあります。",
+        "RESULT_LABEL": "Meta カテゴリー予測",
+        "GUIDANCE_NOTE": "これはガイダンスチェックであり、Metaの承認を保証するものではありません。",
+        "SUGGESTION_LABEL": "ユーティリティセーフな書き換えの提案",
+        "APPLY": "このリライトを使う",
+        "ERROR_MESSAGE": "メッセージを分析できませんでした。もう一度試してください。",
+        "CLASSIFICATION": {
+          "LIKELY_UTILITY": "ありそうなユーティリティ",
+          "LIKELY_MARKETING": "ありそうなマーケティング",
+          "UNCLEAR": "明確化が必要"
+        }
+      },
+      "SURVEY_RULE": {
+        "LABEL": "調査規則",
+        "DESCRIPTION_PREFIX": "会話のアンケートを送信",
+        "DESCRIPTION_SUFFIX": "任意のラベル",
+        "OPERATOR": {
+          "CONTAINS": "含む",
+          "DOES_NOT_CONTAINS": "含まない"
+        },
+        "SELECT_PLACEHOLDER": "ラベルを選択する"
+      },
+      "NOTE": "注:CSAT アンケートは、1 つの会話につき 1 回のみ送信されます。",
+      "WHATSAPP_NOTE": "注:保存すると、システムは専用の CSAT テンプレートを WhatsApp に作成し (レポートでの評価とフィードバックの収集に使用)、ユーティリティとして承認用に送信します。Meta は引き続きコンテンツに基づいてマーケティングとして分類される場合があります。承認後は、アンケートルールに従い、1 会話につき 1 回のみアンケートが送信されます。",
+      "API": {
+        "SUCCESS_MESSAGE": "CSAT 設定は正常に更新されました",
+        "ERROR_MESSAGE": "CSAT の設定を更新できませんでした。後でもう一度試してください。"
+      }
+    },
+    "BUSINESS_HOURS": {
+      "TITLE": "営業時間を設定する",
+      "SUBTITLE": "ライブチャットウィジェットでの利用可能時間を設定します",
+      "WEEKLY_TITLE": "週間営業時間を設定する",
+      "TIMEZONE_LABEL": "タイムゾーンを選択",
+      "UPDATE": "営業時間設定を更新",
+      "TOGGLE_AVAILABILITY": "この受信トレイの営業時間を有効にする",
+      "UNAVAILABLE_MESSAGE_LABEL": "訪問者への不在メッセージ",
+      "TOGGLE_HELP": "営業時間を有効にすると、すべての担当者がオフラインでもライブチャットウィジェットに利用可能時間が表示されます。利用可能時間外には、訪問者にメッセージとプレチャットフォームで警告できます。",
+      "DAY": {
+        "DAY": "日",
+        "AVAILABILITY": "利用可能期間",
+        "HOURS": "時間",
+        "ENABLE": "この日の利用可能時間を有効にする",
+        "UNAVAILABLE": "不在",
+        "VALIDATION_ERROR": "開始時間は終了時間より前でなければなりません。",
+        "CHOOSE": "選択"
+      },
+      "ALL_DAY": "終日"
+    },
+    "IMAP": {
+      "TITLE": "IMAP",
+      "SUBTITLE": "IMAPの詳細を設定してください",
+      "NOTE_TEXT": "SMTPを有効にするには、IMAPを設定してください。",
+      "UPDATE": "IMAP設定を更新",
+      "TOGGLE_AVAILABILITY": "この受信トレイのIMAP設定を有効にする",
+      "TOGGLE_HELP": "IMAPを有効にすると、ユーザーがメールを受信できるようになります",
+      "EDIT": {
+        "SUCCESS_MESSAGE": "IMAP設定が正常に更新されました",
+        "ERROR_MESSAGE": "IMAP設定を更新できませんでした"
+      },
+      "ADDRESS": {
+        "LABEL": "アドレス",
+        "PLACE_HOLDER": "アドレス (例: imap.gmail.com)"
+      },
+      "PORT": {
+        "LABEL": "ポート",
+        "PLACE_HOLDER": "ポート"
+      },
+      "LOGIN": {
+        "LABEL": "ログイン",
+        "PLACE_HOLDER": "ログイン"
+      },
+      "PASSWORD": {
+        "LABEL": "パスワード",
+        "PLACE_HOLDER": "パスワード"
+      },
+      "ENABLE_SSL": "SSLを有効にする",
+      "AUTH_MECHANISM": "認証"
+    },
+    "MICROSOFT": {
+      "TITLE": "Microsoft",
+      "SUBTITLE": "Microsoftアカウントを再認証してください"
+    },
+    "SMTP": {
+      "TITLE": "SMTP",
+      "SUBTITLE": "SMTPの詳細を設定してください",
+      "UPDATE": "SMTP設定を更新",
+      "TOGGLE_AVAILABILITY": "この受信トレイのSMTP設定を有効にする",
+      "TOGGLE_HELP": "SMTPを有効にすると、ユーザーがメールを送信できるようになります",
+      "EDIT": {
+        "SUCCESS_MESSAGE": "SMTP設定が正常に更新されました",
+        "ERROR_MESSAGE": "SMTP設定を更新できませんでした"
+      },
+      "ADDRESS": {
+        "LABEL": "アドレス",
+        "PLACE_HOLDER": "アドレス (例: smtp.gmail.com)"
+      },
+      "PORT": {
+        "LABEL": "ポート",
+        "PLACE_HOLDER": "ポート"
+      },
+      "LOGIN": {
+        "LABEL": "ログイン",
+        "PLACE_HOLDER": "ログイン"
+      },
+      "PASSWORD": {
+        "LABEL": "パスワード",
+        "PLACE_HOLDER": "パスワード"
+      },
+      "DOMAIN": {
+        "LABEL": "ドメイン",
+        "PLACE_HOLDER": "ドメイン"
+      },
+      "ENCRYPTION": "暗号化",
+      "SSL_TLS": "SSL/TLS",
+      "START_TLS": "STARTTLS",
+      "OPEN_SSL_VERIFY_MODE": "Open SSL検証モード",
+      "AUTH_MECHANISM": "認証"
+    },
+    "NOTE": "注記: ",
+    "WIDGET_BUILDER": {
+      "WIDGET_OPTIONS": {
+        "AVATAR": {
+          "LABEL": "ウェブサイトアバター",
+          "DELETE": {
+            "API": {
+              "SUCCESS_MESSAGE": "アバターを正常に削除しました",
+              "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+            }
+          }
+        },
+        "WEBSITE_NAME": {
+          "LABEL": "ウェブサイト名",
+          "PLACE_HOLDER": "ウェブサイト名を入力してください(例：Acme Inc)",
+          "ERROR": "有効なウェブサイト名を入力してください"
+        },
+        "WELCOME_HEADING": {
+          "LABEL": "冒頭の見出し",
+          "PLACE_HOLDER": "こんにちは！"
+        },
+        "WELCOME_TAGLINE": {
+          "LABEL": "冒頭のタグライン",
+          "PLACE_HOLDER": "簡単に連絡が取れる状態です。なんでも聞いてください。フィードバックの共有も歓迎です。"
+        },
+        "REPLY_TIME": {
+          "LABEL": "返信時間",
+          "IN_A_FEW_MINUTES": "数分以内",
+          "IN_A_FEW_HOURS": "数時間以内",
+          "IN_A_DAY": "1日以内"
+        },
+        "WIDGET_COLOR_LABEL": "ウィジェットの色",
+        "WIDGET_BUBBLE": "バブル",
+        "WIDGET_BUBBLE_POSITION_LABEL": "ポジション:",
+        "WIDGET_BUBBLE_TYPE_LABEL": "タイプ:",
+        "WIDGET_BUBBLE_LAUNCHER_TITLE": {
+          "DEFAULT": "チャットをする",
+          "LABEL": "ランチャータイトル",
+          "PLACE_HOLDER": "チャットをする"
+        },
+        "UPDATE": {
+          "BUTTON_TEXT": "ウィジェット設定の変更",
+          "API": {
+            "SUCCESS_MESSAGE": "ウィジェット設定の更新に成功しました",
+            "ERROR_MESSAGE": "ウィジェット設定の更新に失敗しました"
+          }
+        },
+        "WIDGET_VIEW_OPTION": {
+          "PREVIEW": "プレビュー",
+          "SCRIPT": "スクリプト"
+        },
+        "WIDGET_BUBBLE_POSITION": {
+          "LEFT": "左",
+          "RIGHT": "右"
+        },
+        "WIDGET_BUBBLE_TYPE": {
+          "STANDARD": "標準",
+          "EXPANDED_BUBBLE": "拡張バブル"
+        }
+      },
+      "WIDGET_SCREEN": {
+        "DEFAULT": "デフォルト",
+        "CHAT": "チャットモード"
+      },
+      "REPLY_TIME": {
+        "IN_A_FEW_MINUTES": "通常数分以内にご返信します。",
+        "IN_A_FEW_HOURS": "通常数時間以内にご返信します。",
+        "IN_A_DAY": "通常数日以内にご返信します。"
+      },
+      "FOOTER": {
+        "START_CONVERSATION_BUTTON_TEXT": "チャットを開始する",
+        "CHAT_INPUT_PLACEHOLDER": "メッセージを入力してください。"
+      },
+      "BODY": {
+        "TEAM_AVAILABILITY": {
+          "ONLINE": "オンラインです",
+          "OFFLINE": "留守中"
+        },
+        "USER_MESSAGE": "こんにちは",
+        "AGENT_MESSAGE": "こんにちは"
+      },
+      "BRANDING_TEXT": "提供：トイバコ",
+      "SCRIPT_SETTINGS": "\n      ウィンドウ. トイバコ 設定 = {options};"
+    },
+    "EMAIL_PROVIDERS": {
+      "MICROSOFT": {
+        "TITLE": "Microsoft",
+        "DESCRIPTION": "Microsoft と接続してください"
+      },
+      "GOOGLE": {
+        "TITLE": "Google",
+        "DESCRIPTION": "Google と接続してください"
+      },
+      "OTHER_PROVIDERS": {
+        "TITLE": "その他のプロバイダー",
+        "DESCRIPTION": "他のプロバイダーとつながる"
+      }
+    },
+    "CHANNELS": {
+      "MESSENGER": "メッセンジャー",
+      "WEB_WIDGET": "ウェブサイト",
+      "TWITTER_PROFILE": "Twitter",
+      "TWILIO_SMS": "Twilio SMS",
+      "WHATSAPP": "WhatsApp",
+      "SMS": "SMS",
+      "EMAIL": "Eメール",
+      "TELEGRAM": "Telegram",
+      "LINE": "Line",
+      "API": "APIチャンネル",
+      "INSTAGRAM": "Instagram",
+      "TIKTOK": "TikTok",
+      "VOICE": "ボイス"
+    }
+  }
+}

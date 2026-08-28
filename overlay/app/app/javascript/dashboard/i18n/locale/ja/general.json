@@ -1,0 +1,19 @@
+{
+  "GENERAL": {
+    "SHOWING_RESULTS": "{firstIndex}-{lastIndex} の {totalCount} アイテムを表示",
+    "PHONE_INPUT": {
+      "PLACEHOLDER": "検索",
+      "EMPTY_STATE": "結果が見つかりませんでした。"
+    },
+    "CLOSE": "閉じる",
+    "BETA": "ベータ版",
+    "BETA_DESCRIPTION": "この機能はベータ版であり、改善のたびに変更される可能性があります。",
+    "ACCEPT": "承諾する",
+    "DISCARD": "破棄",
+    "PREFERRED": "優先"
+  },
+  "CHOICE_TOGGLE": {
+    "YES": "はい",
+    "NO": "いいえ"
+  }
+}

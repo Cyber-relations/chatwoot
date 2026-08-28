@@ -1,0 +1,29 @@
+<p>お知らせ</p>
+
+<p>トイバコのインスタンスからアカウントが完全に削除されましたので、記録として通知します。</p>
+
+<p>
+  <strong>インスタンス:</strong> {{ meta.instance_url }}<br>
+  <strong>アカウントID:</strong> {{ meta.account_id }}<br>
+  <strong>アカウント名:</strong> {{ meta.account_name }}<br>
+  <strong>削除予定日時:</strong> {{ meta.marked_for_deletion_at }}<br>
+  <strong>削除日時:</strong> {{ meta.deleted_at }}<br>
+  <strong>削除理由:</strong> {{ meta.deletion_reason }}
+</p>
+
+{% if meta.deleted_user_count > 0 %}
+<p>
+  <strong>削除されたユーザー({{ meta.deleted_user_count }}):</strong><br>
+  {% for user in meta.soft_deleted_users %}
+    ユーザーID: {{ user.user_id }}, メール: {{ user.user_email }}{% unless forloop.last %}<br>{% endunless %}
+  {% endfor %}
+</p>
+{% else %}
+<p>
+  <strong>削除されたユーザー:</strong> なし
+</p>
+{% endif %}
+
+<p>このメールはコンプライアンス記録のために送信されています。</p>
+
+<p>トイバコ システム</p>

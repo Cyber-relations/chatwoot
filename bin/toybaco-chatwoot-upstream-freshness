@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly PINNED_TAG='v4.17.1'
+readonly PINNED_TAG_OBJECT='e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1'
+readonly PINNED_COMMIT='b354a9550e1fb59fa537a9c384232cb076213e72'
+readonly PINNED_AMD64_DIGEST='sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a'
+
+fail() {
+  echo "TOYBACO_CHATWOOT_FRESHNESS=FAIL $*" >&2
+  exit 1
+}
+
+for command_name in curl docker git jq; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "required command missing: $command_name"
+done
+
+refs="$(git ls-remote --tags https://github.com/chatwoot/chatwoot.git "refs/tags/$PINNED_TAG" "refs/tags/$PINNED_TAG^{}")"
+grep -Fqx "$PINNED_TAG_OBJECT"$'\t'"refs/tags/$PINNED_TAG" <<<"$refs" || fail 'annotated tag object changed'
+grep -Fqx "$PINNED_COMMIT"$'\t'"refs/tags/$PINNED_TAG^{}" <<<"$refs" || fail 'tag peeled commit changed'
+
+latest="$(curl --fail --silent --show-error \
+  -H 'Accept: application/vnd.github+json' \
+  https://api.github.com/repos/chatwoot/chatwoot/releases/latest | jq -r '.tag_name')"
+[[ "$latest" == "$PINNED_TAG" ]] || fail "upstream release available: pinned=$PINNED_TAG latest=$latest"
+
+raw="$(docker buildx imagetools inspect "chatwoot/chatwoot:$PINNED_TAG" --raw)"
+amd64_digest="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' <<<"$raw")"
+[[ "$amd64_digest" == "$PINNED_AMD64_DIGEST" ]] || fail "amd64 manifest changed: $amd64_digest"
+
+printf 'TOYBACO_CHATWOOT_FRESHNESS=PASS tag=%s commit=%s amd64=%s\n' \
+  "$PINNED_TAG" "$PINNED_COMMIT" "$PINNED_AMD64_DIGEST"

@@ -1,0 +1,48 @@
+{
+  "WHATSAPP_TEMPLATES": {
+    "MODAL": {
+      "TITLE": "Whatsapp テンプレート",
+      "SUBTITLE": "送信したいWhatsappテンプレートを選択してください",
+      "TEMPLATE_SELECTED_SUBTITLE": "テンプレートを設定:{templateName}"
+    },
+    "PICKER": {
+      "SEARCH_PLACEHOLDER": "テンプレートを検索",
+      "NO_TEMPLATES_FOUND": "該当するテンプレートが見つかりません:",
+      "HEADER": "ヘッダー",
+      "BODY": "ボディ",
+      "FOOTER": "フッター",
+      "BUTTONS": "ボタン",
+      "CATEGORY": "カテゴリ",
+      "MEDIA_CONTENT": "メディアコンテンツ",
+      "MEDIA_CONTENT_FALLBACK": "メディアコンテンツ",
+      "NO_TEMPLATES_AVAILABLE": "使用可能なWhatsAppテンプレートはありません。WhatsApp のテンプレートを同期するには、[更新] をクリックします。",
+      "REFRESH_BUTTON": "テンプレートを更新",
+      "REFRESH_SUCCESS": "テンプレートの更新が開始されました。更新には数分かかる場合があります。",
+      "REFRESH_ERROR": "テンプレートを更新できませんでした。もう一度試してください。",
+      "LABELS": {
+        "LANGUAGE": "言語",
+        "TEMPLATE_BODY": "テンプレート本文",
+        "CATEGORY": "カテゴリ"
+      }
+    },
+    "PARSER": {
+      "VARIABLES_LABEL": "変数",
+      "HEADER_VARIABLES_LABEL": "ヘッダー変数",
+      "LANGUAGE": "言語",
+      "CATEGORY": "カテゴリ",
+      "VARIABLE_PLACEHOLDER": "{variable} の値を入力",
+      "GO_BACK_LABEL": "戻る",
+      "SEND_MESSAGE_LABEL": "メッセージを送信",
+      "FORM_ERROR_MESSAGE": "送信前に全ての変数を入力してください",
+      "MEDIA_HEADER_LABEL": "{type} ヘッダー",
+      "OTP_CODE": "4 ～ 8 桁の OTP を入力してください",
+      "EXPIRY_MINUTES": "有効期限の分数を入力してください",
+      "BUTTON_PARAMETERS": "ボタンパラメーター",
+      "BUTTON_LABEL": "ボタン {index}",
+      "COUPON_CODE": "クーポンコードを入力してください (最大 15 文字)",
+      "MEDIA_URL_LABEL": "{type} URL と入力してください",
+      "DOCUMENT_NAME_PLACEHOLDER": "ドキュメントのファイル名を入力してください (例:Invoice_2025.pdf)",
+      "BUTTON_PARAMETER": "ボタンパラメータを入力"
+    }
+  }
+}

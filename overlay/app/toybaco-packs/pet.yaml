@@ -1,0 +1,82 @@
+# 業界パック: ペット(トリミング・動物病院)
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: pet
+label: ペット(トリミング・動物病院)
+emoji: "🐾"
+accent: amber
+
+canned_responses:
+  - short_code: yoyaku-uketsuke
+    content: |
+      お問い合わせありがとうございます。
+      ご希望の日時・ご利用内容(トリミング・診療など)・ペットの種類と年齢をお知らせください。空き状況を確認してご案内します。
+  - short_code: yoyaku-kakutei
+    content: |
+      ご予約を承りました。
+      ご予約日時は◯月◯日(◯) ◯:◯から、ご利用内容は◯です。当日はお気をつけてお越しください。
+  - short_code: yoyaku-henkou
+    content: |
+      ご連絡ありがとうございます。ご希望の変更日時をお知らせください。
+      空き状況を確認して、あらためてご案内します。
+  - short_code: yoyaku-cancel
+    content: |
+      キャンセルを承りました。ご連絡ありがとうございました。
+      またのご利用をお待ちしています。
+  - short_code: konzatsu-kakunin
+    content: |
+      混雑状況についてお問い合わせありがとうございます。
+      ご来店予定の日時をお知らせください。現在の状況を確認してご案内します。
+  - short_code: mochimono-annai
+    content: |
+      当日の持ち物は◯です。
+      ご利用前の注意事項はこちらをご確認ください。<URL>
+  - short_code: hajimete-annai
+    content: |
+      初めてのご利用ありがとうございます。
+      ペットの種類・年齢・ご希望の内容と、ワクチン接種の状況をお知らせください。受付に必要な情報を確認してご案内します。
+  - short_code: menu-ryoukin
+    content: |
+      ご利用内容と料金の一覧はこちらです。<URL>
+      ご不明な点がありましたら、ご希望の内容をお知らせください。
+  - short_code: eigyo-access
+    content: |
+      営業時間は◯:◯から◯:◯まで、定休日は◯曜日です。
+      場所はこちらです。<URL>
+
+labels:
+  - title: 予約
+    description: 新規予約・空き確認
+    color: "#E05C7A"
+  - title: 変更キャンセル
+    description: 予約の変更・キャンセル連絡
+    color: "#F09A3E"
+  - title: 混雑確認
+    description: 混雑状況に関する問い合わせ
+    color: "#2FA35C"
+  - title: 持ち物確認
+    description: 当日の持ち物に関する問い合わせ
+    color: "#4A79B8"
+  - title: 初めての方
+    description: 初めて利用する方からの問い合わせ
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま営業時間外のため、営業開始後に順番にご返信します。
+  ご予約の希望・変更・キャンセルは、このままメッセージをお送りください。
+
+post_templates:
+  - title: 空き枠のお知らせ
+    body: |
+      【◯月◯日(◯) ご予約に空きがあります】
+      ◯:◯からと◯:◯からご案内できます。
+      ご希望の方はメッセージからご相談ください。
+  - title: 営業日のお知らせ
+    body: |
+      【◯月の営業について】
+      ◯月◯日(◯)はお休みをいただきます。
+      ご予約やご来店についてはメッセージからご相談ください。
+  - title: トリミング事例のご紹介
+    body: |
+      【トリミング事例のご紹介】
+      掲載の許可をいただいた◯ちゃんの仕上がりをご紹介します。
+      ご予約とご相談はメッセージからどうぞ。

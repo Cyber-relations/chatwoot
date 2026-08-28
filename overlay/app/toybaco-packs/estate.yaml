@@ -1,0 +1,84 @@
+# 業界パック: 不動産
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: estate
+label: 不動産
+emoji: "🏠"
+accent: blue
+
+canned_responses:
+  - short_code: bukken-toiawase
+    content: |
+      物件へのお問い合わせありがとうございます。
+      物件名または掲載ページをお知らせください。詳細を確認してご案内します。
+  - short_code: bukken-jokyo
+    content: |
+      お問い合わせの物件について、現在の募集状況を確認します。
+      確認でき次第、担当者からご返信します。
+  - short_code: kibou-joken
+    content: |
+      物件探しのご相談ありがとうございます。
+      ご希望のエリア・物件種別・ご予算・入居希望時期をお知らせください。条件を確認してご案内します。
+  - short_code: naiken-uketsuke
+    content: |
+      内見のご希望ありがとうございます。
+      ご希望の日時を◯つほどお知らせください。物件と担当者の予定を確認してご案内します。
+  - short_code: naiken-kakutei
+    content: |
+      内見の日時を承りました。
+      ◯月◯日(◯) ◯:◯に、◯でお待ち合わせをお願いします。
+      当日の連絡先は◯です。
+  - short_code: naiken-henkou
+    content: |
+      ご連絡ありがとうございます。変更をご希望の日時をお知らせください。
+      物件と担当者の予定を確認して、あらためてご案内します。
+  - short_code: shiryo-seikyu
+    content: |
+      資料のご請求ありがとうございます。
+      ご希望の物件と送付先をお知らせください。内容を確認してご返信します。
+  - short_code: moushikomi-soudan
+    content: |
+      お申し込みに関するご相談ありがとうございます。
+      ご希望の物件と確認したい内容をお知らせください。必要な手続きや書類を担当者からご案内します。
+  - short_code: eigyo-access
+    content: |
+      営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
+      ご来店場所はこちらです: <URL>
+
+labels:
+  - title: 物件反響
+    description: 掲載物件への問い合わせ
+    color: "#E05C7A"
+  - title: 内見
+    description: 内見の希望・日程調整
+    color: "#F09A3E"
+  - title: 希望条件
+    description: 物件探しの条件相談
+    color: "#2FA35C"
+  - title: 資料請求
+    description: 物件資料の送付依頼
+    color: "#4A79B8"
+  - title: 申込相談
+    description: 申し込み・必要書類の相談
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま営業時間外のため、営業開始後に順番にご返信します。
+  物件名・ご希望条件・内見希望日時は、このままメッセージをお送りください。
+
+post_templates:
+  - title: 内見可能枠のお知らせ
+    body: |
+      【◯月◯日(◯) 内見のご案内が可能です】
+      ◯:◯と◯:◯に空きがあります。
+      ご希望の物件と時間をメッセージでお知らせください。
+  # 掲載時は取引態様など宅建業の広告必要事項をリンク先の詳細ページで満たすこと
+  - title: 新着物件のお知らせ
+    body: |
+      【◯エリアの新着物件】
+      ◯タイプの物件をご紹介します。
+      詳細はこちらです: <URL>
+  - title: 相談会のお知らせ
+    body: |
+      【住まい探し相談会のお知らせ】
+      ◯月◯日(◯)に、住まい探しの相談会を開催します。
+      詳細はこちらです: <URL>

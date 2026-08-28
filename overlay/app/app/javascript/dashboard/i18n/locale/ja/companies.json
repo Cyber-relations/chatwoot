@@ -1,0 +1,153 @@
+{
+  "COMPANIES": {
+    "HEADER": "企業",
+    "SORT_BY": {
+      "LABEL": "並び替え",
+      "OPTIONS": {
+        "NAME": "名前",
+        "DOMAIN": "ドメイン",
+        "CREATED_AT": "作成日時",
+        "LAST_ACTIVITY_AT": "最終アクティビティ",
+        "CONTACTS_COUNT": "連絡先数"
+      }
+    },
+    "ORDER": {
+      "LABEL": "注文",
+      "OPTIONS": {
+        "ASCENDING": "昇順",
+        "DESCENDING": "降順"
+      }
+    },
+    "SEARCH_PLACEHOLDER": "企業を検索する...",
+    "LOADING": "会社を読み込んでいます...",
+    "UNNAMED": "名前のない会社",
+    "CONTACTS_COUNT": "{n} 連絡先 | {n} 連絡先",
+    "ACTIONS": {
+      "CREATE": "会社を追加"
+    },
+    "SELECTOR": {
+      "PLACEHOLDER": "会社を選択する",
+      "CREATE_OPTION": "「{name}」を追加してください"
+    },
+    "CREATE": {
+      "TITLE": "会社の詳細を追加",
+      "ACTIONS": {
+        "SAVE": "会社を追加"
+      },
+      "MESSAGES": {
+        "SUCCESS": "会社が設立されました。",
+        "ERROR": "会社を作成できませんでした。"
+      }
+    },
+    "DETAIL": {
+      "LOADING": "会社の詳細を読み込んでいます...",
+      "EMPTY_STATE": {
+        "TITLE": "会社が見つかりません",
+        "SUBTITLE": "この会社は削除されたか、このアカウントでは利用できなくなっている可能性があります。"
+      },
+      "SIDEBAR": {
+        "TABS": {
+          "ATTRIBUTES": "属性",
+          "CONTACTS": "連絡先",
+          "HISTORY": "履歴",
+          "NOTES": "メモ"
+        }
+      },
+      "HISTORY": {
+        "EMPTY": "この会社の連絡先との会話はまだ見つかりませんでした。"
+      },
+      "NOTES": {
+        "EMPTY": "この会社の連絡先に関するメモはまだ見つかりませんでした。"
+      },
+      "ATTRIBUTES": {
+        "SEARCH_PLACEHOLDER": "属性を検索...",
+        "EMPTY_STATE": "会社のカスタム属性はまだ設定されていません。",
+        "NO_ATTRIBUTES": "一致する属性が見つかりません。",
+        "UNUSED_ATTRIBUTES": "{count} 未使用アトリビュート | {count} 未使用アトリビュート",
+        "MESSAGES": {
+          "UPDATE_SUCCESS": "会社属性が更新されました。",
+          "UPDATE_ERROR": "会社属性を更新できませんでした。",
+          "DELETE_SUCCESS": "会社属性が削除されました。",
+          "DELETE_ERROR": "会社属性を削除できませんでした。"
+        }
+      },
+      "CONTACTS": {
+        "LOADING": "連絡先を読み込んでいます...",
+        "EMPTY": "この会社にはまだ連絡先がリンクされていません。",
+        "UNNAMED_CONTACT": "名前のない連絡先",
+        "ACTIONS": {
+          "ADD": "連絡先を追加",
+          "REMOVE": "連絡先を削除"
+        },
+        "DIALOGS": {
+          "ADD": {
+            "DESCRIPTION": "既存の連絡先を検索し、この会社にリンクします。",
+            "SEARCH_PLACEHOLDER": "連絡先を検索...",
+            "INITIAL": "入力を開始して連絡先を検索します。",
+            "EMPTY": "連絡先が見つかりませんでした。",
+            "CONFIRM_TITLE": "リンク連絡先",
+            "CONFIRM_DESCRIPTION": "リンクする前に、会社を確認して問い合わせてください。",
+            "COMPANY_LABEL": "企業名",
+            "CONTACT_LABEL": "連絡先",
+            "CURRENT_COMPANY": "現在 {companyName} にリンクされています",
+            "ADD": "リンク連絡先",
+            "CANCEL": "キャンセル"
+          }
+        },
+        "MESSAGES": {
+          "ADD_SUCCESS": "連絡先は会社にリンクされています。",
+          "ADD_ERROR": "連絡先を会社にリンクできませんでした。",
+          "REASSIGN_SUCCESS": "連絡先が会社に再割り当てされました。",
+          "REASSIGN_ERROR": "連絡先を会社に再割り当てできませんでした。",
+          "REMOVE_SUCCESS": "連絡先が会社から削除されました。",
+          "REMOVE_ERROR": "会社から連絡先を削除できませんでした。"
+        }
+      },
+      "AVATAR": {
+        "UPDATING": "会社アバターを更新中...",
+        "UPLOAD_SUCCESS": "会社アバターが更新されました。",
+        "UPLOAD_ERROR": "会社のアバターを更新できませんでした。",
+        "DELETE_SUCCESS": "会社のアバターが削除されました。",
+        "DELETE_ERROR": "会社のアバターを削除できませんでした。"
+      },
+      "PROFILE": {
+        "TITLE": "会社の詳細を編集",
+        "CREATED_AT": "{date} に作成",
+        "LAST_ACTIVE": "{date} に最後のアクティビティ",
+        "DESCRIPTION_PLACEHOLDER": "この会社の簡単な説明を追加",
+        "ACTIONS": {
+          "SAVE": "会社を更新"
+        },
+        "MESSAGES": {
+          "UPDATE_SUCCESS": "会社が更新されました。",
+          "UPDATE_ERROR": "会社を更新できませんでした。"
+        },
+        "FIELDS": {
+          "NAME": "名前",
+          "DOMAIN": "ドメイン"
+        }
+      },
+      "DELETE": {
+        "SECTION_TITLE": "危険地帯",
+        "SECTION_DESCRIPTION": "この会社を削除し、連絡先のリンクを解除してください。連絡先はアカウントに残ります。",
+        "BUTTON": "会社を削除",
+        "TITLE": "会社を削除しますか?",
+        "DESCRIPTION": "これにより、会社が削除され、関連するすべての連絡先のリンクが解除されます。連絡先自体は保存されます。",
+        "DESCRIPTION_WITH_NAME": "これにより、{companyName} が削除され、関連するすべての連絡先のリンクが解除されます。連絡先自体は保存されます。",
+        "CONFIRM": "会社を削除",
+        "MESSAGES": {
+          "SUCCESS": "会社が削除されました。",
+          "ERROR": "会社を削除できませんでした。"
+        }
+      }
+    },
+    "EMPTY_STATE": {
+      "TITLE": "会社が見つかりませんでした"
+    }
+  },
+  "COMPANIES_LAYOUT": {
+    "PAGINATION_FOOTER": {
+      "SHOWING": "{totalItems} 会社の {startItem} — {endItem} を表示中 | {totalItems} 企業の {startItem} — {endItem} を表示しています"
+    }
+  }
+}

@@ -1,0 +1,325 @@
+# トイバコ: 管理コンソール(SuperAdmin / administrate)向けの日本語訳。
+# administrate はリソース名を activerecord.models、項目名を activerecord.attributes から引く。
+# Chatwoot 本体の ja.yml に activerecord キーは無いので競合しない。
+ja:
+  administrate:
+    actions:
+      # 既定は "%{name}を作成" だが Chatwoot のビューが name に生の英語名を渡すため、名前に依存しない文言へ
+      new_resource: 新規作成
+  # Chatwoot 版 _collection.html.erb は列ヘッダを helpers.label(無ければ英語 attr 名)で引く
+  helpers:
+    label:
+      account:
+        id: 番号
+        name: 名前
+        locale: 言語
+        users: ユーザー数
+        conversations: 会話数
+        status: 状態
+        created_at: 作成日時
+        updated_at: 更新日時
+      user:
+        id: 番号
+        name: 名前
+        display_name: 表示名
+        email: メールアドレス
+        type: 種別
+        confirmed_at: メール確認日時
+        created_at: 作成日時
+        updated_at: 更新日時
+      agent_bot:
+        id: 番号
+        name: 名前
+        description: 説明
+        bot_type: 種別
+        account: アカウント
+        created_at: 作成日時
+      platform_app:
+        id: 番号
+        name: 名前
+        created_at: 作成日時
+        updated_at: 更新日時
+      account_user:
+        id: 番号
+        account: アカウント
+        user: ユーザー
+        role: 権限
+  activerecord:
+    models:
+      account: アカウント(テナント)
+      user: ユーザー
+      agent_bot: エージェントボット
+      platform_app: プラットフォームアプリ
+      account_user: アカウント所属
+      access_token: アクセストークン
+      installation_config: インストール設定
+    attributes:
+      account:
+        name: 名前
+        locale: 言語
+        status: 状態
+        created_at: 作成日時
+        updated_at: 更新日時
+        users: ユーザー
+        conversations: 会話
+        suspension_history: 停止履歴
+        account_users: 所属ユーザー
+      user:
+        name: 名前
+        display_name: 表示名
+        email: メールアドレス
+        unconfirmed_email: 未確認メールアドレス
+        password: パスワード
+        confirmed_at: メール確認日時
+        created_at: 作成日時
+        updated_at: 更新日時
+        type: 種別
+        avatar_url: アバター
+        account_users: 所属アカウント
+        access_token: アクセストークン
+        mfa: 多要素認証
+      account_user:
+        account: アカウント
+        user: ユーザー
+        role: 権限
+        inviter: 招待者
+      agent_bot:
+        name: 名前
+        description: 説明
+        outgoing_url: 送信先 URL
+        bot_type: 種別
+        account: アカウント
+        created_at: 作成日時
+        updated_at: 更新日時
+      platform_app:
+        name: 名前
+        created_at: 作成日時
+        updated_at: 更新日時
+  toybaco:
+    super_admin:
+      config_groups:
+        general: 全般設定
+        facebook: Facebook・Messenger連携
+        shopify: Shopify連携
+        microsoft: Microsoft連携
+        email: メール設定
+        linear: Linear連携
+        slack: Slack連携
+        instagram: Instagram連携
+        tiktok: TikTok連携
+        whatsapp_embedded: WhatsApp埋め込み登録
+        notion: Notion連携
+        google: Googleログイン連携
+        captain: AIアシスタント設定
+      features:
+        saml:
+          name: SAMLシングルサインオン
+          description: SAMLによるシングルサインオンの利用可否を設定します。
+        custom_branding:
+          name: 独自ブランド
+          description: この環境に独自のブランド表示を適用します。
+        agent_capacity:
+          name: 担当者の対応上限
+          description: 担当者へ自動割り当てする会話数の上限を設定します。
+        audit_logs:
+          name: 監査ログ
+          description: アカウント内の操作履歴を記録して確認できます。
+        disable_branding:
+          name: ブランド表示の無効化
+          description: チャット画面と外部メールのブランド表示を無効にします。
+        voice_calls:
+          name: 音声通話
+          description: 担当者と顧客の音声通話を有効にします。
+        help_center:
+          name: ヘルプセンター
+          description: ヘルプ記事を作成し、ポータルで公開できます。
+        captain:
+          name: AIアシスタント
+          description: AIを使った顧客対応を有効にします。
+        live_chat:
+          name: Webチャット
+          description: Webサイト上のチャットで顧客対応を行います。
+        email:
+          name: メール
+          description: メールでの顧客対応を一元管理します。
+        sms:
+          name: SMS
+          description: SMSでの顧客対応を一元管理します。
+        messenger:
+          name: Messenger
+          description: FacebookとInstagramの顧客対応を一元管理します。
+        instagram:
+          name: Instagram
+          description: Instagramでの顧客対応を一元管理します。
+        tiktok:
+          name: TikTok
+          description: TikTokでの顧客対応を一元管理します。
+        whatsapp:
+          name: WhatsApp
+          description: WhatsAppでの顧客対応を一元管理します。
+        telegram:
+          name: Telegram
+          description: Telegramでの顧客対応を一元管理します。
+        line:
+          name: LINE
+          description: LINEでの顧客対応を一元管理します。
+        google:
+          name: Google
+          description: Googleログイン連携を設定します。
+        microsoft:
+          name: Microsoft
+          description: Microsoftメール連携を設定します。
+        linear:
+          name: Linear
+          description: Linear連携を設定します。
+        notion:
+          name: Notion
+          description: Notion連携を設定します。
+        slack:
+          name: Slack
+          description: Slack連携を設定します。
+        whatsapp_embedded:
+          name: WhatsApp埋め込み登録
+          description: WhatsAppの埋め込み登録連携を設定します。
+        shopify:
+          name: Shopify
+          description: Shopify連携を設定します。
+      app_configs:
+        ENABLE_ACCOUNT_SIGNUP:
+          label: アカウント新規登録
+          description: 利用者による新しいアカウントの登録を許可します。
+        FIREBASE_PROJECT_ID:
+          label: FirebaseプロジェクトID
+          description: Push通知で使用するFirebaseのプロジェクトIDです。
+        FIREBASE_CREDENTIALS:
+          label: Firebase認証情報
+          description: Push通知で使用するFirebaseの認証情報です。
+        WEBHOOK_TIMEOUT:
+          label: Webhookタイムアウト（秒）
+          description: Webhook応答を待つ最大時間です。
+        MAXIMUM_FILE_UPLOAD_SIZE:
+          label: 添付ファイル上限（MB）
+          description: アップロードできる添付ファイルの最大サイズです。
+        WIDGET_TOKEN_EXPIRY:
+          label: ウィジェットトークン有効期間
+          description: Webチャット用トークンの有効期間です。
+        DISABLE_META_INBOX_CREATION:
+          label: Meta受信箱の新規作成を停止
+          description: 障害時にFacebook・Instagram・WhatsApp受信箱の新規作成を止めます。
+        DISABLE_META_MESSAGE_SENDING:
+          label: Metaメッセージ送信を停止
+          description: 障害時にInstagramメッセージの送信を止めます。
+        FB_APP_ID:
+          label: FacebookアプリID
+          description: Facebook・Messenger連携で使用するアプリIDです。
+        FB_VERIFY_TOKEN:
+          label: Facebook検証トークン
+          description: Facebook Webhookの検証に使用するトークンです。
+        FB_APP_SECRET:
+          label: Facebookアプリシークレット
+          description: Facebook・Messenger連携で使用する秘密情報です。
+        IG_VERIFY_TOKEN:
+          label: Instagram検証トークン
+          description: Instagram Webhookの検証に使用するトークンです。
+        FACEBOOK_API_VERSION:
+          label: Facebook APIバージョン
+          description: Facebook連携で使用するAPIバージョンです。
+        ENABLE_MESSENGER_CHANNEL_HUMAN_AGENT:
+          label: Messenger有人対応期間の延長
+          description: 承認済みアプリでMessengerの有人対応可能期間を延長します。
+        SHOPIFY_CLIENT_ID:
+          label: ShopifyクライアントID
+          description: Shopify連携で使用するクライアントIDです。
+        SHOPIFY_CLIENT_SECRET:
+          label: Shopifyクライアントシークレット
+          description: Shopify連携で使用する秘密情報です。
+        AZURE_APP_ID:
+          label: MicrosoftアプリID
+          description: Microsoftアカウント連携で使用するアプリIDです。
+        AZURE_APP_SECRET:
+          label: Microsoftアプリシークレット
+          description: Microsoftアカウント連携で使用する秘密情報です。
+        MAILER_INBOUND_EMAIL_DOMAIN:
+          label: 受信メール用ドメイン
+          description: 会話継続用の返信メールアドレスを生成するドメインです。
+        ACCOUNT_EMAILS_LIMIT:
+          label: アカウント別メール送信上限（日次）
+          description: 1アカウントが1日に送信できるチャネル外メールの上限です。
+        ACCOUNT_EMAILS_PLAN_LIMITS:
+          label: プラン別メール送信上限（日次）
+          description: プランごとの日次メール送信上限をJSONで設定します。
+        LINEAR_CLIENT_ID:
+          label: LinearクライアントID
+          description: Linear連携で使用するクライアントIDです。
+        LINEAR_CLIENT_SECRET:
+          label: Linearクライアントシークレット
+          description: Linear連携で使用する秘密情報です。
+        SLACK_CLIENT_ID:
+          label: SlackクライアントID
+          description: Slack連携で使用するクライアントIDです。
+        SLACK_CLIENT_SECRET:
+          label: Slackクライアントシークレット
+          description: Slack連携で使用する秘密情報です。
+        INSTAGRAM_APP_ID:
+          label: InstagramアプリID
+          description: Instagram連携で使用するアプリIDです。
+        INSTAGRAM_APP_SECRET:
+          label: Instagramアプリシークレット
+          description: Instagram連携で使用する秘密情報です。
+        INSTAGRAM_VERIFY_TOKEN:
+          label: Instagram検証トークン
+          description: Instagram Webhookの検証に使用するトークンです。
+        INSTAGRAM_API_VERSION:
+          label: Instagram APIバージョン
+          description: Instagram連携で使用するAPIバージョンです。
+        ENABLE_INSTAGRAM_CHANNEL_HUMAN_AGENT:
+          label: Instagram有人対応期間の延長
+          description: 承認済みアプリでInstagramの有人対応可能期間を延長します。
+        TIKTOK_APP_ID:
+          label: TikTokアプリID
+          description: TikTok連携で使用するアプリIDです。
+        TIKTOK_APP_SECRET:
+          label: TikTokアプリシークレット
+          description: TikTok連携で使用する秘密情報です。
+        TIKTOK_API_VERSION:
+          label: TikTok APIバージョン
+          description: TikTok連携で使用するAPIバージョンです。
+        WHATSAPP_APP_ID:
+          label: WhatsAppアプリID
+          description: WhatsApp Business連携で使用するアプリIDです。
+        WHATSAPP_APP_SECRET:
+          label: WhatsAppアプリシークレット
+          description: WhatsApp埋め込み登録で使用する秘密情報です。
+        WHATSAPP_CONFIGURATION_ID:
+          label: WhatsApp設定ID
+          description: WhatsApp埋め込み登録で使用する設定IDです。
+        WHATSAPP_API_VERSION:
+          label: WhatsApp APIバージョン
+          description: WhatsApp連携で使用するAPIバージョンです。
+        NOTION_CLIENT_ID:
+          label: NotionクライアントID
+          description: Notion連携で使用するクライアントIDです。
+        NOTION_CLIENT_SECRET:
+          label: Notionクライアントシークレット
+          description: Notion連携で使用する秘密情報です。
+        GOOGLE_OAUTH_CLIENT_ID:
+          label: Google OAuthクライアントID
+          description: Googleログインで使用するクライアントIDです。
+        GOOGLE_OAUTH_CLIENT_SECRET:
+          label: Google OAuthクライアントシークレット
+          description: Googleログインで使用する秘密情報です。
+        GOOGLE_OAUTH_REDIRECT_URI:
+          label: Google OAuthリダイレクトURL
+          description: Google認証後に戻るURLです。
+        ENABLE_GOOGLE_OAUTH_LOGIN:
+          label: Googleログイン
+          description: Googleアカウントによるログインを有効にします。
+        CAPTAIN_OPEN_AI_API_KEY:
+          label: OpenAI APIキー
+          description: AIアシスタントがOpenAIへ接続するためのAPIキーです。
+        CAPTAIN_OPEN_AI_MODEL:
+          label: OpenAIモデル
+          description: AIアシスタントが使用するOpenAIモデルです。
+        CAPTAIN_OPEN_AI_ENDPOINT:
+          label: OpenAI API接続先
+          description: AIアシスタントが使用するOpenAI APIの接続先です。

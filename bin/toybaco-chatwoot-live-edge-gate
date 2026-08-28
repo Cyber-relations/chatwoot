@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly URL="${1:-https://app.toybaco.jp/app/login}"
+readonly HTTP_URL="http://${URL#https://}"
+readonly MIN_HSTS=15552000
+
+fail() {
+  echo "TOYBACO_CHATWOOT_EDGE=FAIL $*" >&2
+  exit 1
+}
+
+command -v curl >/dev/null 2>&1 || fail 'curlがありません'
+[[ "$URL" == https://app.toybaco.jp/* ]] || fail '検証先は固定production originだけです'
+
+headers="$(mktemp)"
+http_headers="$(mktemp)"
+trap 'unlink "$headers" 2>/dev/null || true; unlink "$http_headers" 2>/dev/null || true' EXIT
+curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 \
+  --dump-header "$headers" --output /dev/null "$URL"
+
+hsts="$(awk 'tolower($0) ~ /^strict-transport-security:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+  "$headers")"
+[[ -n "$hsts" ]] || fail 'Strict-Transport-Securityがありません'
+max_age="$(sed -nE 's/.*max-age=([0-9]+).*/\1/ip' <<<"$hsts")"
+[[ "$max_age" =~ ^[0-9]+$ && "$max_age" -ge "$MIN_HSTS" ]] || fail "HSTS max-ageが不足しています: $hsts"
+grep -Eqi '(^|;)[[:space:]]*includeSubDomains([[:space:]]*;|$)' <<<"$hsts" || fail 'HSTS includeSubDomainsがありません'
+! grep -Eqi '(^|;)[[:space:]]*preload([[:space:]]*;|$)' <<<"$hsts" || fail '未承認のHSTS preloadが有効です'
+grep -Eqi '^x-content-type-options:[[:space:]]*nosniff\r?$' "$headers" || fail 'nosniffがありません'
+
+http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-redirs 0 \
+  --dump-header "$http_headers" "$HTTP_URL")"
+[[ "$http_status" =~ ^30[1278]$ ]] || fail "HTTPがHTTPSへredirectしません: $http_status"
+location="$(awk 'tolower($0) ~ /^location:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' \
+  "$http_headers")"
+[[ "$location" == "$URL" ]] || fail "HTTP redirect先が固定HTTPS URLではありません: $location"
+
+if curl --silent --show-error --tls-max 1.1 --output /dev/null "$URL" 2>/dev/null; then
+  fail 'TLS 1.1以下が接続できてしまいます'
+fi
+
+printf 'TOYBACO_CHATWOOT_EDGE=PASS hsts=%s includeSubDomains=true preload=false min_tls=1.2 nosniff=true\n' "$max_age"

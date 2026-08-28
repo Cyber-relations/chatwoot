@@ -1,0 +1,84 @@
+# 業界パック: 飲食店
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: food
+label: 飲食店
+emoji: "🍽️"
+accent: amber
+
+canned_responses:
+  - short_code: yoyaku-uketsuke
+    content: |
+      お問い合わせありがとうございます。
+      ご希望の日時・人数・お席の希望をお知らせください。空き状況を確認してご案内します。
+  - short_code: yoyaku-kakutei
+    content: |
+      ご予約を承りました。
+      ◯月◯日(◯) ◯:◯から、◯名様でお席をご用意します。
+      当日お気をつけてお越しください。
+  - short_code: yoyaku-henkou
+    content: |
+      ご連絡ありがとうございます。変更をご希望の日時と人数をお知らせください。
+      空き状況を確認して、あらためてご案内します。
+  - short_code: yoyaku-cancel
+    content: |
+      キャンセルを承りました。ご連絡ありがとうございました。
+      またのご利用をお待ちしています。
+  - short_code: kashikiri-soudan
+    content: |
+      貸切のご相談ありがとうございます。
+      ご希望の日時・人数・ご予算をお知らせください。内容を確認してご案内します。
+  - short_code: menu-annai
+    content: |
+      メニューと料金の一覧はこちらです: <URL>
+      ご不明な点がありましたら、ご希望のメニューをお知らせください。
+  - short_code: arerugi-kakunin
+    content: |
+      アレルギーに関するお問い合わせありがとうございます。
+      対象の食材とご希望のメニューをお知らせください。調理担当に確認のうえ、対応可否をご案内します。
+  - short_code: eigyo-access
+    content: |
+      営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
+      場所はこちらです: <URL>
+  - short_code: goiken-uketsuke
+    content: |
+      このたびはご不快な思いをおかけし、申し訳ございません。
+      差し支えなければ、ご利用日時と状況をお知らせください。内容を確認してご返信します。
+
+labels:
+  - title: 予約
+    description: 新規予約・空席確認
+    color: "#E05C7A"
+  - title: 変更キャンセル
+    description: 予約の変更・キャンセル連絡
+    color: "#F09A3E"
+  - title: 貸切相談
+    description: 貸切・団体利用の相談
+    color: "#2FA35C"
+  - title: メニュー確認
+    description: メニュー・アレルギーの問い合わせ
+    color: "#4A79B8"
+  - title: ご意見
+    description: ご意見・ご指摘への対応
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま営業時間外のため、営業開始後に順番にご返信します。
+  ご予約の希望・変更・キャンセルは、このままメッセージをお送りください。
+
+post_templates:
+  - title: 空席のお知らせ
+    body: |
+      【◯月◯日(◯) お席に空きがあります】
+      ◯:◯から、◯名様までご案内できます。
+      ご予約はメッセージからお気軽にご相談ください。
+  - title: 季節メニューのお知らせ
+    body: |
+      【季節メニューのお知らせ】
+      ◯月◯日から、◯をご用意します。
+      詳細はこちらです: <URL>
+  - title: キャンペーン告知
+    body: |
+      【◯月のキャンペーン】
+      ◯月◯日から◯月◯日まで、◯を実施します。
+      対象・条件: ◯
+      詳細はこちらです: <URL>

@@ -1,0 +1,1404 @@
+{
+  "INTEGRATION_SETTINGS": {
+    "SHOPIFY": {
+      "HEADER": "Shopify",
+      "DELETE": {
+        "TITLE": "Shopify インテグレーションを削除する",
+        "MESSAGE": "Shopify インテグレーションを削除してもよろしいですか?"
+      },
+      "STORE_URL": {
+        "TITLE": "コネクト Shopify ストア",
+        "LABEL": "URL を保存",
+        "PLACEHOLDER": "your-store.myshopify.com",
+        "HELP": "Shopify ストアの myshopify.com URL を入力してください",
+        "CANCEL": "キャンセル",
+        "SUBMIT": "コネクトストア"
+      },
+      "ERROR": "Shopify への接続中にエラーが発生しました。もう一度試すか、問題が解決しない場合はサポートに連絡してください。"
+    },
+    "HEADER": "連携",
+    "DESCRIPTION": "トイバコは、チームの効率を向上させるために複数のツールやサービスと連携します。以下のリストを探索して、お気に入りのアプリを設定してください。",
+    "LEARN_MORE": "連携について詳しく知る",
+    "LOADING": "連携を取得中",
+    "SEARCH_PLACEHOLDER": "インテグレーションを検索...",
+    "NO_RESULTS": "検索条件に一致するインテグレーションは見つかりませんでした",
+    "CAPTAIN": {
+      "DISABLED": "AIアシスタントはあなたのアカウントで有効になっていません。",
+      "CLICK_HERE_TO_CONFIGURE": "設定するにはここをクリック",
+      "LOADING_CONSOLE": "AIアシスタントコンソールを読み込み中...",
+      "FAILED_TO_LOAD_CONSOLE": "AIアシスタントコンソールの読み込みに失敗しました。リフレッシュしてもう一度お試しください。"
+    },
+    "WEBHOOK": {
+      "SUBSCRIBED_EVENTS": "購読イベント",
+      "LEARN_MORE": "Webhookについて詳しく知る",
+      "PAYWALL": {
+        "TITLE": "ウェブフックは有料プランで利用できます",
+        "AVAILABLE_ON": "Webhook を使用して、トイバコ アカウントからリアルタイムのイベントを受信します。",
+        "UPGRADE_PROMPT": "Webhook を使用するには、スタートアップ、ビジネス、またはエンタープライズプランにアップグレードしてください。",
+        "UPGRADE_NOW": "今すぐアップグレード",
+        "CANCEL_ANYTIME": "いつでもプランを変更またはキャンセルできます。"
+      },
+      "SECRET": {
+        "LABEL": "シークレット",
+        "COPY": "シークレットをクリップボードにコピー",
+        "COPY_SUCCESS": "シークレットをクリップボードにコピーしました",
+        "TOGGLE": "シークレットの可視性を切り替える",
+        "CREATED_DESC": "ウェブフックが作成されました。以下のシークレットを使用してウェブフックの署名を検証してください。今すぐコピーしてください。後で Webhook 編集フォームで見つけることもできます。",
+        "DONE": "完了"
+      },
+      "COUNT": "{n} ウェブフック | {n} ウェブフック",
+      "SEARCH_PLACEHOLDER": "ウェブフックを検索...",
+      "NO_RESULTS": "検索条件に一致するウェブフックは見つかりませんでした",
+      "FORM": {
+        "CANCEL": "キャンセル",
+        "DESC": "Webhookイベントは、トイバコアカウントで何が起こっているかについてのリアルタイムの情報を提供します。コールバックを設定するには有効なURLを入力してください。",
+        "SUBSCRIPTIONS": {
+          "LABEL": "イベント",
+          "EVENTS": {
+            "CONVERSATION_CREATED": "会話が作成されました",
+            "CONVERSATION_STATUS_CHANGED": "会話のステータスが変更されました",
+            "CONVERSATION_UPDATED": "会話が更新されました",
+            "MESSAGE_CREATED": "メッセージが作成されました",
+            "MESSAGE_UPDATED": "メッセージが更新されました",
+            "WEBWIDGET_TRIGGERED": "ユーザーによってライブチャットウィジェットが開かれました",
+            "CONTACT_CREATED": "連絡先が作成されました",
+            "CONTACT_UPDATED": "連絡先が更新されました",
+            "CONVERSATION_TYPING_ON": "会話入力中",
+            "CONVERSATION_TYPING_OFF": "会話タイピングオフ",
+            "INBOX_UPDATED": "受信トレイが更新されました"
+          }
+        },
+        "NAME": {
+          "LABEL": "ウェブフック名",
+          "PLACEHOLDER": "ウェブフックの名前を入力してください"
+        },
+        "END_POINT": {
+          "LABEL": "ウェブフック URL",
+          "PLACEHOLDER": "例: {webhookExampleURL}",
+          "ERROR": "有効な URL を入力してください"
+        },
+        "EDIT_SUBMIT": "Webhookを更新",
+        "ADD_SUBMIT": "Webhookを作成"
+      },
+      "TITLE": "ウェブフック",
+      "CONFIGURE": "設定",
+      "HEADER": "Webhookの設定",
+      "HEADER_BTN_TXT": "新しいWebhookを追加",
+      "LOADING": "添付されたWebhookを取得しています",
+      "SEARCH_404": "検索内容（クエリ）に一致する項目はありませんでした",
+      "SIDEBAR_TXT": "<p><b>Webhooks</b> </p> <p>Webhooks は、すべてのアカウントで定義可能なHTTP コールバックです。これらは、メッセージの作成などトイバコ上でのイベントをきっかけに実行されます。このアカウントでは、1つ以上のwebhookが作成できます。 <br /><br /> <b>webhook</b>を作成するには、<b>webhookを作成</b>ボタンをクリックしてください。また、作成した webhook を削除ボタンを押して削除することもできます。</p>",
+      "LIST": {
+        "404": "このアカウントに紐付けされたWebフックはありません。",
+        "TITLE": "Webhookの管理",
+        "TABLE_HEADER": {
+          "WEBHOOK_ENDPOINT": "Webhookエンドポイント",
+          "ACTIONS": "操作"
+        }
+      },
+      "EDIT": {
+        "BUTTON_TEXT": "編集",
+        "TITLE": "Webhookを編集",
+        "API": {
+          "SUCCESS_MESSAGE": "Webhookの設定が正常に更新されました",
+          "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+        }
+      },
+      "ADD": {
+        "CANCEL": "キャンセル",
+        "TITLE": "新しいWebhookを追加",
+        "API": {
+          "SUCCESS_MESSAGE": "Webhookの設定が正常に追加されました",
+          "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+        }
+      },
+      "DELETE": {
+        "BUTTON_TEXT": "削除",
+        "API": {
+          "SUCCESS_MESSAGE": "Webhookの削除に成功しました",
+          "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+        },
+        "CONFIRM": {
+          "TITLE": "削除の確認",
+          "MESSAGE": "Webhookを削除してもよろしいですか？ ({webhookURL})",
+          "YES": "削除する ",
+          "NO": "いいえ、保存しておきます"
+        }
+      }
+    },
+    "SLACK": {
+      "HEADER": "Slack",
+      "DELETE": "削除",
+      "DELETE_CONFIRMATION": {
+        "TITLE": "連携の削除",
+        "MESSAGE": "連携を削除してもよろしいですか？削除すると、Slackワークスペースでの会話へのアクセスが失われます。"
+      },
+      "HELP_TEXT": {
+        "TITLE": "Slack連携の使用方法",
+        "BODY": "この連携を使用すると、すべての受信会話がSlackワークスペースの***{selectedChannelName}***チャンネルに同期されます。チャンネル内で顧客の会話を管理し、メッセージを見逃すことはありません。\n\n連携の主な機能は次のとおりです:\n\n**Slackから会話に返信:** ***{selectedChannelName}*** Slackチャンネルで会話に返信するには、メッセージを入力してスレッドとして送信するだけです。これにより、トイバコを通じて顧客に返信が作成されます。とても簡単です！\n\n**プライベートノートの作成:** 返信ではなくプライベートノートを作成したい場合は、メッセージの先頭に***`note:`***と入力してください。これにより、メッセージがプライベートに保たれ、顧客には表示されません。\n\n**担当者プロファイルの関連付け:** Slackで返信した人が同じメールアドレスでトイバコに担当者プロファイルを持っている場合、返信は自動的にその担当者プロファイルに関連付けられます。これにより、誰がいつ何を言ったかを簡単に追跡できます。一方、返信者に関連付けられた担当者プロファイルがない場合、返信は顧客に対してボットプロファイルからのものとして表示されます。",
+        "SELECTED": "選択済み"
+      },
+      "SELECT_CHANNEL": {
+        "OPTION_LABEL": "チャンネルを選択",
+        "UPDATE": "更新",
+        "BUTTON_TEXT": "チャンネルを接続",
+        "DESCRIPTION": "Slackワークスペースはトイバコとリンクされていますが、連携は現在非アクティブです。連携を有効にしてトイバコにチャンネルを接続するには、以下のボタンをクリックしてください。\n\n**注意:** プライベートチャンネルを接続しようとしている場合は、この手順を進める前にトイバコアプリをSlackチャンネルに追加してください。",
+        "ATTENTION_REQUIRED": "注意が必要",
+        "EXPIRED": "Slack連携の有効期限が切れました。Slackでメッセージを受信し続けるには、連携を削除してワークスペースを再接続してください。"
+      },
+      "UPDATE_ERROR": "連携の更新中にエラーが発生しました。もう一度お試しください",
+      "UPDATE_SUCCESS": "チャンネルが正常に接続されました",
+      "FAILED_TO_FETCH_CHANNELS": "Slackからチャンネルを取得中にエラーが発生しました。もう一度お試しください"
+    },
+    "DYTE": {
+      "CLICK_HERE_TO_JOIN": "ここをクリックして参加",
+      "LEAVE_THE_ROOM": "ルームを退出",
+      "START_VIDEO_CALL_HELP_TEXT": "顧客と新しいビデオ通話を開始",
+      "JOIN_ERROR": "通話に参加中にエラーが発生しました。もう一度お試しください",
+      "CREATE_ERROR": "ミーティングリンクの作成中にエラーが発生しました。もう一度お試しください"
+    },
+    "OPEN_AI": {
+      "AI_ASSIST": "AIアシスト",
+      "WITH_AI": "AIで{option}",
+      "OPTIONS": {
+        "REPLY_SUGGESTION": "返信の提案",
+        "SUMMARIZE": "要約",
+        "REPHRASE": "文章の改善",
+        "FIX_SPELLING_GRAMMAR": "スペルと文法の修正",
+        "SHORTEN": "短縮",
+        "EXPAND": "拡張",
+        "MAKE_FRIENDLY": "メッセージのトーンをフレンドリーに変更",
+        "MAKE_FORMAL": "フォーマルトーンを使用",
+        "SIMPLIFY": "簡素化",
+        "CONFIDENT": "自信に満ちた口調を使う",
+        "PROFESSIONAL": "プロ仕様のトーンを使う",
+        "CASUAL": "カジュアルトーンを使う",
+        "STRAIGHTFORWARD": "わかりやすいトーンを使う"
+      },
+      "REPLY_OPTIONS": {
+        "IMPROVE_REPLY": "返信の改善",
+        "IMPROVE_REPLY_SELECTION": "選択内容を改善する",
+        "CHANGE_TONE": {
+          "TITLE": "トーンを変更",
+          "OPTIONS": {
+            "PROFESSIONAL": "プロフェッショナル",
+            "CASUAL": "カジュアル",
+            "STRAIGHTFORWARD": "わかりやすい",
+            "CONFIDENT": "自信を持って",
+            "FRIENDLY": "フレンドリー"
+          }
+        },
+        "GRAMMAR": "文法とスペルを修正",
+        "SUGGESTION": "返信を提案",
+        "SUMMARIZE": "会話をまとめる",
+        "ASK_COPILOT": "副操縦士に聞く"
+      },
+      "ASSISTANCE_MODAL": {
+        "DRAFT_TITLE": "下書き内容",
+        "GENERATED_TITLE": "生成された内容",
+        "AI_WRITING": "AIが執筆中",
+        "BUTTONS": {
+          "APPLY": "この提案を使用",
+          "CANCEL": "キャンセル"
+        }
+      },
+      "CTA_MODAL": {
+        "TITLE": "OpenAIと統合",
+        "DESC": "OpenAIのGPTモデルを使用して、ダッシュボードに高度なAI機能を導入します。始めるには、OpenAIアカウントのAPIキーを入力してください。",
+        "KEY_PLACEHOLDER": "OpenAI APIキーを入力",
+        "BUTTONS": {
+          "NEED_HELP": "サポートが必要ですか？",
+          "DISMISS": "閉じる",
+          "FINISH": "設定を完了"
+        },
+        "DISMISS_MESSAGE": "OpenAIの統合は後でいつでも設定できます。",
+        "SUCCESS_MESSAGE": "OpenAIの統合が正常に設定されました"
+      },
+      "TITLE": "AIで改善",
+      "SUMMARY_TITLE": "AIによる要約",
+      "REPLY_TITLE": "AIによる返信提案",
+      "SUBTITLE": "現在の下書きを基に、AIが改善された返信を生成します。",
+      "TONE": {
+        "TITLE": "トーン",
+        "OPTIONS": {
+          "PROFESSIONAL": "プロフェッショナル",
+          "FRIENDLY": "フレンドリー"
+        }
+      },
+      "BUTTONS": {
+        "GENERATE": "生成",
+        "GENERATING": "生成中...",
+        "CANCEL": "キャンセル"
+      },
+      "GENERATE_ERROR": "コンテンツの処理中にエラーが発生しました。もう一度お試しください"
+    },
+    "DELETE": {
+      "BUTTON_TEXT": "削除",
+      "API": {
+        "SUCCESS_MESSAGE": "連携が正常に削除されました"
+      }
+    },
+    "CONNECT": {
+      "BUTTON_TEXT": "接続"
+    },
+    "DASHBOARD_APPS": {
+      "TITLE": "ダッシュボードアプリ",
+      "HEADER_BTN_TXT": "新しいダッシュボードアプリを追加",
+      "SIDEBAR_TXT": "<p><b>ダッシュボードアプリ</b></p><p>ダッシュボードアプリを使用すると、組織はトイバコダッシュボード内にアプリケーションを埋め込んで、カスタマーサポート担当者にコンテキストを提供できます。この機能により、アプリケーションを独立して作成し、ユーザー情報、注文履歴、または以前の支払い履歴を提供するためにダッシュボード内に埋め込むことができます。</p><p>トイバコのダッシュボードを使用してアプリケーションを埋め込むと、アプリケーションはウィンドウイベントとして会話と連絡先のコンテキストを取得します。ページ上でメッセージイベントのリスナーを実装してコンテキストを受信します。</p><p>新しいダッシュボードアプリを追加するには、「新しいダッシュボードアプリを追加」ボタンをクリックしてください。</p>",
+      "DESCRIPTION": "ダッシュボードアプリを使用すると、組織はダッシュボード内にアプリケーションを埋め込んで、カスタマーサポート担当者にコンテキストを提供できます。この機能により、アプリケーションを独立して作成し、ユーザー情報、注文履歴、または以前の支払い履歴を提供するために埋め込むことができます。",
+      "LEARN_MORE": "ダッシュボードアプリについて詳しく知る",
+      "COUNT": "{n} ダッシュボードアプリ | {n} ダッシュボードアプリ",
+      "SEARCH_PLACEHOLDER": "ダッシュボードアプリを検索...",
+      "NO_RESULTS": "検索条件に一致するダッシュボードアプリが見つかりませんでした",
+      "LIST": {
+        "404": "このアカウントにはまだダッシュボードアプリが設定されていません",
+        "LOADING": "ダッシュボードアプリを取得中...",
+        "TABLE_HEADER": {
+          "NAME": "名前",
+          "ENDPOINT": "エンドポイント",
+          "ACTIONS": "操作"
+        },
+        "EDIT_TOOLTIP": "アプリを編集",
+        "DELETE_TOOLTIP": "アプリを削除"
+      },
+      "FORM": {
+        "TITLE_LABEL": "名前",
+        "TITLE_PLACEHOLDER": "ダッシュボードアプリの名前を入力",
+        "TITLE_ERROR": "ダッシュボードアプリの名前が必要です",
+        "URL_LABEL": "エンドポイント",
+        "URL_PLACEHOLDER": "アプリがホストされているエンドポイントURLを入力",
+        "URL_ERROR": "有効なURLが必要です"
+      },
+      "CREATE": {
+        "HEADER": "新しいダッシュボードアプリを追加",
+        "FORM_SUBMIT": "送信",
+        "FORM_CANCEL": "キャンセル",
+        "API_SUCCESS": "ダッシュボードアプリが正常に設定されました",
+        "API_ERROR": "アプリを作成できませんでした。後でもう一度お試しください"
+      },
+      "UPDATE": {
+        "HEADER": "ダッシュボードアプリを編集",
+        "FORM_SUBMIT": "更新",
+        "FORM_CANCEL": "キャンセル",
+        "API_SUCCESS": "ダッシュボードアプリが正常に更新されました",
+        "API_ERROR": "アプリを更新できませんでした。後でもう一度お試しください"
+      },
+      "DELETE": {
+        "CONFIRM_YES": "はい、削除します",
+        "CONFIRM_NO": "いいえ、保持します",
+        "TITLE": "削除の確認",
+        "MESSAGE": "アプリを削除してもよろしいですか - {appName}?",
+        "API_SUCCESS": "ダッシュボードアプリが正常に削除されました",
+        "API_ERROR": "アプリを削除できませんでした。後でもう一度お試しください"
+      }
+    },
+    "LINEAR": {
+      "HEADER": "Linear",
+      "ADD_OR_LINK_BUTTON": "Linear Issueを作成/リンク",
+      "LOADING": "Linearの課題を取得中...",
+      "LOADING_ERROR": "Linearの課題を取得中にエラーが発生しました。もう一度お試しください",
+      "CREATE": "作成",
+      "LINK": {
+        "SEARCH": "課題を検索",
+        "SELECT": "課題を選択",
+        "TITLE": "リンク",
+        "EMPTY_LIST": "Linearの課題が見つかりません",
+        "LOADING": "読み込み中",
+        "ERROR": "Linearの課題を取得中にエラーが発生しました。もう一度お試しください",
+        "LINK_SUCCESS": "課題が正常にリンクされました",
+        "LINK_ERROR": "課題のリンク中にエラーが発生しました。もう一度お試しください",
+        "LINK_TITLE": "会話 (#{conversationId}) と {name}"
+      },
+      "ADD_OR_LINK": {
+        "TITLE": "Linearの課題を作成/リンク",
+        "DESCRIPTION": "会話からLinearの課題を作成するか、既存の課題をリンクしてシームレスに追跡します。",
+        "FORM": {
+          "TITLE": {
+            "LABEL": "タイトル",
+            "PLACEHOLDER": "タイトルを入力",
+            "REQUIRED_ERROR": "タイトルは必須です"
+          },
+          "DESCRIPTION": {
+            "LABEL": "説明",
+            "PLACEHOLDER": "説明を入力"
+          },
+          "TEAM": {
+            "LABEL": "チーム",
+            "PLACEHOLDER": "チームを選択",
+            "SEARCH": "チームを検索",
+            "REQUIRED_ERROR": "チームは必須です"
+          },
+          "ASSIGNEE": {
+            "LABEL": "担当者",
+            "PLACEHOLDER": "担当者を選択",
+            "SEARCH": "担当者を検索"
+          },
+          "PRIORITY": {
+            "LABEL": "優先度",
+            "PLACEHOLDER": "優先度を選択",
+            "SEARCH": "優先度を検索"
+          },
+          "LABEL": {
+            "LABEL": "ラベル",
+            "PLACEHOLDER": "ラベルを選択",
+            "SEARCH": "ラベルを検索"
+          },
+          "STATUS": {
+            "LABEL": "状況",
+            "PLACEHOLDER": "状況を選択",
+            "SEARCH": "状況を検索"
+          },
+          "PROJECT": {
+            "LABEL": "プロジェクト",
+            "PLACEHOLDER": "プロジェクトを選択",
+            "SEARCH": "プロジェクトを検索"
+          }
+        },
+        "CREATE": "作成",
+        "CANCEL": "キャンセル",
+        "CREATE_SUCCESS": "課題が正常に作成されました",
+        "CREATE_ERROR": "課題の作成中にエラーが発生しました。もう一度お試しください",
+        "LOADING_TEAM_ERROR": "チームの取得中にエラーが発生しました。もう一度お試しください",
+        "LOADING_TEAM_ENTITIES_ERROR": "チームエンティティの取得中にエラーが発生しました。もう一度お試しください"
+      },
+      "ISSUE": {
+        "STATUS": "状況",
+        "PRIORITY": "優先度",
+        "ASSIGNEE": "担当者",
+        "LABELS": "ラベル",
+        "CREATED_AT": "{createdAt} に作成"
+      },
+      "UNLINK": {
+        "TITLE": "リンク解除",
+        "SUCCESS": "課題のリンクが正常に解除されました",
+        "ERROR": "課題のリンク解除中にエラーが発生しました。もう一度お試しください"
+      },
+      "NO_LINKED_ISSUES": "リンクされた問題は見つかりませんでした",
+      "DELETE": {
+        "TITLE": "インテグレーションを削除してもよろしいですか?",
+        "MESSAGE": "インテグレーションを削除してもよろしいですか?",
+        "CONFIRM": "はい、削除します",
+        "CANCEL": "キャンセル"
+      },
+      "CTA": {
+        "TITLE": "Linear に接続してください",
+        "AGENT_DESCRIPTION": "Linear ワークスペースは接続されていません。このインテグレーションを使用するには、ワークスペースに接続するよう管理者に依頼してください。",
+        "DESCRIPTION": "Linear ワークスペースは接続されていません。下のボタンをクリックしてワークスペースを接続し、このインテグレーションを使用してください。",
+        "BUTTON_TEXT": "Linear ワークスペースを接続"
+      }
+    },
+    "NOTION": {
+      "HEADER": "Notion",
+      "DELETE": {
+        "TITLE": "Notion インテグレーションを削除してもよろしいですか?",
+        "MESSAGE": "このインテグレーションを削除すると、Notion ワークスペースへのアクセスが削除され、関連するすべての機能が停止します。",
+        "CONFIRM": "はい、削除します",
+        "CANCEL": "キャンセル"
+      }
+    }
+  },
+  "CAPTAIN": {
+    "NAME": "AIアシスタント",
+    "HEADER_KNOW_MORE": "詳細を見る",
+    "OVERVIEW": {
+      "HEADER": "概要",
+      "WELCOME": {
+        "LABEL": "AIアシスタントサマリー",
+        "LOADING": "概要を生成中..."
+      },
+      "INBOX_BANNER": {
+        "TEXT": "このアシスタントはまだどの受信トレイにも接続されていないため、会話に応答しません。",
+        "ACTION": "受信トレイに接続",
+        "DISMISS": "閉じる"
+      },
+      "COVERAGE_BANNER": {
+        "TEXT": "{count} FAQ の提案はレビューの準備ができており、対象範囲は {coverage}% のままです。アシスタントが自分で解決できるよう、それらを承認してください。",
+        "ACTION": "レビュー提案",
+        "DISMISS": "閉じる"
+      },
+      "RANGES": {
+        "LAST_DAYS": "過去 {count} 日間",
+        "THIS_MONTH": "今月",
+        "LAST_MONTH": "過去 1 か月"
+      },
+      "METRICS": {
+        "HANDLED": {
+          "LABEL": "処理された会話",
+          "HINT": "AIアシスタントが顧客に返信したり、会話をチームに伝えたりした会話。"
+        },
+        "AUTO_RESOLUTION": {
+          "LABEL": "自動解決レート",
+          "HINT": "チームの助けなしにAIアシスタントが解決した会話のシェア。値が大きいほど、AIアシスタントが自分で解決した回数が多くなります。"
+        },
+        "HANDOFF": {
+          "LABEL": "ハンドオフレート",
+          "HINT": "AIアシスタントがチームに渡した処理済み会話のシェア。低いほど、エージェントが必要とする会話が少なくなります。"
+        },
+        "HOURS_SAVED": {
+          "LABEL": "時間の節約",
+          "HINT": "AIアシスタントがエージェントの返信時間をどれだけ短縮したかの見積もり。",
+          "NOTE": "AIアシスタントの公開返信ごとに保存された 2 分に基づきます。"
+        },
+        "REOPEN": {
+          "LABEL": "リオープン率",
+          "HINT": "AIアシスタントが解決した会話のうち、顧客が後で戻ってきたものの割合。",
+          "NOTE": "低いほど、より多くの解像度が解決され続けます。"
+        },
+        "DEPTH": {
+          "LABEL": "メッセージ/会話",
+          "HINT": "AIアシスタント が処理した各会話で送信した返信の平均数。",
+          "NOTE": "数字が小さいほど回答が早くなりますが、複雑な質問にはより多くの回答が必要になる場合があります。"
+        }
+      },
+      "DRILLDOWN": {
+        "EMPTY": "この指標のレコードは見つかりませんでした。",
+        "ERROR": "レコードを読み込めませんでした。もう一度試してください。",
+        "LOAD_MORE": "さらに読み込む",
+        "RESULT_COUNT_CONVERSATION": "{count} カンバセーション | {count} カンバセーション"
+      },
+      "KNOWLEDGE": {
+        "TITLE": "ナレッジカバレッジ",
+        "COVERAGE": "{pct}% 承認済み",
+        "APPROVED": "承認済みのよくある質問",
+        "SUGGESTIONS": "FAQ の提案",
+        "DOCUMENTS": "ドキュメント"
+      },
+      "LINKS": {
+        "DOCS": {
+          "TITLE": "AIアシスタントドキュメント",
+          "DESCRIPTION": "AIアシスタントのガイドとハウツー"
+        },
+        "PLAYGROUND": {
+          "TITLE": "プレイグラウンド",
+          "DESCRIPTION": "このアシスタントの返信をテスト"
+        },
+        "BILLING": {
+          "TITLE": "請求",
+          "DESCRIPTION": "クレジットとプランの管理"
+        }
+      },
+      "V2": {
+        "EMPTY": "この期間のデータはありません。",
+        "SUMMARY": {
+          "GREETING": "こんにちは、{name}！",
+          "DEFAULT_NAME": "そこに",
+          "EMPTY": "十分なアクティビティが揃うと、AIアシスタントのパフォーマンス概要がここに表示されます。",
+          "PREVIOUS": "前のまとめポイント",
+          "NEXT": "次のまとめポイント"
+        },
+        "UNITS": {
+          "DAYS": "{value}日",
+          "HOURS": "{value}時間",
+          "MINUTES": "{value} 分"
+        },
+        "METRICS": {
+          "TIME_SAVED": {
+            "LABEL": "エージェントの労力と時間を節約"
+          },
+          "DURABLE": {
+            "LABEL": "AIアシスタント決議は未解決のまま",
+            "HINT": "AIアシスタントが解決した会話のうち、7日経ってもまだ終了していたものの割合。",
+            "NOTE": "7日間観察できるほど古い決議のみが含まれます。"
+          },
+          "MEDIAN_RESOLUTION": {
+            "LABEL": "解決時間の中央値",
+            "HINT": "会話がAIアシスタントに届いてから解決されるまでの典型的な時間。",
+            "NOTE": "値が低いほど、顧客は一般的に解決が早くなります。"
+          },
+          "DEPTH": {
+            "LABEL": "1 会話あたりのメッセージ数"
+          },
+          "OF_TOTAL": "{total}"
+        },
+        "RESOLUTION_FLOW": {
+          "ARIA_LABEL": "AIアシスタントとチームの結果から処理された会話の流れ",
+          "NODES": {
+            "HANDLED": "処理済み",
+            "RESOLVED_BY_CAPTAIN": "AIアシスタントが解決した",
+            "HANDED_OFF": "ハンドオフ",
+            "CLOSED_WITH_TEAM": "チームで締めくくりました",
+            "REOPENED": "7日にリニューアルオープン",
+            "STAYED_CLOSED": "閉店したまま",
+            "OTHER_REASONS": "その他の理由"
+          }
+        },
+        "HANDOFF_REASONS": {
+          "TITLE": "ハンドオフの理由",
+          "CUSTOMER_REQUEST": "カスタマーがリクエストしました",
+          "MISSING_KNOWLEDGE": "不足している知識",
+          "UNSUPPORTED_REQUEST": "サポートされていないリクエスト",
+          "POLICY_RESTRICTION": "ポリシー制限",
+          "TOOL_FAILURE": "ツール障害",
+          "PENDING_CLARIFICATION": "お客様による説明待ち",
+          "PERCENTAGE": "({value}%)",
+          "USAGE_LIMIT": "使用限度額",
+          "UNCLASSIFIED": "未分類"
+        },
+        "RESOLUTION_TREND": {
+          "TITLE": "解像度トレンド",
+          "CONVERSATION_COUNT": "会話数",
+          "RESOLUTION_RATE": "解決率",
+          "CURRENT_PERIOD": "現在の期間",
+          "PREVIOUS_PERIOD": "前の期間",
+          "HANDLED": "処理済み",
+          "RESOLVED": "AIアシスタントが解決した",
+          "ARIA_LABEL": "報告期間別の処理された会話とAIアシスタントが解決した会話",
+          "RATE_ARIA_LABEL": "現在および過去のAIアシスタント解決率"
+        },
+        "CSAT": {
+          "TITLE": "AIアシスタント CSAT",
+          "AUTONOMOUS": "AIアシスタントが解決した会話",
+          "AUTONOMOUS_HINT": "AIアシスタント がチームの助けを借りずに解決した会話に対する顧客評価の平均値です。",
+          "ASSISTED": "AIアシスタントアシスト付き会話",
+          "ASSISTED_HINT": "チームが会話を解決する前にAIアシスタントが支援したときの平均顧客評価です。",
+          "VS_HUMANS": "{value} 対ヒューマン"
+        },
+        "USAGE": {
+          "TITLE": "使い方",
+          "CREDITS": "クレジット",
+          "DOCUMENTS": "文書",
+          "USED": "({percentage}% 使用済み)",
+          "VALUE": "{used}/{total}",
+          "REFRESH": "使用状況を更新",
+          "BUY_MORE": "クレジットをさらに購入"
+        },
+        "KNOWLEDGE": {
+          "REVIEW": "レビューに関するよくある質問"
+        }
+      }
+    },
+    "ASSISTANT_SWITCHER": {
+      "ASSISTANTS": "アシスタント",
+      "SWITCH_ASSISTANT": "アシスタントを切り替える",
+      "NEW_ASSISTANT": "アシスタントを作成",
+      "EMPTY_LIST": "アシスタントが見つかりません。始めるにはアシスタントを作成してください。"
+    },
+    "COPILOT": {
+      "TITLE": "コパイロット",
+      "TRY_THESE_PROMPTS": "これらのプロンプトを試してください",
+      "PANEL_TITLE": "Copilotの使い始め",
+      "KICK_OFF_MESSAGE": "簡単な要約が欲しい、過去の会話を確認したい、より良い返信を作成したい？Copilotが処理をスピードアップします。",
+      "SEND_MESSAGE": "メッセージを送信...",
+      "EMPTY_MESSAGE": "回答の生成中にエラーが発生しました。もう一度お試しください。",
+      "LOADER": "AIアシスタントが考え中",
+      "YOU": "あなた",
+      "USE": "これを使用",
+      "RESET": "リセット",
+      "SHOW_STEPS": "手順を表示",
+      "SELECT_ASSISTANT": "アシスタントを選択",
+      "PROMPTS": {
+        "SUMMARIZE": {
+          "LABEL": "この会話を要約する",
+          "CONTENT": "顧客とサポートエージェントとの間で話し合われた重要なポイント、顧客の懸念や質問、サポートエージェントによる解決策や回答を要約してください。"
+        },
+        "SUGGEST": {
+          "LABEL": "回答を提案する",
+          "CONTENT": "顧客の問い合わせを分析し、顧客の懸念や質問に効果的に対応する回答案を作成してください。返信は明確で簡潔かつ役立つ情報を提供するようにしてください。"
+        },
+        "RATE": {
+          "LABEL": "この会話を評価する",
+          "CONTENT": "会話を確認して、顧客のニーズにどの程度応えているか評価してください。トーン、明確さ、有効性に基づき5点満点で評価を共有してください。"
+        },
+        "HIGH_PRIORITY": {
+          "LABEL": "高優先度の会話",
+          "CONTENT": "すべての高優先度の未解決会話の要約を教えてください。会話ID、顧客名（あれば）、最新メッセージの内容、および担当エージェントを含めてください。該当する場合はステータス別にグループ化してください。"
+        },
+        "LIST_CONTACTS": {
+          "LABEL": "連絡先リスト",
+          "CONTENT": "上位10件の連絡先リストを表示してください。名前、メールまたは電話番号（あれば）、最終アクセス時間、タグ（あれば）を含めてください。"
+        }
+      }
+    },
+    "PLAYGROUND": {
+      "USER": "あなた",
+      "ASSISTANT": "アシスタント",
+      "MESSAGE_PLACEHOLDER": "メッセージを入力...",
+      "HEADER": "プレイグラウンド",
+      "DESCRIPTION": "このプレイグラウンドを使ってアシスタントへメッセージを送り、正確かつ迅速に、期待したトーンで応答するかを確認してください。",
+      "CREDIT_NOTE": "ここで送信したメッセージはAIアシスタントのクレジットにカウントされます。"
+    },
+    "PAYWALL": {
+      "TITLE": "アップグレードしてAIアシスタントを利用する",
+      "AVAILABLE_ON": "AIアシスタントは無料プランでは利用できません。",
+      "UPGRADE_PROMPT": "アシスタント、Copilotなどにアクセスするには、プランをアップグレードしてください。",
+      "UPGRADE_NOW": "今すぐアップグレード",
+      "CANCEL_ANYTIME": "プランはいつでも変更またはキャンセルできます"
+    },
+    "ENTERPRISE_PAYWALL": {
+      "AVAILABLE_ON": "AIアシスタントはEnterpriseプランでのみ利用可能です。",
+      "UPGRADE_PROMPT": "アシスタント、Copilotなどにアクセスするには、プランをアップグレードしてください。",
+      "ASK_ADMIN": "管理者にアップグレードを依頼してください。"
+    },
+    "BANNER": {
+      "RESPONSES": "利用制限の 80% を超過しました。引き続き AIアシスタント を利用するには、アップグレードしてください。",
+      "DOCUMENTS": "ドキュメントの上限に達しました。AIアシスタント を引き続き利用するには、アップグレードしてください。"
+    },
+    "FORM": {
+      "CANCEL": "キャンセル",
+      "CREATE": "作成",
+      "EDIT": "更新"
+    },
+    "ASSISTANTS": {
+      "HEADER": "アシスタント",
+      "NO_ASSISTANTS_AVAILABLE": "あなたのアカウントにはアシスタントがいません。",
+      "ADD_NEW": "新しいアシスタントを作成",
+      "DELETE": {
+        "TITLE": "アシスタントを削除してもよろしいですか？",
+        "DESCRIPTION": "この操作は永久的です。アシスタントを削除すると、すべての接続された受信トレイから削除され、生成されたすべての知識が永久に消去されます。",
+        "CONFIRM": "はい、削除します",
+        "SUCCESS_MESSAGE": "アシスタントが正常に削除されました",
+        "ERROR_MESSAGE": "アシスタントの削除中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM_DESCRIPTION": "以下の詳細を入力して、アシスタントの名前、その目的を説明し、サポートする製品を指定してください。",
+      "CREATE": {
+        "TITLE": "アシスタントを作成",
+        "SUCCESS_MESSAGE": "アシスタントが正常に作成されました",
+        "ERROR_MESSAGE": "アシスタントの作成中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM": {
+        "UPDATE": "更新",
+        "SECTIONS": {
+          "BASIC_INFO": "基本情報",
+          "SYSTEM_MESSAGES": "システムメッセージ",
+          "INSTRUCTIONS": "インストラクション",
+          "FEATURES": "機能",
+          "TOOLS": "ツール "
+        },
+        "NAME": {
+          "LABEL": "名前",
+          "PLACEHOLDER": "アシスタント名を入力",
+          "ERROR": "名前は必須です"
+        },
+        "DESCRIPTION": {
+          "LABEL": "説明",
+          "PLACEHOLDER": "アシスタントの説明を入力",
+          "ERROR": "説明は必須です"
+        },
+        "PRODUCT_NAME": {
+          "LABEL": "製品名",
+          "PLACEHOLDER": "製品名を入力",
+          "ERROR": "製品名が必要です"
+        },
+        "WELCOME_MESSAGE": {
+          "LABEL": "ウェルカムメッセージ",
+          "PLACEHOLDER": "ウェルカムメッセージを入力"
+        },
+        "HANDOFF_MESSAGE": {
+          "LABEL": "ハンドオフメッセージ",
+          "PLACEHOLDER": "ハンドオフメッセージを入力"
+        },
+        "RESOLUTION_MESSAGE": {
+          "LABEL": "解決メッセージ",
+          "PLACEHOLDER": "解決メッセージを入力"
+        },
+        "INACTIVITY_RESOLUTION": {
+          "TITLE": "顧客からの返信が止まったとき",
+          "DESCRIPTION": "AIアシスタントが会話をどのように処理するかを選択します。",
+          "MODE_LABEL": "顧客が返信を停止したときのアクション",
+          "REVIEW_AFTER": "レビュー後",
+          "RESOLVE_AFTER": "後で解決",
+          "ALWAYS_WARNING": "AIアシスタントは、選択した時間が経過すると、確認せずにすべての会話を解決します。まだ助けが必要な会話の中には、終了するものもあります。",
+          "PENDING_INFO": "会話は、顧客が返信するまで保留状態になります。",
+          "RESOLUTION_MESSAGE": {
+            "TITLE": "解決時にメッセージを送信",
+            "DESCRIPTION": "AIアシスタントは、会話を解決する前にこの終了メッセージを送信します。"
+          },
+          "MODES": {
+            "DISABLED": {
+              "LABEL": "お客様を待つ",
+              "DESCRIPTION": "AIアシスタントは会話を解決しません。ただし、お客様から問い合わせがあった場合は、AIアシスタントが引き継ぐことができます。"
+            },
+            "LEGACY": {
+              "LABEL": "常に解決する",
+              "DESCRIPTION": "AIアシスタントは、選択した時間が経過するとすべての会話を解決します。"
+            },
+            "EVALUATED": {
+              "LABEL": "AIアシスタントに確認させてください (推奨)",
+              "DESCRIPTION": "AIアシスタントは、会話を解決するか、引き継ぐかを決定します。"
+            }
+          },
+          "DURATION_HOURS_ARIA_LABEL": "アクションの数時間前",
+          "DURATION_MINUTES_ARIA_LABEL": "アクションの数分前",
+          "DURATION_HOURS_SHORT": "{count} H",
+          "DURATION_MINUTES_SHORT": "{count} 分"
+        },
+        "INSTRUCTIONS": {
+          "LABEL": "インストラクション",
+          "PLACEHOLDER": "アシスタントへの指示を入力してください"
+        },
+        "FEATURES": {
+          "TITLE": "機能",
+          "ALLOW_CONVERSATION_FAQS": "解決済みの会話からFAQを生成",
+          "ALLOW_MEMORIES": "顧客とのやり取りから重要な詳細を記憶としてキャプチャ",
+          "ALLOW_CITATIONS": "回答に出典の引用を含める",
+          "ALLOW_CONTACT_ATTRIBUTES": "連絡先情報へのアクセスを許可する"
+        },
+        "AUDIENCE": {
+          "EVERYONE": {
+            "LABEL": "全員",
+            "DESC": "AIアシスタントは、接続された受信トレイのすべての会話に応答します。"
+          },
+          "SPECIFIC": {
+            "LABEL": "特定の対象者",
+            "DESC": "AIアシスタントは、以下の条件に一致するお客様にのみ対応します。"
+          },
+          "ADD_CONDITION": "条件を追加",
+          "ADD_GROUP": "条件グループを追加",
+          "EMPTY_TITLE": "まだ条件はありません",
+          "EMPTY_BODY": "特定の顧客を対象とする条件を追加したり、条件グループを追加して異なる条件やロジックの条件を組み合わせたりできます。",
+          "EMPTY_ERROR": "特定のオーディエンスに対して少なくとも 1 つの条件を追加します。",
+          "MATCH_PREFIX": "マッチ",
+          "MATCH_SUFFIX": "次のうち",
+          "MATCH_ALL": "すべて",
+          "MATCH_ANY": "任意の",
+          "GROUP_CONTACT": "連絡先属性",
+          "GROUP_CONVERSATION": "会話",
+          "GROUP_CUSTOM": "カスタム属性",
+          "BROWSER_LANGUAGE": "ブラウザ言語",
+          "CONVERSATION_LANGUAGE": "最初のメッセージ言語",
+          "LOGGED_IN": "ログインユーザ",
+          "LOGGED_IN_TRUE": "はい",
+          "LOGGED_IN_FALSE": "いいえ"
+        },
+        "SCHEDULE": {
+          "ALWAYS": {
+            "LABEL": "いつでも",
+            "DESC": "AIアシスタントは、時間に関係なくすべての会話に応答します。"
+          },
+          "BUSINESS_HOURS": {
+            "LABEL": "営業時間中",
+            "DESC": "AIアシスタントは、各受信トレイの営業時間内にのみ返信します。"
+          },
+          "OUTSIDE_BUSINESS_HOURS": {
+            "LABEL": "営業時間外",
+            "DESC": "AIアシスタントは、各受信トレイが閉じられたときにのみ応答します。"
+          },
+          "HINT": "営業時間が設定されていない受信トレイはいつでも対象となります。"
+        }
+      },
+      "EDIT": {
+        "TITLE": "アシスタントを更新",
+        "SUCCESS_MESSAGE": "アシスタントが正常に更新されました",
+        "ERROR_MESSAGE": "アシスタントの更新中にエラーが発生しました。もう一度お試しください。",
+        "NOT_FOUND": "アシスタントが見つかりませんでした。もう一度試してください。"
+      },
+      "SETTINGS": {
+        "HEADER": "設定",
+        "BASIC_SETTINGS": {
+          "TITLE": "基本設定",
+          "DESCRIPTION": "会話を終了したり、人に転送したりするときのアシスタントの言うことをカスタマイズします。"
+        },
+        "SYSTEM_SETTINGS": {
+          "TITLE": "システム設定",
+          "DESCRIPTION": "会話を終了したり、人に転送したりするときのアシスタントの言うことをカスタマイズします。",
+          "DESCRIPTION_V2": "顧客が返信をやめたときのAIアシスタントの対応を管理し、引き継ぎメッセージを設定します。"
+        },
+        "AUDIENCE": {
+          "TITLE": "オーディエンス",
+          "DESCRIPTION": "このアシスタントが全員に応答するか、特定の対象者にのみ返信するかを選択します。"
+        },
+        "SCHEDULE": {
+          "TITLE": "スケジュール",
+          "DESCRIPTION": "AIアシスタントが返信するタイミングを選択します。このウィンドウの外では、会話がチームに引き継がれます。"
+        },
+        "CONTROL_ITEMS": {
+          "TITLE": "楽しいもの",
+          "DESCRIPTION": "アシスタントにさらに制御を追加します。(ストーリーをもう少し視覚的に見せる:クエリー・ガードレール → シナリオ → 出力) これらを実際に利用するようにユーザーに促します。",
+          "OPTIONS": {
+            "GUARDRAILS": {
+              "TITLE": "ガードレール",
+              "DESCRIPTION": "アシスタントに回答してもらいたい質問だけを順調に進め、立ち入り禁止や話題から外れたりすることはありません。"
+            },
+            "RESPONSE_GUIDELINES": {
+              "TITLE": "対応ガイドライン",
+              "DESCRIPTION": "アシスタントの返信の雰囲気と構成—明確で親しみやすい？短くてきびきびきする？詳細でフォーマル？"
+            }
+          }
+        },
+        "DELETE": {
+          "TITLE": "アシスタントを削除",
+          "DESCRIPTION": "この操作は永久的です。アシスタントを削除すると、すべての接続された受信トレイから削除され、生成されたすべての知識が永久に消去されます。",
+          "BUTTON_TEXT": "{assistantName}を削除"
+        }
+      },
+      "OPTIONS": {
+        "EDIT_ASSISTANT": "アシスタントを編集",
+        "DELETE_ASSISTANT": "アシスタントを削除",
+        "VIEW_CONNECTED_INBOXES": "接続された受信トレイを表示"
+      },
+      "EMPTY_STATE": {
+        "TITLE": "利用可能なアシスタントがありません",
+        "SUBTITLE": "アシスタントを作成して、お客様に迅速かつ正確な回答を提供します。アシスタントは、ヘルプ記事や過去の会話から学習します。",
+        "FEATURE_SPOTLIGHT": {
+          "TITLE": "AIアシスタントアシスタント",
+          "NOTE": "AIアシスタントは顧客と直接やり取りし、ヘルプドキュメントや過去の会話から学び、瞬時に正確な回答を提供します。最初の問い合わせを処理して迅速に解決してから、必要に応じてエージェントに転送します。"
+        }
+      },
+      "GUARDRAILS": {
+        "TITLE": "ガードレール",
+        "DESCRIPTION": "アシスタントに回答してもらいたい質問だけを順調に進め、立ち入り禁止や話題から外れたりすることはありません。",
+        "BULK_ACTION": {
+          "SELECTED": "{count} アイテムが選択されました | {count} アイテムが選択されました",
+          "SELECT_ALL": "すべて選択してください ({count})",
+          "UNSELECT_ALL": "すべて選択解除 ({count})",
+          "BULK_DELETE_BUTTON": "削除"
+        },
+        "ADD": {
+          "SUGGESTED": {
+            "TITLE": "ガードレールの例",
+            "ADD": "すべて追加",
+            "ADD_SINGLE": "これを追加",
+            "SAVE": "追加して保存 ()",
+            "PLACEHOLDER": "別のガードレールを入力..."
+          },
+          "NEW": {
+            "TITLE": "ガードレールの追加",
+            "CREATE": "作成",
+            "CANCEL": "キャンセル",
+            "PLACEHOLDER": "別のガードレールを入力...",
+            "TEST_ALL": "すべてテスト"
+          }
+        },
+        "LIST": {
+          "SEARCH_PLACEHOLDER": "検索..."
+        },
+        "EMPTY_MESSAGE": "ガードレールが見つかりません。まず、例を作成するか、追加してください。",
+        "SEARCH_EMPTY_MESSAGE": "この検索用のガードレールは見つかりませんでした。",
+        "API": {
+          "ADD": {
+            "SUCCESS": "ガードレールの追加に成功しました",
+            "ERROR": "ガードレールの追加中にエラーが発生しました。もう一度試してください。"
+          },
+          "UPDATE": {
+            "SUCCESS": "ガードレールは正常に更新されました",
+            "ERROR": "ガードレールの更新中にエラーが発生しました。もう一度試してください。"
+          },
+          "DELETE": {
+            "SUCCESS": "ガードレールは正常に削除されました",
+            "ERROR": "ガードレールの削除中にエラーが発生しました。もう一度試してください。"
+          }
+        }
+      },
+      "RESPONSE_GUIDELINES": {
+        "TITLE": "回答ガイドライン",
+        "DESCRIPTION": "アシスタントの返信の雰囲気と構成—明確で親しみやすい？短くてきびきびきする？詳細でフォーマル？",
+        "BULK_ACTION": {
+          "SELECTED": "{count} アイテムが選択されました | {count} アイテムが選択されました",
+          "SELECT_ALL": "すべて選択してください ({count})",
+          "UNSELECT_ALL": "すべて選択解除 ({count})",
+          "BULK_DELETE_BUTTON": "削除"
+        },
+        "ADD": {
+          "SUGGESTED": {
+            "TITLE": "回答ガイドラインの例",
+            "ADD": "すべて追加",
+            "ADD_SINGLE": "これを追加",
+            "SAVE": "追加して保存 ()",
+            "PLACEHOLDER": "別の回答ガイドラインを入力..."
+          },
+          "NEW": {
+            "TITLE": "対応ガイドラインの追加",
+            "CREATE": "作成",
+            "CANCEL": "キャンセル",
+            "PLACEHOLDER": "別の回答ガイドラインを入力...",
+            "TEST_ALL": "すべてテスト"
+          }
+        },
+        "LIST": {
+          "SEARCH_PLACEHOLDER": "検索..."
+        },
+        "EMPTY_MESSAGE": "対応ガイドラインが見つかりません。まずは例を作成または追加してください。",
+        "SEARCH_EMPTY_MESSAGE": "この検索に関する回答ガイドラインは見つかりませんでした。",
+        "API": {
+          "ADD": {
+            "SUCCESS": "回答ガイドラインが正常に追加されました",
+            "ERROR": "回答ガイドラインを追加中にエラーが発生しました。もう一度試してください。"
+          },
+          "UPDATE": {
+            "SUCCESS": "回答ガイドラインが正常に更新されました",
+            "ERROR": "回答ガイドラインの更新中にエラーが発生しました。もう一度試してください。"
+          },
+          "DELETE": {
+            "SUCCESS": "回答ガイドラインは正常に削除されました",
+            "ERROR": "回答ガイドラインの削除中にエラーが発生しました。もう一度試してください。"
+          }
+        }
+      },
+      "SCENARIOS": {
+        "TITLE": "シナリオ",
+        "DESCRIPTION": "アシスタントに、「ユーザーが行き詰まった場合の対処方法」や「払い戻しリクエスト時の対処方法」など、何らかの背景情報を伝えてください。",
+        "BULK_ACTION": {
+          "SELECTED": "{count} アイテムが選択されました | {count} アイテムが選択されました",
+          "SELECT_ALL": "すべて選択してください ({count})",
+          "UNSELECT_ALL": "すべて選択解除 ({count})",
+          "BULK_DELETE_BUTTON": "削除"
+        },
+        "ADD": {
+          "SUGGESTED": {
+            "TITLE": "シナリオ例",
+            "ADD": "すべて追加",
+            "ADD_SINGLE": "これを追加",
+            "TOOLS_USED": "使用ツール:"
+          },
+          "NEW": {
+            "CREATE": "シナリオを追加",
+            "TITLE": "シナリオの作成",
+            "FORM": {
+              "TITLE": {
+                "LABEL": "タイトル",
+                "PLACEHOLDER": "シナリオの名前を入力してください",
+                "ERROR": "シナリオ名が必要です"
+              },
+              "DESCRIPTION": {
+                "LABEL": "説明",
+                "PLACEHOLDER": "このシナリオの使用方法と使用場所を説明してください",
+                "ERROR": "シナリオの説明が必要です"
+              },
+              "INSTRUCTION": {
+                "LABEL": "取り扱い方法",
+                "PLACEHOLDER": "このシナリオがどこでどのように処理されるかを説明してください",
+                "ERROR": "シナリオコンテンツが必要です"
+              },
+              "CREATE": "作成",
+              "CANCEL": "キャンセル"
+            }
+          }
+        },
+        "UPDATE": {
+          "CANCEL": "キャンセル",
+          "UPDATE": "更新変更"
+        },
+        "LIST": {
+          "SEARCH_PLACEHOLDER": "検索..."
+        },
+        "EMPTY_MESSAGE": "シナリオは見つかりませんでした。サンプルを作成するか、サンプルを追加して始めましょう。",
+        "SEARCH_EMPTY_MESSAGE": "この検索のシナリオは見つかりませんでした。",
+        "API": {
+          "ADD": {
+            "SUCCESS": "シナリオは正常に追加されました",
+            "ERROR": "シナリオの追加中にエラーが発生しました。もう一度試してください。"
+          },
+          "UPDATE": {
+            "SUCCESS": "シナリオは正常に更新されました",
+            "ERROR": "シナリオの更新中にエラーが発生しました。もう一度試してください。"
+          },
+          "DELETE": {
+            "SUCCESS": "シナリオは正常に削除されました",
+            "ERROR": "シナリオの削除中にエラーが発生しました。もう一度試してください。"
+          }
+        }
+      }
+    },
+    "DOCUMENTS": {
+      "HEADER": "ドキュメント",
+      "ADD_NEW": "新しいドキュメントを作成",
+      "FAQ_COUNT": "{n} FAQ | {n} よくある質問",
+      "USED_IN_CONVERSATIONS": "{n} カンバセーションで使用 | {n} カンバセーションで使用",
+      "NO_USED_CONVERSATIONS": "このドキュメントに関する会話は見つかりませんでした。",
+      "SELECTED": "{count} が選択されました",
+      "SELECT_ALL": "すべて選択してください ({count})",
+      "UNSELECT_ALL": "すべて選択解除 ({count})",
+      "BULK_DELETE_BUTTON": "削除",
+      "BULK_SYNC_BUTTON": "再読み込み",
+      "BULK_DELETE": {
+        "TITLE": "文書を削除しますか?",
+        "DESCRIPTION": "選択したドキュメントを削除してよろしいですか?このアクションは元に戻せません。",
+        "CONFIRM": "はい、すべて削除",
+        "SUCCESS_MESSAGE": "ドキュメントは正常に削除されました",
+        "ERROR_MESSAGE": "ドキュメントの削除中にエラーが発生しました。もう一度試してください。"
+      },
+      "BULK_SYNC": {
+        "SUCCESS_MESSAGE_ONE": "1 つのドキュメントの更新待ちです",
+        "SUCCESS_MESSAGE": "{count} ドキュメントの更新がキューに追加されました",
+        "ZERO_MESSAGE": "更新対象としてマークされたドキュメントはありません。",
+        "ERROR_MESSAGE": "更新キュー中にエラーが発生しました。もう一度試してください。"
+      },
+      "SYNC": {
+        "QUEUED_MESSAGE": "更新待ちです。間もなくドキュメントを更新します。",
+        "ERROR_MESSAGE": "キューを更新できませんでした。もう一度試してください。"
+      },
+      "FILTERS": {
+        "SOURCE": {
+          "ALL": "すべての情報源",
+          "WEB": "ウェブページ",
+          "PDF": "PDFファイル"
+        },
+        "STATUS": {
+          "ANY": "すべてのステータス",
+          "UPDATED": "更新済み",
+          "NEEDS_UPDATE": "更新が必要",
+          "UPDATING": "更新中",
+          "FAILED": "失敗"
+        },
+        "SORT": {
+          "RECENTLY_UPDATED": "最近更新されました",
+          "RECENTLY_CREATED": "最近作成された",
+          "MOST_USED": "会話で最もよく使われる"
+        },
+        "SEARCH_PLACEHOLDER": "検索..."
+      },
+      "SYNC_STATUS": {
+        "SYNCED": "最終更新日 {time}",
+        "SYNCING": "更新中...",
+        "STALE_SYNC": "更新が停止しました",
+        "FAILED": "同期できませんでした",
+        "NEVER_SYNCED": "まだ更新されていません"
+      },
+      "SYNC_ERRORS": {
+        "NOT_FOUND": "ページが見つかりません",
+        "ACCESS_DENIED": "アクセス拒否",
+        "TIMEOUT": "ページの応答に時間がかかりすぎました",
+        "CONTENT_EMPTY": "ページから空のコンテンツが返されました",
+        "FETCH_FAILED": "ページを取得できませんでした",
+        "SYNC_ERROR": "予期しないエラー",
+        "DEFAULT": "同期エラー"
+      },
+      "RELATED_RESPONSES": {
+        "TITLE": "関連するFAQ",
+        "EMPTY": "このドキュメントからの FAQ はまだ生成されていません。"
+      },
+      "DETAILS": {
+        "DESCRIPTION": "クロールされたコンテンツと、このソースから生成されたFAQを確認してください。",
+        "SOURCE": "[ソース]",
+        "GENERATED_FAQS": "生成されたFAQ",
+        "USED_IN_CONVERSATIONS": "会話で使用",
+        "LAST_UPDATED": "最終更新日",
+        "NOT_AVAILABLE": "離席中",
+        "CONTENT_TAB": "クロールされたコンテンツ",
+        "PDF_TAB": "PDF の詳細",
+        "CONTENT_TITLE": "クロールされたコンテンツ",
+        "PDF_TITLE": "PDF ファイル",
+        "PDF_DESCRIPTION": "オリジナルのPDFソースを確認してください。",
+        "CHARACTER_COUNT": "{count} 文字が抽出されました",
+        "COPY_CONTENT": "コピー",
+        "COPY_SUCCESS": "クロールされたコンテンツがクリップボードにコピーされました",
+        "COPY_ERROR": "クロールされたコンテンツをコピーできませんでした",
+        "VIEW_RAW": "未処理分を表示",
+        "VIEW_PREVIEW": "プレビューを表示",
+        "UNREADABLE_CONTENT": "このドキュメントから読み取り可能なコンテンツを抽出できませんでした。抽出された未加工のコンテンツを表示できます。",
+        "EMPTY_CONTENT": "このドキュメントでは、クロールされたコンテンツはまだありません。"
+      },
+      "FORM_DESCRIPTION": "ドキュメントのURLを入力して知識ソースとして追加し、それに関連付けるアシスタントを選択してください。",
+      "CREATE": {
+        "TITLE": "ドキュメントを追加",
+        "SUCCESS_MESSAGE": "ドキュメントが正常に作成されました",
+        "ERROR_MESSAGE": "ドキュメントの作成中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM": {
+        "TYPE": {
+          "LABEL": "文書タイプ",
+          "URL": "URL",
+          "PDF": "PDF ファイル"
+        },
+        "URL": {
+          "LABEL": "URL",
+          "PLACEHOLDER": "ドキュメントのURLを入力",
+          "ERROR": "有効なURLを入力してください"
+        },
+        "PDF_FILE": {
+          "LABEL": "PDF ファイル",
+          "CHOOSE_FILE": "PDF ファイルを選択してください",
+          "ERROR": "PDF ファイルを選択してください",
+          "HELP_TEXT": "最大ファイルサイズ:10MB",
+          "INVALID_TYPE": "有効な PDF ファイルを選択してください",
+          "TOO_LARGE": "ファイルサイズが 10 MB の制限を超えています"
+        },
+        "NAME": {
+          "LABEL": "文書名 (オプション)",
+          "PLACEHOLDER": "文書の名前を入力してください"
+        }
+      },
+      "DELETE": {
+        "TITLE": "ドキュメントを削除してもよろしいですか？",
+        "DESCRIPTION": "この操作は永久的です。ドキュメントを削除すると、生成されたすべての知識が永久に消去されます。",
+        "CONFIRM": "はい、削除します",
+        "SUCCESS_MESSAGE": "ドキュメントが正常に削除されました",
+        "ERROR_MESSAGE": "ドキュメントの削除中にエラーが発生しました。もう一度お試しください。"
+      },
+      "OPTIONS": {
+        "VIEW_DETAILS": "詳細を表示",
+        "SYNC_NOW": "今すぐ更新",
+        "RETRY_SYNC": "更新を再試行",
+        "DELETE_DOCUMENT": "ドキュメントを削除"
+      },
+      "EMPTY_STATE": {
+        "TITLE": "利用可能なドキュメントがありません",
+        "SUBTITLE": "ドキュメントはアシスタントがFAQを生成するために使用されます。ドキュメントをインポートしてアシスタントにコンテキストを提供できます。",
+        "FILTERED_TITLE": "一致するドキュメントはありません",
+        "FILTERED_SUBTITLE": "ソース、ステータス、または検索語を変更してみてください。",
+        "FEATURE_SPOTLIGHT": {
+          "TITLE": "AIアシスタントドキュメント",
+          "NOTE": "AIアシスタント のドキュメントは、アシスタントのナレッジリソースとして機能します。AIアシスタント は、ヘルプセンターやガイドを連携させることで内容を分析し、顧客からの問い合わせに的確に対応できます。"
+        }
+      }
+    },
+    "CUSTOM_TOOLS": {
+      "HEADER": "ツール",
+      "ADD_NEW": "新しいツールを作成する",
+      "SOFT_LIMIT_WARNING": "ツールが 10 個を超えると、アシスタントが適切なツールを選択する際の信頼性が低下する可能性があります。より良い結果を得るには、未使用のツールを削除することを検討してください。",
+      "EMPTY_STATE": {
+        "TITLE": "カスタムツールはありません",
+        "SUBTITLE": "カスタムツールを作成して、アシスタントを外部 API やサービスに接続し、アシスタントがユーザーに代わってデータを取得してアクションを実行できるようにします。",
+        "FEATURE_SPOTLIGHT": {
+          "TITLE": "カスタムツール",
+          "NOTE": "カスタムツールを使用すると、アシスタントは外部の API やサービスと対話できます。データを取得したり、アクションを実行したり、既存のシステムと統合したりするためのツールを作成して、アシスタントの機能を強化しましょう。"
+        }
+      },
+      "FORM_DESCRIPTION": "外部 API に接続するようにカスタムツールを設定する",
+      "OPTIONS": {
+        "EDIT_TOOL": "編集ツール",
+        "DELETE_TOOL": "削除ツール"
+      },
+      "CREATE": {
+        "TITLE": "カスタムツールを作成",
+        "SUCCESS_MESSAGE": "カスタムツールが正常に作成されました",
+        "ERROR_MESSAGE": "カスタムツールを作成できませんでした"
+      },
+      "EDIT": {
+        "TITLE": "カスタムツールの編集",
+        "SUCCESS_MESSAGE": "カスタムツールは正常に更新されました",
+        "ERROR_MESSAGE": "カスタムツールを更新できませんでした"
+      },
+      "DELETE": {
+        "TITLE": "カスタムツールを削除",
+        "DESCRIPTION": "このカスタムツールを削除してよろしいですか?このアクションは元に戻せません。",
+        "CONFIRM": "はい、削除します",
+        "SUCCESS_MESSAGE": "カスタムツールは正常に削除されました",
+        "ERROR_MESSAGE": "カスタムツールを削除できませんでした"
+      },
+      "PAYWALL": {
+        "TITLE": "アップグレードしてAIアシスタントでツールを使おう",
+        "AVAILABLE_ON": "AIアシスタントのツールはビジネスプランとエンタープライズプランでのみご利用いただけます。この機能を使用するには、ビジネスプランにアップグレードしてください。",
+        "UPGRADE_PROMPT": "",
+        "UPGRADE_NOW": "請求情報を開く",
+        "CANCEL_ANYTIME": ""
+      },
+      "ENTERPRISE_PAYWALL": {
+        "AVAILABLE_ON": "AIアシスタントツールは有料プランでのみご利用いただけます。",
+        "UPGRADE_PROMPT": "この機能を使用するには、有料プランにアップグレードしてください。",
+        "ASK_ADMIN": "管理者にアップグレードを依頼してください。"
+      },
+      "TEST": {
+        "BUTTON": "テスト接続",
+        "SUCCESS": "エンドポイントが HTTP {status} を返しました",
+        "ERROR": "接続失敗",
+        "DISABLED_HINT": "テストは、テンプレートやリクエストボディのないエンドポイントでのみ利用できます。"
+      },
+      "FORM": {
+        "TITLE": {
+          "LABEL": "ツール名",
+          "PLACEHOLDER": "注文検索",
+          "ERROR": "ツール名が必要です",
+          "MAX_LENGTH_ERROR": "ツール名は {max} 文字以下でなければなりません"
+        },
+        "DESCRIPTION": {
+          "LABEL": "説明",
+          "PLACEHOLDER": "ID を注文して注文の詳細を検索します"
+        },
+        "HTTP_METHOD": {
+          "LABEL": "メソッド"
+        },
+        "ENDPOINT_URL": {
+          "LABEL": "エンドポイント URL",
+          "PLACEHOLDER": "https://api.example.com/orders/{'{{'} order_id {'}}'}",
+          "ERROR": "有効な URL が必要です"
+        },
+        "AUTH_TYPE": {
+          "LABEL": "認証タイプ"
+        },
+        "AUTH_TYPES": {
+          "NONE": "なし",
+          "BEARER": "ベアラートークン",
+          "BASIC": "基本認証",
+          "API_KEY": "APIキー"
+        },
+        "AUTH_CONFIG": {
+          "BEARER_TOKEN": "ベアラートークン",
+          "BEARER_TOKEN_PLACEHOLDER": "ベアラートークンを入力してください",
+          "USERNAME": "ユーザー名",
+          "USERNAME_PLACEHOLDER": "ユーザー名を入力",
+          "PASSWORD": "パスワード",
+          "PASSWORD_PLACEHOLDER": "パスワードを入力",
+          "API_KEY": "ヘッダー名",
+          "API_KEY_PLACEHOLDER": "X-API-キー",
+          "API_VALUE": "ヘッダー値",
+          "API_VALUE_PLACEHOLDER": "API キー値を入力してください"
+        },
+        "PARAMETERS": {
+          "LABEL": "パラメーター",
+          "HELP_TEXT": "ユーザークエリから抽出されるパラメータを定義します"
+        },
+        "ADD_PARAMETER": "[パラメータを追加]",
+        "PARAM_NAME": {
+          "PLACEHOLDER": "パラメーター名 (例:オーダー_id)"
+        },
+        "PARAM_TYPE": {
+          "PLACEHOLDER": "タイプ"
+        },
+        "PARAM_TYPES": {
+          "STRING": "ストリング",
+          "NUMBER": "数値",
+          "BOOLEAN": "ブール値",
+          "ARRAY": "アレイ",
+          "OBJECT": "[オブジェクト]"
+        },
+        "PARAM_DESCRIPTION": {
+          "PLACEHOLDER": "パラメーターの説明"
+        },
+        "PARAM_REQUIRED": {
+          "LABEL": "必須"
+        },
+        "REQUEST_TEMPLATE": {
+          "LABEL": "リクエスト本文テンプレート (オプション)",
+          "PLACEHOLDER": "{'{'}\n  \"order_id\": \"{'{{'} order_id {'}}'}\"\n{'}'}"
+        },
+        "RESPONSE_TEMPLATE": {
+          "LABEL": "回答テンプレート (オプション)",
+          "PLACEHOLDER": "注文 {'{{'} order_id {'}}'} ステータス:{'{{'} ステータス {'}}'}"
+        },
+        "ERRORS": {
+          "PARAM_NAME_REQUIRED": "パラメータ名が必要です"
+        }
+      }
+    },
+    "RESPONSES": {
+      "HEADER": "FAQ",
+      "ADD_NEW": "新しいFAQを作成",
+      "NO_USED_CONVERSATIONS": "この FAQ に対する会話は見つかりませんでした。",
+      "DOCUMENTABLE": {
+        "CONVERSATION": "会話 #{id}"
+      },
+      "SELECTED": "{count} が選択されました",
+      "SELECT_ALL": "すべて選択してください ({count})",
+      "UNSELECT_ALL": "すべて選択解除 ({count})",
+      "SEARCH_PLACEHOLDER": "よくある質問を検索...",
+      "ERRORS": {
+        "LOAD": "FAQ をロード中にエラーが発生しました。もう一度試してください。"
+      },
+      "BULK_DELETE_BUTTON": "削除",
+      "BULK_DELETE": {
+        "TITLE": "よくある質問を削除しますか?",
+        "DESCRIPTION": "選択した FAQ を削除してよろしいですか?このアクションは元に戻せません。",
+        "CONFIRM": "はい、すべて削除",
+        "SUCCESS_MESSAGE": "FAQ は正常に削除されました",
+        "ERROR_MESSAGE": "FAQ の削除中にエラーが発生しました。もう一度試してください。"
+      },
+      "DELETE": {
+        "TITLE": "FAQを削除してもよろしいですか？",
+        "DESCRIPTION": "",
+        "CONFIRM": "はい、削除します",
+        "SUCCESS_MESSAGE": "FAQが正常に削除されました",
+        "ERROR_MESSAGE": "FAQの削除中にエラーが発生しました。もう一度お試しください。"
+      },
+      "SUGGESTIONS_BANNER": {
+        "TITLE": "AIアシスタントは、お客様から繰り返し寄せられる質問を FAQ 件の提案にまとめました。",
+        "ACTION": "レビュー提案"
+      },
+      "FORM_DESCRIPTION": "質問とその対応する回答をナレッジベースに追加し、それに関連付けるアシスタントを選択してください。",
+      "CREATE": {
+        "TITLE": "FAQを追加",
+        "SUCCESS_MESSAGE": "応答が正常に追加されました。",
+        "ERROR_MESSAGE": "応答の追加中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM": {
+        "QUESTION": {
+          "LABEL": "質問",
+          "PLACEHOLDER": "ここに質問を入力",
+          "ERROR": "有効な質問を入力してください。"
+        },
+        "ANSWER": {
+          "LABEL": "回答",
+          "PLACEHOLDER": "ここに回答を入力",
+          "ERROR": "有効な回答を入力してください。"
+        }
+      },
+      "EDIT": {
+        "TITLE": "FAQを更新",
+        "SUCCESS_MESSAGE": "FAQが正常に更新されました",
+        "ERROR_MESSAGE": "FAQの更新中にエラーが発生しました。もう一度お試しください",
+        "APPROVE_SUCCESS_MESSAGE": "FAQが承認済みとしてマークされました"
+      },
+      "OPTIONS": {
+        "APPROVE": "承認",
+        "EDIT_RESPONSE": "編集",
+        "DELETE_RESPONSE": "削除"
+      },
+      "EMPTY_STATE": {
+        "TITLE": "FAQが見つかりません",
+        "SUBTITLE": "FAQは、アシスタントがお客様からの質問に迅速かつ正確に回答するのに役立ちます。コンテンツから自動的に生成することも、手動で追加することもできます。",
+        "CLEAR_SEARCH": "アクティブなフィルターをクリア",
+        "FEATURE_SPOTLIGHT": {
+          "TITLE": "AIアシスタント FAQ",
+          "NOTE": "AIアシスタントのFAQは、ナレッジベースにない質問やよくある質問など、顧客からよく寄せられる質問を検出し、関連するFAQを生成してサポートを改善します。各提案を確認して、承認するか拒否するかを決定できます。"
+        }
+      }
+    },
+    "FAQ_SUGGESTIONS": {
+      "HEADER": "FAQ の提案",
+      "SEARCH_PLACEHOLDER": "検索候補...",
+      "QUEUE_COUNT": "レビューしたい{count}の提案 | レビューしたい{count}の提案",
+      "QUEUE_HINT": "顧客の需要によるランク付け",
+      "SOURCE_COUNT": "{count} カンバセーション | {count} カンバセーション",
+      "REVIEW": "レビューソース",
+      "APPROVE": "承認",
+      "APPROVE_FAQ": "FAQ を承認してください",
+      "DISMISS": "閉じる",
+      "SAVE": "変更を保存",
+      "DETAILS": {
+        "TITLE": "FAQ の提案を確認してください",
+        "DESCRIPTION": "AIアシスタントは {count} の会話をこの提案にまとめました。承認前に、証拠を確認して FAQ の内容を絞り込んでください。| AIアシスタント は {count} の会話をこの提案にまとめました。承認前にエビデンスをレビューし、FAQ を精査してください。",
+        "SOURCES": "ソース会話",
+        "SOURCE_PROGRESS": "{visible} または {total}",
+        "NO_SOURCES": "アクセス可能なソース会話が見つかりませんでした。",
+        "RETRY": "リトライ"
+      },
+      "EMPTY_STATE": {
+        "TITLE": "レビューキューはクリアです",
+        "SUBTITLE": "レビューの準備が整うと、新しい FAQ 提案がここに表示されます。",
+        "CLEAR_SEARCH": "検索をクリア"
+      },
+      "SUCCESS": {
+        "APPROVED": "FAQ が承認され、船長の知識に追加された。",
+        "DISMISSED": "提案は却下されました。",
+        "SAVED": "提案が更新されました。"
+      },
+      "ERRORS": {
+        "LOAD": "FAQ 提案の読み込み中にエラーが発生しました。もう一度試してください。",
+        "LOAD_DETAILS": "ソース会話をロード中にエラーが発生しました。",
+        "APPROVE": "FAQ の承認中にエラーが発生しました。もう一度試してください。",
+        "DISMISS": "提案の却下中にエラーが発生しました。もう一度試してください。",
+        "SAVE": "提案の保存中にエラーが発生しました。もう一度試してください。"
+      }
+    },
+    "INBOXES": {
+      "HEADER": "接続された受信トレイ",
+      "ADD_NEW": "新しい受信トレイを接続",
+      "OPTIONS": {
+        "DISCONNECT": "切断"
+      },
+      "DELETE": {
+        "TITLE": "受信トレイを切断してもよろしいですか？",
+        "DESCRIPTION": "",
+        "CONFIRM": "はい、削除します",
+        "SUCCESS_MESSAGE": "受信トレイが正常に切断されました。",
+        "ERROR_MESSAGE": "受信トレイの切断中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM_DESCRIPTION": "アシスタントと接続する受信トレイを選択してください。",
+      "CREATE": {
+        "TITLE": "受信トレイを接続",
+        "SUCCESS_MESSAGE": "受信トレイが正常に接続されました。",
+        "ERROR_MESSAGE": "受信トレイの接続中にエラーが発生しました。もう一度お試しください。"
+      },
+      "FORM": {
+        "INBOX": {
+          "LABEL": "受信トレイ",
+          "PLACEHOLDER": "アシスタントを展開する受信トレイを選択",
+          "ERROR": "受信トレイの選択が必要です。"
+        }
+      },
+      "EMPTY_STATE": {
+        "TITLE": "接続された受信トレイがありません",
+        "SUBTITLE": "受信トレイに接続すると、アシスタントがお客様からの最初の質問を対応し、その後あなたに引き継ぐことができます。"
+      }
+    }
+  }
+}

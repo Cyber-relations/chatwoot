@@ -1,0 +1,357 @@
+name: 受信箱の統合品質・標準イメージ公開
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - '.dockerignore'
+      - '.github/CODEOWNERS'
+      - '.github/workflows/chatwoot-integration.yml'
+      - 'Dockerfile'
+      - 'bin/toybaco-chatwoot-*'
+      - 'infra/terraform/ecs.tf'
+      - 'overlay/app/**'
+      - 'scripts/generate-chatwoot-active-ja-overrides.rb'
+      - 'scripts/generate-chatwoot-ja-overrides.rb'
+      - 'tests/chatwoot*'
+      - 'tests/verify_chatwoot*'
+      - 'tests/postiz_identity_contract.sql'
+  schedule:
+    - cron: '17 21 * * 1'
+  workflow_dispatch:
+    inputs:
+      publish_reviewed_main:
+        description: ECR replication設定後にreview済みmainを再発行する
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: chatwoot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    if: github.event_name != 'schedule'
+    name: 固定source・overlay・RSpec・日本語・amd64 runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: review対象sourceをread-only権限で取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 秘密なし固定containerでChatwoot品質ゲート
+        run: ./bin/toybaco-chatwoot-gate --quality-only
+
+      - name: 公開publisher契約を検証
+        run: node tests/chatwoot-managed-publisher.test.mjs .
+
+  publish:
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_reviewed_main)
+    needs: quality
+    name: reviewed mainからbuild・scan・署名・ECR公開
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment:
+      name: chatwoot-production
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      AWS_ACCOUNT_ID: '951034765053'
+      AWS_REGION: ap-northeast-1
+      ECR_REPOSITORY: 951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot
+      ECR_REPOSITORY_NAME: toybaco/chatwoot
+      REPOSITORY_COMMIT: ${{ github.sha }}
+      IMAGE_TAG: sha-${{ github.sha }}-${{ github.run_number }}
+      CHATWOOT_SOURCE_TAG: v4.17.1
+      CHATWOOT_SOURCE_TAG_OBJECT: e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1
+      CHATWOOT_SOURCE_COMMIT: b354a9550e1fb59fa537a9c384232cb076213e72
+      CHATWOOT_SOURCE_TREE: 9a17426900d328a6acc2bdaecba0533e8b401120
+      CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a
+    steps:
+      - name: owner review済みmain sourceを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: main commit・固定Chatwoot source・exact overlayを再確認
+        id: source
+        shell: bash
+        env:
+          REQUEST_REF: ${{ github.ref }}
+          REQUEST_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$REQUEST_REF_TYPE" != 'branch' || "$REQUEST_REF" != 'refs/heads/main' ]]; then
+            echo '::error::publisherはreview済みmain branchからのみ実行できます。'
+            exit 1
+          fi
+          [[ "$REPOSITORY_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$REPOSITORY_COMMIT" ]]
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]
+          repository_tree="$(git rev-parse 'HEAD^{tree}')"
+          [[ "$repository_tree" =~ ^[0-9a-f]{40}$ ]]
+          expected_tag="sha-${REPOSITORY_COMMIT}-${GITHUB_RUN_NUMBER}"
+          [[ "$IMAGE_TAG" == "$expected_tag" && "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}-[1-9][0-9]*$ ]]
+
+          [[ "$CHATWOOT_SOURCE_TAG" == 'v4.17.1' ]]
+          [[ "$CHATWOOT_SOURCE_TAG_OBJECT" == 'e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1' ]]
+          [[ "$CHATWOOT_SOURCE_COMMIT" == 'b354a9550e1fb59fa537a9c384232cb076213e72' ]]
+          [[ "$CHATWOOT_SOURCE_TREE" == '9a17426900d328a6acc2bdaecba0533e8b401120' ]]
+          [[ "$CHATWOOT_BASE_IMAGE" == 'chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a' ]]
+          grep -Fqx "ARG CHATWOOT_IMAGE=$CHATWOOT_BASE_IMAGE" Dockerfile
+          grep -Fq "org.opencontainers.image.revision=\"$CHATWOOT_SOURCE_COMMIT\"" Dockerfile
+          grep -Fq "jp.toybaco.source.tree=\"$CHATWOOT_SOURCE_TREE\"" Dockerfile
+          ruby tests/verify_chatwoot_overlay_manifest.rb verify . tests/chatwoot-overlay-manifest.tsv
+
+          control_output="$(./bin/toybaco-chatwoot-gate --control-sha-only)"
+          [[ "$control_output" =~ ^TOYBACO_CHATWOOT_CONTROL_SHA256=([0-9a-f]{64})$ ]]
+          control_sha="${BASH_REMATCH[1]}"
+          printf 'repository_tree=%s\n' "$repository_tree" >> "$GITHUB_OUTPUT"
+          printf 'control_sha=%s\n' "$control_sha" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub OIDCで本番publisher roleを取得
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::951034765053:role/toybaco-github-actions-chatwoot-ecr
+          aws-region: ap-northeast-1
+          role-session-name: toybaco-chatwoot-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+
+      - name: 固定ECR registryへlogin
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.0.1
+        with:
+          registries: '951034765053'
+          registry-type: private
+          mask-password: true
+
+      - name: linux/amd64 imageを一度だけbuild・pushしdigestとlabelを確認
+        id: build
+        shell: bash
+        env:
+          CONTROL_SHA: ${{ steps.source.outputs.control_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CONTROL_SHA" =~ ^[0-9a-f]{64}$ ]]
+          metadata="$RUNNER_TEMP/chatwoot-build-metadata.json"
+          image="$ECR_REPOSITORY:$IMAGE_TAG"
+          docker buildx version
+          docker buildx build --no-cache --pull --platform linux/amd64 \
+            --file Dockerfile \
+            --build-arg "CHATWOOT_IMAGE=$CHATWOOT_BASE_IMAGE" \
+            --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_SHA" \
+            --tag "$image" \
+            --metadata-file "$metadata" \
+            --provenance=false \
+            --sbom=false \
+            --push .
+          [[ -f "$metadata" && ! -L "$metadata" ]]
+          digest="$(jq -r '."containerimage.digest" // empty' "$metadata")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo '::error::buildx metadata digestが不正です。'
+            exit 1
+          }
+          image_json="$(docker buildx imagetools inspect "$ECR_REPOSITORY@$digest" --format '{{json .Image}}')"
+          jq -e \
+            --arg base "$CHATWOOT_BASE_IMAGE" \
+            --arg revision "$CHATWOOT_SOURCE_COMMIT" \
+            --arg tree "$CHATWOOT_SOURCE_TREE" \
+            --arg control "$CONTROL_SHA" \
+            '.os == "linux" and .architecture == "amd64" and
+             .config.Labels["org.opencontainers.image.base.name"] == $base and
+             .config.Labels["org.opencontainers.image.revision"] == $revision and
+             .config.Labels["jp.toybaco.source.tree"] == $tree and
+             .config.Labels["jp.toybaco.gate.control-sha256"] == $control' \
+            <<<"$image_json" >/dev/null
+          printf 'image_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'image_uri=%s@%s\n' "$ECR_REPOSITORY" "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: scan前に本番publisher roleを再取得
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::951034765053:role/toybaco-github-actions-chatwoot-ecr
+          aws-region: ap-northeast-1
+          role-session-name: toybaco-chatwoot-scan-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+
+      - name: buildx digestをECRから再取得して照合
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          described_digest="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --registry-id "$AWS_ACCOUNT_ID" \
+            --repository-name "$ECR_REPOSITORY_NAME" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)"
+          [[ "$described_digest" == "$IMAGE_DIGEST" ]] || {
+            echo "::error::buildxとECRのdigestが一致しません。buildx=$IMAGE_DIGEST ecr=$described_digest"
+            exit 1
+          }
+
+      - name: ECR scan完了・Critical/Highゼロを確認
+        id: scan
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          scan_file="$RUNNER_TEMP/chatwoot-ecr-scan.json"
+          error_file="$RUNNER_TEMP/chatwoot-ecr-scan.error"
+          complete=0
+          for ((attempt = 1; attempt <= 60; attempt += 1)); do
+            if aws ecr describe-image-scan-findings \
+              --region "$AWS_REGION" \
+              --registry-id "$AWS_ACCOUNT_ID" \
+              --repository-name "$ECR_REPOSITORY_NAME" \
+              --image-id "imageDigest=$IMAGE_DIGEST" \
+              --output json > "$scan_file" 2> "$error_file"; then
+              status="$(jq -r '.imageScanStatus.status // empty' "$scan_file")"
+              case "$status" in
+                COMPLETE) complete=1; break ;;
+                PENDING|IN_PROGRESS) sleep 10 ;;
+                *) echo "::error::ECR scanがfail-closed statusになりました: $status"; exit 1 ;;
+              esac
+            elif grep -Fq 'ScanNotFoundException' "$error_file"; then
+              sleep 10
+            else
+              echo '::error::ECR scan結果を取得できません。'
+              exit 1
+            fi
+          done
+          [[ "$complete" -eq 1 ]] || {
+            echo '::error::ECR scanが10分以内に完了しません。'
+            exit 1
+          }
+          critical="$(jq -r '.imageScanFindings.findingSeverityCounts.CRITICAL // 0' "$scan_file")"
+          high="$(jq -r '.imageScanFindings.findingSeverityCounts.HIGH // 0' "$scan_file")"
+          [[ "$critical" =~ ^[0-9]+$ && "$high" =~ ^[0-9]+$ ]]
+          if [[ "$critical" -ne 0 || "$high" -ne 0 ]]; then
+            echo "::error::ECR scan gate失敗: CRITICAL=$critical HIGH=$high"
+            exit 1
+          fi
+          printf 'ECR scan verified: digest=%s CRITICAL=0 HIGH=0\n' "$IMAGE_DIGEST"
+
+      - name: 固定SyftでSPDX SBOMを生成
+        id: sbom
+        env:
+          SYFT_FILE_METADATA_SELECTION: none
+          SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP: 'false'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.22.2
+        with:
+          image: ${{ steps.build.outputs.image_uri }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/toybaco-chatwoot.spdx.json
+          syft-version: v1.51.1
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: SPDX SBOMの形式と上限を確認
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sbom="$RUNNER_TEMP/toybaco-chatwoot.spdx.json"
+          [[ -f "$sbom" && ! -L "$sbom" ]]
+          size="$(stat -c %s "$sbom")"
+          [[ "$size" -gt 0 && "$size" -le 16777216 ]]
+          jq -e '.spdxVersion == "SPDX-2.3" and (.SPDXID | type == "string") and
+            ((.packages // []) | length > 0)' "$sbom" >/dev/null
+
+      - name: SLSA provenanceを署名してOCIへ保存
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.0.0
+        with:
+          subject-name: 951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot
+          subject-digest: ${{ steps.build.outputs.image_digest }}
+          push-to-registry: true
+          create-storage-record: true
+          show-summary: false
+
+      - name: SPDX SBOMを署名してOCIへ保存
+        id: sbom_attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.0.0
+        with:
+          subject-name: 951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot
+          subject-digest: ${{ steps.build.outputs.image_digest }}
+          sbom-path: ${{ runner.temp }}/toybaco-chatwoot.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+          show-summary: false
+
+      - name: GitHub OCI provenance・SBOM署名を標準検証
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image="oci://$ECR_REPOSITORY@$IMAGE_DIGEST"
+          identity='https://github.com/Cyber-relations/chatwoot/.github/workflows/chatwoot-integration.yml@refs/heads/main'
+          gh attestation verify "$image" \
+            --repo Cyber-relations/chatwoot \
+            --bundle-from-oci \
+            --cert-identity "$identity" \
+            --source-digest "$REPOSITORY_COMMIT" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners \
+            --predicate-type 'https://slsa.dev/provenance/v1' >/dev/null
+          gh attestation verify "$image" \
+            --repo Cyber-relations/chatwoot \
+            --bundle-from-oci \
+            --cert-identity "$identity" \
+            --source-digest "$REPOSITORY_COMMIT" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners \
+            --predicate-type 'https://spdx.dev/Document/v2.3' >/dev/null
+          printf 'Published %s:%s@%s from %s\n' \
+            "$ECR_REPOSITORY" "$IMAGE_TAG" "$IMAGE_DIGEST" "$REPOSITORY_COMMIT"
+
+  freshness:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.publish_reviewed_main)
+    name: upstream tag・commit・amd64 digest freshness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./bin/toybaco-chatwoot-upstream-freshness
+
+  live-edge:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.publish_reviewed_main)
+    name: production HSTS・TLS・nosniff read-only監視
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./bin/toybaco-chatwoot-live-edge-gate

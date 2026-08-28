@@ -1,0 +1,311 @@
+{
+  "CAMPAIGN": {
+    "LIVE_CHAT": {
+      "HEADER_TITLE": "ライブチャットキャンペーン",
+      "NEW_CAMPAIGN": "キャンペーンを作成",
+      "CARD": {
+        "STATUS": {
+          "ENABLED": "有効です",
+          "DISABLED": "無効です"
+        },
+        "CAMPAIGN_DETAILS": {
+          "SENT_BY": "送信者",
+          "BOT": "ボット",
+          "FROM": "差出人:",
+          "URL": "URL:"
+        }
+      },
+      "EMPTY_STATE": {
+        "TITLE": "利用可能なライブチャットキャンペーンがありません",
+        "SUBTITLE": "積極的なメッセージでお客様とつながりましょう。「キャンペーンを作成」をクリックして開始してください。"
+      },
+      "CREATE": {
+        "TITLE": "ライブチャットキャンペーンを作成",
+        "CANCEL_BUTTON_TEXT": "キャンセル",
+        "CREATE_BUTTON_TEXT": "作成",
+        "FORM": {
+          "TITLE": {
+            "LABEL": "タイトル",
+            "PLACEHOLDER": "キャンペーンのタイトルを入力してください",
+            "ERROR": "タイトルは必須です"
+          },
+          "MESSAGE": {
+            "LABEL": "メッセージ",
+            "PLACEHOLDER": "キャンペーンのメッセージを入力してください",
+            "ERROR": "メッセージは必須です"
+          },
+          "INBOX": {
+            "LABEL": "受信トレイを選択",
+            "PLACEHOLDER": "受信トレイを選択",
+            "ERROR": "受信トレイは必須です"
+          },
+          "SENT_BY": {
+            "LABEL": "送信者",
+            "PLACEHOLDER": "送信者を選択してください",
+            "ERROR": "送信者は必須です"
+          },
+          "END_POINT": {
+            "LABEL": "URL",
+            "PLACEHOLDER": "URLを入力してください",
+            "ERROR": "有効な URL を入力してください"
+          },
+          "TIME_ON_PAGE": {
+            "LABEL": "ページ滞在時間（秒）",
+            "PLACEHOLDER": "時間を入力してください",
+            "ERROR": "ページ滞在時間は必須です"
+          },
+          "OTHER_PREFERENCES": {
+            "TITLE": "その他の設定",
+            "ENABLED": "キャンペーンを有効化",
+            "TRIGGER_ONLY_BUSINESS_HOURS": "営業時間中のみトリガー"
+          },
+          "BUTTONS": {
+            "CREATE": "作成",
+            "CANCEL": "キャンセル"
+          },
+          "API": {
+            "SUCCESS_MESSAGE": "ライブチャットキャンペーンが正常に作成されました",
+            "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+          }
+        }
+      },
+      "EDIT": {
+        "TITLE": "ライブチャットキャンペーンを編集",
+        "FORM": {
+          "API": {
+            "SUCCESS_MESSAGE": "ライブチャットキャンペーンが正常に更新されました",
+            "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "SMS": {
+      "HEADER_TITLE": "SMSキャンペーン",
+      "NEW_CAMPAIGN": "キャンペーンを作成",
+      "EMPTY_STATE": {
+        "TITLE": "利用可能なSMSキャンペーンがありません",
+        "SUBTITLE": "SMSキャンペーンを開始してお客様に直接連絡しましょう。オファーを送信したり、お知らせを簡単に行うことができます。「キャンペーンを作成」をクリックして開始してください。"
+      },
+      "CARD": {
+        "STATUS": {
+          "PROCESSING": "処理",
+          "COMPLETED": "完了",
+          "SCHEDULED": "スケジュール済み"
+        },
+        "CAMPAIGN_DETAILS": {
+          "SENT_FROM": "送信元",
+          "ON": "送信日"
+        }
+      },
+      "CREATE": {
+        "TITLE": "SMSキャンペーンを作成",
+        "CANCEL_BUTTON_TEXT": "キャンセル",
+        "CREATE_BUTTON_TEXT": "作成",
+        "FORM": {
+          "TITLE": {
+            "LABEL": "タイトル",
+            "PLACEHOLDER": "キャンペーンのタイトルを入力してください",
+            "ERROR": "タイトルは必須です"
+          },
+          "MESSAGE": {
+            "LABEL": "メッセージ",
+            "PLACEHOLDER": "キャンペーンのメッセージを入力してください",
+            "ERROR": "メッセージは必須です"
+          },
+          "INBOX": {
+            "LABEL": "受信トレイを選択",
+            "PLACEHOLDER": "受信トレイを選択",
+            "ERROR": "受信トレイは必須です"
+          },
+          "AUDIENCE": {
+            "LABEL": "対象者",
+            "PLACEHOLDER": "顧客ラベルを選択",
+            "ERROR": "対象者は必須です"
+          },
+          "SCHEDULED_AT": {
+            "LABEL": "スケジュール時間",
+            "PLACEHOLDER": "時間を選択してください",
+            "ERROR": "スケジュール時間は必須です"
+          },
+          "BUTTONS": {
+            "CREATE": "作成",
+            "CANCEL": "キャンセル"
+          },
+          "API": {
+            "SUCCESS_MESSAGE": "SMSキャンペーンが正常に作成されました",
+            "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "WHATSAPP": {
+      "HEADER_TITLE": "WhatsApp キャンペーン",
+      "NEW_CAMPAIGN": "キャンペーンを作成",
+      "EMPTY_STATE": {
+        "TITLE": "WhatsApp キャンペーンはご利用いただけません",
+        "SUBTITLE": "WhatsApp キャンペーンを開始して、顧客に直接リーチしましょう。オファーの送信や告知が簡単にできます。[キャンペーンを作成] をクリックして始めましょう。"
+      },
+      "CARD": {
+        "ANALYTICS": "分析を表示",
+        "STATUS": {
+          "PROCESSING": "処理",
+          "COMPLETED": "完了",
+          "SCHEDULED": "スケジュール済み"
+        },
+        "CAMPAIGN_DETAILS": {
+          "SENT_FROM": "送信元",
+          "ON": "送信日"
+        }
+      },
+      "CREATE": {
+        "TITLE": "WhatsApp キャンペーンを作成",
+        "CANCEL_BUTTON_TEXT": "キャンセル",
+        "CREATE_BUTTON_TEXT": "作成",
+        "FORM": {
+          "TITLE": {
+            "LABEL": "タイトル",
+            "PLACEHOLDER": "キャンペーンのタイトルを入力してください",
+            "ERROR": "タイトルは必須です"
+          },
+          "INBOX": {
+            "LABEL": "受信トレイを選択",
+            "PLACEHOLDER": "受信トレイを選択",
+            "ERROR": "受信トレイは必須です"
+          },
+          "TEMPLATE": {
+            "LABEL": "WhatsApp テンプレート",
+            "PLACEHOLDER": "テンプレートを選択する",
+            "INFO": "このキャンペーンに使用するテンプレートを選択してください。",
+            "ERROR": "テンプレートが必要です",
+            "PREVIEW_TITLE": "{templateName} を処理中",
+            "LANGUAGE": "言語",
+            "CATEGORY": "カテゴリ",
+            "VARIABLES_LABEL": "変数",
+            "VARIABLE_PLACEHOLDER": "{variable} の値を入力してください"
+          },
+          "AUDIENCE": {
+            "LABEL": "対象者",
+            "PLACEHOLDER": "顧客ラベルを選択",
+            "ERROR": "対象者は必須です"
+          },
+          "SCHEDULED_AT": {
+            "LABEL": "スケジュール時間",
+            "PLACEHOLDER": "時間を選択してください",
+            "ERROR": "スケジュール時間は必須です"
+          },
+          "BUTTONS": {
+            "CREATE": "作成",
+            "CANCEL": "キャンセル"
+          },
+          "API": {
+            "SUCCESS_MESSAGE": "WhatsApp キャンペーンが正常に作成されました",
+            "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+          }
+        }
+      },
+      "ANALYTICS": {
+        "LOADING": "アナリティクスを読み込んでいます...",
+        "EMPTY": "配送記録が見つかりません。",
+        "EMPTY_FILTER": "{status} の配送レコードが見つかりませんでした。",
+        "DELIVERIES_ERROR": "配送記録を読み込めませんでした。ページを更新してもう一度試してください。",
+        "EMPTY_STATE": {
+          "ERROR": {
+            "TITLE": "アナリティクスを読み込めませんでした",
+            "DESCRIPTION": "ページを更新してもう一度試してください。"
+          },
+          "PENDING": {
+            "TITLE": "送信が開始されると、配信データが表示されます",
+            "DESCRIPTION": "このキャンペーンの配信記録はまだありません。"
+          },
+          "UNAVAILABLE": {
+            "TITLE": "このキャンペーンではアナリティクスをご利用いただけません",
+            "DESCRIPTION": "このキャンペーンの配信データは記録されていません。これは、キャンペーン分析が導入される前に送信されたキャンペーンで発生する可能性があります。"
+          }
+        },
+        "PROCESSING_BANNER": {
+          "DEFAULT": "このキャンペーンはまだ処理中です。アナリティクスは自動的に更新されます。",
+          "BOTH": "このキャンペーンはまだ処理中です。{queued} メッセージはキューに入れられており、{awaitingUpdate} は WhatsApp からの配信更新を待っています。",
+          "BOTH_SINGLE": "このキャンペーンはまだ処理中です。{queued} メッセージはキューに登録されており、{awaitingUpdate} は WhatsApp からの配信更新を待っています。",
+          "BOTH_QUEUED_SINGLE": "このキャンペーンはまだ処理中です。{queued} メッセージはキューに登録されており、{awaitingUpdate} は WhatsApp からの配信更新を待っています。",
+          "BOTH_AWAITING_SINGLE": "このキャンペーンはまだ処理中です。{queued} メッセージはキューに入れられており、{awaitingUpdate} は WhatsApp からの配信更新を待っています。",
+          "QUEUED": "このキャンペーンはまだ処理中です。{count} メッセージはキューに登録されています。| このキャンペーンはまだ処理中です。{count} メッセージはキューに登録されています。",
+          "AWAITING_UPDATE": "このキャンペーンはまだ処理中です。{count} メッセージは WhatsApp からの配信更新を待っています。| このキャンペーンはまだ処理中です。{count} メッセージは WhatsApp からの配信更新を待っています。",
+          "COMPLETING": "このキャンペーンは終了しています。アナリティクスは自動的に更新されます。"
+        },
+        "RATE": "オーディエンスの {value}%",
+        "SENT_ON": "{date} で送信されました",
+        "PAGE_INFO": "{totalItems} 連絡先の {startItem}-{endItem} を表示中 | {totalItems} 連絡先の {startItem}-{endItem} を表示中",
+        "BREADCRUMB": {
+          "CAMPAIGNS": "キャンペーン",
+          "WHATSAPP": "WhatsApp"
+        },
+        "FILTERS": {
+          "ALL": "[すべて]"
+        },
+        "METRICS": {
+          "AUDIENCE": {
+            "LABEL": "オーディエンス",
+            "HINT": "このキャンペーンには連絡先が含まれています。"
+          },
+          "SENT": {
+            "LABEL": "WhatsApp に送信されました",
+            "HINT": "WhatsApp がメッセージを配信用に受け付けました。"
+          },
+          "DELIVERED": {
+            "LABEL": "配信済み",
+            "HINT": "連絡先のデバイスに届いたメッセージ。既読メッセージも含まれます。"
+          },
+          "READ": {
+            "LABEL": "読む",
+            "HINT": "連絡先が開いたメッセージ。"
+          },
+          "FAILED": {
+            "LABEL": "失敗",
+            "HINT": "WhatsApp が配信できなかったメッセージ"
+          },
+          "SKIPPED": {
+            "LABEL": "スキップされました",
+            "HINT": "通常、電話番号が欠落しているか無効なため、連絡先が送信前にスキップされました。"
+          }
+        },
+        "STATUS": {
+          "QUEUED": "処理待ち",
+          "SENT": "配信更新待ち",
+          "DELIVERED": "配信済み",
+          "READ": "読む",
+          "FAILED": "失敗",
+          "SKIPPED": "スキップされました"
+        },
+        "BREAKDOWN": {
+          "TITLE": "配送内訳",
+          "DELIVERY_RATE": "{value}% 配信済み",
+          "LEGEND": {
+            "READ": "読む",
+            "DELIVERED": "配信済み",
+            "FAILED": "失敗",
+            "SKIPPED": "スキップされました",
+            "PENDING": "処理待ちまたは更新待ち"
+          }
+        },
+        "TABLE": {
+          "TITLE": "配送",
+          "CONTACT": "連絡",
+          "STATUS": "ステータス",
+          "MESSAGE": "メッセージ",
+          "MESSAGE_NOT_GENERATED": "未生成",
+          "REASON": "理由",
+          "ERROR_CODE": "コード {code}"
+        }
+      }
+    },
+    "CONFIRM_DELETE": {
+      "TITLE": "削除の確認",
+      "DESCRIPTION": "削除操作は永久的で、元に戻すことはできません。",
+      "CONFIRM": "削除",
+      "API": {
+        "SUCCESS_MESSAGE": "キャンペーンが正常に削除されました",
+        "ERROR_MESSAGE": "エラーが発生しました。もう一度お試しください。"
+      }
+    }
+  }
+}

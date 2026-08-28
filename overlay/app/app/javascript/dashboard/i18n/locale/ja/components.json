@@ -1,0 +1,78 @@
+{
+  "PAGINATION_FOOTER": {
+    "SHOWING": "{startItem} - {endItem} 件を表示中（全 {totalItems} 件）",
+    "CURRENT_PAGE_INFO": "{currentPage} ページ中 {totalPages} ページ"
+  },
+  "COMBOBOX": {
+    "PLACEHOLDER": "オプションを選択...",
+    "EMPTY_SEARCH_RESULTS": "`{searchTerm}` に該当する項目が見つかりませんでした。",
+    "EMPTY_STATE": "該当結果が見つかりませんでした。",
+    "SEARCH_PLACEHOLDER": "検索...",
+    "MORE": "+{count} 件をさらに表示"
+  },
+  "DROPDOWN_MENU": {
+    "SEARCH_PLACEHOLDER": "検索...",
+    "EMPTY_STATE": "該当結果が見つかりませんでした。",
+    "SEARCHING": "検索中..."
+  },
+  "DIALOG": {
+    "BUTTONS": {
+      "CANCEL": "キャンセル",
+      "CONFIRM": "確認"
+    }
+  },
+  "PHONE_INPUT": {
+    "SEARCH_PLACEHOLDER": "国を検索",
+    "ERROR": "電話番号は空白または E.164 形式である必要があります。",
+    "DIAL_CODE_ERROR": "リストからダイヤルコードを選択してください。"
+  },
+  "THUMBNAIL": {
+    "AUTHOR": {
+      "NOT_AVAILABLE": "著者情報は利用できません"
+    }
+  },
+  "BREADCRUMB": {
+    "ARIA_LABEL": "パンくずリスト"
+  },
+  "SWITCH": {
+    "TOGGLE": "スイッチを切り替え"
+  },
+  "LABEL": {
+    "TAG_BUTTON": "タグ"
+  },
+  "FEATURE_SPOTLIGHT": {
+    "LEARN_MORE": "詳細を見る",
+    "WATCH_VIDEO": "ビデオを見る"
+  },
+  "DURATION_INPUT": {
+    "MINUTES": "議事録",
+    "HOURS": "時間",
+    "DAYS": "日々",
+    "PLACEHOLDER": "期間を入力"
+  },
+  "CHANNEL_SELECTOR": {
+    "COMING_SOON": "近日公開！"
+  },
+  "SLASH_COMMANDS": {
+    "HEADING_1": "見出し 1",
+    "HEADING_2": "見出し 2",
+    "HEADING_3": "見出し 3",
+    "BOLD": "太字",
+    "ITALIC": "イタリック",
+    "STRIKETHROUGH": "ストライクスルー",
+    "CODE": "コード",
+    "BULLET_LIST": "箇条書きリスト",
+    "ORDERED_LIST": "順序付きリスト",
+    "TABLE": "テーブル",
+    "IMAGE": "画像",
+    "VIDEO": "ビデオ",
+    "DIVIDER": "ディバイダー"
+  },
+  "VIDEO_EMBED": {
+    "PLACEHOLDER": "動画リンクを貼り付ける",
+    "HINT": "YouTube、Vimeo、Loom、Wistia、アーケード、バニー、CodePen、GuideJar、mp4リンクに対応",
+    "ERROR": "対応している動画リンクではないようです",
+    "ADD": "埋め込む",
+    "CANCEL": "キャンセル"
+  }
+}

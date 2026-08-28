@@ -1,0 +1,57 @@
+{
+  "REGISTER": {
+    "TRY_WOOT": "アカウントを作成",
+    "GET_STARTED": "トイバコ から始めましょう",
+    "TITLE": "登録",
+    "TESTIMONIAL_HEADER": "前進するために必要なのはたった一歩",
+    "TESTIMONIAL_CONTENT": "顧客と関わり、維持し、新たな顧客を見つけるまであと一歩です。",
+    "TERMS_ACCEPT": "アカウントを作成することで、<a href=\"https://toybaco.jp/terms\">利用規約</a>および<a href=\"https://toybaco.jp/privacy\">プライバシーポリシー</a>に同意したものとみなされます。",
+    "OAUTH": {
+      "GOOGLE_SIGNUP": "Googleで登録"
+    },
+    "COMPANY_NAME": {
+      "LABEL": "会社名",
+      "PLACEHOLDER": "会社名を入力してください。例: Wayne Enterprises",
+      "ERROR": "会社名が短すぎます"
+    },
+    "FULL_NAME": {
+      "LABEL": "氏名",
+      "PLACEHOLDER": "氏名を入力してください。例: Bruce Wayne",
+      "ERROR": "氏名が短すぎます"
+    },
+    "EMAIL": {
+      "LABEL": "勤務先のメールアドレス",
+      "PLACEHOLDER": "勤務先のメールアドレスを入力してください。例: bruce{'@'}wayne{'.'}enterprises",
+      "ERROR": "有効な勤務先のメールアドレスを入力してください"
+    },
+    "PASSWORD": {
+      "LABEL": "パスワード",
+      "PLACEHOLDER": "パスワード",
+      "ERROR": "パスワードが短すぎます",
+      "IS_INVALID_PASSWORD": "パスワードは少なくとも1つの大文字、1つの小文字、1つの数字、1つの特殊文字を含む必要があります",
+      "REQUIREMENTS_LENGTH": "6 文字以上",
+      "REQUIREMENTS_UPPERCASE": "少なくとも 1 つの大文字",
+      "REQUIREMENTS_LOWERCASE": "少なくとも 1 つの小文字",
+      "REQUIREMENTS_NUMBER": "少なくとも 1 つの番号",
+      "REQUIREMENTS_SPECIAL": "少なくとも 1 つの特殊文字"
+    },
+    "CONFIRM_PASSWORD": {
+      "LABEL": "パスワードの確認",
+      "PLACEHOLDER": "パスワードの確認",
+      "ERROR": "パスワードが一致しません"
+    },
+    "API": {
+      "SUCCESS_MESSAGE": "登録成功",
+      "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+    },
+    "SUBMIT": "アカウントを作成",
+    "HAVE_AN_ACCOUNT": "すでにアカウントをお持ちですか？",
+    "VERIFY_EMAIL": {
+      "TITLE": "受信箱を確認",
+      "DESCRIPTION": "{email} に検証リンクを送信しました。リンクをクリックしてメールを確認し、開始してください。",
+      "RESEND": "認証メールを再送",
+      "RESEND_SUCCESS": "確認メールが送信されました。受信箱を確認してください。",
+      "RESEND_ERROR": "確認メールを送信できませんでした。もう一度試してください。"
+    }
+  }
+}

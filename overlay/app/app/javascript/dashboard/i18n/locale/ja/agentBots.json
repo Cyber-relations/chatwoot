@@ -1,0 +1,117 @@
+{
+  "AGENT_BOTS": {
+    "HEADER": "ボット",
+    "LOADING_EDITOR": "エディターを読み込んでいます...",
+    "DESCRIPTION": "エージェントボットは、問い合わせ対応を自動化し、担当者が重要な業務に集中できるよう支援します。このページでボットを管理したり、「ボットを追加」ボタンから新しいボットを作成したりできます。",
+    "LEARN_MORE": "エージェントボットについて知る",
+    "COUNT": "{n} ボット | {n} ボット",
+    "SEARCH_PLACEHOLDER": "ボットを検索...",
+    "NO_RESULTS": "検索条件に一致するボットは見つかりませんでした",
+    "GLOBAL_BOT": "システムボット",
+    "GLOBAL_BOT_BADGE": "システム",
+    "AVATAR": {
+      "SUCCESS_DELETE": "ボットアバターは正常に削除されました",
+      "ERROR_DELETE": "ボットアバターの削除中にエラーが発生しました。もう一度試してください"
+    },
+    "BOT_CONFIGURATION": {
+      "TITLE": "エージェントボットを選択",
+      "DESC": "エージェントボットを受信トレイに割り当てます。初期の会話を処理し、必要に応じてライブエージェントに転送することができます。",
+      "SUBMIT": "更新",
+      "DISCONNECT": "ボットを切断",
+      "SUCCESS_MESSAGE": "エージェントボットが正常に更新されました。",
+      "DISCONNECTED_SUCCESS_MESSAGE": "エージェントボットが正常に切断されました。",
+      "ERROR_MESSAGE": "エージェントボットを更新できませんでした。再試行してください。",
+      "DISCONNECTED_ERROR_MESSAGE": "エージェントボットを切断できませんでした。再試行してください。",
+      "SELECT_PLACEHOLDER": "ボットを選択"
+    },
+    "ADD": {
+      "TITLE": "ボットを追加",
+      "CANCEL_BUTTON_TEXT": "キャンセル",
+      "API": {
+        "SUCCESS_MESSAGE": "ボットが正常に追加されました。",
+        "ERROR_MESSAGE": "ボットを追加できませんでした。後でもう一度お試しください。"
+      }
+    },
+    "LIST": {
+      "404": "ボットが見つかりません。「ボットを追加」ボタンから作成できます。",
+      "LOADING": "ボットを取得中...",
+      "TABLE_HEADER": {
+        "DETAILS": "ボットの詳細",
+        "URL": "ウェブフック URL",
+        "ACTIONS": "操作"
+      }
+    },
+    "DELETE": {
+      "BUTTON_TEXT": "削除",
+      "TITLE": "ボットを削除",
+      "CONFIRM": {
+        "TITLE": "削除の確認",
+        "MESSAGE": "本当に{name}を削除してもよろしいですか?",
+        "YES": "削除する",
+        "NO": "いいえ"
+      },
+      "API": {
+        "SUCCESS_MESSAGE": "ボットが正常に削除されました。",
+        "ERROR_MESSAGE": "ボットを削除できませんでした。再試行してください。"
+      }
+    },
+    "EDIT": {
+      "BUTTON_TEXT": "編集",
+      "TITLE": "ボットを編集",
+      "API": {
+        "SUCCESS_MESSAGE": "ボットが正常に更新されました。",
+        "ERROR_MESSAGE": "ボットを更新できませんでした。再試行してください。"
+      }
+    },
+    "SECRET": {
+      "LABEL": "ウェブフックシークレット",
+      "COPY": "シークレットをクリップボードにコピー",
+      "COPY_SUCCESS": "シークレットをクリップボードにコピーしました",
+      "TOGGLE": "シークレットの可視性を切り替える",
+      "CREATED_DESC": "Webhook の署名を確認するには、以下のシークレットを使用してください。今すぐコピーしてください。後でボット設定で見つけることもできます。",
+      "DONE": "完了",
+      "RESET_SUCCESS": "Webhook シークレットが正常に再生成されました",
+      "RESET_ERROR": "Webhook シークレットを再生成できません。もう一度試してください。"
+    },
+    "ACCESS_TOKEN": {
+      "TITLE": "アクセストークン",
+      "DESCRIPTION": "アクセストークンをコピーして安全に保存する",
+      "COPY_SUCCESSFUL": "アクセストークンがクリップボードにコピーされました",
+      "RESET_SUCCESS": "アクセストークンは正常に再生成されました",
+      "RESET_ERROR": "アクセストークンを再生成できません。もう一度試してください。"
+    },
+    "FORM": {
+      "AVATAR": {
+        "LABEL": "ボットアバター"
+      },
+      "NAME": {
+        "LABEL": "ボット名",
+        "PLACEHOLDER": "ボット名を入力",
+        "REQUIRED": "ボット名は必須です"
+      },
+      "DESCRIPTION": {
+        "LABEL": "説明",
+        "PLACEHOLDER": "このボットは何をしますか？"
+      },
+      "WEBHOOK_URL": {
+        "LABEL": "ウェブフック URL",
+        "PLACEHOLDER": "https://example.com/webhook",
+        "REQUIRED": "ウェブフック URL が必要です"
+      },
+      "ERRORS": {
+        "NAME": "ボット名は必須です",
+        "URL": "ウェブフック URL が必要です",
+        "VALID_URL": "http://または https://で始まる有効な URL を入力してください"
+      },
+      "CANCEL": "キャンセル",
+      "CREATE": "ボットの作成",
+      "UPDATE": "アップデートボット"
+    },
+    "WEBHOOK": {
+      "DESCRIPTION": "カスタムサービスと統合するようにWebhookボットを構成します。ボットは会話からのイベントを受信して処理し、それに応答できます。"
+    },
+    "TYPES": {
+      "WEBHOOK": "Webhookボット"
+    }
+  }
+}

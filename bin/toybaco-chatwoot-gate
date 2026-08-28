@@ -1,0 +1,1225 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 077
+
+readonly CHATWOOT_SOURCE_TAG='v4.17.1'
+readonly CHATWOOT_SOURCE_TAG_OBJECT='e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1'
+readonly CHATWOOT_SOURCE_COMMIT='b354a9550e1fb59fa537a9c384232cb076213e72'
+readonly CHATWOOT_SOURCE_TREE='9a17426900d328a6acc2bdaecba0533e8b401120'
+readonly CHATWOOT_PREVIOUS_TAG='v4.16.2'
+readonly CHATWOOT_PREVIOUS_TAG_OBJECT='e5d374f1186f8c0b7eac10fb7649f380c89a6da9'
+readonly CHATWOOT_PREVIOUS_COMMIT='70e284a044f00326725f65f703162745371075ec'
+readonly CHATWOOT_PREVIOUS_TREE='5dcb62d1588bd247a103bd8c0ef772b9c3d69948'
+readonly CHATWOOT_SOURCE_URL='https://github.com/chatwoot/chatwoot.git'
+readonly CHATWOOT_IMAGE='chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a'
+readonly POSTGRES_IMAGE='pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b'
+readonly REDIS_IMAGE='redis:7.4.5-alpine@sha256:bb186d083732f669da90be8b0f975a37812b15e913465bb14d845db72a4e3e08'
+readonly EXPECTED_MIN_INTEGRATION_RUBY_FILES=14
+readonly EXPECTED_MIN_SPEC_FILES=5
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+SOURCE=''
+ARTIFACT_DIR=''
+CONTROL_SHA_ONLY=0
+QUALITY_ONLY=1
+STAGE='初期化'
+RUN_ROOT=''
+CONTROL_ROOT=''
+CLEAN_SOURCE=''
+PATCHED_SOURCE=''
+TEST_CONTEXT=''
+CONTROL_MANIFEST=''
+CONTROL_MANIFEST_SHA=''
+CLEAN_SOURCE_FINGERPRINT=''
+SEED_FINGERPRINT=''
+NETWORK_NAME=''
+POSTGRES_NAME=''
+REDIS_NAME=''
+TEST_IMAGE=''
+PRODUCTION_IMAGE=''
+POSTGRES_TEST_PASSWORD=''
+SYNC_TEST_PASSWORD=''
+RAILS_NAME=''
+SIDEKIQ_NAME=''
+
+usage() {
+  cat <<'EOF'
+使い方: bin/toybaco-chatwoot-gate [--quality-only] [--source <固定Chatwootのclean clone>]
+        bin/toybaco-chatwoot-gate --control-sha-only
+
+引数なしなら公開upstreamから固定commitを隔離取得する。
+--source はネットワーク取得を省くread-only seedで、固定HEAD/tree・clean状態・
+ignored file不在を確認してから別cloneを使う。seed自身は変更しない。
+
+固定image/source、全Toybaco RSpec、Rubocop、frame-policy、production imageの
+build/boot smokeを、AWS・Cloudflare・本番秘密なしで一括検証する。
+旧--artifact-dir release bundleはowner再baselineでpark済みのため使用できない。
+EOF
+}
+
+fail() {
+  echo "ERROR[$STAGE]: $*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "必要なcommandがありません: $1"
+}
+
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 -r "$file" | awk '{print $1}'
+  else
+    fail 'SHA-256実装(sha256sum/shasum/openssl)がありません'
+  fi
+}
+
+assert_regular_path() {
+  local source_root="$1"
+  local relative_path="$2"
+  local component
+  local current="$source_root"
+  local old_ifs="$IFS"
+
+  IFS='/'
+  for component in $relative_path; do
+    current="$current/$component"
+    [[ ! -L "$current" ]] || fail "allowlist pathにsymlinkがあります: $relative_path"
+  done
+  IFS="$old_ifs"
+  [[ -f "$current" ]] || fail "allowlist対象が通常ファイルではありません: $relative_path"
+}
+
+control_file_list() {
+  local source_root="$1"
+
+  printf '%s\n' \
+    '.dockerignore' \
+    'Dockerfile' \
+    'bin/toybaco-chatwoot-gate' \
+    'infra/terraform/ecs.tf' \
+    'scripts/generate-chatwoot-active-ja-overrides.rb' \
+    'scripts/generate-chatwoot-ja-overrides.rb' \
+    'tests/chatwoot_full_japanese_test.rb' \
+    'tests/chatwoot-http-smoke.rb' \
+    'tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json' \
+    'tests/chatwoot-overlay-manifest.tsv' \
+    'tests/chatwoot-rspec-manifest.json' \
+    'tests/chatwoot-test.Dockerfile' \
+    'tests/chatwoot_frame_policy_test.rb' \
+    'tests/chatwoot-production-smoke.rb' \
+    'tests/postiz_identity_contract.sql' \
+    'tests/verify_chatwoot_auth_cookie.rb' \
+    'tests/verify_chatwoot_migration_contract.rb' \
+    'tests/verify_chatwoot_overlay_manifest.rb' \
+    'tests/verify_chatwoot_rspec_result.rb'
+
+  ruby "$source_root/tests/verify_chatwoot_overlay_manifest.rb" files "$source_root" \
+    "$source_root/tests/chatwoot-overlay-manifest.tsv"
+}
+
+control_manifest() {
+  local source_root="$1"
+  local relative_path
+  local count=0
+
+  while IFS= read -r relative_path; do
+    [[ -n "$relative_path" ]] || fail 'allowlistに空pathがあります'
+    case "$relative_path" in
+      *$'\n'*) fail "改行を含むpathは許可しません: $relative_path" ;;
+    esac
+    assert_regular_path "$source_root" "$relative_path"
+    printf '%s  %s\n' "$(sha256_file "$source_root/$relative_path")" "$relative_path"
+    count=$((count + 1))
+  done < <(control_file_list "$source_root")
+
+  [[ "$count" -ge 10 ]] || fail "control snapshotのfile数が不正です: $count"
+}
+
+integration_ruby_file_list() {
+  local source_root="$1"
+
+  (
+    cd "$source_root"
+    {
+      find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
+      find overlay/app/config/initializers -maxdepth 1 -type f \
+        \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
+        -name 'toybaco_postiz_lifecycle.rb' \) -print
+      find overlay/app/lib/toybaco -maxdepth 1 -type f \
+        \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' \) -print
+      find overlay/app/lib/toybaco/oidc -type f -name '*.rb' -print
+      find overlay/app/spec -type f -name '*_spec.rb' -print
+    } | LC_ALL=C sort -u
+  )
+}
+
+copy_control_snapshot() {
+  local relative_path
+
+  mkdir -p "$CONTROL_ROOT"
+  while IFS= read -r relative_path; do
+    mkdir -p "$CONTROL_ROOT/$(dirname "$relative_path")"
+    cp -p "$ROOT/$relative_path" "$CONTROL_ROOT/$relative_path"
+  done < <(control_file_list "$ROOT")
+
+  # umask 077で作ったsnapshotをLinux上の非root containerからread-only mountしても
+  # traverse/readできるよう正規化する。内容・実行bitは変えない。
+  find "$CONTROL_ROOT" -type d -exec chmod 0755 {} +
+  find "$CONTROL_ROOT" -type f -exec chmod u=rwX,go=rX {} +
+  # BuildKit COPYへdirectory/file mtimeが入るため、同じsourceから同じ内容を作れるよう
+  # 検証対象overlayの時刻を固定する。
+  find "$CONTROL_ROOT/overlay/app" -exec touch -t 200001010000.00 {} +
+}
+
+assert_single_exact_line() {
+  local file="$1"
+  local expected="$2"
+  local count
+
+  count="$(grep -Fxc "$expected" "$file" || true)"
+  [[ "$count" -eq 1 ]] || fail "固定契約行がexact 1件ではありません: $expected"
+}
+
+assert_node_heap_precompile_block() {
+  local dockerfile="$1"
+
+  ruby - "$dockerfile" <<'RUBY'
+lines = File.readlines(ARGV.fetch(0), chomp: true)
+expected = [
+  '    && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \\',
+  '      NODE_OPTIONS=--max-old-space-size=4096 \\',
+  '      bundle exec rake assets:precompile \\'
+]
+matches = lines.each_cons(expected.length).count { |block| block == expected }
+abort 'Node heap上限がassets:precompileへexactに適用されていません' unless matches == 1
+RUBY
+}
+
+assert_control_contract() {
+  local sentinel
+  local required_path
+  local integration_ruby_count
+  local spec_count
+
+  STAGE='quality control契約'
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_overlay_manifest.rb" verify "$CONTROL_ROOT" \
+    "$CONTROL_ROOT/tests/chatwoot-overlay-manifest.tsv"
+  if find "$CONTROL_ROOT/overlay/app" -mindepth 1 ! -type d ! -type f -print -quit | grep -q .; then
+    fail 'overlay/appに通常file/directory以外があります'
+  fi
+  if find "$CONTROL_ROOT" -type f \( \
+    -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' -o \
+    -name 'id_rsa' -o -iname '*credential*' \) -print -quit | grep -q .; then
+    fail 'secretになり得るfile名をquality snapshotへ含めません'
+  fi
+  if LC_ALL=C grep -R -I -E \
+    -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|(^|[^A-Z0-9])(AKIA|ASIA)[A-Z0-9]{16}([^A-Z0-9]|$)' \
+    "$CONTROL_ROOT" >/dev/null 2>&1; then
+    fail 'quality snapshotに秘密鍵またはAWS access key形式の文字列があります'
+  fi
+
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
+    "ARG CHATWOOT_IMAGE=$CHATWOOT_IMAGE"
+  grep -Fq "org.opencontainers.image.revision=\"$CHATWOOT_SOURCE_COMMIT\"" \
+    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileのsource revision labelが固定値ではありません'
+  grep -Fq 'org.opencontainers.image.source="https://github.com/Cyber-relations/chatwoot"' \
+    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileの公開source labelが固定値ではありません'
+  grep -Fq "jp.toybaco.source.tree=\"$CHATWOOT_SOURCE_TREE\"" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileのsource tree labelが固定値ではありません'
+  assert_single_exact_line "$CONTROL_ROOT/.dockerignore" 'overlay/app/spec/**'
+  assert_single_exact_line "$CONTROL_ROOT/tests/chatwoot-test.Dockerfile" \
+    "ARG CHATWOOT_IMAGE=$CHATWOOT_IMAGE"
+  ruby -c "$CONTROL_ROOT/scripts/generate-chatwoot-ja-overrides.rb" >/dev/null || fail \
+    'Chatwoot日本語生成scriptのRuby syntaxが不正です'
+  ruby -c "$CONTROL_ROOT/scripts/generate-chatwoot-active-ja-overrides.rb" >/dev/null || fail \
+    'Chatwoot主要画面日本語生成scriptのRuby syntaxが不正です'
+  grep -Fq "musl-utils=1.2.5-r11" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileのmusl-utils修正版が固定されていません'
+  grep -Fq "zlib=1.3.2-r0" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileのzlib修正版が固定されていません'
+  assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
+  grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production asset検証がserved JavaScriptだけに限定されていません'
+  for sentinel in 'トイバコサーバー' '新しいチャットを開始する' '評価のご協力ありがとうございます。'; do
+    grep -Fq "'$sentinel'" "$CONTROL_ROOT/Dockerfile" || fail \
+      "production日本語served JS assetの実在検証がありません: $sentinel"
+  done
+  grep -Fq "'Woot[[:space:]]*サーバー|Chatwootにログイン'" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production日本語served JS assetの旧brand文言拒否がありません'
+  grep -Fq "defaults={sameSite:\"Lax\",secure:!0}" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production auth bundleのSecure cookie検証がありません'
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
+    'FROM ${CHATWOOT_IMAGE} AS overlay-normalizer'
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
+    'RUN find /toybaco-overlay -exec touch -t 200001010000.00 {} +'
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
+    'COPY --from=overlay-normalizer /toybaco-overlay/ /app/'
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" 'RUN rm -rf /app/public/vite'
+
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
+    "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
+    "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js"
+  sed 's/secure: true/secure: false/g' \
+    "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
+    > "$RUN_ROOT/insecure-delayed-login-api.js"
+  if ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
+    "$RUN_ROOT/insecure-delayed-login-api.js" \
+    "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js" >/dev/null 2>&1; then
+    fail '遅延loginで非Secure auth cookieを作る負例をverifierが拒否しません'
+  fi
+
+  for required_path in \
+    'overlay/app/spec/requests/toybaco/oidc_spec.rb' \
+    'overlay/app/spec/lib/toybaco/postiz_sync_spec.rb' \
+    'overlay/app/spec/lib/toybaco/postiz_sync_database_spec.rb' \
+    'overlay/app/spec/lib/toybaco/oidc/session_reader_spec.rb' \
+    'overlay/app/spec/models/toybaco/postiz_lifecycle_spec.rb'; do
+    [[ -f "$CONTROL_ROOT/$required_path" ]] || fail "必須Toybaco specがありません: $required_path"
+  done
+  integration_ruby_count="$(integration_ruby_file_list "$CONTROL_ROOT" | wc -l | tr -d ' ')"
+  spec_count="$(find "$CONTROL_ROOT/overlay/app/spec" -type f -name '*_spec.rb' | wc -l | tr -d ' ')"
+  [[ "$integration_ruby_count" -ge "$EXPECTED_MIN_INTEGRATION_RUBY_FILES" ]] || fail \
+    "統合境界Ruby allowlistが縮退しています: $integration_ruby_count"
+  [[ "$spec_count" -ge "$EXPECTED_MIN_SPEC_FILES" ]] || fail "Toybaco spec名簿が縮退しています: $spec_count"
+
+  bash -n "$CONTROL_ROOT/bin/toybaco-chatwoot-gate"
+  ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" >/dev/null
+}
+
+git_source_fingerprint() {
+  local source_root="$1"
+
+  printf 'HEAD %s\n' "$(git -C "$source_root" rev-parse HEAD)"
+  printf 'TREE %s\n' "$(git -C "$source_root" rev-parse 'HEAD^{tree}')"
+  git -C "$source_root" ls-files --stage
+  git -C "$source_root" status --porcelain=v2 --untracked-files=all
+  git -C "$source_root" ls-files --others --ignored --exclude-standard
+}
+
+assert_clean_source() {
+  local source_root="$1"
+  local actual_commit
+  local actual_tree
+
+  git -C "$source_root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail \
+    "Chatwoot sourceはGit worktreeではありません: $source_root"
+  actual_commit="$(git -C "$source_root" rev-parse HEAD)"
+  actual_tree="$(git -C "$source_root" rev-parse 'HEAD^{tree}')"
+  [[ "$actual_commit" == "$CHATWOOT_SOURCE_COMMIT" ]] || fail \
+    "Chatwoot source HEADが固定commitではありません: $actual_commit"
+  [[ "$actual_tree" == "$CHATWOOT_SOURCE_TREE" ]] || fail \
+    "Chatwoot source treeが固定値ではありません: $actual_tree"
+  [[ -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=all)" ]] || fail \
+    "Chatwoot sourceに未commit変更があります: $source_root"
+  [[ -z "$(git -C "$source_root" ls-files --others --ignored --exclude-standard)" ]] || fail \
+    "Chatwoot sourceにignored fileがあります: $source_root"
+  [[ ! -e "$source_root/.git/objects/info/alternates" ]] || fail \
+    "隔離sourceが外部object storeを参照しています: $source_root"
+}
+
+acquire_source() {
+  local source_path
+
+  STAGE='固定Chatwoot source取得'
+  if [[ -n "$SOURCE" ]]; then
+    [[ -d "$SOURCE" ]] || fail "--source directoryがありません: $SOURCE"
+    source_path="$(cd "$SOURCE" && pwd -P)"
+    assert_clean_source "$source_path"
+    SEED_FINGERPRINT="$RUN_ROOT/seed.fingerprint"
+    git_source_fingerprint "$source_path" > "$SEED_FINGERPRINT"
+    git -c advice.detachedHead=false clone --quiet --no-hardlinks "$source_path" "$CLEAN_SOURCE"
+  else
+    git init --quiet "$CLEAN_SOURCE"
+    git -C "$CLEAN_SOURCE" remote add origin "$CHATWOOT_SOURCE_URL"
+    git -C "$CLEAN_SOURCE" fetch --quiet --depth 1 origin \
+      "refs/tags/$CHATWOOT_PREVIOUS_TAG:refs/tags/$CHATWOOT_PREVIOUS_TAG" \
+      "refs/tags/$CHATWOOT_SOURCE_TAG:refs/tags/$CHATWOOT_SOURCE_TAG"
+    [[ "$(git -C "$CLEAN_SOURCE" rev-parse "refs/tags/$CHATWOOT_SOURCE_TAG")" == \
+      "$CHATWOOT_SOURCE_TAG_OBJECT" ]] || fail '固定Chatwoot annotated tag objectが不一致です'
+    [[ "$(git -C "$CLEAN_SOURCE" rev-parse "refs/tags/$CHATWOOT_SOURCE_TAG^{commit}")" == \
+      "$CHATWOOT_SOURCE_COMMIT" ]] || fail '固定Chatwoot tagのpeeled commitが不一致です'
+    git -C "$CLEAN_SOURCE" checkout --quiet --detach "$CHATWOOT_SOURCE_COMMIT"
+  fi
+  rm -f "$CLEAN_SOURCE/.git/objects/info/alternates"
+  [[ "$(git -C "$CLEAN_SOURCE" rev-parse "refs/tags/$CHATWOOT_PREVIOUS_TAG")" == \
+    "$CHATWOOT_PREVIOUS_TAG_OBJECT" ]] || fail 'previous Chatwoot annotated tag objectが不一致です'
+  [[ "$(git -C "$CLEAN_SOURCE" rev-parse "refs/tags/$CHATWOOT_PREVIOUS_TAG^{commit}")" == \
+    "$CHATWOOT_PREVIOUS_COMMIT" ]] || fail 'previous Chatwoot commitが不一致です'
+  [[ "$(git -C "$CLEAN_SOURCE" rev-parse "refs/tags/$CHATWOOT_PREVIOUS_TAG^{tree}")" == \
+    "$CHATWOOT_PREVIOUS_TREE" ]] || fail 'previous Chatwoot treeが不一致です'
+  assert_clean_source "$CLEAN_SOURCE"
+  CLEAN_SOURCE_FINGERPRINT="$RUN_ROOT/clean-source.fingerprint"
+  git_source_fingerprint "$CLEAN_SOURCE" > "$CLEAN_SOURCE_FINGERPRINT"
+}
+
+assert_overlay_application() {
+  local allowed_paths="$RUN_ROOT/allowed-overlay-paths"
+  local current_fingerprint="$RUN_ROOT/patched-source.fingerprint"
+  local relative_path
+  local source_relative
+
+  STAGE='overlay境界検証'
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_overlay_manifest.rb" files "$CONTROL_ROOT" \
+    "$CONTROL_ROOT/tests/chatwoot-overlay-manifest.tsv" | sed 's#^overlay/app/##' > "$allowed_paths"
+
+  while IFS= read -r relative_path; do
+    source_relative="${relative_path#overlay/app/}"
+    mkdir -p "$PATCHED_SOURCE/$(dirname "$source_relative")"
+    cp -p "$CONTROL_ROOT/$relative_path" "$PATCHED_SOURCE/$source_relative"
+  done < <(control_file_list "$CONTROL_ROOT" | grep '^overlay/app/')
+
+  while IFS= read -r source_relative; do
+    [[ "$(sha256_file "$CONTROL_ROOT/overlay/app/$source_relative")" == \
+      "$(sha256_file "$PATCHED_SOURCE/$source_relative")" ]] || fail \
+      "overlay適用後のSHA-256が不一致です: $source_relative"
+  done < "$allowed_paths"
+
+  while IFS= read -r -d '' source_relative; do
+    grep -Fqx "$source_relative" "$allowed_paths" || fail \
+      "overlay以外のtracked pathが変更されました: $source_relative"
+  done < <(git -C "$PATCHED_SOURCE" diff --name-only -z HEAD --)
+  while IFS= read -r -d '' source_relative; do
+    grep -Fqx "$source_relative" "$allowed_paths" || fail \
+      "overlay以外のuntracked pathが作られました: $source_relative"
+  done < <(git -C "$PATCHED_SOURCE" ls-files --others --exclude-standard -z)
+
+  [[ -z "$(git -C "$PATCHED_SOURCE" diff --name-only --diff-filter=D HEAD --)" ]] || fail \
+    'overlay適用でupstream fileが削除されました'
+  [[ -z "$(git -C "$PATCHED_SOURCE" ls-files --others --ignored --exclude-standard)" ]] || fail \
+    'patched sourceにignored fileが作られました'
+  git -C "$PATCHED_SOURCE" diff --check
+  git_source_fingerprint "$PATCHED_SOURCE" > "$current_fingerprint"
+}
+
+wait_for_healthy() {
+  local container="$1"
+  local attempt=0
+  local health
+  local running
+
+  while [[ "$attempt" -lt 90 ]]; do
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container" 2>/dev/null || true)"
+    running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
+    [[ "$health" != 'healthy' ]] || return 0
+    [[ "$running" == 'true' ]] || {
+      docker logs "$container" >&2 || true
+      fail "containerがhealthcheck前に終了しました: $container"
+    }
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  docker logs "$container" >&2 || true
+  fail "containerが90秒以内にhealthyになりません: $container ($health)"
+}
+
+start_services() {
+  STAGE='使い捨てPostgres/Redis起動'
+  docker network create --internal "$NETWORK_NAME" >/dev/null
+  docker run --detach \
+    --name "$POSTGRES_NAME" \
+    --network "$NETWORK_NAME" \
+    --network-alias postgres \
+    --env POSTGRES_USER=postgres \
+    --env "POSTGRES_PASSWORD=$POSTGRES_TEST_PASSWORD" \
+    --env POSTGRES_DB=postgres \
+    --tmpfs /var/lib/postgresql/data:rw,nosuid,size=2g \
+    --health-cmd='pg_isready -U postgres -d postgres' \
+    --health-interval=1s \
+    --health-timeout=5s \
+    --health-retries=60 \
+    "$POSTGRES_IMAGE" >/dev/null
+  docker run --detach \
+    --name "$REDIS_NAME" \
+    --network "$NETWORK_NAME" \
+    --network-alias redis \
+    --read-only \
+    --tmpfs /data:rw,nosuid,size=128m \
+    --tmpfs /tmp:rw,nosuid,size=32m \
+    --health-cmd='redis-cli ping' \
+    --health-interval=1s \
+    --health-timeout=5s \
+    --health-retries=60 \
+    "$REDIS_IMAGE" redis-server --save '' --appendonly no >/dev/null
+  wait_for_healthy "$POSTGRES_NAME"
+  wait_for_healthy "$REDIS_NAME"
+}
+
+create_test_databases() {
+  STAGE='test database作成'
+  docker exec "$POSTGRES_NAME" createdb -U postgres chatwoot_test
+  docker exec "$POSTGRES_NAME" createdb -U postgres postiz_identity_test
+  docker exec -i "$POSTGRES_NAME" psql --set ON_ERROR_STOP=1 -U postgres -d postiz_identity_test \
+    < "$CONTROL_ROOT/tests/postiz_identity_contract.sql"
+  docker exec "$POSTGRES_NAME" psql --set ON_ERROR_STOP=1 -U postgres -d postiz_identity_test -c \
+    "CREATE ROLE toybaco_sync_gate LOGIN PASSWORD '$SYNC_TEST_PASSWORD'"
+  docker exec "$POSTGRES_NAME" psql --set ON_ERROR_STOP=1 -U postgres -d postiz_identity_test -c \
+    'GRANT USAGE ON SCHEMA public TO toybaco_sync_gate; GRANT USAGE ON TYPE "Provider", "Role", "ShortLinkPreference" TO toybaco_sync_gate; GRANT SELECT, INSERT, UPDATE ON "Organization", "User", "UserOrganization" TO toybaco_sync_gate'
+}
+
+test_env_args() {
+  printf '%s\n' \
+    '--env' 'RAILS_ENV=test' \
+    '--env' 'NODE_ENV=test' \
+    '--env' 'SECRET_KEY_BASE=0000000000000000000000000000000000000000000000000000000000000000' \
+    '--env' 'POSTGRES_HOST=postgres' \
+    '--env' 'POSTGRES_PORT=5432' \
+    '--env' 'POSTGRES_DATABASE=chatwoot_test' \
+    '--env' 'POSTGRES_USERNAME=postgres' \
+    '--env' "POSTGRES_PASSWORD=$POSTGRES_TEST_PASSWORD" \
+    '--env' 'REDIS_URL=redis://redis:6379' \
+    '--env' 'REDIS_PASSWORD=' \
+    '--env' 'ACTIVE_STORAGE_SERVICE=test' \
+    '--env' 'FRONTEND_URL=http://chatwoot.test' \
+    '--env' "TOYBACO_POSTIZ_DATABASE_URL=postgresql://toybaco_sync_gate:$SYNC_TEST_PASSWORD@postgres:5432/postiz_identity_test" \
+    '--env' "TOYBACO_POSTIZ_TEST_ADMIN_DATABASE_URL=postgresql://postgres:$POSTGRES_TEST_PASSWORD@postgres:5432/postiz_identity_test" \
+    '--env' 'TOYBACO_POSTIZ_DB_TEST_OPT_IN=1' \
+    '--env' 'TOYBACO_OIDC_CLIENT_ID=toybaco-gate-client' \
+    '--env' 'TOYBACO_OIDC_CLIENT_SECRET=toybaco-gate-test-only' \
+    '--env' 'TOYBACO_OIDC_REDIRECT_URIS=https://post.toybaco.test/auth/callback' \
+    '--env' 'TOYBACO_OIDC_ISSUER=https://app.toybaco.test'
+}
+
+run_test_container() {
+  local env_args=()
+  local value
+
+  while IFS= read -r value; do
+    env_args[${#env_args[@]}]="$value"
+  done < <(test_env_args)
+  docker run --rm \
+    --network "$NETWORK_NAME" \
+    --read-only \
+    --tmpfs /tmp:rw,nosuid,size=256m \
+    --tmpfs /app/tmp:rw,nosuid,size=256m \
+    --tmpfs /app/log:rw,nosuid,size=64m \
+    --tmpfs /app/storage:rw,nosuid,size=128m \
+    --tmpfs /root/.cache:rw,nosuid,size=128m \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    "${env_args[@]}" \
+    "$@"
+}
+
+production_env_args() {
+  printf '%s\n' \
+    '--env' 'RAILS_ENV=production' \
+    '--env' 'SECRET_KEY_BASE=1111111111111111111111111111111111111111111111111111111111111111' \
+    '--env' 'POSTGRES_HOST=postgres' \
+    '--env' 'POSTGRES_PORT=5432' \
+    '--env' 'POSTGRES_DATABASE=chatwoot_smoke' \
+    '--env' 'POSTGRES_USERNAME=postgres' \
+    '--env' "POSTGRES_PASSWORD=$POSTGRES_TEST_PASSWORD" \
+    '--env' 'REDIS_URL=redis://redis:6379' \
+    '--env' 'REDIS_PASSWORD=' \
+    '--env' 'ACTIVE_STORAGE_SERVICE=local' \
+    '--env' 'RAILS_LOG_TO_STDOUT=true' \
+    '--env' 'RAILS_SERVE_STATIC_FILES=true' \
+    '--env' 'FORCE_SSL=true' \
+    '--env' 'FRONTEND_URL=https://app.toybaco.test' \
+    '--env' "TOYBACO_POSTIZ_DATABASE_URL=postgresql://toybaco_sync_gate:$SYNC_TEST_PASSWORD@postgres:5432/postiz_identity_test" \
+    '--env' 'TOYBACO_OIDC_CLIENT_ID=toybaco-gate-client' \
+    '--env' 'TOYBACO_OIDC_CLIENT_SECRET=toybaco-gate-test-only' \
+    '--env' 'TOYBACO_OIDC_REDIRECT_URIS=https://post.toybaco.test/auth/callback' \
+    '--env' 'TOYBACO_OIDC_ISSUER=https://app.toybaco.test' \
+    '--env' "TOYBACO_EXPECTED_CHATWOOT_REVISION=$CHATWOOT_SOURCE_COMMIT"
+}
+
+run_production_container() {
+  local env_args=()
+  local value
+
+  while IFS= read -r value; do
+    env_args[${#env_args[@]}]="$value"
+  done < <(production_env_args)
+  docker run --rm \
+    --network "$NETWORK_NAME" \
+    --read-only \
+    --tmpfs /tmp:rw,nosuid,size=256m \
+    --tmpfs /app/tmp:rw,nosuid,size=256m \
+    --tmpfs /app/log:rw,nosuid,size=64m \
+    --tmpfs /app/storage:rw,nosuid,size=128m \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    "${env_args[@]}" \
+    "$@"
+}
+
+start_production_service() {
+  local name="$1"
+  local network_alias="$2"
+  shift 2
+  local env_args=()
+  local value
+
+  while IFS= read -r value; do
+    env_args[${#env_args[@]}]="$value"
+  done < <(production_env_args)
+  docker run --detach \
+    --name "$name" \
+    --network "$NETWORK_NAME" \
+    --network-alias "$network_alias" \
+    --read-only \
+    --tmpfs /tmp:rw,nosuid,size=256m \
+    --tmpfs /app/tmp:rw,nosuid,size=256m \
+    --tmpfs /app/log:rw,nosuid,size=64m \
+    --tmpfs /app/storage:rw,nosuid,size=128m \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    "${env_args[@]}" \
+    "$PRODUCTION_IMAGE" "$@"
+}
+
+wait_for_rails_port() {
+  local attempt=0
+  while [[ "$attempt" -lt 90 ]]; do
+    if ! docker inspect --format '{{.State.Running}}' "$RAILS_NAME" 2>/dev/null | grep -qx true; then
+      docker logs "$RAILS_NAME" >&2 || true
+      fail 'Puma containerが起動中に終了しました'
+    fi
+    if docker exec "$RAILS_NAME" ruby -rsocket -e \
+      'socket = TCPSocket.new("127.0.0.1", 3000); socket.close' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  docker logs "$RAILS_NAME" >&2 || true
+  fail 'Pumaが90秒以内にlistenしません'
+}
+
+verify_base_and_frame_contract() {
+  local actual_revision
+  local frame_output
+
+  STAGE='固定Chatwoot image/frame-policy契約'
+  docker pull --platform linux/amd64 "$CHATWOOT_IMAGE" >/dev/null
+  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$CHATWOOT_IMAGE")" == 'linux/amd64' ]] || \
+    fail '固定Chatwoot imageがlinux/amd64ではありません'
+  actual_revision="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges "$CHATWOOT_IMAGE" sh -c 'cat /app/.git_sha')"
+  [[ "$actual_revision" == "$CHATWOOT_SOURCE_COMMIT" ]] || fail \
+    "固定Chatwoot imageとsource commitが一致しません: $actual_revision"
+
+  frame_output="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    --workdir /contract "$CHATWOOT_IMAGE" ruby tests/chatwoot_frame_policy_test.rb)"
+  printf '%s\n' "$frame_output"
+  grep -Eq '5 runs, 36 assertions, 0 failures, 0 errors, 0 skips' <<< "$frame_output" || fail \
+    'frame-policy contractのrun/assertion数または結果が不正です'
+}
+
+build_test_image() {
+  local relative_path
+  local source_relative
+
+  STAGE='固定source test image build'
+  mkdir -p "$TEST_CONTEXT"
+  git -C "$CLEAN_SOURCE" archive HEAD | tar -x -C "$TEST_CONTEXT"
+  [[ ! -e "$TEST_CONTEXT/.git" ]] || fail 'test build contextへ.gitを持ち込みません'
+  while IFS= read -r relative_path; do
+    source_relative="${relative_path#overlay/app/}"
+    mkdir -p "$TEST_CONTEXT/$(dirname "$source_relative")"
+    cp -p "$CONTROL_ROOT/$relative_path" "$TEST_CONTEXT/$source_relative"
+    [[ "$(sha256_file "$CONTROL_ROOT/$relative_path")" == \
+      "$(sha256_file "$TEST_CONTEXT/$source_relative")" ]] || fail \
+      "test build contextのoverlay SHA-256が不一致です: $source_relative"
+  done < <(control_file_list "$CONTROL_ROOT" | grep '^overlay/app/')
+
+  DOCKER_BUILDKIT=1 docker build --pull --platform linux/amd64 \
+    --file "$CONTROL_ROOT/tests/chatwoot-test.Dockerfile" \
+    --build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE" \
+    --build-arg "CHATWOOT_SOURCE_COMMIT=$CHATWOOT_SOURCE_COMMIT" \
+    --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_MANIFEST_SHA" \
+    --tag "$TEST_IMAGE" \
+    "$TEST_CONTEXT"
+
+  [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$TEST_IMAGE")" == \
+    "$CHATWOOT_SOURCE_COMMIT" ]] || fail 'test imageのsource labelが不一致です'
+  [[ "$(docker image inspect --format '{{ index .Config.Labels "jp.toybaco.gate.control-sha256" }}' "$TEST_IMAGE")" == \
+    "$CONTROL_MANIFEST_SHA" ]] || fail 'test imageのcontrol snapshot labelが不一致です'
+  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$TEST_IMAGE")" == 'linux/amd64' ]] || \
+    fail 'test imageがlinux/amd64ではありません'
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    "$TEST_IMAGE" test ! -e /app/.git
+}
+
+run_ruby_quality() {
+  local ruby_files=()
+  local spec_files=()
+  local relative_path
+  local results="$RUN_ROOT/results"
+
+  mkdir -p "$results"
+  # bind mount先のChatwoot非root userがRSpec JSONを作れる使い捨てdirectory。
+  # RUN_ROOT自体は0700のためhost上で公開されない。
+  chmod 0777 "$results"
+  while IFS= read -r relative_path; do
+    ruby_files[${#ruby_files[@]}]="${relative_path#overlay/app/}"
+  done < <(
+    cd "$CONTROL_ROOT"
+    integration_ruby_file_list "$CONTROL_ROOT"
+  )
+  while IFS= read -r relative_path; do
+    spec_files[${#spec_files[@]}]="${relative_path#overlay/app/}"
+  done < <(ruby -rjson -e \
+    'JSON.parse(File.read(ARGV.fetch(0))).fetch("spec_files").each { |path| puts "overlay/app/#{path}" }' \
+    "$CONTROL_ROOT/tests/chatwoot-rspec-manifest.json")
+
+  STAGE='Chatwoot schema準備'
+  run_test_container "$TEST_IMAGE" bundle exec rails db:schema:load
+  run_test_container "$TEST_IMAGE" bundle exec rails runner \
+    'ActiveRecord.dump_schema_after_migration = false; Rails.application.load_tasks; Rake::Task["db:migrate"].invoke'
+
+  STAGE='統合境界Ruby syntax/Rubocop'
+  run_test_container "$TEST_IMAGE" sh -c \
+    'for file do ruby -c "$file" >/dev/null || exit; done' sh "${ruby_files[@]}"
+  run_test_container --env RUBOCOP_CACHE_ROOT=/tmp/rubocop-cache "$TEST_IMAGE" \
+    bundle exec rubocop --force-exclusion --format progress "${ruby_files[@]}"
+
+  STAGE='全Toybaco RSpec'
+  run_test_container \
+    --mount "type=bind,src=$results,dst=/results" \
+    "$TEST_IMAGE" bundle exec rspec \
+    --format progress --format json --out /results/rspec.json "${spec_files[@]}"
+
+  [[ -s "$results/rspec.json" ]] || fail 'RSpec JSON結果が作られませんでした'
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    --mount "type=bind,src=$results,dst=/results,readonly" \
+    "$TEST_IMAGE" ruby /contract/tests/verify_chatwoot_rspec_result.rb \
+    /results/rspec.json /contract/tests/chatwoot-rspec-manifest.json
+}
+
+build_and_smoke_production_image() {
+  local actual_base_label
+  local actual_revision_label
+  local base_count
+  local production_count
+  local sidekiq_count
+  local sidekiq_deadline
+  local sidekiq_identity
+  local sidekiq_info
+  local relative_path
+  local hash
+  local production_contract="$RUN_ROOT/production-contract"
+  local production_manifest="$production_contract/production-overlay.sha256"
+  local production_ruby_files="$production_contract/production-ruby-files"
+
+  STAGE='production linux/amd64 quality build'
+  # quality laneはproduction Dockerfileそのものを通常のBuildKitでbuildしてruntime smokeする。
+  # release用OCI archive/SBOM/provenanceはparkし、publisher jobだけがbuildxを一度実行する。
+  DOCKER_BUILDKIT=1 docker build --no-cache --pull --platform linux/amd64 \
+    --file "$CONTROL_ROOT/Dockerfile" \
+    --build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE" \
+    --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_MANIFEST_SHA" \
+    --tag "$PRODUCTION_IMAGE" \
+    "$CONTROL_ROOT"
+
+  actual_base_label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.base.name" }}' "$PRODUCTION_IMAGE")"
+  actual_revision_label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$PRODUCTION_IMAGE")"
+  [[ "$actual_base_label" == "$CHATWOOT_IMAGE" ]] || fail "production imageのbase labelが不一致です: $actual_base_label"
+  [[ "$actual_revision_label" == "$CHATWOOT_SOURCE_COMMIT" ]] || fail \
+    "production imageのrevision labelが不一致です: $actual_revision_label"
+  [[ "$(docker image inspect --format '{{ index .Config.Labels "jp.toybaco.source.tree" }}' "$PRODUCTION_IMAGE")" == \
+    "$CHATWOOT_SOURCE_TREE" ]] || fail 'production imageのsource tree labelが不一致です'
+  [[ "$(docker image inspect --format '{{ index .Config.Labels "jp.toybaco.gate.control-sha256" }}' "$PRODUCTION_IMAGE")" == \
+    "$CONTROL_MANIFEST_SHA" ]] || fail 'production imageのcontrol labelが不一致です'
+  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$PRODUCTION_IMAGE")" == 'linux/amd64' ]] || \
+    fail 'production imageがlinux/amd64ではありません'
+
+  docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$CHATWOOT_IMAGE" \
+    | sed '/^$/d' > "$RUN_ROOT/base-layers"
+  docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$PRODUCTION_IMAGE" \
+    | sed '/^$/d' > "$RUN_ROOT/production-layers"
+  base_count="$(wc -l < "$RUN_ROOT/base-layers" | tr -d ' ')"
+  production_count="$(wc -l < "$RUN_ROOT/production-layers" | tr -d ' ')"
+  [[ "$production_count" -gt "$base_count" ]] || fail 'production imageにoverlay layerがありません'
+  head -n "$base_count" "$RUN_ROOT/production-layers" > "$RUN_ROOT/production-base-prefix"
+  cmp "$RUN_ROOT/base-layers" "$RUN_ROOT/production-base-prefix" || fail \
+    'production imageのbase layer列が固定imageと一致しません'
+
+  mkdir -m 0755 "$production_contract"
+  while IFS=' ' read -r hash relative_path; do
+    case "$relative_path" in
+      overlay/app/spec/*) continue ;;
+      overlay/app/*)
+        printf '%s  /app/%s\n' "$hash" "${relative_path#overlay/app/}" >> "$production_manifest"
+        case "$relative_path" in
+          *.rb) printf '/app/%s\n' "${relative_path#overlay/app/}" >> "$production_ruby_files" ;;
+        esac
+        ;;
+    esac
+  done < "$CONTROL_MANIFEST"
+  chmod 0644 "$production_manifest" "$production_ruby_files"
+
+  STAGE='production image内容検証'
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$production_contract,dst=/contract,readonly" \
+    "$PRODUCTION_IMAGE" sh -c '
+      test ! -e /app/spec
+      sha256sum -c /contract/production-overlay.sha256
+      while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
+      test "$(cat /app/.git_sha)" = "$1"
+      test "$(apk info -v | grep "^musl-[0-9]")" = "musl-1.2.5-r11"
+      test "$(apk info -v | grep "^musl-utils-")" = "musl-utils-1.2.5-r11"
+      test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
+    ' sh "$CHATWOOT_SOURCE_COMMIT"
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_auth_cookie.rb production /
+
+  STAGE='production image boot smoke'
+  # test imageで固定sourceのschema loadは既に成功済み。接続が全て閉じた後に
+  # その空schemaをcloneし、production初回boot前のinitializerが未作成tableを
+  # 読んで紛らわしいERROR logを出す経路を避ける。
+  docker exec "$POSTGRES_NAME" createdb -U postgres --template chatwoot_test chatwoot_smoke
+  run_production_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$PRODUCTION_IMAGE" bundle exec rails runner /contract/tests/chatwoot-production-smoke.rb
+
+  STAGE='production Puma/HTTP/CSP/OIDC smoke'
+  start_production_service "$RAILS_NAME" chatwoot bundle exec rails server -p 3000 -b 0.0.0.0 >/dev/null
+  wait_for_rails_port
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" ruby /contract/tests/chatwoot-http-smoke.rb http://chatwoot:3000/
+  # Pumaの実boot/HTTP検証は完了した。arm64 host上のamd64 emulationでも
+  # Sidekiq+検証runnerがOOMにならないよう、次のservice smoke前に停止する。
+  docker rm --force "$RAILS_NAME" >/dev/null
+  RAILS_NAME=''
+
+  STAGE='production Sidekiq実process smoke'
+  start_production_service "$SIDEKIQ_NAME" sidekiq bundle exec sidekiq -C config/sidekiq.yml >/dev/null
+  [[ "$(docker inspect --format '{{.State.Running}}' "$SIDEKIQ_NAME" 2>/dev/null)" == 'true' ]] || {
+    docker logs "$SIDEKIQ_NAME" >&2 || true
+    fail 'Sidekiq containerがboot後に稼働していません'
+  }
+  # 2本目のamd64 Rails runnerを同時起動するとemulation resourceを奪い、検証対象の
+  # Sidekiq startupを歪める。Sidekiq自身が書くRedis process registryをnative clientで
+  # pollし、同じnetwork上でexact 1 processとidentity/info JSONを非干渉確認する。
+  sidekiq_deadline=$((SECONDS + 180))
+  while true; do
+    sidekiq_count="$(docker exec "$REDIS_NAME" redis-cli --raw SCARD processes)"
+    [[ "$sidekiq_count" =~ ^[0-9]+$ ]] || fail "Sidekiq process countが数値ではありません: $sidekiq_count"
+    [[ "$sidekiq_count" -le 1 ]] || fail "Unexpected Sidekiq process count: $sidekiq_count"
+    [[ "$sidekiq_count" -ne 1 ]] || break
+    [[ "$(docker inspect --format '{{.State.Running}}' "$SIDEKIQ_NAME" 2>/dev/null)" == 'true' ]] || {
+      docker logs "$SIDEKIQ_NAME" >&2 || true
+      fail 'Sidekiq containerがprocess登録前に終了しました'
+    }
+    [[ "$SECONDS" -lt "$sidekiq_deadline" ]] || {
+      docker logs "$SIDEKIQ_NAME" >&2 || true
+      fail 'Sidekiq process is not registered within 180 seconds'
+    }
+    sleep 1
+  done
+  sidekiq_identity="$(docker exec "$REDIS_NAME" redis-cli --raw SMEMBERS processes)"
+  [[ -n "$sidekiq_identity" && "$sidekiq_identity" != *$'\n'* ]] || fail 'Sidekiq identityがexact 1件ではありません'
+  sidekiq_info="$(docker exec "$REDIS_NAME" redis-cli --raw HGET "$sidekiq_identity" info)"
+  ruby -rjson -e '
+    info = JSON.parse(ARGV.fetch(0))
+    abort "Sidekiq identity info mismatch" unless
+      info["identity"] == ARGV.fetch(1) && info["pid"] == 1 && info["concurrency"].to_i.positive?
+  ' "$sidekiq_info" "$sidekiq_identity"
+  [[ "$(docker inspect --format '{{.State.Running}}' "$SIDEKIQ_NAME" 2>/dev/null)" == 'true' ]] || {
+    docker logs "$SIDEKIQ_NAME" >&2 || true
+    fail 'Sidekiq containerがprocess登録後に終了しました'
+  }
+  printf 'TOYBACO_CHATWOOT_SIDEKIQ=PASS processes=1 redis_registration=exact\n'
+}
+
+# owner再baselineでpark済み。active quality/publisherからは呼ばない。
+# 履歴保存のため旧bundle実装は残すが、--artifact-dir自体をfail closedで拒否する。
+publish_release_artifacts() {
+  local attestation_verify_dir
+  local negative
+  local staging
+  local release_json="$RUN_ROOT/release.json"
+
+  [[ -n "$ARTIFACT_DIR" ]] || return 0
+  STAGE='test済みrelease artifact atomic保存'
+  staging="${ARTIFACT_DIR}.partial.$$"
+  [[ ! -e "$ARTIFACT_DIR" && ! -L "$ARTIFACT_DIR" ]] || fail \
+    "artifact出力先が既に存在します: $ARTIFACT_DIR"
+  [[ ! -e "$staging" && ! -L "$staging" ]] || fail "artifact stagingが既に存在します: $staging"
+
+  ruby -rjson -rtime -e '
+    path, image_ref, digest_path, commit, tree, control, migration_contract_sha, oci_sha, docker_sha,
+      metadata_sha, provenance_sha, sbom_sha = ARGV
+    digests = JSON.parse(File.binread(digest_path))
+    abort "OCI digest schema mismatch" unless digests.delete("schema") == "toybaco-chatwoot-oci-digests-v1"
+    abort "OCI digest key set mismatch" unless
+      digests.keys.sort == %w[config_digest index_digest manifest_digest]
+    release = {
+      schema: "toybaco-chatwoot-release-v3",
+      created_at: Time.now.utc.iso8601,
+      source: { tag: "v4.17.1", commit: commit, tree: tree },
+      platform: "linux/amd64",
+      control_sha256: control,
+      migration_contract: {
+        schema: "toybaco-chatwoot-migration-contract-v1",
+        path: "tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json",
+        sha256: migration_contract_sha,
+        from: "v4.16.2",
+        to: "v4.17.1",
+        total: 20,
+        forward_compatible_services: ["rails", "sidekiq"],
+        automatic_database_rollback: false
+      },
+      image: { ref: image_ref }.merge(digests),
+      archives: { oci_sha256: oci_sha, docker_sha256: docker_sha },
+      build_metadata_sha256: metadata_sha,
+      attestations: {
+        buildkit_provenance: {
+          path: "chatwoot.buildkit-provenance.json",
+          predicate_type: "https://slsa.dev/provenance/v0.2",
+          sha256: provenance_sha
+        },
+        spdx_sbom: {
+          path: "chatwoot.spdx.json",
+          predicate_type: "https://spdx.dev/Document",
+          sha256: sbom_sha
+        }
+      }
+    }
+    File.open(path, File::WRONLY | File::CREAT | File::EXCL, 0o600) do |file|
+      file.write(JSON.pretty_generate(release) + "\n")
+    end
+  ' "$release_json" "$PRODUCTION_IMAGE" "$RUN_ROOT/oci-digests.json" \
+    "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" "$CONTROL_MANIFEST_SHA" \
+    "$(sha256_file "$CONTROL_ROOT/tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json")" \
+    "$(sha256_file "$RUN_ROOT/chatwoot-release.oci.tar")" \
+    "$(sha256_file "$RUN_ROOT/chatwoot-release.docker.tar")" \
+    "$(sha256_file "$RUN_ROOT/build-metadata.json")" \
+    "$(sha256_file "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json")" \
+    "$(sha256_file "$RUN_ROOT/oci-attestations/chatwoot.spdx.json")"
+
+  mkdir -m 0700 "$staging"
+  cp -p "$RUN_ROOT/chatwoot-release.oci.tar" "$staging/chatwoot-release.oci.tar"
+  cp -p "$RUN_ROOT/chatwoot-release.docker.tar" "$staging/chatwoot-release.docker.tar"
+  cp -p "$RUN_ROOT/build-metadata.json" "$staging/build-metadata.json"
+  cp -p "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json" \
+    "$staging/chatwoot.buildkit-provenance.json"
+  cp -p "$RUN_ROOT/oci-attestations/chatwoot.spdx.json" "$staging/chatwoot.spdx.json"
+  cp -p "$release_json" "$staging/release.json"
+  (
+    cd "$staging"
+    for file in build-metadata.json chatwoot-release.docker.tar chatwoot-release.oci.tar \
+      chatwoot.buildkit-provenance.json chatwoot.spdx.json release.json; do
+      printf '%s  %s\n' "$(sha256_file "$file")" "$file"
+    done > release.sha256
+  )
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_release_artifact.rb" \
+    "$staging" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA"
+  attestation_verify_dir="$RUN_ROOT/release-attestations"
+  mkdir -m 0700 "$attestation_verify_dir"
+  ln "$staging/chatwoot.buildkit-provenance.json" \
+    "$attestation_verify_dir/chatwoot.buildkit-provenance.json"
+  ln "$staging/chatwoot.spdx.json" "$attestation_verify_dir/chatwoot.spdx.json"
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_oci_archive.rb" \
+    "$staging/chatwoot-release.oci.tar" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA" "$CONTROL_ROOT/tests/chatwoot-production-layers.json" \
+    "$staging/release.json" "$attestation_verify_dir" verify
+
+  # checksum名簿へpath traversal/追加fileを混ぜた成果物を必ず拒否する負例。
+  negative="$RUN_ROOT/release-checksum-negative"
+  mkdir -m 0700 "$negative"
+  ln "$RUN_ROOT/build-metadata.json" "$negative/build-metadata.json"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json" \
+    "$negative/chatwoot.buildkit-provenance.json"
+  ln "$RUN_ROOT/chatwoot-release.docker.tar" "$negative/chatwoot-release.docker.tar"
+  ln "$RUN_ROOT/chatwoot-release.oci.tar" "$negative/chatwoot-release.oci.tar"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.spdx.json" "$negative/chatwoot.spdx.json"
+  ln "$release_json" "$negative/release.json"
+  cp -p "$staging/release.sha256" "$negative/release.sha256"
+  printf '%064d  ../outside\n' 0 >> "$negative/release.sha256"
+  if ruby "$CONTROL_ROOT/tests/verify_chatwoot_release_artifact.rb" \
+    "$negative" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA" >/dev/null 2>&1; then
+    fail 'path traversalを含むrelease checksum名簿をverifierが拒否しません'
+  fi
+
+  # hash名簿まで攻撃者が更新しても、SBOM内容の修正版package証拠を偽装できない負例。
+  negative="$RUN_ROOT/release-sbom-negative"
+  mkdir -m 0700 "$negative"
+  ln "$RUN_ROOT/build-metadata.json" "$negative/build-metadata.json"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json" \
+    "$negative/chatwoot.buildkit-provenance.json"
+  ln "$RUN_ROOT/chatwoot-release.docker.tar" "$negative/chatwoot-release.docker.tar"
+  ln "$RUN_ROOT/chatwoot-release.oci.tar" "$negative/chatwoot-release.oci.tar"
+  cp -p "$RUN_ROOT/oci-attestations/chatwoot.spdx.json" "$negative/chatwoot.spdx.json"
+  ruby -rjson -e '
+    path = ARGV.fetch(0)
+    document = JSON.parse(File.binread(path))
+    package = document.fetch("packages").find { |candidate| candidate["name"] == "musl-utils" }
+    abort "musl-utils fixture missing" unless package
+    package["versionInfo"] = "1.2.5-r9"
+    File.binwrite(path, JSON.pretty_generate(document) + "\n")
+  ' "$negative/chatwoot.spdx.json"
+  cp -p "$release_json" "$negative/release.json"
+  ruby -rjson -rdigest -e '
+    release_path, sbom_path = ARGV
+    release = JSON.parse(File.binread(release_path))
+    release.fetch("attestations").fetch("spdx_sbom")["sha256"] = Digest::SHA256.file(sbom_path).hexdigest
+    File.binwrite(release_path, JSON.pretty_generate(release) + "\n")
+  ' "$negative/release.json" "$negative/chatwoot.spdx.json"
+  (
+    cd "$negative"
+    for file in build-metadata.json chatwoot-release.docker.tar chatwoot-release.oci.tar \
+      chatwoot.buildkit-provenance.json chatwoot.spdx.json release.json; do
+      printf '%s  %s\n' "$(sha256_file "$file")" "$file"
+    done > release.sha256
+  )
+  if ruby "$CONTROL_ROOT/tests/verify_chatwoot_release_artifact.rb" \
+    "$negative" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA" >/dev/null 2>&1; then
+    fail 'hashを再計算した脆弱SBOM fixtureをrelease verifierが拒否しません'
+  fi
+
+  negative="$RUN_ROOT/release-provenance-negative"
+  mkdir -m 0700 "$negative"
+  ln "$RUN_ROOT/build-metadata.json" "$negative/build-metadata.json"
+  ln "$RUN_ROOT/chatwoot-release.docker.tar" "$negative/chatwoot-release.docker.tar"
+  ln "$RUN_ROOT/chatwoot-release.oci.tar" "$negative/chatwoot-release.oci.tar"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.spdx.json" "$negative/chatwoot.spdx.json"
+  cp -p "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json" \
+    "$negative/chatwoot.buildkit-provenance.json"
+  ruby -rjson -e '
+    path = ARGV.fetch(0)
+    statement = JSON.parse(File.binread(path))
+    statement.fetch("predicate").fetch("invocation").fetch("parameters").fetch("args")[
+      "build-arg:TOYBACO_CONTROL_SHA256"
+    ] = "0" * 64
+    File.binwrite(path, JSON.pretty_generate(statement) + "\n")
+  ' "$negative/chatwoot.buildkit-provenance.json"
+  cp -p "$release_json" "$negative/release.json"
+  ruby -rjson -rdigest -e '
+    release_path, provenance_path = ARGV
+    release = JSON.parse(File.binread(release_path))
+    release.fetch("attestations").fetch("buildkit_provenance")["sha256"] =
+      Digest::SHA256.file(provenance_path).hexdigest
+    File.binwrite(release_path, JSON.pretty_generate(release) + "\n")
+  ' "$negative/release.json" "$negative/chatwoot.buildkit-provenance.json"
+  (
+    cd "$negative"
+    for file in build-metadata.json chatwoot-release.docker.tar chatwoot-release.oci.tar \
+      chatwoot.buildkit-provenance.json chatwoot.spdx.json release.json; do
+      printf '%s  %s\n' "$(sha256_file "$file")" "$file"
+    done > release.sha256
+  )
+  if ruby "$CONTROL_ROOT/tests/verify_chatwoot_release_artifact.rb" \
+    "$negative" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA" >/dev/null 2>&1; then
+    fail 'hashを再計算した偽provenance fixtureをrelease verifierが拒否しません'
+  fi
+
+  # Docker engineのcontainerd/classic差でconfig/indexを取り違えても、manifest digestを
+  # 自称してpublisherへ渡せないことを、全hash再計算後の負例で固定する。
+  negative="$RUN_ROOT/release-digest-negative"
+  mkdir -m 0700 "$negative"
+  ln "$RUN_ROOT/build-metadata.json" "$negative/build-metadata.json"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.buildkit-provenance.json" \
+    "$negative/chatwoot.buildkit-provenance.json"
+  ln "$RUN_ROOT/chatwoot-release.docker.tar" "$negative/chatwoot-release.docker.tar"
+  ln "$RUN_ROOT/chatwoot-release.oci.tar" "$negative/chatwoot-release.oci.tar"
+  ln "$RUN_ROOT/oci-attestations/chatwoot.spdx.json" "$negative/chatwoot.spdx.json"
+  cp -p "$release_json" "$negative/release.json"
+  ruby -rjson -e '
+    path = ARGV.fetch(0)
+    release = JSON.parse(File.binread(path))
+    release.fetch("image")["manifest_digest"] = "sha256:" + ("0" * 64)
+    File.binwrite(path, JSON.pretty_generate(release) + "\n")
+  ' "$negative/release.json"
+  (
+    cd "$negative"
+    for file in build-metadata.json chatwoot-release.docker.tar chatwoot-release.oci.tar \
+      chatwoot.buildkit-provenance.json chatwoot.spdx.json release.json; do
+      printf '%s  %s\n' "$(sha256_file "$file")" "$file"
+    done > release.sha256
+  )
+  if ruby "$CONTROL_ROOT/tests/verify_chatwoot_release_artifact.rb" \
+    "$negative" "$CHATWOOT_SOURCE_COMMIT" "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA" >/dev/null 2>&1; then
+    fail 'hashを再計算した偽manifest digestをrelease verifierが拒否しません'
+  fi
+  mv "$staging" "$ARTIFACT_DIR"
+}
+
+assert_final_boundaries() {
+  local current="$RUN_ROOT/current.fingerprint"
+  local source_path
+
+  STAGE='最終source/control境界'
+  control_manifest "$ROOT" > "$RUN_ROOT/control.final"
+  cmp "$CONTROL_MANIFEST" "$RUN_ROOT/control.final" || fail \
+    'gate実行中にcontrol allowlistが変更されました。結果を破棄します'
+
+  git_source_fingerprint "$CLEAN_SOURCE" > "$current"
+  cmp "$CLEAN_SOURCE_FINGERPRINT" "$current" || fail \
+    'gate実行中にclean Chatwoot sourceが変更されました'
+
+  if [[ -n "$SOURCE" ]]; then
+    source_path="$(cd "$SOURCE" && pwd -P)"
+    git_source_fingerprint "$source_path" > "$RUN_ROOT/seed.final"
+    cmp "$SEED_FINGERPRINT" "$RUN_ROOT/seed.final" || fail \
+      '--source seedがgate実行中に変更されました'
+  fi
+
+  git_source_fingerprint "$PATCHED_SOURCE" > "$RUN_ROOT/patched.final"
+  cmp "$RUN_ROOT/patched-source.fingerprint" "$RUN_ROOT/patched.final" || fail \
+    'Docker/test工程がpatched sourceを変更しました'
+}
+
+cleanup() {
+  local exit_code=$?
+
+  set +e
+  if [[ "$exit_code" -ne 0 ]]; then
+    [[ -z "$RAILS_NAME" ]] || ! docker container inspect "$RAILS_NAME" >/dev/null 2>&1 || \
+      docker logs "$RAILS_NAME" >&2
+    [[ -z "$SIDEKIQ_NAME" ]] || ! docker container inspect "$SIDEKIQ_NAME" >/dev/null 2>&1 || \
+      docker logs "$SIDEKIQ_NAME" >&2
+    [[ -z "$POSTGRES_NAME" ]] || ! docker container inspect "$POSTGRES_NAME" >/dev/null 2>&1 || \
+      docker logs "$POSTGRES_NAME" >&2
+    [[ -z "$REDIS_NAME" ]] || ! docker container inspect "$REDIS_NAME" >/dev/null 2>&1 || \
+      docker logs "$REDIS_NAME" >&2
+  fi
+  [[ -z "$RAILS_NAME" ]] || docker rm --force "$RAILS_NAME" >/dev/null 2>&1
+  [[ -z "$SIDEKIQ_NAME" ]] || docker rm --force "$SIDEKIQ_NAME" >/dev/null 2>&1
+  [[ -z "$POSTGRES_NAME" ]] || docker rm --force "$POSTGRES_NAME" >/dev/null 2>&1
+  [[ -z "$REDIS_NAME" ]] || docker rm --force "$REDIS_NAME" >/dev/null 2>&1
+  [[ -z "$NETWORK_NAME" ]] || docker network rm "$NETWORK_NAME" >/dev/null 2>&1
+  [[ -z "$TEST_IMAGE" ]] || docker image rm "$TEST_IMAGE" >/dev/null 2>&1
+  [[ -z "$PRODUCTION_IMAGE" ]] || docker image rm "$PRODUCTION_IMAGE" >/dev/null 2>&1
+  if [[ -n "$RUN_ROOT" && -f "$RUN_ROOT/.toybaco-chatwoot-gate-run" ]]; then
+    rm -rf -- "$RUN_ROOT"
+  fi
+  return "$exit_code"
+}
+
+main() {
+  local artifact_name
+  local artifact_parent
+  local config_digest
+  local index_digest
+  local manifest_digest
+  local suffix
+  local temp_base
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --source)
+        [[ "$#" -ge 2 ]] || fail '--sourceにはdirectoryが必要です'
+        SOURCE="$2"
+        shift 2
+        ;;
+      --quality-only)
+        QUALITY_ONLY=1
+        shift
+        ;;
+      --artifact-dir)
+        fail '--artifact-dir release bundleはowner再baselineでpark済みです'
+        ;;
+      --control-sha-only)
+        CONTROL_SHA_ONLY=1
+        shift
+        ;;
+      -h|--help)
+        usage
+        return 0
+        ;;
+      *)
+        fail "未知の引数です: $1"
+        ;;
+    esac
+  done
+
+  STAGE='host preflight'
+  for command_name in awk bash chmod cmp cp find git grep head ln mkdir mv node ruby sed sort tar touch wc; do
+    require_command "$command_name"
+  done
+  if [[ "$CONTROL_SHA_ONLY" -eq 1 ]]; then
+    [[ -z "$SOURCE" && -z "$ARTIFACT_DIR" ]] || fail '--control-sha-onlyは他の引数と併用できません'
+    control_only_file="$(mktemp "${TMPDIR:-/tmp}/toybaco-chatwoot-control.XXXXXX")"
+    control_manifest "$ROOT" > "$control_only_file"
+    printf 'TOYBACO_CHATWOOT_CONTROL_SHA256=%s\n' "$(sha256_file "$control_only_file")"
+    rm -f -- "$control_only_file"
+    return 0
+  fi
+  require_command docker
+  docker info >/dev/null 2>&1 || fail 'Docker daemonを利用できません'
+  # Docker Desktopが既に共有しているworkspace filesystem上、かつGit rootの外へ
+  # 専用tmpを作る。repo自体やrepoの親をmountすることはなく、bindするのは
+  # この中のexact control/resultsだけ。
+  temp_base="$(cd "$ROOT/.." && pwd -P)"
+  RUN_ROOT="$(mktemp -d "$temp_base/toybaco-chatwoot-gate.XXXXXX")"
+  touch "$RUN_ROOT/.toybaco-chatwoot-gate-run"
+  CONTROL_ROOT="$RUN_ROOT/control"
+  CLEAN_SOURCE="$RUN_ROOT/chatwoot-clean"
+  PATCHED_SOURCE="$RUN_ROOT/chatwoot-patched"
+  TEST_CONTEXT="$RUN_ROOT/chatwoot-test-context"
+  CONTROL_MANIFEST="$RUN_ROOT/control.sha256"
+  suffix="$$-$RANDOM"
+  NETWORK_NAME="toybaco-cw-gate-$suffix"
+  POSTGRES_NAME="toybaco-cw-pg-$suffix"
+  REDIS_NAME="toybaco-cw-redis-$suffix"
+  TEST_IMAGE="toybaco/chatwoot-gate-test:$suffix"
+  PRODUCTION_IMAGE="toybaco/chatwoot-gate-production:$suffix"
+  POSTGRES_TEST_PASSWORD="toybaco-gate-$suffix"
+  SYNC_TEST_PASSWORD="toybaco-sync-$suffix"
+  RAILS_NAME="toybaco-cw-rails-$suffix"
+  SIDEKIQ_NAME="toybaco-cw-sidekiq-$suffix"
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  STAGE='control snapshot'
+  control_manifest "$ROOT" > "$RUN_ROOT/control.before"
+  copy_control_snapshot
+  control_manifest "$CONTROL_ROOT" > "$CONTROL_MANIFEST"
+  cmp "$RUN_ROOT/control.before" "$CONTROL_MANIFEST" || fail \
+    'control snapshotのcopy前後でSHA-256が変わりました'
+  CONTROL_MANIFEST_SHA="$(sha256_file "$CONTROL_MANIFEST")"
+  assert_control_contract
+  verify_base_and_frame_contract
+
+  acquire_source
+  ruby "$CONTROL_ROOT/scripts/generate-chatwoot-active-ja-overrides.rb" verify \
+    "$CLEAN_SOURCE" "$CONTROL_ROOT/overlay/app"
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" "$CLEAN_SOURCE" \
+    "$CONTROL_ROOT/tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json" \
+    "$CONTROL_ROOT/infra/terraform/ecs.tf"
+  git -c advice.detachedHead=false clone --quiet --no-hardlinks "$CLEAN_SOURCE" "$PATCHED_SOURCE"
+  rm -f "$PATCHED_SOURCE/.git/objects/info/alternates"
+  assert_clean_source "$PATCHED_SOURCE"
+  assert_overlay_application
+  ruby "$CONTROL_ROOT/tests/chatwoot_full_japanese_test.rb" \
+    "$CLEAN_SOURCE" "$CONTROL_ROOT/overlay/app"
+
+  build_test_image
+  start_services
+  create_test_databases
+  run_ruby_quality
+  build_and_smoke_production_image
+  assert_final_boundaries
+
+  STAGE='完了'
+  printf 'TOYBACO_CHATWOOT_GATE=PASS mode=quality-only source=%s tree=%s control=%s\n' \
+    "$CHATWOOT_SOURCE_COMMIT" \
+    "$CHATWOOT_SOURCE_TREE" \
+    "$CONTROL_MANIFEST_SHA"
+}
+
+main "$@"

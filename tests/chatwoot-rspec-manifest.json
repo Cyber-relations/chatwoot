@@ -1,0 +1,36 @@
+{
+  "schema": "toybaco-chatwoot-rspec-v1",
+  "rspec_version": "3.13.0",
+  "result_keys": [
+    "examples",
+    "summary",
+    "summary_line",
+    "version"
+  ],
+  "summary_keys": [
+    "duration",
+    "errors_outside_of_examples_count",
+    "example_count",
+    "failure_count",
+    "pending_count"
+  ],
+  "example_keys": [
+    "description",
+    "file_path",
+    "full_description",
+    "id",
+    "line_number",
+    "pending_message",
+    "run_time",
+    "status"
+  ],
+  "example_count": 61,
+  "examples_sha256": "32b7a02978bb6efae1beddde1f13096c85c55ed844f557054a9cd655de04f97d",
+  "spec_files": [
+    "spec/lib/toybaco/oidc/session_reader_spec.rb",
+    "spec/lib/toybaco/postiz_sync_database_spec.rb",
+    "spec/lib/toybaco/postiz_sync_spec.rb",
+    "spec/models/toybaco/postiz_lifecycle_spec.rb",
+    "spec/requests/toybaco/oidc_spec.rb"
+  ]
+}

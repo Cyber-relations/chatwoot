@@ -1,0 +1,52 @@
+{
+  "CONTENT_TEMPLATES": {
+    "MODAL": {
+      "TITLE": "Twilio テンプレート",
+      "SUBTITLE": "送信したいTwilioテンプレートを選択してください",
+      "TEMPLATE_SELECTED_SUBTITLE": "テンプレートを設定:{templateName}"
+    },
+    "PICKER": {
+      "SEARCH_PLACEHOLDER": "テンプレートを検索",
+      "NO_TEMPLATES_FOUND": "該当するテンプレートが見つかりません:",
+      "NO_CONTENT": "コンテンツなし",
+      "HEADER": "ヘッダー",
+      "BODY": "ボディ",
+      "FOOTER": "フッター",
+      "BUTTONS": "ボタン",
+      "CATEGORY": "カテゴリ",
+      "MEDIA_CONTENT": "メディアコンテンツ",
+      "MEDIA_CONTENT_FALLBACK": "メディアコンテンツ",
+      "NO_TEMPLATES_AVAILABLE": "使用可能なTwilioテンプレートはありません。Twilio のテンプレートを同期するには、[更新] をクリックします。",
+      "REFRESH_BUTTON": "テンプレートを更新",
+      "REFRESH_SUCCESS": "テンプレートの更新が開始されました。更新には数分かかる場合があります。",
+      "REFRESH_ERROR": "テンプレートを更新できませんでした。もう一度試してください。",
+      "LABELS": {
+        "LANGUAGE": "言語",
+        "TEMPLATE_BODY": "テンプレート本文",
+        "CATEGORY": "カテゴリ"
+      },
+      "TYPES": {
+        "MEDIA": "メディア",
+        "QUICK_REPLY": "クイック返信",
+        "CALL_TO_ACTION": "コール・トゥ・アクション",
+        "TEXT": "テキスト"
+      }
+    },
+    "PARSER": {
+      "VARIABLES_LABEL": "変数",
+      "LANGUAGE": "言語",
+      "CATEGORY": "カテゴリ",
+      "VARIABLE_PLACEHOLDER": "{variable} の値を入力",
+      "GO_BACK_LABEL": "戻る",
+      "SEND_MESSAGE_LABEL": "メッセージを送信",
+      "FORM_ERROR_MESSAGE": "送信前に全ての変数を入力してください",
+      "MEDIA_HEADER_LABEL": "{type} ヘッダー",
+      "MEDIA_URL_LABEL": "フルメディア URL を入力してください",
+      "MEDIA_URL_PLACEHOLDER": "https://example.com/image.jpg"
+    },
+    "FORM": {
+      "BACK_BUTTON": "戻る",
+      "SEND_MESSAGE_BUTTON": "メッセージを送信"
+    }
+  }
+}

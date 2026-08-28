@@ -1,0 +1,72 @@
+{
+  "SNOOZE_PARSER": {
+    "UNITS": {
+      "MINUTE": "分",
+      "MINUTES": "分",
+      "HOUR": "時間",
+      "HOURS": "時間",
+      "DAY": "日",
+      "DAYS": "日々",
+      "WEEK": "週",
+      "WEEKS": "週",
+      "MONTH": "月",
+      "MONTHS": "ヶ月",
+      "YEAR": "年",
+      "YEARS": "年"
+    },
+    "HALF": "ハーフ",
+    "NEXT": "次へ進みます",
+    "THIS": "これ",
+    "AT": "で",
+    "IN": "に",
+    "FROM_NOW": "今から",
+    "NEXT_YEAR": "来年",
+    "MERIDIEM": {
+      "AM": "午前",
+      "PM": "午後"
+    },
+    "RELATIVE": {
+      "TOMORROW": "明日",
+      "DAY_AFTER_TOMORROW": "明日の翌日",
+      "NEXT_WEEK": "次週",
+      "NEXT_MONTH": "来月",
+      "THIS_WEEKEND": "今週末は",
+      "NEXT_WEEKEND": "次の週末"
+    },
+    "TIME_OF_DAY": {
+      "MORNING": "朝",
+      "AFTERNOON": "午後",
+      "EVENING": "イブニング",
+      "NIGHT": "夜",
+      "NOON": "正午",
+      "MIDNIGHT": "真夜中"
+    },
+    "WORD_NUMBERS": {
+      "ONE": "一",
+      "TWO": "二",
+      "THREE": "三",
+      "FOUR": "四",
+      "FIVE": "五",
+      "SIX": "六",
+      "SEVEN": "七",
+      "EIGHT": "八",
+      "NINE": "九",
+      "TEN": "十",
+      "TWELVE": "十二",
+      "FIFTEEN": "十五",
+      "TWENTY": "二十",
+      "THIRTY": "三十"
+    },
+    "ORDINALS": {
+      "FIRST": "最初",
+      "SECOND": "第二",
+      "THIRD": "三番",
+      "FOURTH": "第四に",
+      "FIFTH": "第五"
+    },
+    "OF": "/",
+    "AFTER": "後",
+    "WEEK": "週",
+    "DAY": "日"
+  }
+}

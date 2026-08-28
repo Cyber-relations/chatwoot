@@ -1,0 +1,35 @@
+{
+  "EMOJI": {
+    "PLACEHOLDER": "絵文字を検索",
+    "NOT_FOUND": "検索条件に一致する絵文字が見つかりません",
+    "REMOVE": "削除"
+  },
+  "EMOJI_ICON_PICKER": {
+    "TABS": {
+      "ICONS": "アイコン",
+      "EMOJIS": "絵文字"
+    },
+    "SEARCH_EMOJI": "絵文字を検索...",
+    "SEARCH_ICON": "アイコンを検索...",
+    "FREQUENTLY_USED": "よく使われる",
+    "NO_EMOJI": "検索条件に一致する絵文字が見つかりません",
+    "NO_ICON": "検索条件に一致するアイコンはありません",
+    "REMOVE": "削除",
+    "STYLE": {
+      "OUTLINE": "アウトラインアイコン",
+      "FILLED": "塗りつぶしアイコン"
+    },
+    "COLORS": {
+      "SLATE": "スレート",
+      "RED": "赤",
+      "ORANGE": "オレンジ",
+      "AMBER": "アンバー",
+      "GREEN": "緑",
+      "TEAL": "ティール",
+      "BLUE": "青",
+      "INDIGO": "インディゴ",
+      "VIOLET": "バイオレット",
+      "PINK": "ピンク"
+    }
+  }
+}

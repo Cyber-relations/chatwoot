@@ -1,0 +1,67 @@
+{
+  "INTEGRATION_APPS": {
+    "FETCHING": "連携情報を取得中",
+    "NO_HOOK_CONFIGURED": "このアカウントには{integrationId}の連携が設定されていません。",
+    "HEADER": "アプリケーション",
+    "COUNT": "{n} インテグレーション | {n} インテグレーション",
+    "SEARCH_PLACEHOLDER": "検索...",
+    "NO_RESULTS": "検索条件に一致する結果が見つかりませんでした",
+    "STATUS": {
+      "ENABLED": "有効",
+      "DISABLED": "無効"
+    },
+    "CONFIGURE": "設定",
+    "ADD_BUTTON": "新しい連携を追加",
+    "DELETE": {
+      "TITLE": {
+        "INBOX": "削除の確認",
+        "ACCOUNT": "接続解除"
+      },
+      "MESSAGE": {
+        "INBOX": "この設定を本当に削除しますか？",
+        "ACCOUNT": "本当に接続を解除しますか？"
+      },
+      "CONFIRM_BUTTON_TEXT": {
+        "INBOX": "削除する",
+        "ACCOUNT": "はい、接続解除します"
+      },
+      "CANCEL_BUTTON_TEXT": "キャンセル",
+      "API": {
+        "SUCCESS_MESSAGE": "連携設定が正常に削除されました",
+        "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+      }
+    },
+    "LIST": {
+      "FETCHING": "連携設定を取得中",
+      "INBOX": "受信トレイ",
+      "ACTIONS": "操作",
+      "DELETE": {
+        "BUTTON_TEXT": "削除"
+      }
+    },
+    "ADD": {
+      "FORM": {
+        "INBOX": {
+          "LABEL": "受信トレイを選択",
+          "PLACEHOLDER": "受信トレイを選択"
+        },
+        "SUBMIT": "作成",
+        "VALIDATING_OPENAI": "OpenAI を使用して検証中...",
+        "CANCEL": "キャンセル"
+      },
+      "API": {
+        "SUCCESS_MESSAGE": "連携設定が正常に追加されました",
+        "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+      }
+    },
+    "CONNECT": {
+      "BUTTON_TEXT": "接続"
+    },
+    "DISCONNECT": {
+      "BUTTON_TEXT": "接続解除"
+    },
+    "SIDEBAR_DESCRIPTION": {
+      "DIALOGFLOW": "Dialogflow は、会話型インターフェイスを構築するための自然言語処理プラットフォームです。{installationName} と統合することで、ボットはまずクエリを処理し、必要に応じてそれをエージェントに転送できます。よくある質問に回答することで、見込み客を見極め、エージェントの作業負荷を軽減できます。ダイアログフローを追加するには、Google コンソールでサービスアカウントを作成し、認証情報を共有します。詳細についてはドキュメントを参照してください。"
+    }
+  }
+}

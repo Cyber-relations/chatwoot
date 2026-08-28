@@ -1,0 +1,87 @@
+# 業界パック: 美容室・サロン(基準見本)
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: beauty
+label: 美容室・サロン
+emoji: "💇"
+accent: pink
+
+canned_responses:
+  - short_code: yoyaku-uketsuke
+    content: |
+      お問い合わせありがとうございます。
+      ご希望の日時・メニュー・指名の有無をお知らせください。空き状況を確認してご案内します。
+  - short_code: yoyaku-kakutei
+    content: |
+      ご予約を承りました。
+      ◯月◯日(◯) ◯:◯〜 / メニュー: ◯ / 担当: ◯
+      当日お気をつけてお越しください。
+  - short_code: yoyaku-henkou
+    content: |
+      ご連絡ありがとうございます。ご希望の変更日時をお知らせください。
+      空き状況を確認して、あらためてご案内します。
+  - short_code: yoyaku-cancel
+    content: |
+      キャンセルを承りました。ご連絡ありがとうございました。
+      またのご予約をお待ちしています。
+  - short_code: zenjitsu-remind
+    content: |
+      明日◯:◯からのご予約のご確認です。
+      ご都合が変わった場合は、このメッセージにそのままご返信ください。
+  - short_code: chikoku-henshin
+    content: |
+      ご連絡ありがとうございます。◯分程度でしたらそのままお越しください。
+      以降のご予約状況により、当日の施術内容をご相談させていただく場合があります。
+  - short_code: menu-ryoukin
+    content: |
+      メニューと料金の一覧はこちらです: <URL>
+      初めての方は、カウンセリングでご希望の仕上がりを伺ってからご提案します。
+  - short_code: eigyo-access
+    content: |
+      営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
+      場所はこちらです: <URL>
+  - short_code: raiten-orei
+    content: |
+      本日はご来店ありがとうございました。
+      仕上がりで気になる点がありましたら、◯日以内にご連絡ください。お直しいたします。
+  - short_code: kuchikomi-onegai
+    content: |
+      よろしければ、Google マップで感想をお聞かせください: <URL>
+      いただいた声はスタッフの励みになります。
+
+labels:
+  - title: 予約
+    description: 新規予約・空き確認
+    color: "#E05C7A"
+  - title: 変更キャンセル
+    description: 予約の変更・キャンセル連絡
+    color: "#F09A3E"
+  - title: 初めての方
+    description: 新規のお客様からの問い合わせ
+    color: "#2FA35C"
+  - title: お直し相談
+    description: 仕上がりのお直し依頼・ご意見
+    color: "#4A79B8"
+  - title: 求人応募
+    description: 採用に関する問い合わせ
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま営業時間外のため、営業開始後に順番にご返信します。
+  ご予約の希望・変更・キャンセルは、このままメッセージをお送りください。
+
+post_templates:
+  - title: 空き枠のお知らせ
+    body: |
+      【◯月◯日(◯) ご予約に空きがあります】
+      ◯:◯〜 と ◯:◯〜 にお席をご用意できます。
+      メッセージからお気軽にご相談ください。
+  - title: キャンペーン告知
+    body: |
+      【◯月のキャンペーン】
+      ◯月◯日〜◯月◯日、◯メニューが◯円です。
+      ご予約はメッセージからどうぞ。
+  - title: 定休日・営業時間のお知らせ
+    body: |
+      【◯月の営業について】
+      ◯月◯日(◯)はお休みをいただきます。
+      前後の日程は空きがございますので、お早めにご相談ください。

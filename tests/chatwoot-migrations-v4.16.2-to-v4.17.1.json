@@ -1,0 +1,320 @@
+{
+  "schema": "toybaco-chatwoot-migration-contract-v1",
+  "from": {
+    "tag": "v4.16.2",
+    "tag_object": "e5d374f1186f8c0b7eac10fb7649f380c89a6da9",
+    "commit": "70e284a044f00326725f65f703162745371075ec",
+    "tree": "5dcb62d1588bd247a103bd8c0ef772b9c3d69948",
+    "schema_version": "2026_07_18_000000"
+  },
+  "to": {
+    "tag": "v4.17.1",
+    "tag_object": "e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1",
+    "commit": "b354a9550e1fb59fa537a9c384232cb076213e72",
+    "tree": "9a17426900d328a6acc2bdaecba0533e8b401120",
+    "schema_version": "2026_08_14_000000"
+  },
+  "runtime_overlays": {
+    "policy": "The three reviewed non-transactional GIN migrations are replaced only when the upstream source SHA-256 is exact; if_not_exists permits same-release recovery only when pg_get_indexdef and pg_index validity fingerprints are exact.",
+    "migrations": [
+      {
+        "path": "db/migrate/20260804000001_add_index_on_agent_sessions_cited_document_ids.rb",
+        "source_sha256": "5f1449209e938fc076441d16f39f9911b4167824a73b30a3552be7f0c79b6724",
+        "overlay_path": "overlay/app/db/migrate/20260804000001_add_index_on_agent_sessions_cited_document_ids.rb",
+        "effective_sha256": "74b80b66929291bd821fc46d83b499f613fa63887bb121857e20d64bf2724562"
+      },
+      {
+        "path": "db/migrate/20260804000003_add_index_on_agent_sessions_used_faq_ids.rb",
+        "source_sha256": "5f8046c12e95739b0c7a758b6c416f22219e11924f8b4d74636a0cc6d62d826b",
+        "overlay_path": "overlay/app/db/migrate/20260804000003_add_index_on_agent_sessions_used_faq_ids.rb",
+        "effective_sha256": "e4a58c6b46602255d7d610bc0984cd4fc6040659971a9c65d4ca64d81db152f5"
+      },
+      {
+        "path": "db/migrate/20260806000000_add_index_on_agent_sessions_document_ids.rb",
+        "source_sha256": "99b828297c0a2dba7e259ec5a4e2f919ff1ac76f8f5001ff2335177c31324797",
+        "overlay_path": "overlay/app/db/migrate/20260806000000_add_index_on_agent_sessions_document_ids.rb",
+        "effective_sha256": "2272d2cf5f92f50bba0e3ecce29fce334f77697bd0e19db8e1c39f4fa4e22aa4"
+      }
+    ]
+  },
+  "policy": {
+    "old_service_version": "v4.16.2",
+    "old_services": [
+      "rails",
+      "sidekiq"
+    ],
+    "migration_command": [
+      "bundle",
+      "exec",
+      "rails",
+      "db:chatwoot_prepare"
+    ],
+    "runtime_prerequisites": {
+      "DISABLE_ENTERPRISE": "true"
+    },
+    "automatic_database_rollback": false,
+    "unknown_or_changed_migration": "reject",
+    "forward_compatibility_basis": [
+      "No migration removes or renames a database object present in the v4.16.2 schema.",
+      "The only removed columns and indexes belong to conversation_outcomes, which is introduced earlier in this same release set and is absent from v4.16.2.",
+      "Indexes added to tables that already exist in v4.16.2 use PostgreSQL concurrent index creation.",
+      "v4.16.2 Rails and Sidekiq ignore the additive columns, tables, and indexes in this release set.",
+      "DISABLE_ENTERPRISE=true prevents the migration-only enterprise job from being enqueued while the v4.16.2 Sidekiq process is still serving."
+    ]
+  },
+  "schema_migration_sets": {
+    "canonicalization": "ASCII-sort each unique 14-digit schema_migrations.version and join with LF including one trailing LF",
+    "base": {
+      "tag": "v4.16.2",
+      "count": 158,
+      "sha256": "8ecbf17886bbdb41fcff953b3a792d9fc8635b3ee5aea399898b7bb2ed370074"
+    },
+    "candidate": {
+      "count": 19,
+      "sha256": "eb7a7213c9ee34f118c33aed90fd93a9fc4042acaa4bce2f759f9dd00615e32c",
+      "versions": [
+        "20260709060000",
+        "20260709060100",
+        "20260709060200",
+        "20260715000000",
+        "20260724000100",
+        "20260728000001",
+        "20260729051500",
+        "20260731140853",
+        "20260803000000",
+        "20260803130000",
+        "20260804000000",
+        "20260804000001",
+        "20260804000002",
+        "20260804000003",
+        "20260806000000",
+        "20260807101420",
+        "20260807133000",
+        "20260811000000",
+        "20260814000000"
+      ]
+    },
+    "target": {
+      "tag": "v4.17.1",
+      "count": 177,
+      "sha256": "dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425"
+    }
+  },
+  "candidate_database_objects": {
+    "canonicalization": "Select only the reviewed candidate object names that exist, ASCII-sort, and join with LF including one trailing LF when non-empty",
+    "base": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "target": {
+      "count": 18,
+      "sha256": "9f0617aceec30057f0b75a4953bca29d6b10138d2c7c716633919ef4a14b1921"
+    },
+    "names": [
+      "column:public.agent_sessions.cited_document_ids",
+      "column:public.agent_sessions.used_faq_ids",
+      "column:public.applied_slas.completed_at",
+      "column:public.automation_rules.execution_delay",
+      "column:public.campaigns.completed_at",
+      "column:public.campaigns.started_at",
+      "column:public.channel_whatsapp.business_management_token",
+      "column:public.conversations.ai_assignee_type",
+      "column:public.conversations.status_changed_at",
+      "index:public.index_agent_sessions_on_cited_document_ids",
+      "index:public.index_agent_sessions_on_document_ids",
+      "index:public.index_agent_sessions_on_used_faq_ids",
+      "index:public.index_audits_on_associated_and_created_at",
+      "index:public.index_conversations_on_account_id_status_created_at",
+      "index:public.index_conversations_on_created_at",
+      "table:public.automation_rule_pending_executions",
+      "table:public.campaign_recipients",
+      "table:public.conversation_outcomes"
+    ],
+    "index_definitions": {
+      "canonicalization": "For each reviewed recovery-sensitive index that exists, join its schema-qualified name, indisvalid, indisready, indislive, and whitespace-normalized pg_get_indexdef with colons; ASCII-sort and join with LF including one trailing LF when non-empty",
+      "base": {
+        "count": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "target": {
+        "count": 3,
+        "sha256": "e42eff9adf9a838ccfb93ee3f2405c8d9eae037fa0f165faa48f1edd1c8dec8a"
+      },
+      "entries": [
+        "indexdef:public.index_agent_sessions_on_cited_document_ids:valid=true:ready=true:live=true:CREATE INDEX index_agent_sessions_on_cited_document_ids ON public.agent_sessions USING gin (cited_document_ids)",
+        "indexdef:public.index_agent_sessions_on_document_ids:valid=true:ready=true:live=true:CREATE INDEX index_agent_sessions_on_document_ids ON public.agent_sessions USING gin (document_ids)",
+        "indexdef:public.index_agent_sessions_on_used_faq_ids:valid=true:ready=true:live=true:CREATE INDEX index_agent_sessions_on_used_faq_ids ON public.agent_sessions USING gin (used_faq_ids)"
+      ]
+    }
+  },
+  "summary": {
+    "added": 19,
+    "modified_historical": 1,
+    "removed": 0,
+    "renamed": 0,
+    "total": 20
+  },
+  "migrations": [
+    {
+      "path": "db/migrate/20230515051424_update_article_image_keys.rb",
+      "change": "modified",
+      "classification": "historical_applied_migration_source_change",
+      "previous_sha256": "34fd03ac8fa90c01b9cab074f968a27a6d1cb04e86037aa2749f43939ad7452e",
+      "sha256": "f0f23297c40298ac8df13877c7f6172f68d4e2fd51b756d38458f15c33f261cb",
+      "forward_compatible": true,
+      "basis": "The migration version predates both releases and is already recorded; the source-only rescue change is not replayed during this upgrade."
+    },
+    {
+      "path": "db/migrate/20260709060000_add_execution_delay_to_automation_rules.rb",
+      "change": "added",
+      "classification": "additive_nullable_column",
+      "sha256": "164e00b49fc2b0678af2736031f273ffa012c806d51cde9829fcff444999819e",
+      "forward_compatible": true,
+      "basis": "Adds a nullable column that v4.16.2 does not require or remove."
+    },
+    {
+      "path": "db/migrate/20260709060100_add_status_changed_at_to_conversations.rb",
+      "change": "added",
+      "classification": "additive_nullable_column",
+      "sha256": "2620576e7fd2383de25e7721b8092216571044ae7ecb4fcd9055913fedad7427",
+      "forward_compatible": true,
+      "basis": "Adds a nullable column and leaves every v4.16.2 conversation column unchanged."
+    },
+    {
+      "path": "db/migrate/20260709060200_create_automation_rule_pending_executions.rb",
+      "change": "added",
+      "classification": "additive_new_table",
+      "sha256": "2057b825edfc36265fced096347b3768f81838ceaec9c8df28e915028e9227ad",
+      "forward_compatible": true,
+      "basis": "Creates a table absent from and ignored by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260715000000_add_completed_at_to_applied_slas.rb",
+      "change": "added",
+      "classification": "additive_nullable_column",
+      "sha256": "f0b1d4741091c27bc86e1fd40d76246022ec4162fa8fb94e5079cc1aca84c327",
+      "forward_compatible": true,
+      "basis": "Adds a nullable column that is ignored by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260724000100_add_index_to_conversations_created_at.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "fb9d448c867665a65113b62269b301b34a469e13091f13e9df1706442b9e1332",
+      "forward_compatible": true,
+      "basis": "Adds an if-not-exists PostgreSQL concurrent index without changing the table API used by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260728000001_add_business_management_token_to_channel_whatsapp.rb",
+      "change": "added",
+      "classification": "additive_nullable_column",
+      "sha256": "635429846edb7b3a85b76fc64922c74ed4cd9441aaeafa757cb455399446dc37",
+      "forward_compatible": true,
+      "basis": "Adds a nullable column that is ignored by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260729051500_add_status_updated_at_index_to_automation_rule_pending_executions.rb",
+      "change": "added",
+      "classification": "same_release_new_table_followup",
+      "sha256": "e92e09f0a96d3dfe565996dd0ce9e193cb73361b260a9439c57e1fe3494f7e61",
+      "forward_compatible": true,
+      "basis": "Adds an index only to a table introduced earlier in this release set and absent from v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260731140853_create_conversation_outcomes.rb",
+      "change": "added",
+      "classification": "additive_new_table",
+      "sha256": "7bfad803c369e775d8c76d33f54d0334d3aa46da4813b3f451f4673130d1b4f2",
+      "forward_compatible": true,
+      "basis": "Creates a table absent from and ignored by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260803000000_enqueue_copy_captain_auto_resolve_mode_to_assistants_job.rb",
+      "change": "added",
+      "classification": "enterprise_job_disabled_by_runtime_contract",
+      "sha256": "cf8b07d66634a8cf0a59a3e29a0fecdbf99c41914c5113a82ad731b0a9d142f4",
+      "forward_compatible": true,
+      "basis": "The exact ECS runtime contract sets DISABLE_ENTERPRISE=true, so the candidate-only job is not enqueued while v4.16.2 Sidekiq is running."
+    },
+    {
+      "path": "db/migrate/20260803130000_add_episode_grain_to_conversation_outcomes.rb",
+      "change": "added",
+      "classification": "same_release_new_table_cleanup",
+      "sha256": "5fa93e3152c642ff31e6cb7a25b9b8156d3b0abcbbca9ca107820e3a3c0a7004",
+      "forward_compatible": true,
+      "basis": "Removes and replaces fields only on conversation_outcomes, a table introduced earlier in this release set and absent from v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260804000000_add_cited_document_ids_to_agent_sessions.rb",
+      "change": "added",
+      "classification": "additive_nonnull_default_column",
+      "sha256": "b2e5d0633faf9fdee232079b7cca5ce8dbc068406fd40e26c2d67a9abb119b58",
+      "forward_compatible": true,
+      "basis": "Adds a defaulted column without changing columns read or written by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260804000001_add_index_on_agent_sessions_cited_document_ids.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "5f1449209e938fc076441d16f39f9911b4167824a73b30a3552be7f0c79b6724",
+      "forward_compatible": true,
+      "basis": "The exact runtime overlay adds if_not_exists to the PostgreSQL concurrent GIN index; pg_get_indexdef and pg_index validity fingerprints reject a wrong-definition or invalid same-name index."
+    },
+    {
+      "path": "db/migrate/20260804000002_add_used_faq_ids_to_agent_sessions.rb",
+      "change": "added",
+      "classification": "additive_nonnull_default_column",
+      "sha256": "e82502cb8e0dcb23739ede7d270dae2ca54ec94dcf5411e643eaf73cf41e1b32",
+      "forward_compatible": true,
+      "basis": "Adds a defaulted column without changing columns read or written by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260804000003_add_index_on_agent_sessions_used_faq_ids.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "5f8046c12e95739b0c7a758b6c416f22219e11924f8b4d74636a0cc6d62d826b",
+      "forward_compatible": true,
+      "basis": "The exact runtime overlay adds if_not_exists to the PostgreSQL concurrent GIN index; pg_get_indexdef and pg_index validity fingerprints reject a wrong-definition or invalid same-name index."
+    },
+    {
+      "path": "db/migrate/20260806000000_add_index_on_agent_sessions_document_ids.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "99b828297c0a2dba7e259ec5a4e2f919ff1ac76f8f5001ff2335177c31324797",
+      "forward_compatible": true,
+      "basis": "The exact runtime overlay adds if_not_exists to the PostgreSQL concurrent GIN index; pg_get_indexdef and pg_index validity fingerprints reject a wrong-definition or invalid same-name index."
+    },
+    {
+      "path": "db/migrate/20260807101420_add_account_status_created_at_index_to_conversations.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "01b330b5231dc012658722c4d3d1082431e9323e0f789b54d2e65154899e66ea",
+      "forward_compatible": true,
+      "basis": "Adds an if-not-exists PostgreSQL concurrent index without changing the table API used by v4.16.2."
+    },
+    {
+      "path": "db/migrate/20260807133000_create_campaign_recipients.rb",
+      "change": "added",
+      "classification": "additive_new_table_and_nullable_columns",
+      "sha256": "464db0e33d7a914df66e88580989d4052a9d9ab513a9900ad124db4532455340",
+      "forward_compatible": true,
+      "basis": "Creates a new table and adds nullable campaign columns; v4.16.2 ignores all of them."
+    },
+    {
+      "path": "db/migrate/20260811000000_add_ai_assignee_type_to_conversations.rb",
+      "change": "added",
+      "classification": "additive_nullable_column_and_backfill",
+      "sha256": "43cfb3ce40ad605d3cc5679d11ed31dd31a23e894a29724034b3c61b24e5c4b3",
+      "forward_compatible": true,
+      "basis": "Adds a nullable discriminator and backfills only that new column; v4.16.2 continues using assignee_agent_bot_id."
+    },
+    {
+      "path": "db/migrate/20260814000000_add_associated_created_at_index_to_audits.rb",
+      "change": "added",
+      "classification": "concurrent_index_on_existing_table",
+      "sha256": "8387862e4956504345b8df706f50bb3059791183ee8a84e89acb7550b5d093ca",
+      "forward_compatible": true,
+      "basis": "Adds an if-not-exists PostgreSQL concurrent index without changing the table API used by v4.16.2."
+    }
+  ]
+}

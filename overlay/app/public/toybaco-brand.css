@@ -1,0 +1,358 @@
+/* トイバコ ブランドオーバーレイ。Chatwoot のクラス名・トークンに乗せるだけ。本体は改変しない。
+ * Chatwoot v4 の色システムは2系統:
+ *  - n-* ユーティリティ: rgb(var(--blue-N)) 参照(ライト :root / ダーク .dark で再定義)
+ *  - n-brand / woot-N: 色リテラル埋め込み → クラス自体を上書きする
+ * このファイルは vite バンドルより後(</head> 直前)に注入される前提。 */
+
+:root {
+  --toybaco-navy: #1f3a5f;
+  --toybaco-navy-deep: #163049;
+  --toybaco-coral: #ff6b5b;
+  --toybaco-offwhite: #faf7f2;
+  --toybaco-ink: #24303f;
+  --toybaco-muted: #6b7684;
+
+  /* blue スケール(ライト): Chatwoot 既定の空色をネイビー基調に置換 */
+  --blue-1: 250 251 253;
+  --blue-2: 243 246 250;
+  --blue-3: 232 238 245;
+  --blue-4: 217 227 239;
+  --blue-5: 199 214 231;
+  --blue-6: 177 197 220;
+  --blue-7: 148 174 203;
+  --blue-8: 110 143 180;
+  --blue-9: 31 58 95;
+  --blue-10: 22 48 79;
+  --blue-11: 36 80 124;
+  --blue-12: 15 30 48;
+
+  --background-color: 250 247 242;
+
+  /* メイン面(surface)は純白を避けてわずかに暖色へ。ダークは .dark 側の既定を維持 */
+  --surface-1: 252 251 248;
+  --surface-2: 254 253 251;
+}
+
+/* blue スケール(ダーク): ネイビーの世界観のまま明度だけ持ち上げる。
+ * dark クラスはログイン後は body、未ログインページは html に付くので .dark で受ける */
+.dark {
+  --blue-1: 15 21 30;
+  --blue-2: 18 26 38;
+  --blue-3: 26 39 56;
+  --blue-4: 31 48 70;
+  --blue-5: 37 57 84;
+  --blue-6: 45 69 100;
+  --blue-7: 56 84 120;
+  --blue-8: 70 103 143;
+  --blue-9: 74 118 166;
+  --blue-10: 90 136 186;
+  --blue-11: 142 178 216;
+  --blue-12: 214 228 242;
+}
+
+html,
+body,
+#app {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic Medium", "Yu Gothic", Inter, sans-serif !important;
+}
+
+/* n-brand 系(リテラル #2781F6)を blue トークン参照に変えてライト/ダーク追従させる。
+ * バリアント(checked/hover/before 等)もリテラルなので全て列挙して潰す。 */
+.bg-n-brand,
+.group:hover .group-hover\:bg-n-brand,
+.checked\:bg-n-brand:checked,
+.indeterminate\:bg-n-brand:indeterminate,
+.dark\:checked\:bg-n-brand:checked:is(.dark *),
+.before\:bg-n-brand::before,
+.after\:bg-n-brand::after {
+  background-color: rgb(var(--blue-9)) !important;
+}
+
+.hover\:bg-n-brand\/80:hover {
+  background-color: rgb(var(--blue-9) / 0.8) !important;
+}
+
+.bg-n-brand\/20,
+.hover\:enabled\:bg-n-brand\/20:enabled:hover,
+.focus-visible\:bg-n-brand\/20:focus-visible {
+  background-color: rgb(var(--blue-9) / 0.2) !important;
+}
+
+.bg-n-brand\/10,
+.hover\:bg-n-brand\/10:hover,
+.dark\:bg-n-brand\/10:is(.dark *) {
+  background-color: rgb(var(--blue-9) / 0.1) !important;
+}
+
+.bg-n-brand\/5 {
+  background-color: rgb(var(--blue-9) / 0.05) !important;
+}
+
+.text-n-brand,
+.hover\:text-n-brand:hover,
+.group:hover .group-hover\:text-n-brand,
+.group:focus-within .group-focus-within\:text-n-brand,
+.dark\:hover\:text-n-brand:hover:is(.dark *),
+.prose-strong\:text-n-brand strong {
+  color: rgb(var(--blue-11)) !important;
+}
+
+.border-n-brand,
+.border-t-n-brand,
+.hover\:border-n-brand:hover,
+.focus\:border-n-brand:focus,
+.checked\:border-n-brand:checked,
+.indeterminate\:border-n-brand:indeterminate,
+.dark\:border-n-brand:is(.dark *),
+.dark\:checked\:border-n-brand:checked:is(.dark *) {
+  border-color: rgb(var(--blue-9)) !important;
+}
+
+.border-n-brand\/50 {
+  border-color: rgb(var(--blue-9) / 0.5) !important;
+}
+
+.outline-n-brand,
+.focus\:outline-n-brand:focus,
+.focus-within\:outline-n-brand:focus-within,
+.focus-visible\:outline-n-brand:focus-visible,
+.dark\:focus\:outline-n-brand:focus:is(.dark *),
+.dark\:focus-within\:outline-n-brand:focus-within:is(.dark *) {
+  outline-color: rgb(var(--blue-9)) !important;
+}
+
+.ring-n-brand,
+.focus\:ring-n-brand:focus,
+.focus-within\:ring-n-brand:focus-within,
+.focus-visible\:ring-n-brand:focus-visible,
+.dark\:ring-n-brand:is(.dark *) {
+  --tw-ring-color: rgb(var(--blue-9) / var(--tw-ring-opacity, 1)) !important;
+}
+
+.from-n-brand {
+  --tw-gradient-from: rgb(var(--blue-9)) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--blue-9) / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.from-n-brand\/15 {
+  --tw-gradient-from: rgb(var(--blue-9) / 0.15) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--blue-9) / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+/* サインイン等のリンク(リテラル #2781F6) */
+.text-link {
+  color: rgb(var(--blue-11)) !important;
+}
+
+/* ===== 認証ページ(ログイン等)のブランド演出 =====
+ * 対象は auth レイアウトの main(bg-n-brand/5 が識別子)。DOM は変えられないので
+ * CSS のみ: 光彩+3点吹き出しドットの背景 / ロゴ拡大 / タグライン / コーラル一点。 */
+main[class*="bg-n-brand/5"] {
+  position: relative;
+  overflow: hidden;
+  background-color: rgb(var(--background-color)) !important;
+  background-image:
+    radial-gradient(1100px 560px at 50% -180px, rgb(31 58 95 / 0.10), transparent 62%),
+    radial-gradient(560px 420px at 90% 102%, rgb(255 107 91 / 0.07), transparent 68%);
+}
+
+.dark main[class*="bg-n-brand/5"] {
+  background-image:
+    radial-gradient(1100px 560px at 50% -180px, rgb(74 118 166 / 0.10), transparent 62%),
+    radial-gradient(560px 420px at 90% 102%, rgb(255 107 91 / 0.05), transparent 68%);
+}
+
+/* ロゴの世界そのまま: 箱から出た吹き出したちが背景をゆっくり漂う */
+main[class*="bg-n-brand/5"]::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cg opacity='0.19'%3E%3Cg fill='%2303B952'%3E%3Crect x='140' y='130' width='150' height='110' rx='36'/%3E%3Cpath d='M193 236 l22 40 22 -40 z'/%3E%3C/g%3E%3Cg fill='%23FAF7F2'%3E%3Ccircle cx='183' cy='185' r='11'/%3E%3Ccircle cx='215' cy='185' r='11'/%3E%3Ccircle cx='247' cy='185' r='11'/%3E%3C/g%3E%3Cg fill='%234380B5'%3E%3Crect x='70' y='598' width='134' height='102' rx='32'/%3E%3Cpath d='M115 696 l20 36 20 -36 z'/%3E%3C/g%3E%3Crect x='96' y='622' width='82' height='52' rx='7' fill='%23FAF7F2'/%3E%3Cpath d='M99 627 l38 27 38 -27' stroke='%234380B5' stroke-width='8' fill='none'/%3E%3Cg fill='%23E33E67'%3E%3Crect x='1170' y='538' width='140' height='106' rx='34'/%3E%3Cpath d='M1218 640 l22 38 22 -38 z'/%3E%3C/g%3E%3Crect x='1222' y='554' width='26' height='13' rx='4' fill='%23FAF7F2'/%3E%3Crect x='1190' y='562' width='100' height='56' rx='9' fill='%23FAF7F2'/%3E%3Ccircle cx='1240' cy='590' r='15' fill='%23E33E67'/%3E%3Ccircle cx='1266' cy='152' r='26' fill='%23FF6B5B'/%3E%3Ccircle cx='1044' cy='86' r='13' fill='%2303B952'/%3E%3Ccircle cx='66' cy='356' r='16' fill='%23FF6B5B'/%3E%3Ccircle cx='1348' cy='372' r='12' fill='%234380B5'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.dark main[class*="bg-n-brand/5"]::before {
+  opacity: 0.95;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 900' preserveAspectRatio='xMidYMid slice'%3E%3Cg opacity='0.15'%3E%3Cg fill='%2303B952'%3E%3Crect x='140' y='130' width='150' height='110' rx='36'/%3E%3Cpath d='M193 236 l22 40 22 -40 z'/%3E%3C/g%3E%3Cg fill='%23181A1F'%3E%3Ccircle cx='183' cy='185' r='11'/%3E%3Ccircle cx='215' cy='185' r='11'/%3E%3Ccircle cx='247' cy='185' r='11'/%3E%3C/g%3E%3Cg fill='%234380B5'%3E%3Crect x='70' y='598' width='134' height='102' rx='32'/%3E%3Cpath d='M115 696 l20 36 20 -36 z'/%3E%3C/g%3E%3Crect x='96' y='622' width='82' height='52' rx='7' fill='%23181A1F'/%3E%3Cpath d='M99 627 l38 27 38 -27' stroke='%234380B5' stroke-width='8' fill='none'/%3E%3Cg fill='%23E33E67'%3E%3Crect x='1170' y='538' width='140' height='106' rx='34'/%3E%3Cpath d='M1218 640 l22 38 22 -38 z'/%3E%3C/g%3E%3Crect x='1222' y='554' width='26' height='13' rx='4' fill='%23181A1F'/%3E%3Crect x='1190' y='562' width='100' height='56' rx='9' fill='%23181A1F'/%3E%3Ccircle cx='1240' cy='590' r='15' fill='%23E33E67'/%3E%3Ccircle cx='1266' cy='152' r='26' fill='%23FF6B5B'/%3E%3Ccircle cx='1044' cy='86' r='13' fill='%2303B952'/%3E%3Ccircle cx='66' cy='356' r='16' fill='%23FF6B5B'/%3E%3Ccircle cx='1348' cy='372' r='12' fill='%234380B5'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  main[class*="bg-n-brand/5"]::before {
+    animation: tb-float 9s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes tb-float {
+  from {
+    transform: translateY(-9px);
+  }
+
+  to {
+    transform: translateY(9px);
+  }
+}
+
+/* コンテンツは吹き出しレイヤーより上に */
+main[class*="bg-n-brand/5"] > section {
+  position: relative;
+  z-index: 1;
+}
+
+/* ロゴを玄関の主役に(h-8=32px → 72px) */
+main[class*="bg-n-brand/5"] section:first-of-type img {
+  height: 72px;
+  filter: drop-shadow(0 8px 22px rgb(31 58 95 / 0.20));
+}
+
+/* 見出しはブランドの声で。下にタグラインを添える */
+main[class*="bg-n-brand/5"] h2 {
+  color: rgb(var(--blue-9)) !important;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+main[class*="bg-n-brand/5"] h2::after {
+  content: "問い合わせが、ひとつの箱に。";
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--toybaco-muted);
+}
+
+.dark main[class*="bg-n-brand/5"] h2 {
+  color: rgb(var(--blue-12)) !important;
+}
+
+.dark main[class*="bg-n-brand/5"] h2::after {
+  color: rgb(var(--blue-11));
+}
+
+/* カード: コーラルの一点(上辺ライン)+ネイビー色の柔らかい影 */
+main[class*="bg-n-brand/5"] section[class*="shadow"] {
+  position: relative;
+  box-shadow:
+    0 16px 40px -16px rgb(31 58 95 / 0.22),
+    0 2px 10px rgb(31 58 95 / 0.06) !important;
+}
+
+/* おもちゃ箱のリボン: ロゴの4色をつなぐ上辺ライン */
+main[class*="bg-n-brand/5"] section[class*="shadow"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(90deg,
+    #03b952 0 30%,
+    #4380b5 30% 54%,
+    #e33e67 54% 78%,
+    #ff6b5b 78% 100%);
+}
+
+.dark main[class*="bg-n-brand/5"] section[class*="shadow"] {
+  box-shadow: 0 16px 40px -16px rgb(0 0 0 / 0.5) !important;
+}
+
+.dark main[class*="bg-n-brand/5"] section[class*="shadow"]::before {
+  box-shadow: 0 2px 12px rgb(255 107 91 / 0.25);
+}
+
+/* 主ボタンに色付きの浮き */
+main[class*="bg-n-brand/5"] form button[type="submit"] {
+  box-shadow: 0 8px 20px -8px rgb(var(--blue-9) / 0.5);
+}
+
+/* ロード時のひと呼吸(各180ms、reduced-motionでは無効) */
+@media (prefers-reduced-motion: no-preference) {
+  main[class*="bg-n-brand/5"] > section {
+    animation: tb-rise 180ms ease-out backwards;
+  }
+
+  main[class*="bg-n-brand/5"] > section + section {
+    animation-delay: 70ms;
+  }
+}
+
+@keyframes tb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 旧 woot スケール(リテラル)の主要どころ */
+.bg-woot-25 {
+  background-color: var(--toybaco-offwhite) !important;
+}
+
+/* オンボーディング erb は dark: バリアント併用。dark クラスが付く環境でオフホワイト
+ * 強制が dark:bg-slate-900 を潰さないための保険 */
+.dark .bg-woot-25 {
+  background-color: #111113 !important;
+}
+
+.bg-woot-500,
+.bg-woot-600 {
+  background-color: rgb(var(--blue-9)) !important;
+}
+
+.hover\:bg-woot-600:hover,
+button.bg-woot-500:hover,
+a.bg-woot-500:hover {
+  background-color: rgb(var(--blue-10)) !important;
+}
+
+.text-woot-500,
+.text-woot-600 {
+  color: rgb(var(--blue-11)) !important;
+}
+
+.border-woot-500,
+.ring-woot-500 {
+  border-color: rgb(var(--blue-9)) !important;
+}
+
+/* 遊びはフォーカスリングのコーラルに */
+input:focus,
+textarea:focus,
+select:focus {
+  --tw-ring-color: var(--toybaco-coral) !important;
+  outline-color: var(--toybaco-coral);
+}
+
+/* ログイン前(オンボーディング/サインイン)用 */
+.tb-logo {
+  height: 72px;
+  width: auto;
+}
+
+.tb-lead {
+  margin: 8px auto 0;
+  max-width: 22em;
+  color: var(--toybaco-muted);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.tb-submit {
+  background-color: rgb(var(--blue-9)) !important;
+}
+
+.tb-submit:hover {
+  background-color: rgb(var(--blue-10)) !important;
+}

@@ -1,0 +1,1084 @@
+{
+  "PROFILE_SETTINGS": {
+    "LINK": "プロフィール設定",
+    "TITLE": "プロフィール設定",
+    "BTN_TEXT": "プロフィールを更新",
+    "DELETE_AVATAR": "アバターを削除",
+    "AVATAR_DELETE_SUCCESS": "アバターが正常に削除されました",
+    "AVATAR_DELETE_FAILED": "アバターの削除中にエラーが発生しました。もう一度お試しください",
+    "UPDATE_SUCCESS": "プロフィールが正常に更新されました",
+    "PASSWORD_UPDATE_SUCCESS": "パスワードが正常に変更されました",
+    "AFTER_EMAIL_CHANGED": "プロフィールが正常に更新されました。ログイン情報が変更されたため、再度ログインしてください。",
+    "FORM": {
+      "PICTURE": "プロフィール写真",
+      "AVATAR": "プロフィール画像",
+      "ERROR": "正しくフォームに入力してください",
+      "REMOVE_IMAGE": "削除",
+      "UPLOAD_IMAGE": "画像をアップロード",
+      "UPDATE_IMAGE": "画像を更新",
+      "PROFILE_SECTION": {
+        "TITLE": "プロフィール",
+        "NOTE": "あなたのメールアドレスはあなたのIDであり、ログインに使用されます。"
+      },
+      "SEND_MESSAGE": {
+        "TITLE": "メッセージ送信のホットキー",
+        "NOTE": "好みに応じて、EnterまたはCmd/Ctrl+Enterを選択できます。",
+        "UPDATE_SUCCESS": "設定が正常に更新されました",
+        "CARD": {
+          "ENTER_KEY": {
+            "HEADING": "() と入力します",
+            "CONTENT": "送信ボタンをクリックせずにEnterキーでメッセージを送信します。"
+          },
+          "CMD_ENTER_KEY": {
+            "HEADING": "Cmd/Ctrl キーを押しながら入力 (⌘+)",
+            "CONTENT": "送信ボタンをクリックせずにCmd/Ctrl+Enterキーでメッセージを送信します。"
+          }
+        }
+      },
+      "INTERFACE_SECTION": {
+        "TITLE": "インタフェース",
+        "NOTE": "トイバコ ダッシュボードの外観をカスタマイズします。",
+        "FONT_SIZE": {
+          "TITLE": "フォントサイズ",
+          "NOTE": "好みに応じて、ダッシュボード全体のテキストサイズを調整します。",
+          "UPDATE_SUCCESS": "フォント設定は正常に更新されました",
+          "UPDATE_ERROR": "フォント設定の更新中にエラーが発生しました。もう一度試してください",
+          "OPTIONS": {
+            "SMALLER": "より小さい",
+            "SMALL": "小規模",
+            "DEFAULT": "デフォルト",
+            "LARGE": "ラージ",
+            "LARGER": "大きい",
+            "EXTRA_LARGE": "エクストララージ"
+          }
+        },
+        "LANGUAGE": {
+          "TITLE": "優先言語",
+          "NOTE": "使用したい言語を選択してください。",
+          "UPDATE_SUCCESS": "言語設定は正常に更新されました",
+          "UPDATE_ERROR": "言語設定の更新中にエラーが発生しました。もう一度試してください",
+          "USE_ACCOUNT_DEFAULT": "アカウントデフォルトを使用"
+        }
+      },
+      "MESSAGE_SIGNATURE_SECTION": {
+        "TITLE": "個人メッセージ署名",
+        "NOTE": "送信するすべてのメッセージの末尾に表示されるユニークな署名を作成します。インライン画像を含めることができ、ライブチャット、メール、API受信トレイでサポートされています。",
+        "BTN_TEXT": "署名を保存",
+        "API_ERROR": "署名を保存できませんでした。もう一度お試しください。",
+        "API_SUCCESS": "署名が正常に保存されました",
+        "IMAGE_UPLOAD_ERROR": "画像をアップロードできませんでした。もう一度お試しください。",
+        "IMAGE_UPLOAD_SUCCESS": "画像が正常に追加されました。保存をクリックして署名を保存してください。",
+        "IMAGE_UPLOAD_SIZE_ERROR": "画像サイズは{size}MB未満である必要があります",
+        "INLINE_IMAGE_WARNING": "貼り付けたインライン画像は削除されました。画像アップロードボタンを使用して、署名に画像を追加してください。"
+      },
+      "MESSAGE_SIGNATURE": {
+        "LABEL": "メッセージ署名",
+        "ERROR": "メッセージ署名を空にすることはできません",
+        "PLACEHOLDER": "ここに個人のメッセージ署名を入力してください。"
+      },
+      "PASSWORD_SECTION": {
+        "TITLE": "パスワード",
+        "NOTE": "パスワードを更新すると、複数のデバイスでログインがリセットされます。",
+        "BTN_TEXT": "パスワードを変更"
+      },
+      "SECURITY_SECTION": {
+        "TITLE": "[セキュリティ]",
+        "NOTE": "アカウントのその他のセキュリティ機能を管理します。",
+        "MFA_BUTTON": "2 要素認証の管理"
+      },
+      "SESSIONS_SECTION": {
+        "TITLE": "アクティブセッション",
+        "NOTE": "これらは現在アカウントにログインしているデバイスです。",
+        "CURRENT": "現在のセッション",
+        "REVOKE": "取り消す",
+        "REVOKE_SUCCESS": "セッションは正常に取り消されました",
+        "REVOKE_ERROR": "セッションを取り消すことができません。もう一度試してください。",
+        "FETCH_ERROR": "セッションを取得できません。もう一度試してください。",
+        "LAST_ACTIVE": "最終アクティブ",
+        "UNKNOWN_DEVICE": "不明なデバイス"
+      },
+      "ACCESS_TOKEN": {
+        "TITLE": "アクセストークン",
+        "NOTE": "このトークンは、API連携を構築する場合に利用します。",
+        "PAID_PLAN_NOTE": "API アクセストークンは有料プランで利用できます。",
+        "COPY": "コピー",
+        "RESET": "リセット",
+        "CONFIRM_RESET": "よろしいですか？",
+        "CONFIRM_HINT": "もう一度クリックして確定します",
+        "RESET_SUCCESS": "アクセストークンは正常に再生成されました",
+        "RESET_ERROR": "アクセストークンを再生成できません。もう一度試してください。"
+      },
+      "AUDIO_NOTIFICATIONS_SECTION": {
+        "TITLE": "オーディオアラート",
+        "NOTE": "ダッシュボードで新しいメッセージや会話の通知音を有効にします。",
+        "PLAY": "音を再生",
+        "ALERT_TYPES": {
+          "NONE": "該当なし",
+          "MINE": "割り当て済み",
+          "ALL": "すべて",
+          "ASSIGNED": "自分に割り当てられた会話",
+          "UNASSIGNED": "未割り当ての会話",
+          "NOTME": "他の人に割り当てられた会話"
+        },
+        "ALERT_COMBINATIONS": {
+          "NONE": "オプションが選択されていないため、通知音を受け取りません。",
+          "ASSIGNED": "自分に割り当てられた会話の通知音を受け取ります。",
+          "UNASSIGNED": "未割り当ての会話の通知音を受け取ります。",
+          "NOTME": "他の人に割り当てられた会話の通知音を受け取ります。",
+          "ASSIGNED+UNASSIGNED": "自分に割り当てられた会話と未割り当ての会話の通知音を受け取ります。",
+          "ASSIGNED+NOTME": "自分と他の人に割り当てられた会話の通知音を受け取りますが、未割り当ての会話は含みません。",
+          "NOTME+UNASSIGNED": "未割り当ての会話と他の人に割り当てられた会話の通知音を受け取ります。",
+          "ASSIGNED+NOTME+UNASSIGNED": "すべての会話の通知音を受け取ります。"
+        },
+        "ALERT_TYPE": {
+          "TITLE": "会話の通知イベント",
+          "NONE": "該当なし",
+          "ASSIGNED": "割り当てられた会話",
+          "ALL_CONVERSATIONS": "すべての会話"
+        },
+        "DEFAULT_TONE": {
+          "TITLE": "通知音:"
+        },
+        "CONDITIONS": {
+          "TITLE": "通知条件:",
+          "CONDITION_ONE": "ブラウザウィンドウがアクティブでない場合にのみ通知音を送信",
+          "CONDITION_TWO": "割り当てられたすべての会話が既読になるまで30秒ごとに通知を送信"
+        },
+        "SOUND_PERMISSION_ERROR": "ブラウザで自動再生が無効になっています。通知音を自動で聞くには、ブラウザ設定で音声権限を有効にするか、ページと対話してください。",
+        "READ_MORE": "詳細を読む"
+      },
+      "EMAIL_NOTIFICATIONS_SECTION": {
+        "TITLE": "Eメール通知",
+        "NOTE": "メール通知設定を更新します",
+        "CONVERSATION_ASSIGNMENT": "会話が自分に割り当てられたときにメール通知を送信",
+        "CONVERSATION_CREATION": "新しい会話が作成されたときにメール通知を送信",
+        "CONVERSATION_MENTION": "会話でメンションされたときにメール通知を送信",
+        "ASSIGNED_CONVERSATION_NEW_MESSAGE": "割り当てられた会話で新しいメッセージが作成されたときにメール通知を送信",
+        "PARTICIPATING_CONVERSATION_NEW_MESSAGE": "参加している会話で新しいメッセージが作成されたときにメール通知を送信",
+        "SLA_MISSED_FIRST_RESPONSE": "会話で最初の応答SLAを逃した場合にメール通知を送信",
+        "SLA_MISSED_NEXT_RESPONSE": "会話で次の応答SLAを逃した場合にメール通知を送信",
+        "SLA_MISSED_RESOLUTION": "会話で解決SLAを逃した場合にメール通知を送信"
+      },
+      "NOTIFICATIONS": {
+        "TITLE": "通知設定",
+        "TYPE_TITLE": "通知の種類",
+        "EMAIL": "Eメール通知",
+        "PUSH": "プッシュ通知",
+        "TYPES": {
+          "CONVERSATION_CREATED": "新しい会話が作成された時",
+          "CONVERSATION_ASSIGNED": "会話が自分に割り当てられた時",
+          "CONVERSATION_MENTION": "会話で自分がメンションされた時",
+          "ASSIGNED_CONVERSATION_NEW_MESSAGE": "割り当てられた会話に新しいメッセージが作成された時",
+          "PARTICIPATING_CONVERSATION_NEW_MESSAGE": "参加している会話に新しいメッセージが作成された時",
+          "SLA_MISSED_FIRST_RESPONSE": "会話で最初の応答SLAを逃した",
+          "SLA_MISSED_NEXT_RESPONSE": "会話で次の応答SLAを逃した",
+          "SLA_MISSED_RESOLUTION": "会話で解決SLAを逃した"
+        },
+        "BROWSER_PERMISSION": "プッシュ通知を受け取れるように、ブラウザの通知設定を有効にしてください"
+      },
+      "API": {
+        "UPDATE_SUCCESS": "通知設定が正常に更新されました",
+        "UPDATE_ERROR": "設定の更新中にエラーが発生しました。もう一度やり直してください。"
+      },
+      "PUSH_NOTIFICATIONS_SECTION": {
+        "TITLE": "プッシュ通知",
+        "NOTE": "プッシュ通知の設定をここで更新します",
+        "CONVERSATION_ASSIGNMENT": "会話が自分に割り当てられたときにプッシュ通知を送信",
+        "CONVERSATION_CREATION": "新しい会話が作成されたときにプッシュ通知を送信",
+        "CONVERSATION_MENTION": "会話でメンションされたときにプッシュ通知を送信",
+        "ASSIGNED_CONVERSATION_NEW_MESSAGE": "割り当てられた会話で新しいメッセージが作成されたときにプッシュ通知を送信",
+        "PARTICIPATING_CONVERSATION_NEW_MESSAGE": "参加している会話で新しいメッセージが作成されたときにプッシュ通知を送信",
+        "HAS_ENABLED_PUSH": "このブラウザーでプッシュ通知が有効になっています。",
+        "REQUEST_PUSH": "プッシュ通知を有効にする",
+        "SLA_MISSED_FIRST_RESPONSE": "会話で最初の応答SLAを逃したときにプッシュ通知を送信",
+        "SLA_MISSED_NEXT_RESPONSE": "会話で次の応答SLAを逃したときにプッシュ通知を送信",
+        "SLA_MISSED_RESOLUTION": "会話で解決SLAを逃したときにプッシュ通知を送信"
+      },
+      "PROFILE_IMAGE": {
+        "LABEL": "プロフィール画像"
+      },
+      "NAME": {
+        "LABEL": "あなたのフルネーム",
+        "ERROR": "有効な氏名を入力してください",
+        "PLACEHOLDER": "氏名を入力してください。"
+      },
+      "DISPLAY_NAME": {
+        "LABEL": "表示名",
+        "ERROR": "有効な表示名を入力してください",
+        "PLACEHOLDER": "表示名を入力してください。これは会話に表示されます。"
+      },
+      "AVAILABILITY": {
+        "LABEL": "利用可能期間",
+        "STATUS": {
+          "ONLINE": "オンライン",
+          "BUSY": "取り込み中",
+          "OFFLINE": "オフライン"
+        },
+        "SET_AVAILABILITY_SUCCESS": "利用可能ステータスが正常に設定されました",
+        "SET_AVAILABILITY_ERROR": "利用可能ステータスを設定できませんでした。もう一度お試しください",
+        "IMPERSONATING_ERROR": "ユーザーになりすましている間は空き状況を変更できない"
+      },
+      "EMAIL": {
+        "LABEL": "あなたのメールアドレス",
+        "ERROR": "正しいメールアドレスを入力してください",
+        "PLACEHOLDER": "メールアドレスを入力してください。これは会話に表示されます。"
+      },
+      "CURRENT_PASSWORD": {
+        "LABEL": "現在のパスワード",
+        "ERROR": "現在のパスワードを入力してください",
+        "PLACEHOLDER": "現在のパスワードを入力してください"
+      },
+      "PASSWORD": {
+        "LABEL": "新しいパスワード",
+        "ERROR": "6文字以上のパスワードを入力してください",
+        "PLACEHOLDER": "新しいパスワードを入力してください"
+      },
+      "PASSWORD_CONFIRMATION": {
+        "LABEL": "パスワードの確認",
+        "ERROR": "パスワードは一致している必要があります",
+        "PLACEHOLDER": "新しいパスワードを再度入力してください"
+      }
+    }
+  },
+  "SIDEBAR_ITEMS": {
+    "CHANGE_AVAILABILITY_STATUS": "ステータスを変更",
+    "CHANGE_ACCOUNTS": "アカウントを切り替え",
+    "SWITCH_ACCOUNT": "アカウントを切り替え",
+    "CONTACT_SUPPORT": "サポートに問い合わせる",
+    "SELECTOR_SUBTITLE": "次のリストからアカウントを選択してください",
+    "PROFILE_SETTINGS": "プロフィール設定",
+    "YEAR_IN_REVIEW": "1年間の振り返り",
+    "KEYBOARD_SHORTCUTS": "キーボードショートカット",
+    "APPEARANCE": "外観を変更",
+    "SUPER_ADMIN_CONSOLE": "SuperAdminコンソール",
+    "DOCS": "ドキュメントを読む",
+    "CHANGELOG": "変更ログ",
+    "LOGOUT": "ログアウト"
+  },
+  "APP_GLOBAL": {
+    "TRIAL_MESSAGE": "日間のトライアル期間が残っています。",
+    "TRAIL_BUTTON": "今すぐ購入",
+    "DELETED_USER": "削除済みユーザー",
+    "EMAIL_VERIFICATION_PENDING": "メールアドレスがまだ認証されていないようです。受信トレイで認証メールを確認してください。",
+    "RESEND_VERIFICATION_MAIL": "認証メールを再送",
+    "EMAIL_VERIFICATION_SENT": "認証メールが送信されました。受信トレイを確認してください。",
+    "ACCOUNT_SUSPENDED": {
+      "TITLE": "アカウント停止中",
+      "MESSAGE": "アカウントが停止されています。詳細についてはサポートチームにお問い合わせください。",
+      "MANAGE_BILLING": "請求を管理"
+    },
+    "NO_ACCOUNTS": {
+      "TITLE": "アカウントが見つかりません",
+      "MESSAGE_CLOUD": "現在、あなたはどのアカウントにも参加していません。これが間違いだと思われる場合は、サポートチームにご連絡ください。",
+      "MESSAGE_SELF_HOSTED": "現在、あなたはどのアカウントにも参加していません。管理者に連絡してください。",
+      "LOGOUT": "ログアウト"
+    }
+  },
+  "COMPONENTS": {
+    "CODE": {
+      "BUTTON_TEXT": "コピー",
+      "CODEPEN": "CodePenで開く",
+      "COPY_SUCCESSFUL": "コードが正常にクリップボードにコピーされました"
+    },
+    "SHOW_MORE_BLOCK": {
+      "SHOW_MORE": "もっと見る",
+      "SHOW_LESS": "閉じる"
+    },
+    "FILE_BUBBLE": {
+      "DOWNLOAD": "ダウンロード",
+      "UPLOADING": "アップロード中...",
+      "INSTAGRAM_STORY_UNAVAILABLE": "このストーリーはもう利用できません。",
+      "INSTAGRAM_STORY_REPLY": "あなたのストーリーに返信:"
+    },
+    "LOCATION_BUBBLE": {
+      "SEE_ON_MAP": "地図で見る"
+    },
+    "FORM_BUBBLE": {
+      "SUBMIT": "送信"
+    },
+    "MEDIA": {
+      "IMAGE_UNAVAILABLE": "この画像はもう利用できません。",
+      "LOADING_FAILED": "読み込みに失敗しました"
+    }
+  },
+  "CONFIRM_EMAIL": "確認中...",
+  "SETTINGS": {
+    "INBOXES": {
+      "NEW_INBOX": "受信トレイを追加"
+    }
+  },
+  "SIDEBAR": {
+    "NO_ITEMS": "アイテムがありません",
+    "CURRENTLY_VIEWING_ACCOUNT": "現在表示中のアカウント:",
+    "SWITCH": "切り替え",
+    "INBOX_VIEW": "受信トレイビュー",
+    "CONVERSATIONS": "会話データ",
+    "INBOX": "私の受信トレイ",
+    "ALL_CONVERSATIONS": "すべての会話",
+    "MENTIONED_CONVERSATIONS": "メンション",
+    "PARTICIPATING_CONVERSATIONS": "参加中",
+    "UNATTENDED_CONVERSATIONS": "未対応",
+    "REPORTS": "レポート",
+    "SETTINGS": "設定",
+    "CONTACTS": "連絡先",
+    "ACTIVE": "有効",
+    "COMPANIES": "企業",
+    "ALL_COMPANIES": "すべての会社",
+    "CAPTAIN": "AIアシスタント",
+    "CALLS": "通話",
+    "CAPTAIN_ASSISTANTS": "アシスタント",
+    "CAPTAIN_OVERVIEW": "概要",
+    "CAPTAIN_DOCUMENTS": "ドキュメント",
+    "CAPTAIN_RESPONSES": "FAQ",
+    "CAPTAIN_TOOLS": "ツール",
+    "CAPTAIN_SCENARIOS": "シナリオ",
+    "CAPTAIN_PLAYGROUND": "プレイグラウンド",
+    "CAPTAIN_INBOXES": "受信トレイ",
+    "CAPTAIN_SETTINGS": "設定",
+    "HOME": "ホーム",
+    "AGENTS": "担当者",
+    "AGENT_BOTS": "ボット",
+    "AUDIT_LOGS": "監査ログ",
+    "INBOXES": "受信トレイ",
+    "WHATSAPP_TEMPLATES": "[テンプレート]",
+    "NOTIFICATIONS": "通知",
+    "CANNED_RESPONSES": "定型文",
+    "INTEGRATIONS": "連携",
+    "DATA": "[データ]",
+    "PROFILE_SETTINGS": "プロフィール設定",
+    "ACCOUNT_SETTINGS": "アカウント設定",
+    "APPLICATIONS": "アプリケーション",
+    "LABELS": "ラベル",
+    "CUSTOM_ATTRIBUTES": "カスタム属性",
+    "AUTOMATION": "自動化",
+    "MACROS": "マクロ",
+    "TEAMS": "チーム",
+    "BILLING": "請求",
+    "CUSTOM_VIEWS_FOLDER": "フォルダ",
+    "CUSTOM_VIEWS_SEGMENTS": "セグメント",
+    "ALL_CONTACTS": "すべての連絡先",
+    "TAGGED_WITH": "タグ付け済み",
+    "NEW_LABEL": "新しいラベル",
+    "NEW_TEAM": "新しいチーム",
+    "NEW_INBOX": "新しい受信トレイ",
+    "REPORTS_CONVERSATION": "会話データ",
+    "CSAT": "顧客満足度",
+    "LIVE_CHAT": "ライブチャット",
+    "SMS": "SMS",
+    "WHATSAPP": "WhatsApp",
+    "CAMPAIGNS": "キャンペーン",
+    "ONGOING": "進行中",
+    "ONE_OFF": "単発",
+    "REPORTS_SLA": "SLA",
+    "REPORTS_BOT": "ボット",
+    "REPORTS_AGENT": "担当者",
+    "REPORTS_LABEL": "ラベル",
+    "REPORTS_INBOX": "受信トレイ",
+    "REPORTS_TEAM": "チーム",
+    "AGENT_ASSIGNMENT": "エージェント割り当て",
+    "SET_AVAILABILITY_TITLE": "ステータスを設定",
+    "SET_YOUR_AVAILABILITY": "利用可能ステータスを設定",
+    "SLA": "SLA",
+    "CUSTOM_ROLES": "カスタムロール",
+    "BETA": "ベータ版",
+    "REPORTS_OVERVIEW": "概要",
+    "REAUTHORIZE": "受信トレイの接続期限が切れました。継続してメッセージを受信および送信するには、再接続してください。",
+    "HELP_CENTER": {
+      "TITLE": "ヘルプセンター",
+      "ARTICLES": "記事",
+      "CATEGORIES": "カテゴリー",
+      "LOCALES": "言語",
+      "SETTINGS": "設定"
+    },
+    "CHANNELS": "チャンネル",
+    "SET_AUTO_OFFLINE": {
+      "TEXT": "自動的にオフラインに設定",
+      "INFO_TEXT": "アプリやダッシュボードを使用していない場合に、システムが自動的にオフラインに設定します。",
+      "INFO_SHORT": "使用していない場合、自動的にオフラインにします。"
+    },
+    "SORT_TOOLTIP": "並び替え",
+    "SORT_BY": "並び替え",
+    "SORT_GROUPS": {
+      "CREATED": "作成日でソート",
+      "ALPHABETICAL": "アルファベット順にソート",
+      "UNREAD_COUNT": "未読数でソート"
+    },
+    "SORT_OPTIONS": {
+      "CREATED_DESC": "最新のものが最初",
+      "CREATED_ASC": "古いものから",
+      "ALPHABETICAL_ASC": "昇順 (A-Z)",
+      "ALPHABETICAL_DESC": "降順 (Z-A)",
+      "UNREAD_COUNT_DESC": "一番高い順",
+      "UNREAD_COUNT_ASC": "一番低い順"
+    },
+    "DOCS": "ドキュメントを読む",
+    "SECURITY": "[セキュリティ]",
+    "CAPTAIN_AI": "AIアシスタント",
+    "CONVERSATION_WORKFLOW": "会話ワークフロー"
+  },
+  "DATA_IMPORTS": {
+    "HEADER": "[データ]",
+    "DESCRIPTION": "既存の連絡先と過去の会話を別のサポートツールからこのアカウントに取り込みます。インポートは毎回バックグラウンドで実行されるため、完了するまで作業を続け、進捗状況を追跡し、途中でスキップされた内容を確認することができます。",
+    "LOADING": "インポートを取得",
+    "DEFAULT_IMPORT_NAME": "Intercom インポート",
+    "DEFAULT_IMPORT_NAMES": {
+      "INTERCOM": "Intercom インポート",
+      "FRESHDESK": "フレッシュデスクインポート"
+    },
+    "TABS": {
+      "IMPORT": "インポート",
+      "EXPORT": "エクスポート"
+    },
+    "TYPES": {
+      "CONTACTS": "連絡先",
+      "CONVERSATIONS": "会話データ",
+      "MESSAGES": "メッセージ"
+    },
+    "DRAWER": {
+      "TITLE": "新規インポート",
+      "SOURCE": "[ソース]",
+      "NAME": "インポート名",
+      "NAME_PLACEHOLDER": "7 月のサポート移行",
+      "ACCESS_KEY": "Intercom アクセスキー",
+      "ACCESS_KEY_PLACEHOLDER": "Intercom アクセスキーを貼り付けてください",
+      "INTERCOM_ACCESS_KEY": "Intercom アクセスキー",
+      "INTERCOM_ACCESS_KEY_PLACEHOLDER": "Intercom アクセスキーを貼り付けてください",
+      "FRESHDESK_API_KEY": "フレッシュデスク API キー",
+      "FRESHDESK_API_KEY_PLACEHOLDER": "Freshdesk API キーを貼り付けてください",
+      "FRESHDESK_DOMAIN": "フレッシュデスクドメイン",
+      "FRESHDESK_DOMAIN_PLACEHOLDER": "acme.freshdesk.com",
+      "DATA_TYPES": "インポートするデータ",
+      "VALIDATING": "アクセスキーを検証中...",
+      "VALID_KEY": "アクセスキーが検証されました。",
+      "INVALID_KEY": "このアクセスキーを検証できませんでした。",
+      "ACTIVE_IMPORT": "アクティブなインポートが終了するのを待ってから、別のインポートを開始します。",
+      "CANCEL": "キャンセル",
+      "IMPORT": "インポート"
+    },
+    "EXPORT": {
+      "TITLE": "輸出が進行中です",
+      "DESCRIPTION": "このアカウントから連絡先と会話をエクスポートします。このワークフローは近日公開予定です。",
+      "COMING_SOON": "近日公開"
+    },
+    "TABLE": {
+      "TITLE": "最近の輸入品",
+      "EMPTY": "まだ輸入品はありません",
+      "EMPTY_DESCRIPTION": "インポートを開始して、既存の顧客履歴をこのアカウントに取り込みます。",
+      "NEW_IMPORT": "インポート",
+      "COUNT": "{count} インポート",
+      "UNNAMED": "無題インポート",
+      "IMPORTED_COUNT": "{count} がインポートされました",
+      "VIEW": "インポートを表示",
+      "NAME": "名前",
+      "TYPE": "タイプ",
+      "STATUS": "状況",
+      "IMPORTED": "輸入品",
+      "CREATED": "作成日時",
+      "RETRY": "リトライ",
+      "ABANDON": "放棄"
+    },
+    "DETAIL": {
+      "BACK": "輸入品に戻る",
+      "ERRORS": "エラー",
+      "SKIP_LOGS": "ログをスキップ",
+      "SOURCE": "[ソース]",
+      "IMPORT_TYPES": "インポートタイプ",
+      "CREATED": "作成日時",
+      "DURATION": "期間",
+      "INITIATED_BY": "開始者",
+      "PROGRESS": "インポートの進行状況",
+      "PROGRESS_WITH_TOTAL": "{imported} または {total} がインポートされました",
+      "PROGRESS_WITHOUT_TOTAL": "{imported} がインポートされました",
+      "PROGRESS_OF_TOTAL": "{total} がインポートされました",
+      "PROGRESS_IMPORTED": "輸入された",
+      "LAST_UPDATED_TOOLTIP": "最終更新日 {time}",
+      "NO_SKIP_LOGS": "スキップまたは失敗したレコードは記録されていません。",
+      "DOWNLOAD_SKIP_LOGS": "CSV をダウンロード",
+      "DOWNLOAD_ERROR_LOGS": "CSV をダウンロード",
+      "ALL_SKIP_LOGS": "すべて",
+      "KIND": "親切",
+      "NO_ERRORS": "エラーは記録されていません。",
+      "ERROR_CODE": "コード",
+      "SOURCE_OBJECT": "ソースオブジェクト",
+      "MESSAGE": "メッセージ"
+    },
+    "MONITOR": {
+      "LIVE": "{seconds} 秒ごとにライブアップデート",
+      "LAST_UPDATED": "最終更新日 {time}",
+      "REFRESH": "再読み込み",
+      "REFRESHING": "リフレッシュ",
+      "STAGES": {
+        "unknown": "更新待ち",
+        "queued": "処理待ち",
+        "contacts": "連絡先をインポートする",
+        "conversations": "会話をインポートする",
+        "finalizing": "インポートの最終処理",
+        "completed": "完了",
+        "completed_with_errors": "エラーありで完了",
+        "failed": "失敗",
+        "abandoned": "放棄された"
+      }
+    },
+    "ALERTS": {
+      "IMPORT_STARTED": "インポートが開始されました。",
+      "IMPORT_RETRIED": "インポートは再開待ちになっています。",
+      "IMPORT_RETRY_FAILED": "インポートを再試行できませんでした。",
+      "IMPORT_ABANDONED": "インポートは中止されました。",
+      "IMPORT_FAILED": "インポートを開始できませんでした。"
+    }
+  },
+  "CAPTAIN_SETTINGS": {
+    "TITLE": "AIアシスタント設定",
+    "DESCRIPTION": "AIアシスタントの AI モデルと機能を設定します。AIアシスタントはクレジットベースの請求に従い、選択したモデルに基づいてAIアシスタントが取るすべてのアクションに対してクレジットが課金されます。",
+    "LOADING": "AIアシスタントの設定をロード中...",
+    "LINK_TEXT": "AIアシスタントクレジットについてさらに詳しく",
+    "NOT_ENABLED": "AIアシスタントはアカウントで有効化されていません。AIアシスタント 機能にアクセスするには、プランをアップグレードしてください。",
+    "MODEL_CONFIG": {
+      "TITLE": "モデル構成",
+      "DESCRIPTION": "さまざまな機能を使用するには、AI モデルを選択してください。",
+      "SELECT_MODEL": "モデルを選択する",
+      "CREDITS_PER_MESSAGE": "{credits} クレジット/メッセージ",
+      "COMING_SOON": "近日公開",
+      "EDITOR": {
+        "TITLE": "エディタの機能",
+        "DESCRIPTION": "メッセージエディターのスマート作成、文法修正、トーン調整、コンテンツ強化に役立ちます。"
+      },
+      "ASSISTANT": {
+        "TITLE": "アシスタント",
+        "DESCRIPTION": "顧客とのやり取りに関する自動応答、会話の要約、インテリジェントな返信提案を処理します。"
+      },
+      "COPILOT": {
+        "TITLE": "副操縦士",
+        "DESCRIPTION": "会話中に、コンテキストに基づく提案、ナレッジベースの推奨事項、および積極的な洞察をリアルタイムで提供します。"
+      }
+    },
+    "FEATURES": {
+      "TITLE": "機能",
+      "DESCRIPTION": "AI- 搭載機能を有効または無効にします。",
+      "AUDIO_TRANSCRIPTION": {
+        "TITLE": "音声文字起こし",
+        "DESCRIPTION": "音声メッセージと通話録音を検索可能なテキストトランスクリプトに自動的に変換します。",
+        "MODEL_TITLE": "音声文字起こしモデル",
+        "MODEL_DESCRIPTION": "音声メッセージをテキストトランスクリプトに変換するために使用するAIモデルを選択してください"
+      },
+      "HELP_CENTER_SEARCH": {
+        "TITLE": "ヘルプセンター検索インデックス",
+        "DESCRIPTION": "ヘルプセンターの記事内のコンテキストに応じた検索にはAIを使用してください。"
+      },
+      "LABEL_SUGGESTION": {
+        "TITLE": "ラベル提案",
+        "DESCRIPTION": "コンテンツ分析とコンテキストに基づいて、会話に関連するラベルとタグを自動的に提案します。",
+        "MODEL_TITLE": "ラベル提案モデル",
+        "MODEL_DESCRIPTION": "会話の分析と適切なラベルの提案に使用するAIモデルを選択してください"
+      }
+    },
+    "API": {
+      "SUCCESS": "AIアシスタント設定は正常に更新されました。",
+      "ERROR": "AIアシスタント の設定を更新できませんでした。もう一度試してください。"
+    }
+  },
+  "BILLING_SETTINGS": {
+    "TITLE": "請求設定",
+    "DESCRIPTION": "ここでサブスクリプションを管理し、プランをアップグレードしてチームにさらに多くの機能を提供しましょう。",
+    "CURRENT_PLAN": {
+      "TITLE": "現在のプラン",
+      "PLAN_NOTE": "現在**{plan}**プランに**{quantity}**ライセンスでご加入中です。",
+      "SEAT_COUNT": "シート数",
+      "RENEWS_ON": "更新日",
+      "CURRENCY": "通貨"
+    },
+    "CURRENCY": {
+      "SELECT": {
+        "TITLE": "請求通貨を選択してください",
+        "DESCRIPTION": "請求したい通貨を選択してください。サブスクリプションが作成されたら、これを変更することはできません。"
+      },
+      "OPTIONS": {
+        "USD": "US ドル (USD)",
+        "BRL": "ブラジル・レアル (BRL)"
+      }
+    },
+    "VIEW_PRICING": "料金を表示",
+    "MANAGE_SUBSCRIPTION": {
+      "TITLE": "サブスクリプションを管理",
+      "DESCRIPTION": "過去の請求書を確認したり、請求情報を編集したり、サブスクリプションをキャンセルしたりできます。",
+      "BUTTON_TXT": "請求ポータルへ"
+    },
+    "CAPTAIN": {
+      "TITLE": "AIアシスタント",
+      "DESCRIPTION": "AIアシスタントの使用状況とクレジットを管理する。",
+      "BUTTON_TXT": "クレジットを追加購入する",
+      "DOCUMENTS": "ドキュメント",
+      "RESPONSES": "応答数",
+      "UPGRADE": "AIアシスタントは無料プランでは利用できません。アシスタント、Copilotなどの機能を利用するには、プランをアップグレードしてください。",
+      "REFRESH_CREDITS": "再読み込み"
+    },
+    "CHAT_WITH_US": {
+      "TITLE": "サポートが必要ですか？",
+      "DESCRIPTION": "請求に関する問題がありますか？お手伝いします。",
+      "BUTTON_TXT": "チャットをする"
+    },
+    "NO_BILLING_USER": "請求アカウントを設定中です。ページを更新してもう一度お試しください。",
+    "TOPUP": {
+      "BUY_CREDITS": "クレジットを追加購入する",
+      "MODAL_TITLE": "AI クレジットを購入する",
+      "MODAL_DESCRIPTION": "AIアシスタント の追加クレジットを購入してください。",
+      "CREDITS": "クレジット",
+      "ONE_TIME": "1 回限り",
+      "POPULAR": "最も人気のある",
+      "NOTE_TITLE": "注記:",
+      "NOTE_DESCRIPTION": "クレジットはすぐに追加され、6 か月で有効期限が切れます。クレジットを使用するには、有効なサブスクリプションが必要です。購入したクレジットは、月額プランクレジットの後に消費されます。",
+      "CANCEL": "キャンセル",
+      "PURCHASE": "クレジットを購入",
+      "LOADING": "オプションをロード中...",
+      "FETCH_ERROR": "クレジットオプションを読み込めませんでした。もう一度試してください。",
+      "RETRY": "リトライ",
+      "PURCHASE_ERROR": "購入処理に失敗しました。もう一度試してください。",
+      "PURCHASE_SUCCESS": "{credits} クレジットがアカウントに正常に追加されました",
+      "CONFIRM": {
+        "TITLE": "購入を確認",
+        "DESCRIPTION": "{amount} の {credits} クレジットを購入しようとしています。",
+        "INSTANT_DEDUCTION_NOTE": "保存したカードには、確認後すぐに請求されます。",
+        "GO_BACK": "戻る",
+        "CONFIRM_PURCHASE": "購入を確認"
+      }
+    }
+  },
+  "SECURITY_SETTINGS": {
+    "TITLE": "[セキュリティ]",
+    "DESCRIPTION": "アカウントのセキュリティ設定を管理します。",
+    "LINK_TEXT": "SAML SSO についてもっと知る",
+    "SAML_DISABLED_MESSAGE": "SAML SSO は現在無効になっています。この機能を有効にするには、管理者に問い合わせてください。",
+    "SAML": {
+      "TITLE": "SAML SSO",
+      "NOTE": "アカウントの SAML シングルサインオンを設定します。ユーザーは、電子メール/パスワードを使用する代わりに ID プロバイダーを通じて認証されます。",
+      "ACS_URL": {
+        "LABEL": "ACS URL",
+        "TOOLTIP": "アサーションコンシューマーサービス URL-IdP 内のこの URL を SAML レスポンスの宛先として設定します"
+      },
+      "SSO_URL": {
+        "LABEL": "SSO URL",
+        "HELP": "SAML 認証リクエストが送信される URL",
+        "PLACEHOLDER": "https://your-idp.com/saml/sso"
+      },
+      "CERTIFICATE": {
+        "LABEL": "PEM フォーマットの署名証明書",
+        "HELP": "SAML 応答の検証に使用される ID プロバイダーからの公開証明書",
+        "PLACEHOLDER": "-----BEGIN CERTIFICATE-----\nMIIC..."
+      },
+      "FINGERPRINT": {
+        "LABEL": "フィンガープリント",
+        "TOOLTIP": "証明書のSHA-1フィンガープリント-これを使用してIdP構成内の証明書を検証してください"
+      },
+      "COPY_SUCCESS": "コードが正常にクリップボードにコピーされました",
+      "SP_ENTITY_ID": {
+        "LABEL": "SP エンティティ ID",
+        "HELP": "サービスプロバイダーとしてのこのアプリケーションの固有識別子 (自動生成)。",
+        "TOOLTIP": "サービスプロバイダーとしての トイバコ の固有識別子-IdP設定で設定します"
+      },
+      "IDP_ENTITY_ID": {
+        "LABEL": "アイデンティティプロバイダーエンティティ ID",
+        "HELP": "ID プロバイダーの固有識別子 (通常は IdP 設定にあります)",
+        "PLACEHOLDER": "https://your-idp.com/saml"
+      },
+      "UPDATE_BUTTON": "SAML の設定を更新してください",
+      "API": {
+        "SUCCESS": "SAML 設定は正常に更新されました",
+        "ERROR": "SAML の設定を更新できませんでした",
+        "ERROR_LOADING": "SAML 設定を読み込めませんでした",
+        "DISABLED": "SAML 設定が正常に無効化されました"
+      },
+      "VALIDATION": {
+        "REQUIRED_FIELDS": "SSO、URL、アイデンティティプロバイダエンティティ ID、および証明書は必須フィールドです",
+        "SSO_URL_ERROR": "有効な SSO URL を入力してください",
+        "CERTIFICATE_ERROR": "証明書が必要です",
+        "IDP_ENTITY_ID_ERROR": "アイデンティティプロバイダエンティティ ID が必要です"
+      },
+      "ENTERPRISE_PAYWALL": {
+        "AVAILABLE_ON": "SAML SSO 機能はエンタープライズプランでのみご利用いただけます。",
+        "UPGRADE_PROMPT": "エンタープライズプランにアップグレードすると、SAMLシングルサインオンやその他の高度なセキュリティ機能にアクセスできます。",
+        "ASK_ADMIN": "管理者にアップグレードを依頼してください。"
+      },
+      "PAYWALL": {
+        "TITLE": "アップグレードして SAML SSO を有効にしてください",
+        "AVAILABLE_ON": "SAML SSO 機能はエンタープライズプランでのみご利用いただけます。",
+        "UPGRADE_PROMPT": "プランをアップグレードして、SAMLシングルサインオンやその他の高度な機能にアクセスしてください。",
+        "UPGRADE_NOW": "今すぐアップグレード",
+        "CANCEL_ANYTIME": "プランはいつでも変更またはキャンセルできます"
+      },
+      "ATTRIBUTE_MAPPING": {
+        "TITLE": "SAML アトリビュートのセットアップ",
+        "DESCRIPTION": "ID プロバイダーでは、以下の属性マッピングを設定する必要があります。"
+      },
+      "INFO_SECTION": {
+        "TITLE": "サービスプロバイダー情報",
+        "TOOLTIP": "これらの値をコピーしてアイデンティティプロバイダで設定し、SAML 接続を確立します。"
+      }
+    }
+  },
+  "CONVERSATION_WORKFLOW": {
+    "INDEX": {
+      "HEADER": {
+        "TITLE": "会話ワークフロー",
+        "DESCRIPTION": "会話解決のルールと必須フィールドを設定します。"
+      }
+    },
+    "REQUIRED_ATTRIBUTES": {
+      "TITLE": "解決に必要な属性",
+      "DESCRIPTION": "会話を解決する際、エージェントがこれらの項目をまだ入力していない場合、これらの項目を入力するよう求められます。",
+      "NO_ATTRIBUTES": "属性がまだ追加されていません",
+      "ADD": {
+        "TITLE": "[属性を追加]",
+        "SEARCH_PLACEHOLDER": "属性を検索"
+      },
+      "SAVE": {
+        "SUCCESS": "必須属性が更新されました",
+        "ERROR": "必須項目を更新できませんでした。もう一度試してください"
+      },
+      "MODAL": {
+        "TITLE": "会話を解決",
+        "DESCRIPTION": "この会話を解決する前に、次のカスタム属性を入力してください",
+        "ACTIONS": {
+          "RESOLVE": "会話を解決",
+          "CANCEL": "キャンセル"
+        },
+        "PLACEHOLDERS": {
+          "TEXT": "メモを書く...",
+          "NUMBER": "番号を入力",
+          "LINK": "リンクを追加",
+          "DATE": "日付を選択",
+          "LIST": "オプションを選択"
+        },
+        "CHECKBOX": {
+          "YES": "はい",
+          "NO": "いいえ"
+        }
+      },
+      "PAYWALL": {
+        "TITLE": "必要な属性を使用するにはアップグレードしてください",
+        "AVAILABLE_ON": "必須の会話属性機能は、ビジネスプランとエンタープライズプランで利用できます。",
+        "UPGRADE_PROMPT": "会話を解決する前に、エージェントに必須項目の入力を促すようにプランをアップグレードしてください。",
+        "UPGRADE_NOW": "今すぐアップグレード",
+        "CANCEL_ANYTIME": "プランはいつでも変更またはキャンセルできます"
+      },
+      "ENTERPRISE_PAYWALL": {
+        "AVAILABLE_ON": "必須の会話属性機能は有料プランで利用できます。",
+        "UPGRADE_PROMPT": "有料プランにアップグレードすると、会話が解決する前に必須項目を適用できます。",
+        "ASK_ADMIN": "管理者にアップグレードを依頼してください。"
+      }
+    }
+  },
+  "CREATE_ACCOUNT": {
+    "NO_ACCOUNT_WARNING": "トイバコアカウントが見つかりませんでした。続行するには新しいアカウントを作成してください。",
+    "NEW_ACCOUNT": "新規アカウント",
+    "SELECTOR_SUBTITLE": "新しいアカウントを作成",
+    "API": {
+      "SUCCESS_MESSAGE": "アカウントが正常に作成されました",
+      "EXIST_MESSAGE": "アカウントはすでに存在します",
+      "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。後でもう一度お試しください。"
+    },
+    "FORM": {
+      "NAME": {
+        "LABEL": "企業名",
+        "PLACEHOLDER": "例: Wayne Enterprise"
+      },
+      "SUBMIT": "送信",
+      "CANCEL": "キャンセル"
+    }
+  },
+  "KEYBOARD_SHORTCUTS": {
+    "TOGGLE_MODAL": "すべてのショートカットを表示",
+    "TITLE": {
+      "OPEN_CONVERSATION": "会話を開く",
+      "RESOLVE_AND_NEXT": "解決して次へ進む",
+      "NAVIGATE_DROPDOWN": "ドロップダウン項目を移動",
+      "RESOLVE_CONVERSATION": "会話を解決",
+      "GO_TO_CONVERSATION_DASHBOARD": "会話ダッシュボードに移動",
+      "ADD_ATTACHMENT": "添付ファイルを追加",
+      "GO_TO_CONTACTS_DASHBOARD": "連絡先ダッシュボードに移動",
+      "TOGGLE_SIDEBAR": "サイドバーを切り替え",
+      "GO_TO_REPORTS_SIDEBAR": "レポートサイドバーに移動",
+      "MOVE_TO_NEXT_TAB": "会話リスト内で次のタブに移動",
+      "GO_TO_SETTINGS": "設定に移動",
+      "SWITCH_TO_PRIVATE_NOTE": "プライベートメモに切り替え",
+      "SWITCH_TO_REPLY": "返信に切り替え",
+      "TOGGLE_SNOOZE_DROPDOWN": "スヌーズドロップダウンを切り替え"
+    }
+  },
+  "ASSIGNMENT_POLICY": {
+    "INDEX": {
+      "HEADER": {
+        "TITLE": "エージェント割り当て",
+        "DESCRIPTION": "受信箱やエージェントのニーズに基づいて、ワークロードを効果的に管理し、会話をルーティングするためのポリシーを定義します。詳しくは、こちらをご覧ください。"
+      },
+      "ASSIGNMENT_POLICY": {
+        "TITLE": "アサインメントポリシー",
+        "DESCRIPTION": "会話が受信トレイにどのように割り当てられるかを管理できます。",
+        "FEATURES": [
+          "会話ごとに均等に割り当てるか、空き容量ごとに割り当てる",
+          "公平な分配ルールを追加して、エージェントに過負荷をかけないようにしてください",
+          "ポリシーへの受信トレイの追加-受信トレイごとに 1 つのポリシー"
+        ]
+      },
+      "AGENT_CAPACITY_POLICY": {
+        "TITLE": "エージェントキャパシティポリシー",
+        "DESCRIPTION": "エージェントの作業負荷を管理します。",
+        "FEATURES": [
+          "受信ボックスあたりの最大会話数を定義",
+          "ラベルと時間に基づいて例外を作成",
+          "ポリシーへのエージェントの追加-エージェントごとに 1 つのポリシー"
+        ]
+      }
+    },
+    "AGENT_ASSIGNMENT_POLICY": {
+      "INDEX": {
+        "HEADER": {
+          "TITLE": "アサインメントポリシー",
+          "CREATE_POLICY": "新政策"
+        },
+        "CARD": {
+          "ORDER": "注文",
+          "PRIORITY": "優先度",
+          "ACTIVE": "有効",
+          "INACTIVE": "非アクティブ",
+          "POPOVER": "受信トレイの追加",
+          "EDIT": "編集"
+        },
+        "NO_RECORDS_FOUND": "割り当てポリシーが見つかりません"
+      },
+      "CREATE": {
+        "HEADER": {
+          "TITLE": "割り当てポリシーの作成"
+        },
+        "CREATE_BUTTON": "ポリシーの作成",
+        "API": {
+          "SUCCESS_MESSAGE": "割り当てポリシーが正常に作成されました",
+          "ERROR_MESSAGE": "割り当てポリシーを作成できませんでした",
+          "INBOX_LINKED": "Inbox がポリシーにリンクされました"
+        }
+      },
+      "EDIT": {
+        "HEADER": {
+          "TITLE": "割り当てポリシーの編集"
+        },
+        "EDIT_BUTTON": "更新ポリシー",
+        "CONFIRM_ADD_INBOX_DIALOG": {
+          "TITLE": "受信トレイを追加",
+          "DESCRIPTION": "{inboxName} 受信トレイは既に別のポリシーにリンクされています。このポリシーにリンクしてもよろしいですか?他のポリシーとのリンクは解除されます。",
+          "CONFIRM_BUTTON_LABEL": "続行",
+          "CANCEL_BUTTON_LABEL": "キャンセル"
+        },
+        "INBOX_LINK_PROMPT": {
+          "TITLE": "インボックスをポリシーにリンク",
+          "DESCRIPTION": "この受信トレイを割り当てポリシーにリンクしてもよろしいですか?",
+          "LINK_BUTTON": "リンク受信トレイ",
+          "CANCEL_BUTTON": "スキップ"
+        },
+        "API": {
+          "SUCCESS_MESSAGE": "割り当てポリシーが正常に更新されました",
+          "ERROR_MESSAGE": "割り当てポリシーを更新できませんでした"
+        },
+        "INBOX_API": {
+          "ADD": {
+            "SUCCESS_MESSAGE": "インボックスがポリシーに正常に追加されました",
+            "ERROR_MESSAGE": "ポリシーにインボックスを追加できませんでした"
+          },
+          "REMOVE": {
+            "SUCCESS_MESSAGE": "受信トレイはポリシーから正常に削除されました",
+            "ERROR_MESSAGE": "ポリシーから受信トレイを削除できませんでした"
+          }
+        }
+      },
+      "FORM": {
+        "NAME": {
+          "LABEL": "ポリシー名:",
+          "PLACEHOLDER": "ポリシー名を入力"
+        },
+        "DESCRIPTION": {
+          "LABEL": "説明:",
+          "PLACEHOLDER": "説明を入力"
+        },
+        "STATUS": {
+          "LABEL": "ステータス:",
+          "PLACEHOLDER": "状況を選択",
+          "ACTIVE": "ポリシーがアクティブです",
+          "INACTIVE": "ポリシーが非アクティブです"
+        },
+        "ASSIGNMENT_ORDER": {
+          "LABEL": "割り当て順序",
+          "ROUND_ROBIN": {
+            "LABEL": "ラウンドロビン",
+            "DESCRIPTION": "エージェント間で会話を均等に割り当てます。"
+          },
+          "BALANCED": {
+            "LABEL": "バランスの取れた",
+            "DESCRIPTION": "利用可能なキャパシティに基づいて会話を割り当てます。",
+            "PREMIUM_MESSAGE": "アップグレードすると、バランスの取れた割り当てとエージェントキャパシティ管理にアクセスできます。",
+            "PREMIUM_BADGE": "プレミアム"
+          }
+        },
+        "ASSIGNMENT_PRIORITY": {
+          "LABEL": "割り当ての優先順位",
+          "EARLIEST_CREATED": {
+            "LABEL": "作成日が最も早い",
+            "DESCRIPTION": "最初に作成された会話が最初に割り当てられます。"
+          },
+          "LONGEST_WAITING": {
+            "LABEL": "最長の待ち時間",
+            "DESCRIPTION": "最も長く待機している会話が最初に割り当てられます。"
+          }
+        },
+        "FAIR_DISTRIBUTION": {
+          "LABEL": "公正な分配政策",
+          "DESCRIPTION": "過負荷にならないように、エージェントごとの会話を時間枠内に制限してください。デフォルトは 1 時間あたり 100 件です。",
+          "INPUT_MAX": "最大値を割り当て",
+          "DURATION": "すべてのエージェントごとの会話"
+        },
+        "EXCLUDE_OLDER_THAN": {
+          "LABEL": "古い会話をスキップ",
+          "DESCRIPTION": "これより古い未割り当ての会話をスキップします。デフォルトは 7 日間、クリアすると無効になります。"
+        },
+        "INBOXES": {
+          "LABEL": "受信トレイの追加",
+          "DESCRIPTION": "このポリシーが適用される受信トレイを追加します。",
+          "ADD_BUTTON": "受信トレイを追加",
+          "DROPDOWN": {
+            "SEARCH_PLACEHOLDER": "追加する受信トレイを検索して選択する",
+            "ADD_BUTTON": "追加"
+          },
+          "EMPTY_STATE": "このポリシーには受信トレイが追加されていません。開始するには受信トレイを追加してください",
+          "API": {
+            "SUCCESS_MESSAGE": "インボックスがポリシーに正常に追加されました",
+            "ERROR_MESSAGE": "ポリシーにインボックスを追加できませんでした"
+          }
+        }
+      },
+      "DELETE_POLICY": {
+        "SUCCESS_MESSAGE": "割り当てポリシーが正常に削除されました",
+        "ERROR_MESSAGE": "割り当てポリシーを削除できませんでした"
+      }
+    },
+    "AGENT_CAPACITY_POLICY": {
+      "INDEX": {
+        "HEADER": {
+          "TITLE": "エージェントキャパシティ",
+          "CREATE_POLICY": "新政策"
+        },
+        "CARD": {
+          "POPOVER": "エージェントの追加",
+          "EDIT": "編集"
+        },
+        "NO_RECORDS_FOUND": "エージェントキャパシティポリシーが見つかりません"
+      },
+      "CREATE": {
+        "HEADER": {
+          "TITLE": "エージェントキャパシティポリシーの作成"
+        },
+        "CREATE_BUTTON": "ポリシーの作成",
+        "API": {
+          "SUCCESS_MESSAGE": "エージェントキャパシティポリシーが正常に作成されました",
+          "ERROR_MESSAGE": "エージェントキャパシティポリシーを作成できませんでした"
+        }
+      },
+      "EDIT": {
+        "HEADER": {
+          "TITLE": "エージェントキャパシティポリシーの編集"
+        },
+        "EDIT_BUTTON": "更新ポリシー",
+        "CONFIRM_ADD_AGENT_DIALOG": {
+          "TITLE": "エージェントを追加",
+          "DESCRIPTION": "{agentName} はすでに別のポリシーにリンクされています。このポリシーにリンクしてもよろしいですか?他のポリシーとのリンクは解除されます。",
+          "CONFIRM_BUTTON_LABEL": "続行",
+          "CANCEL_BUTTON_LABEL": "キャンセル"
+        },
+        "API": {
+          "SUCCESS_MESSAGE": "エージェントキャパシティポリシーが正常に更新されました",
+          "ERROR_MESSAGE": "エージェントキャパシティポリシーを更新できませんでした"
+        },
+        "AGENT_API": {
+          "ADD": {
+            "SUCCESS_MESSAGE": "エージェントがポリシーに正常に追加されました",
+            "ERROR_MESSAGE": "ポリシーにエージェントを追加できませんでした"
+          },
+          "REMOVE": {
+            "SUCCESS_MESSAGE": "エージェントはポリシーから正常に削除されました",
+            "ERROR_MESSAGE": "ポリシーからエージェントを削除できませんでした"
+          }
+        },
+        "INBOX_LIMIT_API": {
+          "ADD": {
+            "SUCCESS_MESSAGE": "受信トレイ制限が正常に追加されました",
+            "ERROR_MESSAGE": "受信ボックスの制限を追加できませんでした"
+          },
+          "UPDATE": {
+            "SUCCESS_MESSAGE": "受信ボックスの制限が正常に更新されました",
+            "ERROR_MESSAGE": "受信ボックスの制限を更新できませんでした"
+          },
+          "DELETE": {
+            "SUCCESS_MESSAGE": "受信トレイ制限が正常に削除されました",
+            "ERROR_MESSAGE": "受信ボックスの制限を削除できませんでした"
+          }
+        }
+      },
+      "FORM": {
+        "NAME": {
+          "LABEL": "ポリシー名:",
+          "PLACEHOLDER": "ポリシー名を入力"
+        },
+        "DESCRIPTION": {
+          "LABEL": "説明:",
+          "PLACEHOLDER": "説明を入力"
+        },
+        "INBOX_CAPACITY_LIMIT": {
+          "LABEL": "受信ボックスの容量制限",
+          "ADD_BUTTON": "受信トレイを追加",
+          "FIELD": {
+            "SELECT_INBOX": "受信トレイを選択",
+            "MAX_CONVERSATIONS": "最大会話数",
+            "SET_LIMIT": "制限を設定"
+          },
+          "EMPTY_STATE": "受信箱の制限は設定されていません"
+        },
+        "EXCLUSION_RULES": {
+          "LABEL": "除外規則",
+          "DESCRIPTION": "次の条件を満たす会話は、エージェントのキャパシティにはカウントされません。",
+          "TAGS": {
+            "LABEL": "特定のラベルが付けられた会話を除外する",
+            "ADD_TAG": "タグを追加",
+            "DROPDOWN": {
+              "SEARCH_PLACEHOLDER": "追加するタグを検索して選択する"
+            },
+            "EMPTY_STATE": "このポリシーにはタグは追加されていません。"
+          },
+          "DURATION": {
+            "LABEL": "指定した期間より古い会話を除外する",
+            "PLACEHOLDER": "時間を設定"
+          }
+        },
+        "USERS": {
+          "LABEL": "割り当てられたエージェント",
+          "DESCRIPTION": "このポリシーが適用されるエージェントを追加します。",
+          "ADD_BUTTON": "エージェントを追加",
+          "DROPDOWN": {
+            "SEARCH_PLACEHOLDER": "追加するエージェントを検索して選択する",
+            "ADD_BUTTON": "追加"
+          },
+          "EMPTY_STATE": "エージェントは追加されていません",
+          "API": {
+            "SUCCESS_MESSAGE": "エージェントはポリシーに正常に追加されました",
+            "ERROR_MESSAGE": "ポリシーにエージェントを追加できませんでした"
+          }
+        }
+      },
+      "DELETE_POLICY": {
+        "SUCCESS_MESSAGE": "エージェントキャパシティポリシーが正常に削除されました",
+        "ERROR_MESSAGE": "エージェントキャパシティポリシーを削除できませんでした"
+      }
+    },
+    "DELETE_POLICY": {
+      "TITLE": "ポリシーを削除",
+      "DESCRIPTION": "このポリシーを削除してよろしいですか?このアクションは元に戻せません。",
+      "CONFIRM_BUTTON_LABEL": "削除",
+      "CANCEL_BUTTON_LABEL": "キャンセル"
+    }
+  }
+}

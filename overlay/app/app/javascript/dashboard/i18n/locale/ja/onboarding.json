@@ -1,0 +1,92 @@
+{
+  "ONBOARDING_NEXT": {
+    "GREETING": "こんにちは {name}!",
+    "SUBTITLE": "以下の詳細を確認してください",
+    "YOUR_DETAILS": "あなたの詳細",
+    "COMPANY_DETAILS": "会社詳細",
+    "FIELDS": {
+      "EMAIL": "Eメール",
+      "YOUR_ROLE": "あなたの役割",
+      "WEBSITE": "ウェブサイト",
+      "LANGUAGE": "言語",
+      "TIMEZONE": "タイムゾーン",
+      "COMPANY_SIZE": "企業規模",
+      "INDUSTRY": "業界",
+      "REFERRAL_SOURCE": "どこで私たちを見つけたの？"
+    },
+    "PLACEHOLDERS": {
+      "SELECT_ROLE": "役割を選択してください",
+      "ENTER_WEBSITE": "www.example.com",
+      "SELECT_LANGUAGE": "言語を選択する",
+      "SELECT_TIMEZONE": "タイムゾーンを選択",
+      "SELECT_COMPANY_SIZE": "企業規模を選択",
+      "SELECT_INDUSTRY": "業種を選択",
+      "SELECT_REFERRAL_SOURCE": "ソースを選択"
+    },
+    "EMAIL_VERIFIED": "Eメールが確認されました",
+    "SETTING_UP": "アカウントを設定中...",
+    "CONTINUE": "続行",
+    "SAVING": "保存中...",
+    "VALIDATION_ERROR": "すべての必須フィールドに入力してください",
+    "SUCCESS": "詳細が正常に保存されました",
+    "ERROR": "詳細を保存できませんでした。もう一度試してください。"
+  },
+  "ONBOARDING_INBOX_SETUP": {
+    "GREETING": "いくつか設定してみましょう",
+    "SUBTITLE": "これにより、ワークスペースで有利なスタートを切ることができます",
+    "CONTINUE": "続行",
+    "SKIP": "スキップ",
+    "ERROR": "何かがおかしくなった。もう一度試してください。",
+    "WHATSAPP_CONNECTED": "WhatsApp は正常に接続されました",
+    "FACEBOOK_CONNECTED": "Facebook は正常に接続されました",
+    "META_RESTRICTION": {
+      "MESSAGE": "Facebook、Instagram、WhatsApp の受信トレイ設定は Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。私たちは Meta と緊密に連携して、この問題をできるだけ早く解決できるよう取り組んでいます。",
+      "STATUS_LINK": "ステータス更新を表示"
+    },
+    "CREATED_FOR_YOU": {
+      "TITLE": "私たちはあなたのために以下を作成しました",
+      "LIVE_CHAT": "ライブチャットウィジェット",
+      "LIVE_CHAT_DESCRIPTION": "ウェブサイト用のインスタントメッセンジャー",
+      "LIVE_CHAT_STATUS": "ほぼ完了...",
+      "LIVE_CHAT_READY": "準備完了",
+      "HELP_CENTER": "ヘルプセンター",
+      "HELP_CENTER_DESCRIPTION": "あなたのデジタル百科事典",
+      "HELP_CENTER_GENERATING": "ヘルプセンターを作成中...",
+      "HELP_CENTER_ANALYZING_WEBSITE": "Web サイトを分析中...",
+      "HELP_CENTER_SETTING_UP_CATEGORIES": "カテゴリを設定中...",
+      "HELP_CENTER_CURATING_ARTICLES": "記事をキュレーション中...",
+      "HELP_CENTER_ARTICLES": "{count} の記事を作成しました | {count} の記事を作成しました",
+      "HELP_CENTER_CATEGORIES": "{count} カテゴリー | {count} カテゴリー",
+      "HELP_CENTER_SUMMARY": "{categories} 全体で {count} 記事を作成しました | {categories} 全体で {count} 記事を作成しました"
+    },
+    "CHANNELS": {
+      "TITLE": "すべての会話チャンネルを接続",
+      "HEADER": "接続できるチャンネルがいくつか見つかりました",
+      "CONNECT": "接続",
+      "CONNECTED": "接続済み",
+      "MORE_CHANNELS_NOTE": "{email}チャンネルと{voice}チャンネルは、後でアプリ内で設定します。",
+      "MORE_CHANNELS_EMAIL": "Eメール",
+      "MORE_CHANNELS_VOICE": "ボイス",
+      "VIEW_ALL": "すべて表示",
+      "GMAIL": "Gメール",
+      "OUTLOOK": "見通し",
+      "OTHER_EMAIL": "その他のメールプロバイダー"
+    },
+    "CHANNELS_DIALOG": {
+      "TITLE": "すべてのチャンネルを瞬時に接続",
+      "SUBTITLE": "これらすべてを 1 つのダッシュボードから管理できます。アプリ内で後で受信トレイを設定して編集することもできます。",
+      "NOTE": "SMS、API、音声、およびその他のメールプロバイダーは、後でダッシュボードから設定できます。",
+      "CONNECT_TITLE": "{name} アカウントを接続してください",
+      "CONNECT_SUBTITLE": "次の簡単な詳細情報を入力してください",
+      "CONNECT": "接続",
+      "BACK": "戻る",
+      "SETUP_LATER": "アプリ内で後からセットアップ",
+      "FACEBOOK_SUBTITLE": "アクセスを承認し、接続するページを選択します。",
+      "FACEBOOK_LAUNCH": "Facebook を続けてください",
+      "FACEBOOK_SELECT_PAGE": "接続するページを選択してください",
+      "FACEBOOK_LOADING": "あなたの Facebook ページをロード中...",
+      "FACEBOOK_NO_PAGES": "接続可能なページが見つかりません。すべてのページは既に接続されています。",
+      "FACEBOOK_ERROR": "Facebook に接続できませんでした。もう一度試してください。"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "LOGIN": {
+    "TITLE": "トイバコにログイン",
+    "EMAIL": {
+      "LABEL": "Eメール",
+      "PLACEHOLDER": "例 {'@'} 会社名.com",
+      "ERROR": "正しいメールアドレスを入力してください"
+    },
+    "PASSWORD": {
+      "LABEL": "パスワード",
+      "PLACEHOLDER": "パスワード"
+    },
+    "API": {
+      "SUCCESS_MESSAGE": "ログインに成功しました",
+      "ERROR_MESSAGE": "トイバコサーバーに接続できませんでした。もう一度お試しください。",
+      "UNAUTH": "ユーザー名またはパスワードが間違っています。もう一度お試しください。"
+    },
+    "OAUTH": {
+      "GOOGLE_LOGIN": "Googleでログイン",
+      "BUSINESS_ACCOUNTS_ONLY": "会社のメールアドレスを使用してログインしてください",
+      "NO_ACCOUNT_FOUND": "このメールアドレスに該当するアカウントが見つかりませんでした。"
+    },
+    "FORGOT_PASSWORD": "パスワードをお忘れですか?",
+    "CREATE_NEW_ACCOUNT": "新しいアカウントを作成",
+    "SUBMIT": "ログイン",
+    "SAML": {
+      "LABEL": "SSO 経由でログイン",
+      "TITLE": "シングルサインオンを開始する (SSO)",
+      "SUBTITLE": "組織にアクセスするには、仕事用メールアドレスを入力してください",
+      "BACK_TO_LOGIN": "パスワードでログイン",
+      "WORK_EMAIL": {
+        "LABEL": "仕事用電子メール",
+        "PLACEHOLDER": "仕事用メールアドレスを入力してください"
+      },
+      "SUBMIT": "SSO を続けてください",
+      "API": {
+        "ERROR_MESSAGE": "SSO 認証が失敗しました。認証情報を確認して、もう一度試してください。"
+      }
+    }
+  }
+}

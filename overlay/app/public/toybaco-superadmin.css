@@ -1,0 +1,50 @@
+/* トイバコ 管理コンソール(/super_admin)専用の上書き。
+ * administrate の $action-color(青)は SCSS コンパイル済みのため、後読みのこのシートで
+ * 同詳細度セレクタを当てて置き換える。/super_admin の HTML にだけ注入される
+ * (ToybacoBrandInjector)ので、エージェント画面・ウィジェットへの副作用はない。
+ * Tailwind クラス(woot-500 等)由来の色は toybaco-brand.css 側の上書きが効いている。 */
+
+/* ボタン(administrate: background-color $action-color) */
+button,
+input[type="button"],
+input[type="reset"],
+input[type="submit"],
+.button {
+  background-color: #1f3a5f !important;
+}
+
+button:hover,
+input[type="button"]:hover,
+input[type="reset"]:hover,
+input[type="submit"]:hover,
+.button:hover {
+  background-color: #163049 !important;
+}
+
+button:disabled:hover,
+input[type="submit"]:disabled:hover {
+  background-color: #1f3a5f !important;
+}
+
+/* リンク(administrate: color $action-color)。
+ * Tailwind の text-* クラス(Destroy の赤・ナビの slate 等)はクラス詳細度で勝つため影響しない */
+a {
+  color: #1f3a5f;
+}
+
+a:hover {
+  color: #163049;
+}
+
+/* フォーカスリングはコーラル(ブランドの遊び) */
+:focus-visible {
+  outline-color: rgba(255, 107, 91, 0.8);
+}
+
+/* administrate のフィールドフォーカス(border $action-color 系) */
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #1f3a5f;
+  box-shadow: 0 0 0 1px rgba(31, 58, 95, 0.35);
+}

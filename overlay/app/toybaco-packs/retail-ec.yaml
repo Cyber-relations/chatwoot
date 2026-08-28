@@ -1,0 +1,84 @@
+# 業界パック: 小売・EC
+# ◯ と <URL> は開通15分(runbook §4)で店舗の実情報へ置き換える。
+id: retail-ec
+label: 小売・EC
+emoji: "🛍️"
+accent: green
+
+canned_responses:
+  - short_code: zaiko-kakunin
+    content: |
+      在庫についてお問い合わせいただきありがとうございます。
+      商品名・品番・ご希望の色やサイズをお知らせください。在庫状況を確認してご返信します。
+  - short_code: sainyuka-yotei
+    content: |
+      再入荷についてお問い合わせいただきありがとうございます。
+      商品名・品番をお知らせください。入荷予定を確認してご案内します。
+  - short_code: shouhin-shousai
+    content: |
+      商品についてお問い合わせいただきありがとうございます。
+      確認したい商品名と内容をお知らせください。商品情報を確認してご返信します。
+  - short_code: hassou-yotei
+    content: |
+      ご注文番号をお知らせください。
+      発送予定を確認してご案内します。
+  - short_code: haisou-kakunin
+    content: |
+      ご注文番号をお知らせください。
+      配送状況を確認でき次第ご返信します。
+  - short_code: henpin-annai
+    content: |
+      返品についてお問い合わせいただきありがとうございます。
+      返品条件と手順はこちらです: <URL>
+      ご注文番号と商品名をお知らせいただけましたら、内容を確認してご案内します。
+  - short_code: koukan-uketsuke
+    content: |
+      商品交換のご相談ありがとうございます。
+      ご注文番号・商品名・商品の状態をお知らせください。内容を確認してご返信します。
+  - short_code: chumon-henkou
+    content: |
+      ご注文内容の変更についてお問い合わせいただきありがとうございます。
+      ご注文番号と変更をご希望の内容をお知らせください。発送準備の状況を確認してご案内します。
+  - short_code: madoguchi-annai
+    content: |
+      お問い合わせの受付は◯:◯〜◯:◯、◯曜日はお休みです。
+      受付時間外にいただいたメッセージは、翌受付時間に順番にご返信します。
+
+labels:
+  - title: 在庫確認
+    description: 在庫・色・サイズの問い合わせ
+    color: "#E05C7A"
+  - title: 再入荷
+    description: 再入荷予定の問い合わせ
+    color: "#F09A3E"
+  - title: 注文確認
+    description: 注文内容・発送状況の確認
+    color: "#2FA35C"
+  - title: 返品交換
+    description: 返品・交換の相談
+    color: "#4A79B8"
+  - title: 商品質問
+    description: 商品仕様に関する問い合わせ
+    color: "#8A6FBF"
+
+out_of_office_message: |
+  メッセージありがとうございます。ただいま受付時間外のため、翌受付時間に順番にご返信します。
+  ご注文に関するお問い合わせは、ご注文番号と内容をこのままお送りください。
+
+post_templates:
+  - title: 再入荷のお知らせ
+    body: |
+      【◯商品を再入荷しました】
+      ◯月◯日からご案内します。
+      商品の詳細はこちらです: <URL>
+  - title: 新商品のお知らせ
+    body: |
+      【新商品のお知らせ】
+      ◯月◯日から、◯の取り扱いを始めます。
+      商品の詳細はこちらです: <URL>
+  - title: キャンペーン告知
+    body: |
+      【◯月のキャンペーン】
+      ◯月◯日から◯月◯日まで、◯を実施します。
+      対象・条件: ◯
+      詳細はこちらです: <URL>
