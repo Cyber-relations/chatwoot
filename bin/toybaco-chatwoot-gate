@@ -243,6 +243,10 @@ assert_control_contract() {
     'production Dockerfileのmusl-utils修正版が固定されていません'
   grep -Fq "zlib=1.3.2-r0" "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileのzlib修正版が固定されていません'
+  grep -Fq 'cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/' \
+    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版zlib実体をfinal stageへコピーしません'
+  grep -Fq 'test ! -e /usr/lib/libz.so.1.3.1' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileが旧zlib実体を拒否しません'
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
     'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
   grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -772,6 +776,10 @@ build_and_smoke_production_image() {
       test "$(cat /app/.git_sha)" = "$1"
       test "$(apk info -v | grep "^musl-[0-9]")" = "musl-1.2.5-r11"
       test "$(apk info -v | grep "^musl-utils-")" = "musl-utils-1.2.5-r11"
+      test "$(apk info -v | grep "^zlib-")" = "zlib-1.3.2-r0"
+      test "$(readlink /usr/lib/libz.so.1)" = "libz.so.1.3.2"
+      test -f /usr/lib/libz.so.1.3.2
+      test ! -e /usr/lib/libz.so.1.3.1
       test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
   docker run --rm --network none --read-only --cap-drop ALL \

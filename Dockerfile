@@ -53,6 +53,8 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' \
       mkdir -p "/toybaco-runtime-root/$(dirname "$path")"; \
       cp -p "/$path" "/toybaco-runtime-root/$path"; \
     done \
+    && mkdir -p /toybaco-runtime-root/usr/lib \
+    && cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/ \
     && mkdir -p /toybaco-runtime-root/app/public \
     && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \
     && find /toybaco-runtime-root -exec touch -t 200001010000.00 {} +
@@ -60,6 +62,11 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' \
 FROM ${CHATWOOT_IMAGE}
 RUN rm -rf /app/public/vite
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
+RUN rm -f /usr/lib/libz.so.1.3.1 \
+    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
+    && test "$(readlink /usr/lib/libz.so.1)" = 'libz.so.1.3.2' \
+    && test -f /usr/lib/libz.so.1.3.2 \
+    && test ! -e /usr/lib/libz.so.1.3.1
 ARG TOYBACO_CONTROL_SHA256
 LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a" \
       org.opencontainers.image.source="https://github.com/Cyber-relations/chatwoot" \
