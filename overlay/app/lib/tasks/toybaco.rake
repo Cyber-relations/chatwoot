@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative '../toybaco/postiz_origin'
+require_relative '../toybaco/brand_injector'
 
 namespace :toybaco do
   desc 'Chatwoot の installation_configs をトイバコブランドに合わせる'
@@ -40,7 +40,7 @@ namespace :toybaco do
     billing_url = ENV.fetch('TOYBACO_BILLING_URL', 'https://billing.stripe.com/p/login/28E00l3TTdn3bX40cy4F200')
     script = <<~HTML
       <script>window.TOYBACO_POST_URL=#{post_url.to_json};window.TOYBACO_BILLING_URL=#{billing_url.to_json};</script>
-      <script src="/brand-assets/toybaco-post-entry.js" defer></script>
+      #{Toybaco::BrandInjector::POST_ENTRY_ASSET}
     HTML
 
     rec = InstallationConfig.find_or_initialize_by(name: 'DASHBOARD_SCRIPTS')

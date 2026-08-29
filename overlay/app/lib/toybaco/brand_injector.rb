@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'json'
 require 'uri'
 require_relative 'postiz_origin'
@@ -10,7 +11,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   class BrandInjector
     TAG = '<link rel="stylesheet" href="/toybaco-brand.css">'
     SUPERADMIN_TAG = '<link rel="stylesheet" href="/toybaco-superadmin.css">'
-    POST_ENTRY_ASSET = '<script src="/brand-assets/toybaco-post-entry.js" defer></script>'
+    POST_ENTRY_ASSET_PATH = File.expand_path('../../public/brand-assets/toybaco-post-entry.js', __dir__).freeze
+    POST_ENTRY_ASSET_DIGEST = Digest::SHA256.file(POST_ENTRY_ASSET_PATH).hexdigest.freeze
+    POST_ENTRY_ASSET =
+      %(<script src="/brand-assets/toybaco-post-entry.js?v=#{POST_ENTRY_ASSET_DIGEST}" defer></script>).freeze
     DASHBOARD_PREFIXES = %w[/app /v3app].freeze
     DEFAULT_BILLING_URL = 'https://billing.stripe.com/p/login/28E00l3TTdn3bX40cy4F200'
 
