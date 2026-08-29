@@ -9,6 +9,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
   let(:token_path) { '/toybaco/oidc/token' }
   let(:userinfo_path) { '/toybaco/oidc/userinfo' }
   let(:resume_path) { '/toybaco/oidc/resume' }
+  let(:feature_access_path) { '/toybaco/feature_access' }
   let(:client_id) { "postiz-spec-#{SecureRandom.hex(8)}" }
   let(:client_secret) { SecureRandom.urlsafe_base64(32) }
   let(:redirect_uri) { 'https://postiz.example/settings' }
@@ -298,6 +299,17 @@ RSpec.describe 'Toybaco OIDC', type: :request do
 
       expect(response).to redirect_to('/app/')
       expect(cookies[:toybaco_oidc_return]).to be_blank
+    end
+  end
+
+  describe 'GET /toybaco/feature_access' do
+    it 'ログイン済みで投稿オプションが有効なら入口を許可する' do
+      set_chatwoot_session_cookie(auth_headers)
+
+      get feature_access_path, params: { account_id: account.id }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to eq('enabled' => true)
     end
   end
 

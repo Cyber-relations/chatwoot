@@ -427,7 +427,7 @@
   function checkPosting(accountId, cb) {
     if (accountId in postingAllowed) { cb(postingAllowed[accountId]); return; }
     try {
-      fetch('/toybaco/posting_status?account_id=' + encodeURIComponent(accountId), {
+      fetch('/toybaco/feature_access?account_id=' + encodeURIComponent(accountId), {
         credentials: 'same-origin'
       })
         .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
