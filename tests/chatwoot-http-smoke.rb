@@ -55,7 +55,8 @@ abort "frame-ancestors is not exact: #{frame_ancestors.inspect}" unless
 abort 'X-Frame-Options must be SAMEORIGIN' unless login['x-frame-options'] == 'SAMEORIGIN'
 abort 'X-Content-Type-Options must be nosniff' unless login['x-content-type-options'] == 'nosniff'
 abort 'automatic post entry config is missing' unless login.body.include?('data-toybaco-post-config')
-abort 'automatic post entry asset is missing' unless login.body.include?('/brand-assets/toybaco-post-entry.js')
+abort 'automatic post entry asset cache-buster is missing' unless
+  login.body.match?(%r{/brand-assets/toybaco-post-entry\.js\?v=[0-9a-f]{64}})
 abort 'post entry origin and CSP differ' unless login.body.include?(postiz_origin)
 hsts = login['strict-transport-security'].to_s
 hsts_match = hsts.match(/(?:\A|;)\s*max-age=(\d+)/i)
