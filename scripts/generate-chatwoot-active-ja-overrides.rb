@@ -791,7 +791,7 @@ REPLACEMENTS = {
   ],
   'app/javascript/dashboard/components/widgets/conversation/advancedFilterItems/languages.js' => [
     replacement("export const getLanguageName = (languageCode = '') => {\n  const languageObj =\n    languages.find(language => language.id === languageCode) || {};\n  return languageObj.name || '';\n};",
-                "const languageDisplayNames = new Intl.DisplayNames(['ja'], { type: 'language' });\nconst localizedLanguages = languages.map(({ id }) => ({\n  id,\n  name: languageDisplayNames.of(id) || id,\n}));\n\nexport const getLanguageName = (languageCode = '') => {\n  const languageObj =\n    localizedLanguages.find(language => language.id === languageCode) || {};\n  return languageObj.name || '';\n};"),
+                "const languageDisplayNames = new Intl.DisplayNames(['ja'], { type: 'language' });\nconst localizedLanguages = languages.map(({ id }) => ({\n  id,\n  name: languageDisplayNames.of(id.replace('_', '-')) || id,\n}));\n\nexport const getLanguageName = (languageCode = '') => {\n  const languageObj =\n    localizedLanguages.find(language => language.id === languageCode) || {};\n  return languageObj.name || '';\n};"),
     replacement('export default languages;', 'export default localizedLanguages;')
   ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CustomerSatisfactionPage.vue' => [

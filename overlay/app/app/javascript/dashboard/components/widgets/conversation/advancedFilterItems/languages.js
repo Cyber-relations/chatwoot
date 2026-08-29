@@ -740,7 +740,7 @@ const languages = [
 const languageDisplayNames = new Intl.DisplayNames(['ja'], { type: 'language' });
 const localizedLanguages = languages.map(({ id }) => ({
   id,
-  name: languageDisplayNames.of(id) || id,
+  name: languageDisplayNames.of(id.replace('_', '-')) || id,
 }));
 
 export const getLanguageName = (languageCode = '') => {
