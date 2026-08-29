@@ -19,6 +19,7 @@ Rails.application.routes.append do
     get '/toybaco/oidc/userinfo', to: 'toybaco/oidc#userinfo'
     get '/toybaco/oidc/resume', to: 'toybaco/oidc#resume'
     get '/toybaco/posting_status', to: 'toybaco/oidc#posting_status'
+    get '/toybaco/feature_access', to: 'toybaco/oidc#posting_status'
     get '/.well-known/openid-configuration', to: 'toybaco/oidc#openid_configuration'
   end
 end

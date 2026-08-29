@@ -24,7 +24,7 @@
     "run_time",
     "status"
   ],
-  "example_count": 61,
+  "example_count": 62,
   "examples_sha256": "32b7a02978bb6efae1beddde1f13096c85c55ed844f557054a9cd655de04f97d",
   "spec_files": [
     "spec/lib/toybaco/oidc/session_reader_spec.rb",
