@@ -13,9 +13,8 @@ import {
   CHATWOOT_SET_USER,
 } from '../../constants/appEvents';
 
-// Authentication cookies must be Secure at the instant they are created. A
-// later dashboard script cannot safely repair a cookie created after login.
-Cookies.defaults = { sameSite: 'Lax', secure: true };
+// Authentication cookies must be Secure and root-scoped at the instant they
+// are created. A later dashboard script cannot safely repair the login cookie.
 
 export const getLoadingStatus = state => state.fetchAPIloadingStatus;
 export const setLoadingStatus = (state, status) => {
@@ -35,12 +34,14 @@ export const setAuthCredentials = response => {
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
     expires: differenceInDays(expiryDate, new Date()),
     secure: true,
+    sameSite: 'Lax',
+    path: '/',
   });
   setUser(response.data.data, expiryDate);
 };
 
 export const clearBrowserSessionCookies = () => {
-  Cookies.remove('cw_d_session_info');
+  Cookies.remove('cw_d_session_info', { path: '/' });
   Cookies.remove('auth_data');
   Cookies.remove('user');
 };

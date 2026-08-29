@@ -201,6 +201,21 @@ abort 'Node heap上限がassets:precompileへexactに適用されていません
 RUBY
 }
 
+assert_auth_cookie_production_block() {
+  local dockerfile="$1"
+
+  ruby - "$dockerfile" <<'RUBY'
+content = File.binread(ARGV.fetch(0))
+expected = <<'DOCKER'.chomp
+    && test "$(find /app/public/vite/assets -type f -name '*.js' \
+      -exec grep -h -o -E '\.set\("cw_d_session_info",JSON\.stringify\([^)]*\.headers\),\{expires:[^}]+,secure:!0,sameSite:"Lax",path:"/"\}\)' {} + \
+      | wc -l | tr -d ' ')" = '1' \
+DOCKER
+abort 'production auth cookie検証blockがexact 1件ではありません' unless
+  content.scan(Regexp.new(Regexp.escape(expected))).length == 1
+RUBY
+}
+
 assert_control_contract() {
   local sentinel
   local required_path
@@ -257,8 +272,8 @@ assert_control_contract() {
   done
   grep -Fq "'Woot[[:space:]]*サーバー|Chatwootにログイン'" "$CONTROL_ROOT/Dockerfile" || fail \
     'production日本語served JS assetの旧brand文言拒否がありません'
-  grep -Fq "defaults={sameSite:\"Lax\",secure:!0}" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production auth bundleのSecure cookie検証がありません'
+  assert_auth_cookie_production_block "$CONTROL_ROOT/Dockerfile" || fail \
+    'production auth bundleのroot path Secure cookie検証がありません'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
     'FROM ${CHATWOOT_IMAGE} AS overlay-normalizer'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
