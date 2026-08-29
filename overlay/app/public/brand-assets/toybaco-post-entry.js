@@ -53,8 +53,6 @@
   var PENDING_KEY = 'toybaco_pending_posting';
 
   var BILLING_MARK = 'toybaco-billing-entry';
-  var postingAllowed = {}; // accountId -> true/false(この画面を開いている間だけ覚える)
-
   function postizLogoutUrl() {
     return new URL('/auth/logout', POST_ORIGIN).href;
   }
@@ -422,23 +420,6 @@
     return null;
   }
 
-  // 「投稿」を出してよい会社かをサーバーに確認する(結果は覚えておく)。
-  // 確認できなかったときは出さない(契約していない人に見せない側に倒す)
-  function checkPosting(accountId, cb) {
-    if (accountId in postingAllowed) { cb(postingAllowed[accountId]); return; }
-    try {
-      fetch('/toybaco/feature_access?account_id=' + encodeURIComponent(accountId), {
-        credentials: 'same-origin'
-      })
-        .then(function (r) { return r.ok ? r.json() : { enabled: false }; })
-        .then(function (d) {
-          postingAllowed[accountId] = !!(d && d.enabled === true);
-          cb(postingAllowed[accountId]);
-        })
-        .catch(function () { cb(false); });
-    } catch (e) { cb(false); }
-  }
-
   function removePostEntry() {
     var el = document.querySelector('[data-' + MARK + ']');
     if (el && el.parentElement) el.parentElement.remove();
@@ -491,17 +472,13 @@
       if (!id) return;
       var existing = document.querySelector('[data-' + MARK + ']');
       if (existing && existing.getAttribute('data-account') === id) return;
-      checkPosting(id, function (ok) {
-        try {
-          if (currentAccountId() !== id) return; // 確認中に会社が変わっていたら何もしない
-          removePostEntry();
-          if (!ok) return;
-          var now = findMenu();
-          if (!now) return;
-          if (document.querySelector('[data-' + MARK + ']')) return;
-          now.ul.appendChild(buildEntry(now, id));
-        } catch (e) { /* 出せなくても邪魔はしない */ }
-      });
+      // 入口はログイン後の会社画面に表示し、契約・所属の最終判定は
+      // OIDC authorize 側へ一本化する。UI専用の追加通信には依存しない。
+      removePostEntry();
+      var now = findMenu();
+      if (!now) return;
+      if (document.querySelector('[data-' + MARK + ']')) return;
+      now.ul.appendChild(buildEntry(now, id));
     } catch (e) { /* 入口が出せなくても受信箱の邪魔はしない */ }
   }
 
