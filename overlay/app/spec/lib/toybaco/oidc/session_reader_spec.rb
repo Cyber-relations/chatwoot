@@ -5,12 +5,12 @@ require 'rails_helper'
 RSpec.describe Toybaco::Oidc::SessionReader do
   let(:access_token) { 'browser-token' }
   let(:client) { 'browser-client' }
-  let(:uid) { 'agent@example.invalid' }
-  let(:cookie) { { 'access-token' => access_token, 'client' => client, 'uid' => uid }.to_json }
+  let(:uid) { 'agent+alias@example.invalid' }
+  let(:cookie) { { 'access-token' => access_token, 'client' => client, 'uid' => uid.tr('+', ' ') }.to_json }
   let(:relation) { instance_double(ActiveRecord::Relation) }
 
   before do
-    allow(User).to receive(:where).with(uid: uid).and_return(relation)
+    allow(User).to receive(:where).with(uid: [uid.tr('+', ' '), uid]).and_return(relation)
   end
 
   it 'exactly one confirmed token matchだけを返す' do
