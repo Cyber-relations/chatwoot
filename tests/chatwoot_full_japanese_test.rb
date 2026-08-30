@@ -215,6 +215,31 @@ quality_checks = {
   ],
   'credit label' => [
     dashboard_ja.join('settings.json'), %w[BILLING_SETTINGS TOPUP CREDITS], /\Aクレジット\z/
+  ],
+  'Enter send shortcut heading' => [
+    dashboard_ja.join('settings.json'),
+    %w[PROFILE_SETTINGS FORM SEND_MESSAGE CARD ENTER_KEY HEADING],
+    /\AEnterキーで送信（↵）\z/
+  ],
+  'Cmd Ctrl Enter send shortcut heading' => [
+    dashboard_ja.join('settings.json'),
+    %w[PROFILE_SETTINGS FORM SEND_MESSAGE CARD CMD_ENTER_KEY HEADING],
+    /\ACmd\/Ctrl\+Enterキーで送信（⌘\+↵）\z/
+  ],
+  'natural font size scale' => [
+    dashboard_ja.join('settings.json'),
+    %w[PROFILE_SETTINGS FORM INTERFACE_SECTION FONT_SIZE OPTIONS SMALL],
+    /\A小\z/
+  ],
+  'standard font size label' => [
+    dashboard_ja.join('settings.json'),
+    %w[PROFILE_SETTINGS FORM INTERFACE_SECTION FONT_SIZE OPTIONS DEFAULT],
+    /\A標準\z/
+  ],
+  'maximum font size label' => [
+    dashboard_ja.join('settings.json'),
+    %w[PROFILE_SETTINGS FORM INTERFACE_SECTION FONT_SIZE OPTIONS EXTRA_LARGE],
+    /\A最大\z/
   ]
 }
 quality_checks.each do |label, (file, keys, expected)|

@@ -71,7 +71,7 @@ a3a1adfede869524320962e027cd88dc9ad52507817beb6745dbc8dfe5f8a579	0644	file	overl
 2015d30813e477cfda6fcd57ef0983e406c8d2d6b2ae8bc12225beb5a31e2482	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/search.json
 60c34fe92eaabe9932265b28731b77ea07719d50441e193665ef9cdc147ce348	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/sessionLimit.json
 09bfcb3fe24a6379bf5050c492ea893c5ec8ef1c47a69b7fe2bec8d55db9ce7e	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/setNewPassword.json
-72a6ee3332219e057b0fb07fb6b4325752202f54526649778e46354cbda82533	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/settings.json
+20aeb98e7dae46bb1a69a3beecab610084ff7e9991c5bec02d423d39600a04db	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/settings.json
 89c7c54f12a410dd46e36e67c07182044013be2fb86782a575f665b4206be726	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/signup.json
 4e591cd146f1b7d171b7b7c0edc824b15b1b6268499ad991834930ac9623739e	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/sla.json
 71f64f6a1e0693d639c13698703483447a40fc577a84a4385ce7236a7c7a3427	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/snooze.json
@@ -107,6 +107,7 @@ d0f55b5c218881607f9803c798878362e3c6666ca5df8e03f39d99146c7c3250	0644	file	overl
 827f60859a0ceb6c2e9a290c8b0b8c8fe51e073c82bd8ce6ade7a1a2ca2c0dd6	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/labels/AddLabel.vue
 19befcf5a895229f0b7f33b4cd8dce3d2cf63b3c59821049ea50327326198974	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue
 5c6c5fea64f623c391ac30645b6073411d743b0f73ef1a4ad6a75ecbd51d11b3	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue
+744de362ae14d0c7107fd04fb88ce08f9875106fdf04a78b7d1ff10eeea387b6	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue
 662654bd0d5562befe316e70974a49df466665d687cb1a68758b9d77801f751e	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue
 1af6de4850e3c09f07cec19c3972c63ff3d1818b6756561ed8a026a3bdc7b532	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/teams/Create/AddAgents.vue
 9ed0f3952eb19f305f8a072db30e5c46a2288baec77afea153a87b9e98122fc7	0644	file	overlay/app/app/javascript/dashboard/routes/dashboard/settings/teams/Edit/EditAgents.vue
@@ -183,6 +184,10 @@ e1a774ce306737eca26db23bec08f61af46b27238516a10a3998361373c90913	0644	file	overl
 e1a774ce306737eca26db23bec08f61af46b27238516a10a3998361373c90913	0644	file	overlay/app/public/apple-icon.png
 5be8c332a8b0a005230e61ddaa4f1b49067069b5618c0780ed2d2188da9c1516	0644	file	overlay/app/public/apple-touch-icon-precomposed.png
 5be8c332a8b0a005230e61ddaa4f1b49067069b5618c0780ed2d2188da9c1516	0644	file	overlay/app/public/apple-touch-icon.png
+492c9a0fca1f71b773ead9d90b8a14dfece4d0721c9f20c76c86051ff4f0c1c4	0644	file	overlay/app/public/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg
+48fd4784ddb0a6019ea2f735709fd370b37076fc942801bd936df2248ceb57a6	0644	file	overlay/app/public/assets/images/dashboard/profile/hot-key-ctrl-enter.svg
+17b3f666561c6f1340743810f7a0ca75fcaaebdbd491402ed65f53843888c374	0644	file	overlay/app/public/assets/images/dashboard/profile/hot-key-enter-dark.svg
+54f1dbcfeda04b79463cf48c4faac37d1daeb8c102c1128370bcc24e01e93ce1	0644	file	overlay/app/public/assets/images/dashboard/profile/hot-key-enter.svg
 20aea2b3944827574916c2e0abdc4fcf497fbc782ab095ed70df6dcfd4aafd45	0644	file	overlay/app/public/brand-assets/logo.svg
 2fb39db4cfc547d29937adfeedbd5aa2a3fb4b23f4416c1ca772321b4f44a0b1	0644	file	overlay/app/public/brand-assets/logo_dark.svg
 afca877b202b4541acbba41e3489b1d3aaaa6f2d0fd0716a543c4321d29e9311	0644	file	overlay/app/public/brand-assets/logo_thumbnail.svg
