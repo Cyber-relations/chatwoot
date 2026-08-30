@@ -42,6 +42,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       body.each { |part| buf << part.to_s }
       body.close if body.respond_to?(:close)
 
+      normalize_dashboard_html!(env['PATH_INFO'], buf)
       tags = injection_tags(env, buf)
       buf.sub!('</head>', "  #{tags}\n  </head>") || buf.sub!('<body', "#{tags}<body") unless tags.empty?
 
@@ -63,6 +64,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     def missing?(body, marker)
       body.index(marker).nil?
+    end
+
+    def normalize_dashboard_html!(path, body)
+      return unless dashboard_path?(path)
+
+      body.sub!(/<html\b[^>]*>/i) do |tag|
+        if tag.match?(/\blang\s*=/i)
+          tag.sub(/\blang\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, 'lang="ja"')
+        else
+          tag.sub(/\A<html\b/i, '<html lang="ja"')
+        end
+      end
+      body.gsub!(
+        'This app works best with JavaScript enabled.',
+        'このアプリを快適に利用するには、JavaScriptを有効にしてください。'
+      )
     end
 
     def post_entry_tags

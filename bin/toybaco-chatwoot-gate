@@ -508,7 +508,7 @@ verify_toybaco_database_prepare() {
   local recovery_database='chatwoot_recovery_test'
   local upstream_sha256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
   local target_sha256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
-  local config_count locale_default metadata_guard_log metadata_missing_log
+  local branding_readback config_count expected_branding_readback locale_default metadata_guard_log metadata_missing_log
 
   STAGE='Chatwoot managed fresh database prepare'
   run_test_container \
@@ -520,6 +520,12 @@ verify_toybaco_database_prepare() {
   config_count="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c 'SELECT count(*) FROM public.installation_configs;')"
   [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
+  branding_readback="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+    -U postgres -d "$bootstrap_database" -c \
+    "SELECT name || '=' || split_part(split_part((serialized_value #>> '{}'), E'value: ', 2), E'\\n', 1) FROM public.installation_configs WHERE name IN ('BRAND_NAME', 'BRAND_URL', 'DISPLAY_MANIFEST', 'INSTALLATION_NAME', 'PRIVACY_URL', 'TERMS_URL', 'WIDGET_BRAND_URL') ORDER BY name COLLATE \"C\";")"
+  expected_branding_readback=$'BRAND_NAME=トイバコ\nBRAND_URL=https://toybaco.jp\nDISPLAY_MANIFEST=false\nINSTALLATION_NAME=トイバコ\nPRIVACY_URL=https://toybaco.jp/privacy\nTERMS_URL=https://toybaco.jp/terms\nWIDGET_BRAND_URL=https://toybaco.jp'
+  [[ "$branding_readback" == "$expected_branding_readback" ]] || fail \
+    "fresh prepare後のToybaco brandingが不一致です: $branding_readback"
   locale_default="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c \
     "SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='public.accounts'::regclass AND a.attname='locale';")"
@@ -934,6 +940,8 @@ build_and_smoke_production_image() {
   # その空schemaをcloneし、production初回boot前のinitializerが未作成tableを
   # 読んで紛らわしいERROR logを出す経路を避ける。
   docker exec "$POSTGRES_NAME" createdb -U postgres --template chatwoot_test chatwoot_smoke
+  run_production_container \
+    "$PRODUCTION_IMAGE" bundle exec rails toybaco:branding
   run_production_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" bundle exec rails runner /contract/tests/chatwoot-production-smoke.rb

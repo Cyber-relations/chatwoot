@@ -45,6 +45,16 @@ login = request(base, '/app/login')
 abort "dashboard HTTP status: #{login.code}" unless login.code == '200'
 cookie_errors = session_cookie_contract_errors(login.get_fields('set-cookie').to_a)
 abort "production Set-Cookie contract mismatch: #{cookie_errors.inspect}" unless cookie_errors.empty?
+login_body = login.body.dup.force_encoding(Encoding::UTF_8)
+abort 'dashboard HTML is not valid UTF-8' unless login_body.valid_encoding?
+abort 'dashboard html lang is not ja' unless login_body.match?(%r{<html\b[^>]*\blang=(['"])ja\1}i)
+abort 'dashboard title is not Toybaco' unless login_body.match?(%r{<title>\s*トイバコ\s*</title>}i)
+abort 'globalConfig INSTALLATION_NAME is not Toybaco' unless login_body.match?(/"INSTALLATION_NAME"\s*:\s*"トイバコ"/)
+abort 'globalConfig BRAND_NAME is not Toybaco' unless login_body.match?(/"BRAND_NAME"\s*:\s*"トイバコ"/)
+japanese_noscript = 'このアプリを快適に利用するには、JavaScriptを有効にしてください。'
+english_noscript = 'This app works best with JavaScript enabled.'
+abort 'dashboard Japanese noscript is missing' unless login_body.include?(japanese_noscript)
+abort 'dashboard English noscript remains' if login_body.include?(english_noscript)
 csp = login.fetch('content-security-policy')
 frame_src = csp.split(';').map(&:strip).grep(/\Aframe-src\b/)
 frame_ancestors = csp.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
@@ -54,10 +64,10 @@ abort "frame-ancestors is not exact: #{frame_ancestors.inspect}" unless
   frame_ancestors == ["frame-ancestors 'self'"]
 abort 'X-Frame-Options must be SAMEORIGIN' unless login['x-frame-options'] == 'SAMEORIGIN'
 abort 'X-Content-Type-Options must be nosniff' unless login['x-content-type-options'] == 'nosniff'
-abort 'automatic post entry config is missing' unless login.body.include?('data-toybaco-post-config')
+abort 'automatic post entry config is missing' unless login_body.include?('data-toybaco-post-config')
 abort 'automatic post entry asset cache-buster is missing' unless
-  login.body.match?(%r{/brand-assets/toybaco-post-entry\.js\?v=[0-9a-f]{64}})
-abort 'post entry origin and CSP differ' unless login.body.include?(postiz_origin)
+  login_body.match?(%r{/brand-assets/toybaco-post-entry\.js\?v=[0-9a-f]{64}})
+abort 'post entry origin and CSP differ' unless login_body.include?(postiz_origin)
 hsts = login['strict-transport-security'].to_s
 hsts_match = hsts.match(/(?:\A|;)\s*max-age=(\d+)/i)
 abort "Rails HSTS is missing/weak: #{hsts.inspect}" unless
