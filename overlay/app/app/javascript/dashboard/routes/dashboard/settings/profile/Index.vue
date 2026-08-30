@@ -70,23 +70,15 @@ export default {
       hotKeys: [
         {
           key: 'enter',
-          title: this.$t(
-            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.HEADING'
-          ),
-          description: this.$t(
-            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.CONTENT'
-          ),
+          titleKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.HEADING',
+          descriptionKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.CONTENT',
           lightImage: '/assets/images/dashboard/profile/hot-key-enter.svg?v=54f1dbcfeda0',
           darkImage: '/assets/images/dashboard/profile/hot-key-enter-dark.svg?v=17b3f666561c',
         },
         {
           key: 'cmd_enter',
-          title: this.$t(
-            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.HEADING'
-          ),
-          description: this.$t(
-            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.CONTENT'
-          ),
+          titleKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.HEADING',
+          descriptionKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.CONTENT',
           lightImage: '/assets/images/dashboard/profile/hot-key-ctrl-enter.svg?v=48fd4784ddb0',
           darkImage:
             '/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg?v=492c9a0fca1f',
@@ -295,20 +287,20 @@ export default {
           v-for="hotKey in hotKeys"
           :id="hotKey.key"
           :key="hotKey.key"
-          :label="hotKey.title"
-          :description="hotKey.description"
+          :label="$t(hotKey.titleKey)"
+          :description="$t(hotKey.descriptionKey)"
           :is-active="isEditorHotKeyEnabled(hotKey.key)"
           class="sm:flex-1"
           @select="toggleHotKey"
         >
           <img
             :src="hotKey.lightImage"
-            :alt="`${hotKey.title}のキー操作例`"
+            :alt="`${$t(hotKey.titleKey)}のキー操作例`"
             class="block object-cover w-full dark:hidden"
           />
           <img
             :src="hotKey.darkImage"
-            :alt="`${hotKey.title}のキー操作例`"
+            :alt="`${$t(hotKey.titleKey)}のキー操作例`"
             class="hidden object-cover w-full dark:block"
           />
         </RadioCard>

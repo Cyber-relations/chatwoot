@@ -805,6 +805,14 @@ REPLACEMENTS = {
     replacement("parts.join(' on ')", "parts.join(' / ')")
   ],
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' => [
+    replacement("title: this.$t(\n            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.HEADING'\n          ),",
+                "titleKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.HEADING',"),
+    replacement("description: this.$t(\n            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.CONTENT'\n          ),",
+                "descriptionKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.CONTENT',"),
+    replacement("title: this.$t(\n            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.HEADING'\n          ),",
+                "titleKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.HEADING',"),
+    replacement("description: this.$t(\n            'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.CONTENT'\n          ),",
+                "descriptionKey: 'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.CONTENT',"),
     replacement("'/assets/images/dashboard/profile/hot-key-enter.svg'",
                 "'/assets/images/dashboard/profile/hot-key-enter.svg?v=54f1dbcfeda0'"),
     replacement("'/assets/images/dashboard/profile/hot-key-enter-dark.svg'",
@@ -813,10 +821,12 @@ REPLACEMENTS = {
                 "'/assets/images/dashboard/profile/hot-key-ctrl-enter.svg?v=48fd4784ddb0'"),
     replacement("'/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg'",
                 "'/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg?v=492c9a0fca1f'"),
+    replacement(':label="hotKey.title"', ':label="$t(hotKey.titleKey)"'),
+    replacement(':description="hotKey.description"', ':description="$t(hotKey.descriptionKey)"'),
     replacement(':alt="`Light themed image for ${hotKey.title}`"',
-                ':alt="`${hotKey.title}のキー操作例`"'),
+                ':alt="`${$t(hotKey.titleKey)}のキー操作例`"'),
     replacement(':alt="`Dark themed image for ${hotKey.title}`"',
-                ':alt="`${hotKey.title}のキー操作例`"')
+                ':alt="`${$t(hotKey.titleKey)}のキー操作例`"')
   ],
   'public/assets/images/dashboard/profile/hot-key-enter.svg' => [
     replacement('</g>', "</g>\n<rect x=\"224\" y=\"56\" width=\"78\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"263\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"12\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（↵）</text>")
@@ -1100,6 +1110,9 @@ FORBIDDEN_VISIBLE = {
     [
       'Light themed image for',
       'Dark themed image for',
+      ':label="hotKey.title"',
+      ':description="hotKey.description"',
+      '${hotKey.title}',
       "'/assets/images/dashboard/profile/hot-key-enter.svg'",
       "'/assets/images/dashboard/profile/hot-key-enter-dark.svg'",
       "'/assets/images/dashboard/profile/hot-key-ctrl-enter.svg'",
