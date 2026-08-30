@@ -522,7 +522,7 @@ verify_toybaco_database_prepare() {
   [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
   branding_readback="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c \
-    "SELECT name || '=' || (serialized_value #>> '{}') FROM public.installation_configs WHERE name IN ('BRAND_NAME', 'BRAND_URL', 'DISPLAY_MANIFEST', 'INSTALLATION_NAME', 'PRIVACY_URL', 'TERMS_URL', 'WIDGET_BRAND_URL') ORDER BY name COLLATE \"C\";")"
+    "SELECT name || '=' || split_part(split_part((serialized_value #>> '{}'), E'value: ', 2), E'\\n', 1) FROM public.installation_configs WHERE name IN ('BRAND_NAME', 'BRAND_URL', 'DISPLAY_MANIFEST', 'INSTALLATION_NAME', 'PRIVACY_URL', 'TERMS_URL', 'WIDGET_BRAND_URL') ORDER BY name COLLATE \"C\";")"
   expected_branding_readback=$'BRAND_NAME=トイバコ\nBRAND_URL=https://toybaco.jp\nDISPLAY_MANIFEST=false\nINSTALLATION_NAME=トイバコ\nPRIVACY_URL=https://toybaco.jp/privacy\nTERMS_URL=https://toybaco.jp/terms\nWIDGET_BRAND_URL=https://toybaco.jp'
   [[ "$branding_readback" == "$expected_branding_readback" ]] || fail \
     "fresh prepare後のToybaco brandingが不一致です: $branding_readback"
