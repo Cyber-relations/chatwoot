@@ -45,6 +45,14 @@ login = request(base, '/app/login')
 abort "dashboard HTTP status: #{login.code}" unless login.code == '200'
 cookie_errors = session_cookie_contract_errors(login.get_fields('set-cookie').to_a)
 abort "production Set-Cookie contract mismatch: #{cookie_errors.inspect}" unless cookie_errors.empty?
+abort 'dashboard html lang is not ja' unless login.body.match?(%r{<html\b[^>]*\blang=(['"])ja\1}i)
+abort 'dashboard title is not Toybaco' unless login.body.match?(%r{<title>\s*トイバコ\s*</title>}i)
+abort 'globalConfig INSTALLATION_NAME is not Toybaco' unless login.body.match?(/"INSTALLATION_NAME"\s*:\s*"トイバコ"/)
+abort 'globalConfig BRAND_NAME is not Toybaco' unless login.body.match?(/"BRAND_NAME"\s*:\s*"トイバコ"/)
+japanese_noscript = 'このアプリを快適に利用するには、JavaScriptを有効にしてください。'
+english_noscript = 'This app works best with JavaScript enabled.'
+abort 'dashboard Japanese noscript is missing' unless login.body.include?(japanese_noscript)
+abort 'dashboard English noscript remains' if login.body.include?(english_noscript)
 csp = login.fetch('content-security-policy')
 frame_src = csp.split(';').map(&:strip).grep(/\Aframe-src\b/)
 frame_ancestors = csp.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
