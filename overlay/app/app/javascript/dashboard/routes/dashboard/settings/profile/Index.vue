@@ -76,8 +76,8 @@ export default {
           description: this.$t(
             'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.ENTER_KEY.CONTENT'
           ),
-          lightImage: '/assets/images/dashboard/profile/hot-key-enter.svg',
-          darkImage: '/assets/images/dashboard/profile/hot-key-enter-dark.svg',
+          lightImage: '/assets/images/dashboard/profile/hot-key-enter.svg?v=54f1dbcfeda0',
+          darkImage: '/assets/images/dashboard/profile/hot-key-enter-dark.svg?v=17b3f666561c',
         },
         {
           key: 'cmd_enter',
@@ -87,9 +87,9 @@ export default {
           description: this.$t(
             'PROFILE_SETTINGS.FORM.SEND_MESSAGE.CARD.CMD_ENTER_KEY.CONTENT'
           ),
-          lightImage: '/assets/images/dashboard/profile/hot-key-ctrl-enter.svg',
+          lightImage: '/assets/images/dashboard/profile/hot-key-ctrl-enter.svg?v=48fd4784ddb0',
           darkImage:
-            '/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg',
+            '/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg?v=492c9a0fca1f',
         },
       ],
       notificationPermissions: [...ROLES, ...CONVERSATION_PERMISSIONS],
