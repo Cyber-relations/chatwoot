@@ -805,6 +805,14 @@ REPLACEMENTS = {
     replacement("parts.join(' on ')", "parts.join(' / ')")
   ],
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' => [
+    replacement("'/assets/images/dashboard/profile/hot-key-enter.svg'",
+                "'/assets/images/dashboard/profile/hot-key-enter.svg?v=54f1dbcfeda0'"),
+    replacement("'/assets/images/dashboard/profile/hot-key-enter-dark.svg'",
+                "'/assets/images/dashboard/profile/hot-key-enter-dark.svg?v=17b3f666561c'"),
+    replacement("'/assets/images/dashboard/profile/hot-key-ctrl-enter.svg'",
+                "'/assets/images/dashboard/profile/hot-key-ctrl-enter.svg?v=48fd4784ddb0'"),
+    replacement("'/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg'",
+                "'/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg?v=492c9a0fca1f'"),
     replacement(':alt="`Light themed image for ${hotKey.title}`"',
                 ':alt="`${hotKey.title}のキー操作例`"'),
     replacement(':alt="`Dark themed image for ${hotKey.title}`"',
@@ -1089,7 +1097,14 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/dashboard/components/auth/SessionLimitOverlay.vue' => ["parts.join(' on ')", 'MMMM d, yyyy', 'hh:mma'],
   'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue' => ["parts.join(' on ')", 'formatDistanceToNow(parseISO(dateStr), { addSuffix: true })'],
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
-    ['Light themed image for', 'Dark themed image for'],
+    [
+      'Light themed image for',
+      'Dark themed image for',
+      "'/assets/images/dashboard/profile/hot-key-enter.svg'",
+      "'/assets/images/dashboard/profile/hot-key-enter-dark.svg'",
+      "'/assets/images/dashboard/profile/hot-key-ctrl-enter.svg'",
+      "'/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg'"
+    ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CustomerSatisfactionPage.vue' =>
     ['Please rate us', "templateLanguage: 'en'", "language = 'en'"],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue' =>
