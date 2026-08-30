@@ -941,6 +941,8 @@ build_and_smoke_production_image() {
   # 読んで紛らわしいERROR logを出す経路を避ける。
   docker exec "$POSTGRES_NAME" createdb -U postgres --template chatwoot_test chatwoot_smoke
   run_production_container \
+    "$PRODUCTION_IMAGE" bundle exec rails toybaco:branding
+  run_production_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" bundle exec rails runner /contract/tests/chatwoot-production-smoke.rb
 
