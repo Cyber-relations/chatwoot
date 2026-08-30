@@ -22,15 +22,15 @@
       },
       "SEND_MESSAGE": {
         "TITLE": "メッセージ送信のホットキー",
-        "NOTE": "好みに応じて、EnterまたはCmd/Ctrl+Enterを選択できます。",
+        "NOTE": "好みに応じて、EnterキーまたはCmd/Ctrl+Enterキーを選択できます。",
         "UPDATE_SUCCESS": "設定が正常に更新されました",
         "CARD": {
           "ENTER_KEY": {
-            "HEADING": "() と入力します",
+            "HEADING": "Enterキーで送信（↵）",
             "CONTENT": "送信ボタンをクリックせずにEnterキーでメッセージを送信します。"
           },
           "CMD_ENTER_KEY": {
-            "HEADING": "Cmd/Ctrl キーを押しながら入力 (⌘+)",
+            "HEADING": "Cmd/Ctrl+Enterキーで送信（⌘+↵）",
             "CONTENT": "送信ボタンをクリックせずにCmd/Ctrl+Enterキーでメッセージを送信します。"
           }
         }
@@ -44,12 +44,12 @@
           "UPDATE_SUCCESS": "フォント設定は正常に更新されました",
           "UPDATE_ERROR": "フォント設定の更新中にエラーが発生しました。もう一度試してください",
           "OPTIONS": {
-            "SMALLER": "より小さい",
-            "SMALL": "小規模",
-            "DEFAULT": "デフォルト",
-            "LARGE": "ラージ",
-            "LARGER": "大きい",
-            "EXTRA_LARGE": "エクストララージ"
+            "SMALLER": "最小",
+            "SMALL": "小",
+            "DEFAULT": "標準",
+            "LARGE": "大",
+            "LARGER": "より大きい",
+            "EXTRA_LARGE": "最大"
           }
         },
         "LANGUAGE": {

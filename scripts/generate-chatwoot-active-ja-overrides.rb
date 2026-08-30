@@ -127,6 +127,8 @@ SOURCE_SHA256 = {
     '4ce8cfba39c4a82d0f0e0003e4cd86bd179644f73370bfd1441fee3b6368352d',
   'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue' =>
     '825fd61c613ba1b232edc677bed3bd724725d20621b692a42cfe82035d58f831',
+  'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
+    'a3f3dbd89a7a470965276345da3b851d12b091c0ac0610d0c36debff78b05ce1',
   'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue' =>
     '8d5fcf7f8295fe28f3cf5843da44a627d1f7be6eb2de8b31498e644f033e8d5f',
   'app/javascript/dashboard/routes/dashboard/settings/labels/AddLabel.vue' =>
@@ -154,7 +156,15 @@ SOURCE_SHA256 = {
   'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' =>
     '808918cea4c075e9804c85687930a446366bb4849ba94938651bafab928a2448',
   'app/javascript/v3/components/Form/Input.vue' =>
-    '1cc3610b9b55ccb8cf9013d6449a2d4acebee29f7df38513365c90dc84c170bd'
+    '1cc3610b9b55ccb8cf9013d6449a2d4acebee29f7df38513365c90dc84c170bd',
+  'public/assets/images/dashboard/profile/hot-key-enter.svg' =>
+    'a055a3e930aad122c642b16f527c9ec55b222763650eb09f9605afc6ab5b156f',
+  'public/assets/images/dashboard/profile/hot-key-enter-dark.svg' =>
+    '8add5619c43775a5616daf8b7e5c6788771712ac8ca590b698f01a2c0226540c',
+  'public/assets/images/dashboard/profile/hot-key-ctrl-enter.svg' =>
+    '0c2da9504ec8221005360e13a26c5e0db68ab2268c906fac08c5c19267f3027d',
+  'public/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg' =>
+    '76cdb8e7d0a7b1642fa93c6f0b9d783c0ed24346c534a9d474c8e8c3af1c4a9a'
 }.freeze
 
 # Keep this as a small, explicit data contract. It confirms that every major
@@ -280,7 +290,12 @@ MAJOR_ROUTE_ANCHORS = {
     required_overlays: [
       'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue',
       'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue',
-      'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue'
+      'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue',
+      'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue',
+      'public/assets/images/dashboard/profile/hot-key-enter.svg',
+      'public/assets/images/dashboard/profile/hot-key-enter-dark.svg',
+      'public/assets/images/dashboard/profile/hot-key-ctrl-enter.svg',
+      'public/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg'
     ]
   },
   'data' => {
@@ -789,6 +804,24 @@ REPLACEMENTS = {
     replacement("return formatDistanceToNow(parseISO(dateStr), { addSuffix: true });", "return formatDistanceToNow(parseISO(dateStr), { addSuffix: true, locale: ja });"),
     replacement("parts.join(' on ')", "parts.join(' / ')")
   ],
+  'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' => [
+    replacement(':alt="`Light themed image for ${hotKey.title}`"',
+                ':alt="`${hotKey.title}のキー操作例`"'),
+    replacement(':alt="`Dark themed image for ${hotKey.title}`"',
+                ':alt="`${hotKey.title}のキー操作例`"')
+  ],
+  'public/assets/images/dashboard/profile/hot-key-enter.svg' => [
+    replacement('</g>', "</g>\n<rect x=\"224\" y=\"56\" width=\"78\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"263\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"12\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（↵）</text>")
+  ],
+  'public/assets/images/dashboard/profile/hot-key-enter-dark.svg' => [
+    replacement('</g>', "</g>\n<rect x=\"224\" y=\"56\" width=\"78\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"263\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"12\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（↵）</text>")
+  ],
+  'public/assets/images/dashboard/profile/hot-key-ctrl-enter.svg' => [
+    replacement('</g>', "</g>\n<rect x=\"198\" y=\"56\" width=\"104\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"250\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（⌘+↵）</text>")
+  ],
+  'public/assets/images/dashboard/profile/hot-key-ctrl-enter-dark.svg' => [
+    replacement('</g>', "</g>\n<rect x=\"198\" y=\"56\" width=\"104\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"250\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（⌘+↵）</text>")
+  ],
   'app/javascript/dashboard/components/widgets/conversation/advancedFilterItems/languages.js' => [
     replacement("export const getLanguageName = (languageCode = '') => {\n  const languageObj =\n    languages.find(language => language.id === languageCode) || {};\n  return languageObj.name || '';\n};",
                 "const languageDisplayNames = new Intl.DisplayNames(['ja'], { type: 'language' });\nconst localizedLanguages = languages.map(({ id }) => ({\n  id,\n  name: languageDisplayNames.of(id.replace('_', '-')) || id,\n}));\n\nexport const getLanguageName = (languageCode = '') => {\n  const languageObj =\n    localizedLanguages.find(language => language.id === languageCode) || {};\n  return languageObj.name || '';\n};"),
@@ -1055,6 +1088,8 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/dashboard/routes/dashboard/settings/data/importSources.js' => ['File import'],
   'app/javascript/dashboard/components/auth/SessionLimitOverlay.vue' => ["parts.join(' on ')", 'MMMM d, yyyy', 'hh:mma'],
   'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue' => ["parts.join(' on ')", 'formatDistanceToNow(parseISO(dateStr), { addSuffix: true })'],
+  'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
+    ['Light themed image for', 'Dark themed image for'],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CustomerSatisfactionPage.vue' =>
     ['Please rate us', "templateLanguage: 'en'", "language = 'en'"],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue' =>
