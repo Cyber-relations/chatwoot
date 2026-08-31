@@ -145,7 +145,13 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
 
   def allowed_redirect_uri?
     allowed = ENV.fetch('TOYBACO_OIDC_REDIRECT_URIS', '').split(',').map(&:strip).reject(&:empty?)
-    allowed.include?(params[:redirect_uri].to_s)
+    allowed.include?(authorize_redirect_uri.to_s)
+  end
+
+  def authorize_redirect_uri
+    return if params.key?(:return_to) && params.key?(:redirect_uri)
+
+    params[:return_to].presence || params[:redirect_uri].presence
   end
 
   def valid_authorize_request?
@@ -209,7 +215,7 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
       account_id: account.id,
       organization_id: sync_context.fetch(:organization_id),
       client_id: params[:client_id].to_s,
-      redirect_uri: params[:redirect_uri].to_s
+      redirect_uri: authorize_redirect_uri.to_s
     )
   end
 
@@ -233,7 +239,7 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
   end
 
   def oidc_redirect_url(values)
-    uri = URI.parse(params[:redirect_uri].to_s)
+    uri = URI.parse(authorize_redirect_uri.to_s)
     query = URI.decode_www_form(uri.query.to_s)
     uri.query = URI.encode_www_form(query + values)
     uri.to_s

@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 62,
-  "examples_sha256": "3f94d2e8844649e4974c1d0898d5ce25aecc7a614da60dacadc96d8c9e561f47",
+  "example_count": 64,
+  "examples_sha256": "65f81c69fb25cf1c89d6d0fcf397320c93bedd37965ca548cafdc82041848a9c",
   "spec_files": [
     "spec/lib/toybaco/oidc/session_reader_spec.rb",
     "spec/lib/toybaco/postiz_sync_database_spec.rb",
