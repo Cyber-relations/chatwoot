@@ -83,7 +83,7 @@ abort 'OIDC falsely advertises unsigned id_token' if metadata.key?('id_token_sig
 
 bad_scope = request(
   base,
-  '/toybaco/oidc/authorize?client_id=toybaco-gate-client&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fpost.toybaco.test%2Fauth%2Fcallback'
+  '/toybaco/connect?client_id=toybaco-gate-client&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Fpost.toybaco.test%2Fauth%2Fcallback'
 )
 abort "invalid OIDC scope did not fail closed: #{bad_scope.code}" unless bad_scope.code == '400'
 
