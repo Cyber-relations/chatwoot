@@ -42,7 +42,7 @@ class ChatwootFramePolicyTest < Minitest::Test
   end
 
   def test_all_protected_prefixes_and_root_are_covered
-    ['/', '/app', '/v3app/', '/super_admin/users', '/installation/onboarding', '/toybaco/oidc/authorize'].each do |path|
+    ['/', '/app', '/v3app/', '/super_admin/users', '/installation/onboarding', '/toybaco/connect'].each do |path|
       _status, headers, = response(path)
       assert(headers.key?('Content-Security-Policy'), path)
     end

@@ -6,7 +6,9 @@ require 'uri'
 # ApplicationController は継承しない。devise_token_auth の concern を載せると、
 # OIDC の client / uid パラメータまで Chatwoot の認証材料として読まれるため。
 class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/ApplicationController, Metrics/ClassLength
-  AUTHORIZE_PATH = '/toybaco/oidc/authorize'
+  AUTHORIZE_PATH = '/toybaco/connect'
+  LEGACY_AUTHORIZE_PATH = '/toybaco/oidc/authorize'
+  AUTHORIZE_PATHS = [AUTHORIZE_PATH, LEGACY_AUTHORIZE_PATH].freeze
   RETURN_COOKIE = :toybaco_oidc_return
   POST_ACCOUNT_COOKIE = :toybaco_post_account
   OIDC_SCOPE = 'openid profile email'
@@ -305,7 +307,10 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
   def valid_authorize_return_url?(value)
     uri = URI.parse(value.to_s)
     issuer = URI.parse(oidc_issuer)
-    same_origin?(uri, issuer) && uri.userinfo.nil? && uri.fragment.nil? && uri.path == AUTHORIZE_PATH
+    same_origin?(uri, issuer) &&
+      uri.userinfo.nil? &&
+      uri.fragment.nil? &&
+      AUTHORIZE_PATHS.include?(uri.path)
   rescue URI::InvalidURIError
     false
   end

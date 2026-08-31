@@ -16,6 +16,7 @@ Toybaco::PostizOrigin.fetch!
 
 oidc_paths = Rails.application.routes.routes.map { |route| route.path.spec.to_s }
 %w[
+  /toybaco/connect(.:format)
   /toybaco/oidc/authorize(.:format)
   /toybaco/oidc/token(.:format)
   /toybaco/oidc/userinfo(.:format)

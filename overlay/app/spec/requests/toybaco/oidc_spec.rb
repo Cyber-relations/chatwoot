@@ -5,7 +5,7 @@ require 'rails_helper'
 # 共通の OIDC 環境と request helper を全endpointで共有する契約spec。
 # rubocop:disable RSpec/MultipleMemoizedHelpers, Naming/AccessorMethodName
 RSpec.describe 'Toybaco OIDC', type: :request do
-  let(:authorize_path) { '/toybaco/oidc/authorize' }
+  let(:authorize_path) { '/toybaco/connect' }
   let(:token_path) { '/toybaco/oidc/token' }
   let(:userinfo_path) { '/toybaco/oidc/userinfo' }
   let(:resume_path) { '/toybaco/oidc/resume' }
@@ -45,7 +45,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
     allow(Toybaco::PostizSync).to receive(:access_context).and_return(postiz_context)
   end
 
-  describe 'GET /toybaco/oidc/authorize' do
+  describe 'GET /toybaco/connect' do
     it '未ログインならログイン画面へ戻り先cookie付きで送る' do
       request_authorize
 
@@ -320,6 +320,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body).to include(
         'issuer' => issuer,
+        'authorization_endpoint' => "#{issuer}#{authorize_path}",
         'response_types_supported' => ['code'],
         'response_modes_supported' => ['query'],
         'token_endpoint_auth_methods_supported' => ['client_secret_post'],
