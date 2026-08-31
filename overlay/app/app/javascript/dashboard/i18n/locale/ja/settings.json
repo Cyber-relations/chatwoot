@@ -340,7 +340,7 @@
     "AGENT_BOTS": "ボット",
     "AUDIT_LOGS": "監査ログ",
     "INBOXES": "受信トレイ",
-    "WHATSAPP_TEMPLATES": "[テンプレート]",
+    "WHATSAPP_TEMPLATES": "テンプレート",
     "NOTIFICATIONS": "通知",
     "CANNED_RESPONSES": "定型文",
     "INTEGRATIONS": "連携",
