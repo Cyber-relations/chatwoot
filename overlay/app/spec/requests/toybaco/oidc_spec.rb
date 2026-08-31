@@ -76,6 +76,26 @@ RSpec.describe 'Toybaco OIDC', type: :request do
       expect(Toybaco::PostizSync).to have_received(:sync!).with(user: user, account: account).at_least(:once)
     end
 
+    it '旧redirect_uriでも後方互換で認可する' do
+      set_chatwoot_session_cookie(auth_headers)
+
+      request_authorize(return_to: nil, redirect_uri: redirect_uri)
+
+      expect(response).to have_http_status(:found)
+      expect(response.location).to start_with(redirect_uri)
+      expect(redirect_query.fetch('state')).to eq(state)
+    end
+
+    it 'return_toとredirect_uriの二重指定はfail closedにする' do
+      set_chatwoot_session_cookie(auth_headers)
+      expect(Toybaco::Oidc::CodeStore).not_to receive(:issue_code)
+
+      request_authorize(redirect_uri: redirect_uri)
+
+      expect(response).to have_http_status(:bad_request)
+      expect(response.location).to be_nil
+    end
+
     it 'Postiz同期が失敗したら503 access_deniedでcodeを一切発行しない' do
       set_chatwoot_session_cookie(auth_headers)
       allow(Toybaco::PostizSync).to receive(:sync!).and_raise(Toybaco::PostizSync::Unavailable)
@@ -136,8 +156,8 @@ RSpec.describe 'Toybaco OIDC', type: :request do
       expect(redirect_query).to include('error' => 'access_denied', 'state' => state)
     end
 
-    it 'redirect_uriが許可リストと完全一致しなければリダイレクトしない' do
-      request_authorize(redirect_uri: "#{redirect_uri}/other")
+    it 'return_toが許可リストと完全一致しなければリダイレクトしない' do
+      request_authorize(return_to: "#{redirect_uri}/other")
 
       expect(response).to have_http_status(:bad_request)
       expect(response.location).to be_nil
@@ -334,7 +354,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
   private
 
   def request_authorize(overrides = {})
-    get authorize_path, params: authorize_params.merge(overrides)
+    get authorize_path, params: authorize_params.merge(overrides).compact
   end
 
   def authorize_params
@@ -343,7 +363,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
       scope: 'openid profile email',
       response_type: 'code',
       state: state,
-      redirect_uri: redirect_uri
+      return_to: redirect_uri
     }
   end
 
