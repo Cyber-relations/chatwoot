@@ -3,12 +3,20 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import vm from 'node:vm';
 
 const root = resolve(process.argv[2] || '.');
 const workflowPath = resolve(root, '.github/workflows/chatwoot-integration.yml');
 const gatePath = resolve(root, 'bin/toybaco-chatwoot-gate');
+const postEntryPath = resolve(root, 'overlay/app/public/brand-assets/toybaco-post-entry.js');
 const workflow = readFileSync(workflowPath, 'utf8');
 const gate = readFileSync(gatePath, 'utf8');
+const postEntry = readFileSync(postEntryPath, 'utf8');
+const instrumentedPostEntry = postEntry.replace(
+  /\n\}\)\(\);\s*$/,
+  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { findMenu: findMenu, placeEntry: placeEntry };\n})();\n',
+);
+assert.notEqual(instrumentedPostEntry, postEntry, 'post-entry test instrumentation anchor missing');
 
 const ACTIONS = Object.freeze({
   checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
@@ -45,6 +53,157 @@ function functionBlock(source, name, nextName) {
 
 function usedActions(source) {
   return [...source.matchAll(/^\s+uses:\s+(\S+)/gm)].map((match) => match[1]);
+}
+
+function validatePostEntryNavigation(source) {
+  const placeEntry = `  function placeEntry(menu, entry) {
+    if (entry.parentElement !== menu.ul || entry.previousElementSibling !== menu.li) {
+      menu.ul.insertBefore(entry, menu.li.nextSibling);
+    }
+  }`;
+  const nativeFirst = "var li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');";
+  const sameAccount = "if (existing && existing.getAttribute('data-account') === id) {";
+  const existingWrap = 'var existingWrap = existing.parentElement;';
+  const markedWrap =
+    "if (existingWrap && existingWrap.getAttribute('data-' + MARK + '-wrap') === '1') {";
+  const repairPosition = 'placeEntry(sample, existingWrap);';
+  const removeExisting = 'removePostEntry();';
+  const duplicateGuard = "if (document.querySelector('[data-' + MARK + ']')) return;";
+  const insertAfterFirst = 'placeEntry(now, buildEntry(now, id));';
+
+  const positions = [
+    placeEntry,
+    nativeFirst,
+    sameAccount,
+    existingWrap,
+    markedWrap,
+    repairPosition,
+    removeExisting,
+    duplicateGuard,
+    insertAfterFirst,
+  ]
+    .map((contract) => source.indexOf(contract));
+  assert.ok(positions.every((position) => position >= 0), 'post-entry navigation contract missing');
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions,
+    'post-entry account/idempotency checks must precede insertion');
+  assert.equal(source.match(/buildEntry\(now, id\)/g)?.length, 1,
+    'post-entry must be inserted exactly once');
+  assert.ok(!source.includes('now.ul.appendChild(buildEntry(now, id));'),
+    'post-entry must not be appended to the menu end');
+}
+
+function loadPostEntryNavigation() {
+  const window = {
+    TOYBACO_POST_URL: 'https://post.staging.toybaco.jp',
+    globalConfig: {},
+    location: { hash: '', pathname: '/app/accounts/1/inbox', protocol: 'https:' },
+    addEventListener() {},
+  };
+  const document = {
+    readyState: 'loading',
+    addEventListener() {},
+  };
+  vm.runInNewContext(instrumentedPostEntry, {
+    window,
+    document,
+    URL,
+    URLSearchParams,
+    sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+  }, { filename: postEntryPath });
+  return { api: window.__TOYBACO_POST_ENTRY_TEST__, document };
+}
+
+function makeRow(name) {
+  const row = { name, parentElement: null };
+  Object.defineProperties(row, {
+    previousElementSibling: {
+      get() {
+        if (!row.parentElement) return null;
+        const index = row.parentElement.children.indexOf(row);
+        return index > 0 ? row.parentElement.children[index - 1] : null;
+      },
+    },
+    nextSibling: {
+      get() {
+        if (!row.parentElement) return null;
+        const index = row.parentElement.children.indexOf(row);
+        return index >= 0 ? (row.parentElement.children[index + 1] || null) : null;
+      },
+    },
+  });
+  return row;
+}
+
+function makeList(rows) {
+  const ul = {
+    children: [...rows],
+    insertCalls: 0,
+    insertBefore(node, reference) {
+      this.insertCalls += 1;
+      if (node.parentElement) {
+        const previous = node.parentElement.children.indexOf(node);
+        if (previous >= 0) node.parentElement.children.splice(previous, 1);
+      }
+      const index = reference === null ? this.children.length : this.children.indexOf(reference);
+      assert.notEqual(index, -1, 'reference row must belong to the destination menu');
+      this.children.splice(index, 0, node);
+      node.parentElement = this;
+    },
+  };
+  rows.forEach((row) => { row.parentElement = ul; });
+  return ul;
+}
+
+function testPostEntryNavigation() {
+  const fixture = loadPostEntryNavigation();
+  const postingFirst = makeRow('posting');
+  const inbox = makeRow('inbox');
+  const conversations = makeRow('conversations');
+  const primaryList = makeList([postingFirst, inbox, conversations]);
+  const inboxInner = {};
+  inbox.querySelector = (selector) => {
+    assert.equal(selector, 'a, [role="button"]');
+    return inboxInner;
+  };
+  primaryList.querySelector = (selector) => {
+    assert.equal(selector, ':scope > li:not([data-toybaco-post-entry-wrap])');
+    return inbox;
+  };
+  const nav = {
+    querySelector(selector) {
+      assert.equal(selector, 'ul');
+      return primaryList;
+    },
+  };
+  fixture.document.querySelectorAll = (selector) => {
+    assert.equal(selector, 'nav');
+    return [nav];
+  };
+
+  const menu = fixture.api.findMenu();
+  assert.equal(menu.li, inbox, 'posting row must not become the native navigation sample');
+  fixture.api.placeEntry(menu, postingFirst);
+  assert.deepEqual(primaryList.children.map((row) => row.name), [
+    'inbox',
+    'posting',
+    'conversations',
+  ]);
+  assert.equal(primaryList.insertCalls, 1, 'posting-first drift must be repaired once');
+  fixture.api.placeEntry(menu, postingFirst);
+  assert.equal(primaryList.insertCalls, 1, 'correct repeated placement must not mutate the DOM');
+
+  const stalePosting = makeRow('posting');
+  const staleList = makeList([stalePosting]);
+  const freshInbox = makeRow('fresh-inbox');
+  const freshOther = makeRow('fresh-other');
+  const freshList = makeList([freshInbox, freshOther]);
+  fixture.api.placeEntry({ ul: freshList, li: freshInbox }, stalePosting);
+  assert.deepEqual(staleList.children, [], 'entry must leave the stale navigation list');
+  assert.deepEqual(freshList.children.map((row) => row.name), [
+    'fresh-inbox',
+    'posting',
+    'fresh-other',
+  ]);
 }
 
 function validate(workflowSource, gateSource) {
@@ -245,6 +404,24 @@ function validate(workflowSource, gateSource) {
 }
 
 validate(workflow, gate);
+validatePostEntryNavigation(postEntry);
+testPostEntryNavigation();
+
+assert.throws(
+  () => validatePostEntryNavigation(postEntry.replace(
+    'placeEntry(now, buildEntry(now, id));',
+    'now.ul.appendChild(buildEntry(now, id));',
+  )),
+  'post-entry end-append negative control was accepted',
+);
+
+assert.throws(
+  () => validatePostEntryNavigation(postEntry.replace(
+    'menu.ul.insertBefore(entry, menu.li.nextSibling);',
+    '',
+  )),
+  'post-entry position-repair negative control was accepted',
+);
 
 const mutations = [
   [workflow.replace('needs: quality', 'needs: []'), gate],
@@ -303,4 +480,6 @@ for (const [index, [mutatedWorkflow, mutatedGate]] of mutations.entries()) {
   );
 }
 
-console.log(`Chatwoot managed publisher: PASS (${mutations.length} negative controls)`);
+console.log(
+  `Chatwoot managed publisher: PASS (${mutations.length} publisher + 2 post-entry negative controls)`,
+);

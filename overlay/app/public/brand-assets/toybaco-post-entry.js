@@ -406,12 +406,19 @@
     return li;
   }
 
+  function placeEntry(menu, entry) {
+    if (entry.parentElement !== menu.ul || entry.previousElementSibling !== menu.li) {
+      menu.ul.insertBefore(entry, menu.li.nextSibling);
+    }
+  }
+
   function findMenu() {
     var navs = document.querySelectorAll('nav');
     for (var i = 0; i < navs.length; i++) {
       var ul = navs[i].querySelector('ul');
       if (!ul) continue;
-      var li = ul.querySelector(':scope > li');
+      // 再描画時に自分自身を「先頭の標準行」と誤認しない。
+      var li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');
       if (!li) continue;
       var inner = li.querySelector('a, [role="button"]');
       if (!inner) continue;
@@ -471,14 +478,23 @@
       var id = currentAccountId();
       if (!id) return;
       var existing = document.querySelector('[data-' + MARK + ']');
-      if (existing && existing.getAttribute('data-account') === id) return;
+      if (existing && existing.getAttribute('data-account') === id) {
+        var existingWrap = existing.parentElement;
+        if (existingWrap && existingWrap.getAttribute('data-' + MARK + '-wrap') === '1') {
+          // Vueがナビ項目を差し替えても、主機能の位置を受信トレイ直後へ戻す。
+          placeEntry(sample, existingWrap);
+          return;
+        }
+      }
       // 入口はログイン後の会社画面に表示し、契約・所属の最終判定は
       // OIDC authorize 側へ一本化する。UI専用の追加通信には依存しない。
       removePostEntry();
       var now = findMenu();
       if (!now) return;
       if (document.querySelector('[data-' + MARK + ']')) return;
-      now.ul.appendChild(buildEntry(now, id));
+      // 投稿は受信箱と並ぶ主機能。設定・請求項目の下へ埋もれないよう、
+      // 最初のtop-level行（私の受信トレイ）の直後へ置く。
+      placeEntry(now, buildEntry(now, id));
     } catch (e) { /* 入口が出せなくても受信箱の邪魔はしない */ }
   }
 
