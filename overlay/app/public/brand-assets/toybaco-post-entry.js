@@ -162,7 +162,7 @@
 
     // 既存のPostiz cookieを信用して直接画面を開かない。iframeを作るたびに
     // 専用入口へ入り、Chatwootの現在accountへGENERIC OIDCを再束縛する。
-    var entry = new URL('/api/auth/toybaco-entry', POST_ORIGIN);
+    var entry = new URL('/toybaco/entry', POST_ORIGIN);
     entry.searchParams.set(
       'return',
       destination.pathname + destination.search
