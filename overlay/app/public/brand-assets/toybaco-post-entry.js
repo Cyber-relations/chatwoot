@@ -53,6 +53,12 @@
   var PENDING_KEY = 'toybaco_pending_posting';
 
   var BILLING_MARK = 'toybaco-billing-entry';
+  var POSTING_STATUS_TIMEOUT_MS = 5000;
+  // account_id -> true(出す/残す) / false(200かつenabled:falseで外す)
+  var postingStatusCache = {};
+  var postingStatusInflight = {};
+  var panelSpinner = null;
+
   function postizLogoutUrl() {
     return new URL('/auth/logout', POST_ORIGIN).href;
   }
@@ -254,6 +260,155 @@
     );
   }
 
+  function isTrustedPostizDenied(event, frameWindow) {
+    return !!(
+      event &&
+      event.origin === POST_ORIGIN &&
+      event.source === frameWindow &&
+      event.data &&
+      typeof event.data === 'object' &&
+      event.data.type === 'TOYBACO_POSTIZ_DENIED'
+    );
+  }
+
+  function postingDeniedFor(accountId) {
+    return postingStatusCache[accountId] === false;
+  }
+
+  function resolvePostingAllowed(accountId, cb) {
+    if (!accountId) { cb(true); return; }
+    if (Object.prototype.hasOwnProperty.call(postingStatusCache, accountId)) {
+      cb(postingStatusCache[accountId]);
+      return;
+    }
+    if (postingStatusInflight[accountId]) {
+      postingStatusInflight[accountId].then(cb, function () { cb(true); });
+      return;
+    }
+    var settled = false;
+    var request;
+    try {
+      request = new Promise(function (resolve) {
+        var timer = setTimeout(function () {
+          if (settled) return;
+          settled = true;
+          resolve(true);
+        }, POSTING_STATUS_TIMEOUT_MS);
+        fetch('/toybaco/posting_status?account_id=' + encodeURIComponent(accountId), {
+          credentials: 'same-origin'
+        }).then(function (r) {
+          if (!r || !r.ok) return true;
+          return Promise.resolve(r.json()).then(function (d) {
+            return !(d && d.enabled === false);
+          }).catch(function () { return true; });
+        }).catch(function () { return true; }).then(function (allowed) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(allowed);
+        }, function () {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(true);
+        });
+      }).then(function (allowed) {
+        if (!Object.prototype.hasOwnProperty.call(postingStatusCache, accountId)) {
+          postingStatusCache[accountId] = allowed;
+        }
+        delete postingStatusInflight[accountId];
+        return postingStatusCache[accountId];
+      });
+    } catch (e) {
+      cb(true);
+      return;
+    }
+    postingStatusInflight[accountId] = request;
+    request.then(cb, function () { cb(true); });
+  }
+
+  function showContractMissing() {
+    if (!panel) return;
+    if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+    removeReadyMessageHandler();
+    try {
+      var frame = panel.querySelector('iframe');
+      if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+    } catch (e) { /* noop */ }
+    if (panelSpinner) {
+      panelSpinner.innerHTML = '<span>この会社の契約には投稿が含まれていません。</span>';
+    }
+  }
+
+  function applyPostingDenied() {
+    removePostEntry();
+    showContractMissing();
+  }
+
+  function reconcilePostingAccess(accountId) {
+    resolvePostingAllowed(accountId, function (allowed) {
+      try {
+        if (currentAccountId() !== accountId) return;
+        if (allowed) return;
+        applyPostingDenied();
+      } catch (e) { /* 入口を外せなくても受信箱の邪魔はしない */ }
+    });
+  }
+
+  function mountPostFrame(path, spinner) {
+    var frame = document.createElement('iframe');
+    frame.src = buildSrc(path || DEFAULT_PATH);
+    frame.title = '投稿';
+    frame.style.cssText = 'border:0;width:100%;height:100%;flex:1';
+    frame.allow = 'clipboard-write';
+
+    // load はログイン画面・エラーページでも発火するため成功判定には使わない。
+    // 子が同一originの受信箱ログインへ遷移した場合だけ、top-levelへ脱出させる。
+    frame.addEventListener('load', function () {
+      try {
+        var childHref = frame.contentWindow && frame.contentWindow.location.href;
+        var child = childHref ? new URL(childHref, window.location.href) : null;
+        if (
+          child &&
+          child.origin === window.location.origin &&
+          child.pathname === '/app/login'
+        ) {
+          window.location.assign(child.href);
+        }
+      } catch (e) { /* cross-origin の通常画面は READY を待つ */ }
+    });
+
+    removeReadyMessageHandler();
+    readyMessageHandler = function (event) {
+      if (isTrustedPostizDenied(event, frame.contentWindow)) {
+        applyPostingDenied();
+        return;
+      }
+      if (!isTrustedPostizReady(event, frame.contentWindow)) return;
+      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+      if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+      removeReadyMessageHandler();
+    };
+    window.addEventListener('message', readyMessageHandler);
+
+    loadTimer = setTimeout(function () {
+      if (!panel || !spinner.parentNode || !panel.querySelector('iframe')) return;
+      spinner.innerHTML =
+        '<span>投稿画面を開けませんでした。</span>' +
+        '<button type="button" style="padding:8px 20px;border:1px solid #ccc;border-radius:8px;' +
+        'background:#fff;cursor:pointer">再試行</button>';
+      var btn = spinner.querySelector('button');
+      if (btn) btn.addEventListener('click', function () {
+        var p = currentHashPath() || DEFAULT_PATH;
+        closePanel();
+        openPanel(p, false);
+      });
+    }, LOAD_TIMEOUT_MS);
+
+    if (panel.firstChild) panel.insertBefore(frame, panel.firstChild);
+    else panel.appendChild(frame);
+  }
+
   function openPanel(path, fromHash) {
     if (panel) return;
     // 開けない場面(ログイン前など)で hash だけ残ると、以後ずっと
@@ -279,6 +434,7 @@
     var style = document.createElement('style');
     style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}';
     spinner.appendChild(style);
+    panelSpinner = spinner;
 
     var closeBtn = document.createElement('button');
     closeBtn.type = 'button';
@@ -291,52 +447,6 @@
       'font-size:18px;line-height:1;cursor:pointer;padding:0';
     closeBtn.addEventListener('click', closePanel);
 
-    var frame = document.createElement('iframe');
-    frame.src = buildSrc(path || DEFAULT_PATH);
-    frame.title = '投稿';
-    frame.style.cssText = 'border:0;width:100%;height:100%;flex:1';
-    frame.allow = 'clipboard-write';
-
-    // load はログイン画面・エラーページでも発火するため成功判定には使わない。
-    // 子が同一originの受信箱ログインへ遷移した場合だけ、top-levelへ脱出させる。
-    frame.addEventListener('load', function () {
-      try {
-        var childHref = frame.contentWindow && frame.contentWindow.location.href;
-        var child = childHref ? new URL(childHref, window.location.href) : null;
-        if (
-          child &&
-          child.origin === window.location.origin &&
-          child.pathname === '/app/login'
-        ) {
-          window.location.assign(child.href);
-        }
-      } catch (e) { /* cross-origin の通常画面は READY を待つ */ }
-    });
-
-    removeReadyMessageHandler();
-    readyMessageHandler = function (event) {
-      if (!isTrustedPostizReady(event, frame.contentWindow)) return;
-      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
-      if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
-      removeReadyMessageHandler();
-    };
-    window.addEventListener('message', readyMessageHandler);
-
-    loadTimer = setTimeout(function () {
-      if (!panel || !spinner.parentNode) return;
-      spinner.innerHTML =
-        '<span>投稿画面を開けませんでした。</span>' +
-        '<button type="button" style="padding:8px 20px;border:1px solid #ccc;border-radius:8px;' +
-        'background:#fff;cursor:pointer">再試行</button>';
-      var btn = spinner.querySelector('button');
-      if (btn) btn.addEventListener('click', function () {
-        var p = currentHashPath() || DEFAULT_PATH;
-        closePanel();
-        openPanel(p, false);
-      });
-    }, LOAD_TIMEOUT_MS);
-
-    panel.appendChild(frame);
     panel.appendChild(spinner);
     panel.appendChild(closeBtn);
     document.body.appendChild(panel);
@@ -351,6 +461,14 @@
       else if (!isPostingHash(window.location.hash || '')) closePanel();
       else if (panel) panel.style.left = computeLeft() + 'px';
     }, 300);
+
+    var id = currentAccountId();
+    if (postingDeniedFor(id)) {
+      showContractMissing();
+      return;
+    }
+    mountPostFrame(path, spinner);
+    reconcilePostingAccess(id);
   }
 
   function closePanel() {
@@ -367,6 +485,7 @@
       if (panel.parentNode) panel.parentNode.removeChild(panel);
     } catch (e) { /* noop */ }
     panel = null;
+    panelSpinner = null;
     stripHash();
   }
 
@@ -436,16 +555,11 @@
   // 契約の管理は全員に見えてよいので会社を問わず出す
   function injectBilling(sample) {
     try {
-      var url = window.TOYBACO_BILLING_URL;
-      if (!url || typeof url !== 'string') return;
-      if (url.indexOf('https://billing.stripe.com/') !== 0) return;
       if (document.querySelector('[data-' + BILLING_MARK + ']')) return;
       var li = document.createElement('li');
       li.className = sample.li.className;
       var a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener';
+      a.href = '#';
       a.className = sample.inner.className;
       a.title = 'ご契約内容';
       a.setAttribute('data-' + BILLING_MARK, '1');
@@ -462,9 +576,55 @@
       text.textContent = 'ご契約内容';
       textWrap.appendChild(text);
       a.appendChild(textWrap);
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        openBillingPanel();
+      });
       li.appendChild(a);
       sample.ul.appendChild(li);
     } catch (e) { /* 出せなくても邪魔はしない */ }
+  }
+
+  var billingPanel = null;
+
+  // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
+  // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
+  function openBillingPanel() {
+    try {
+      if (billingPanel) { closeBillingPanel(); return; }
+      var id = currentAccountId();
+      if (!id) return;
+      var wrapEl = document.createElement('div');
+      wrapEl.setAttribute('data-toybaco-billing-panel', '1');
+      wrapEl.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:' + computeLeft() +
+        'px;z-index:9998;background:#FAF7F2;box-shadow:-8px 0 24px rgba(0,0,0,.12);display:flex;flex-direction:column;';
+      var bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;justify-content:flex-end;padding:8px 12px;';
+      var close = document.createElement('button');
+      close.textContent = '× 閉じる';
+      close.style.cssText = 'border:none;background:none;cursor:pointer;font-size:14px;color:#6B7684;padding:6px 10px;';
+      close.addEventListener('click', closeBillingPanel);
+      bar.appendChild(close);
+      var frame = document.createElement('iframe');
+      frame.src = '/toybaco/billing?account_id=' + encodeURIComponent(id);
+      frame.style.cssText = 'flex:1;border:none;width:100%;';
+      wrapEl.appendChild(bar);
+      wrapEl.appendChild(frame);
+      document.body.appendChild(wrapEl);
+      billingPanel = wrapEl;
+      document.addEventListener('keydown', escCloseBilling);
+    } catch (e) { /* 開けなくても邪魔はしない */ }
+  }
+
+  function closeBillingPanel() {
+    if (!billingPanel) return;
+    try { billingPanel.remove(); } catch (e) { /* noop */ }
+    billingPanel = null;
+    document.removeEventListener('keydown', escCloseBilling);
+  }
+
+  function escCloseBilling(e) {
+    if (e.key === 'Escape') closeBillingPanel();
   }
 
   function inject() {
@@ -486,8 +646,13 @@
           return;
         }
       }
-      // 入口はログイン後の会社画面に表示し、契約・所属の最終判定は
-      // OIDC authorize 側へ一本化する。UI専用の追加通信には依存しない。
+      // 入口はログイン後の会社画面に先に出す(#28)。契約の裏取りは
+      // posting_status で行うが、通信完了は待たない。最終ゲートは
+      // OIDC authorize。200 かつ enabled:false のときだけ後から外す。
+      if (postingDeniedFor(id)) {
+        removePostEntry();
+        return;
+      }
       removePostEntry();
       var now = findMenu();
       if (!now) return;
@@ -495,6 +660,7 @@
       // 投稿は受信箱と並ぶ主機能。設定・請求項目の下へ埋もれないよう、
       // 最初のtop-level行（私の受信トレイ）の直後へ置く。
       placeEntry(now, buildEntry(now, id));
+      reconcilePostingAccess(id);
     } catch (e) { /* 入口が出せなくても受信箱の邪魔はしない */ }
   }
 

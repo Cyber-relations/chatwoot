@@ -356,3 +356,300 @@ select:focus {
 .tb-submit:hover {
   background-color: rgb(var(--blue-10)) !important;
 }
+
+/* ===== 受信箱シェル(ログイン後)を LP .pack-mock / .app に寄せる =====
+ * 対象は Chatwoot Community の既存クラスだけ。Vue は触らない。
+ * クロム(幅・半径・選択)は生 LP の .pack-mock。トークン正本は docs/brand.md。
+ * --toybaco-navy-deep は #163049 のまま(LP :root の #16273E は持ち込まない)。 */
+:root {
+  --toybaco-surface: #fcfbf8;
+  --toybaco-wash: #e8eef5;
+  --toybaco-hairline: #e7e4dc;
+  --toybaco-line: #0b7a35;
+  --toybaco-line-wash: #e7f6ec;
+  --toybaco-resolve: #2e9e63;
+}
+
+.dark {
+  --toybaco-surface: #121a26;
+  --toybaco-wash: #1f3046;
+  --toybaco-hairline: #22304a;
+  --toybaco-line: #7ed8a2;
+  --toybaco-line-wash: #173226;
+  --toybaco-resolve: #2e9e63;
+}
+
+/* 4ペイン密度: ナビ ~168px | 会話リスト ~226px | chat 1fr | 連絡先 ~196px。
+ * 折りたたみ(56px)と手動リサイズはインライン幅のまま。16px のモック窓枠は #app に付けない。 */
+@media (min-width: 768px) {
+  aside[style] {
+    background-color: var(--toybaco-offwhite) !important;
+    border-right: 1px solid var(--toybaco-hairline);
+  }
+
+  aside[style*="width: 200px"] {
+    width: 168px !important;
+    min-width: 168px !important;
+    max-width: 168px !important;
+  }
+}
+
+.conversations-list-wrap:not(.basis-full) {
+  width: 226px !important;
+  min-width: 226px !important;
+  max-width: 226px !important;
+  background-color: var(--toybaco-surface) !important;
+  border-right: 1px solid var(--toybaco-hairline);
+}
+
+[class*="md:w-[320px]"][class*="2xl:w-[360px]"] {
+  width: 196px !important;
+  min-width: 196px !important;
+  max-width: 196px !important;
+  border-left: 1px solid var(--toybaco-hairline);
+  background-color: var(--toybaco-offwhite) !important;
+  font-size: 12.5px;
+}
+
+[class*="md:w-[320px]"][class*="2xl:w-[360px]"] h3,
+[class*="md:w-[320px]"][class*="2xl:w-[360px]"] h4 {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em;
+  color: var(--toybaco-muted) !important;
+}
+
+/* 一次ナビ: pack-mock の5項目だけ見せる。投稿・ご契約は post-entry 注入を残す */
+aside nav ul {
+  display: flex;
+  flex-direction: column;
+}
+
+aside nav ul > li:has(.i-lucide-contact),
+aside nav ul > li:has(a[href*="/contacts"]),
+aside nav ul > li:has(a[href*="/campaigns"]),
+aside nav ul > li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
+aside nav ul > li:has(a[href*="/portals"]),
+aside nav ul > li:has(.i-lucide-library-big),
+aside nav ul > li:has(a[href*="/captain"]),
+aside nav ul > li:has(.i-lucide-sparkles),
+aside nav ul > li:has(.i-lucide-bot),
+aside nav ul > li:has(a[href*="/companies"]),
+aside nav ul > li:has(.i-lucide-building),
+aside nav ul > li:has(a[href*="/calls"]),
+aside nav ul > li:has(.i-lucide-phone),
+aside nav ul > li:has(a[href*="/notifications"]) {
+  display: none !important;
+}
+
+aside nav ul > li:has(a[href*="/inbox"]),
+aside nav ul > li:has(a[href*="inbox-view"]),
+aside nav ul > li:has(a[href*="/conversations"]) {
+  order: 1;
+}
+
+aside nav ul > li:has([data-toybaco-post-entry]),
+aside nav ul > li[data-toybaco-post-entry-wrap] {
+  order: 2;
+}
+
+aside nav ul > li:has([data-toybaco-billing-entry]) {
+  order: 3;
+}
+
+aside nav ul > li:has(a[href*="/reports"]) {
+  order: 4;
+}
+
+aside nav ul > li:has(a[href*="/settings"]) {
+  order: 5;
+}
+
+/* 一次ナビ: 選択は wash + ネイビー + 半径9 + 800。バッジはネイビピル */
+aside nav a,
+aside nav [role="button"] {
+  border-radius: 9px !important;
+}
+
+aside nav a.router-link-active,
+aside nav a.bg-n-alpha-2,
+aside nav [role="button"].bg-n-alpha-2,
+aside nav a[class*="bg-n-alpha-2"],
+aside nav [role="button"][class*="bg-n-alpha-2"] {
+  background-color: var(--toybaco-wash) !important;
+  color: var(--toybaco-navy) !important;
+  font-weight: 800 !important;
+}
+
+aside nav a.router-link-active span,
+aside nav a.bg-n-alpha-2 span,
+aside nav [role="button"].bg-n-alpha-2 span {
+  color: var(--toybaco-navy) !important;
+  font-weight: 800 !important;
+}
+
+.dark aside nav a.router-link-active,
+.dark aside nav a.bg-n-alpha-2,
+.dark aside nav [role="button"].bg-n-alpha-2 {
+  color: #bbd3ee !important;
+}
+
+.dark aside nav a.router-link-active span,
+.dark aside nav a.bg-n-alpha-2 span {
+  color: #bbd3ee !important;
+}
+
+aside nav [data-test-id="sidebar-unread-badge"],
+aside nav .rounded-full.bg-n-slate-4,
+aside nav .rounded-full.bg-n-brand,
+aside nav span.inline-grid.rounded-full {
+  background-color: var(--toybaco-navy) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+}
+
+/* 会話タブ 自分/未対応/すべて: 選択は wash + ネイビー + 半径7。下線は消す */
+.conversations-list-wrap .tabs-title > a,
+.conversations-list-wrap li > a.text-button {
+  border-radius: 7px !important;
+  padding-left: 9px !important;
+  padding-right: 9px !important;
+}
+
+.conversations-list-wrap li > a.text-n-blue-11,
+.conversations-list-wrap li > a[class*="text-n-blue-11"],
+.conversations-list-wrap li > a[class*="after:bg-n-brand"] {
+  background-color: var(--toybaco-wash) !important;
+  color: var(--toybaco-navy) !important;
+  font-weight: 700 !important;
+}
+
+.conversations-list-wrap li > a.text-button::after {
+  display: none !important;
+}
+
+.conversations-list-wrap li > a.text-n-blue-11 > div,
+.conversations-list-wrap li > a[class*="text-n-blue-11"] > div {
+  background-color: var(--toybaco-navy) !important;
+  color: #fff !important;
+}
+
+.conversations-list .conversation {
+  border-radius: 9px;
+}
+
+/* 選択中の会話: wash + 左2.5px ネイビー */
+.conversations-list .conversation.active,
+.conversations-list .conversation.animate-card-select {
+  background-color: var(--toybaco-wash) !important;
+  box-shadow: inset 2.5px 0 0 var(--toybaco-navy) !important;
+  border-color: transparent !important;
+}
+
+.dark .conversations-list .conversation.active {
+  box-shadow: inset 2.5px 0 0 #4a76a6 !important;
+}
+
+/* 吹き出し: 受信=surface+罫線 / 送信=ネイビー塗り */
+.left-bubble {
+  background-color: var(--toybaco-surface) !important;
+  color: var(--toybaco-ink) !important;
+  border: 1px solid var(--toybaco-hairline) !important;
+  border-radius: 13px !important;
+  border-bottom-left-radius: 4px !important;
+}
+
+.right-bubble {
+  background-color: var(--toybaco-navy) !important;
+  color: #fff !important;
+  border-radius: 13px !important;
+  border-bottom-right-radius: 4px !important;
+}
+
+.dark .left-bubble {
+  color: #d6e4f2 !important;
+}
+
+.dark .right-bubble {
+  color: #f2f7fd !important;
+}
+
+.right-bubble:hover {
+  background-color: var(--toybaco-navy) !important;
+}
+
+/* システム行: 開いた会話の黄。Chatwoot 既存 amber スケールのみ。新しい hex は足さない */
+[data-bubble-name="activity"] {
+  background-color: rgb(var(--amber-3)) !important;
+  color: rgb(var(--amber-11)) !important;
+  border: 1px solid rgb(var(--amber-5));
+  font-weight: 600;
+}
+
+/* LINE チャネルチップ: 緑ピル(ヘッダの InboxName) */
+.conversation--header--actions [title*="LINE" i],
+.conversation--header--actions [title*="ライン"],
+.conversation--header--actions [class*="i-woot-line"] {
+  background-color: var(--toybaco-line-wash);
+  color: var(--toybaco-line) !important;
+  border-radius: 999px;
+  padding: 2.5px 9px;
+  font-weight: 800;
+}
+
+.conversation--header--actions [title*="LINE" i] span,
+.conversation--header--actions [title*="ライン"] span {
+  color: var(--toybaco-line) !important;
+  font-weight: 800;
+}
+
+/* 解決ボタン: #2E9E63・半径8・白文字 */
+.resolve-actions > div:first-child,
+.resolve-actions .flex-shrink-0 {
+  border-radius: 8px !important;
+  outline-color: transparent !important;
+}
+
+.resolve-actions button:first-of-type {
+  background-color: var(--toybaco-resolve) !important;
+  color: #fff !important;
+  border-radius: 8px 0 0 8px !important;
+  font-weight: 800 !important;
+}
+
+/* 作曲欄: surface カード・半径11。送信はネイビー・半径8 */
+.reply-box {
+  background-color: var(--toybaco-surface) !important;
+  border: 1px solid var(--toybaco-hairline) !important;
+  border-radius: 11px !important;
+}
+
+.reply-box button[type="submit"],
+.reply-box .send-button,
+.reply-box .right-wrap > button:last-child {
+  background-color: var(--toybaco-navy) !important;
+  color: #fff !important;
+  border-radius: 8px !important;
+  filter: none !important;
+}
+
+.reply-box button[type="submit"]:hover,
+.reply-box button[type="submit"]:hover:enabled,
+.reply-box .send-button:hover,
+.reply-box .send-button:hover:enabled,
+.reply-box .right-wrap > button:last-child:hover,
+.reply-box .right-wrap > button:last-child:hover:enabled {
+  background-color: var(--toybaco-navy-deep) !important;
+  color: #fff !important;
+  filter: none !important;
+}
+
+.reply-box.is-private button[type="submit"] {
+  background-color: #c9842a !important;
+}
+
+/* 作曲タブ(返信 / プライベートメモ): 選択チップを wash + 半径7 */
+.reply-box button.rounded-full > .absolute.rounded-full {
+  background-color: var(--toybaco-wash) !important;
+  border-radius: 7px !important;
+}

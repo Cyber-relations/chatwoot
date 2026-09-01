@@ -8,16 +8,16 @@
     },
     "FAILED_TO_SEND": "送信に失敗しました",
     "FETCH_ERROR": "会話を読み込めませんでした。もう一度試してください。",
-    "TAB_HEADING": "会話データ",
+    "TAB_HEADING": "会話",
     "MENTION_HEADING": "メンション",
     "UNATTENDED_HEADING": "未対応",
     "SEARCH": {
-      "INPUT": "人物、チャット、保存された返信を検索する"
+      "INPUT": "会話・お客様・投稿を検索"
     },
     "FILTER_ALL": "すべて",
     "ASSIGNEE_TYPE_TABS": {
       "me": "自分",
-      "unassigned": "未割当",
+      "unassigned": "未対応",
       "all": "すべて"
     },
     "CHAT_STATUS_FILTER_ITEMS": {

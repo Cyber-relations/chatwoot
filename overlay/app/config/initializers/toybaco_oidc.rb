@@ -13,6 +13,10 @@ Rails.application.config.filter_parameters += [:code, :access_token, :client_sec
 
 # append のブロック内でENVを判定し、routes reload 時も現在の設定を反映する。
 Rails.application.routes.append do
+  # ご契約内容(OIDC の設定有無に関わらず提供する)
+  get '/toybaco/billing', to: 'toybaco/billing#show'
+  post '/toybaco/billing/portal', to: 'toybaco/billing#portal'
+
   if toybaco_oidc_required_envs.all? { |name| ENV[name].present? }
     get '/toybaco/connect', to: 'toybaco/oidc#authorize'
     # 稼働中の旧Postiz taskとのローリング更新互換。新規接続とdiscoveryは上の経路を使う。
