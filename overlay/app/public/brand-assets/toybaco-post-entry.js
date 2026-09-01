@@ -531,17 +531,157 @@
     }
   }
 
+  // Chatwoot v4 一次ナビの在庫グループ。親は to が無く title + lucide で識別する。
+  var STOCK_TITLES = {
+    '連絡先': 1,
+    'キャンペーン': 1,
+    'ヘルプセンター': 1,
+    'レポート': 1,
+    '設定': 1,
+    '企業': 1,
+    '通話': 1,
+    'AIアシスタント': 1,
+    Contacts: 1,
+    Campaigns: 1,
+    'Help Center': 1,
+    Reports: 1,
+    Settings: 1,
+    Companies: 1,
+    Calls: 1,
+    Captain: 1
+  };
+  var STOCK_ICON_RE = /\b(i-lucide-contact|i-lucide-library-big|i-lucide-chart-spline|i-lucide-bolt|i-woot-captain|i-lucide-building-2|i-lucide-phone|i-lucide-sparkles)\b/;
+  var STOCK_HREF_RE = /\/(contacts|campaigns|portals|reports|settings|captain|companies|calls|notifications)(\/|\?|#|$)/;
+  var INJECT_RETRY_MS = [0, 16, 50, 100, 200, 400, 800, 1600, 3200, 6000, 10000];
+
+  function isToybacoNavRow(row) {
+    if (!row) return false;
+    try {
+      if (row.getAttribute && (
+        row.getAttribute('data-' + MARK + '-wrap') === '1' ||
+        row.getAttribute('data-' + MARK) ||
+        row.getAttribute('data-' + BILLING_MARK)
+      )) return true;
+      return !!(row.querySelector && row.querySelector(
+        '[data-' + MARK + '], [data-' + MARK + '-wrap], [data-' + BILLING_MARK + ']'
+      ));
+    } catch (e) { return false; }
+  }
+
+  function classNameOf(node) {
+    var cls = node && node.className;
+    if (typeof cls === 'string') return cls;
+    if (cls && typeof cls.baseVal === 'string') return cls.baseVal;
+    return '';
+  }
+
+  function walkNavNodes(row, visit) {
+    if (!row) return;
+    visit(row);
+    var kids = row.children || [];
+    for (var i = 0; i < kids.length; i += 1) walkNavNodes(kids[i], visit);
+  }
+
+  function rowLooksStock(row) {
+    if (!row || isToybacoNavRow(row)) return false;
+    try {
+      var hit = false;
+      walkNavNodes(row, function (node) {
+        if (hit) return;
+        var title = node.getAttribute && node.getAttribute('title');
+        if (title && STOCK_TITLES[title]) { hit = true; return; }
+        var cls = classNameOf(node);
+        if (STOCK_ICON_RE.test(cls)) { hit = true; return; }
+        if (/\bi-lucide-megaphone\b/.test(cls) && !isToybacoNavRow(row)) { hit = true; return; }
+        var href = (node.getAttribute && node.getAttribute('href')) || node.href || '';
+        if (href && STOCK_HREF_RE.test(href)) hit = true;
+      });
+      return hit;
+    } catch (e) { return false; }
+  }
+
+  function hideStockRow(row) {
+    try {
+      if (row.style && row.style.setProperty) {
+        row.style.setProperty('display', 'none', 'important');
+      } else if (row.style) {
+        row.style.display = 'none';
+      }
+      if (row.setAttribute) row.setAttribute('data-toybaco-stock-hidden', '1');
+      if (row.setAttribute) row.setAttribute('aria-hidden', 'true');
+    } catch (e) { /* 隠せなくても受信箱の邪魔はしない */ }
+  }
+
+  function primaryNavList() {
+    try {
+      if (typeof document.querySelector === 'function') {
+        var preferred = document.querySelector('aside nav > ul') ||
+          document.querySelector('aside nav ul');
+        if (preferred) return preferred;
+      }
+    } catch (e) { /* テストfixtureや古いDOMでも落とさない */ }
+    try {
+      var navs = document.querySelectorAll('nav');
+      for (var i = 0; i < navs.length; i += 1) {
+        var ul = navs[i].querySelector && navs[i].querySelector('ul');
+        if (ul) return ul;
+      }
+    } catch (e) { /* noop */ }
+    return null;
+  }
+
+  function hideStockNav() {
+    try {
+      var ul = primaryNavList();
+      if (!ul) return;
+      var rows = ul.children || [];
+      for (var i = 0; i < rows.length; i += 1) {
+        var row = rows[i];
+        if (rowLooksStock(row)) hideStockRow(row);
+      }
+    } catch (e) { /* 隠せなくても受信箱の邪魔はしない */ }
+  }
+
+  function firstSampleRow(ul) {
+    if (!ul || !ul.querySelector) return null;
+    // 再描画時に自分自身を「先頭の標準行」と誤認しない。
+    var li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');
+    while (li && (
+      (li.getAttribute && li.getAttribute('data-toybaco-stock-hidden') === '1') ||
+      isToybacoNavRow(li)
+    )) {
+      li = li.nextElementSibling;
+      while (li && li.tagName && li.tagName.toLowerCase() !== 'li') {
+        li = li.nextElementSibling;
+      }
+    }
+    return li;
+  }
+
+  function menuFromUl(ul) {
+    if (!ul) return null;
+    var li = firstSampleRow(ul);
+    if (!li) return null;
+    var inner = li.querySelector && li.querySelector('a, [role="button"]');
+    if (!inner) return null;
+    return { ul: ul, li: li, inner: inner };
+  }
+
   function findMenu() {
+    try {
+      if (typeof document.querySelector === 'function') {
+        var asideUl = document.querySelector('aside nav > ul') ||
+          document.querySelector('aside nav ul');
+        var preferred = menuFromUl(asideUl);
+        if (preferred) return preferred;
+      }
+    } catch (e) { /* aside が無い初回描画では通常の nav を探す */ }
     var navs = document.querySelectorAll('nav');
-    for (var i = 0; i < navs.length; i++) {
+    for (var i = 0; i < navs.length; i += 1) {
       var ul = navs[i].querySelector('ul');
       if (!ul) continue;
-      // 再描画時に自分自身を「先頭の標準行」と誤認しない。
-      var li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');
-      if (!li) continue;
-      var inner = li.querySelector('a, [role="button"]');
-      if (!inner) continue;
-      return { ul: ul, li: li, inner: inner };
+      var found = menuFromUl(ul);
+      if (found) return found;
     }
     return null;
   }
@@ -631,6 +771,7 @@
     try {
       installLogoutBridge();
       if (!isLoggedInView()) return;
+      hideStockNav();
       var sample = findMenu();
       if (!sample) return;
       injectBilling(sample);
@@ -661,6 +802,7 @@
       // 最初のtop-level行（私の受信トレイ）の直後へ置く。
       placeEntry(now, buildEntry(now, id));
       reconcilePostingAccess(id);
+      hideStockNav();
     } catch (e) { /* 入口が出せなくても受信箱の邪魔はしない */ }
   }
 
@@ -683,28 +825,59 @@
     } catch (e) { /* 差し替えられなくても開いたままにする */ }
   }
 
+  function afterNavChange() {
+    inject();
+    if (!panel && (currentHashPath() !== null || hasPendingPath())) {
+      onHashMaybeChanged();
+    }
+  }
+
+  function hookHistory() {
+    try {
+      var hist = window.history;
+      if (!hist) return;
+      ['pushState', 'replaceState'].forEach(function (type) {
+        var orig = hist[type];
+        if (typeof orig !== 'function' || orig.__toybacoNavHooked) return;
+        var wrapped = function () {
+          var ret = orig.apply(this, arguments);
+          setTimeout(afterNavChange, 0);
+          return ret;
+        };
+        wrapped.__toybacoNavHooked = true;
+        hist[type] = wrapped;
+      });
+    } catch (e) { /* history を包めなくても observer と再試行で拾う */ }
+  }
+
   function start() {
     inject();
+    hookHistory();
     try {
       var pending = null;
       var observer = new MutationObserver(function () {
         if (pending) return;
-        pending = setTimeout(function () {
+        // Vue の v-for が注入行を消したら、次フレームで付け直す。
+        // DOMContentLoaded だけだと初回タブで 投稿/ご契約 が欠け、F5 後に出る。
+        pending = (window.requestAnimationFrame || function (cb) {
+          return setTimeout(cb, 16);
+        })(function () {
           pending = null;
-          inject();
-          // 受信箱は画面遷移で hashchange を出さないことがある。
-          // 描き替えのたびに「hash はあるのに開いていない」を拾い直す。
-          // hash は受信箱のルーターに捨てられることがあるので、
-          // 退避が残っている場合も拾い直す
-          if (!panel && (currentHashPath() !== null || hasPendingPath())) {
-            onHashMaybeChanged();
-          }
-        }, 250);
+          afterNavChange();
+        });
       });
-      observer.observe(document.body, { childList: true, subtree: true });
-    } catch (e) { /* 使えない環境では初回だけ */ }
+      var root = document.documentElement || document.body;
+      if (root) observer.observe(root, { childList: true, subtree: true });
+    } catch (e) { /* 使えない環境では再試行だけ */ }
 
-    window.addEventListener('popstate', onHashMaybeChanged);
+    var r = 0;
+    for (r = 0; r < INJECT_RETRY_MS.length; r += 1) {
+      setTimeout(afterNavChange, INJECT_RETRY_MS[r]);
+    }
+
+    window.addEventListener('popstate', function () {
+      afterNavChange();
+    });
     window.addEventListener('hashchange', onHashMaybeChanged);
     // 転送(統合ビュー)から着地した場合はここで開く
     onHashMaybeChanged();

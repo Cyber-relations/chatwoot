@@ -419,50 +419,87 @@ select:focus {
   color: var(--toybaco-muted) !important;
 }
 
-/* 一次ナビ: pack-mock の5項目だけ見せる。投稿・ご契約は post-entry 注入を残す */
-aside nav ul {
+/* 一次ナビ: Chatwoot v4 の在庫グループを隠す。投稿・ご契約は post-entry 注入を残す。
+ * グループ親(連絡先/キャンペーン/ヘルプ/レポート/設定)は to が無く、ヘッダは
+ * div[title] + i-lucide-*。href は展開後の子にしか付かない。
+ * `ul > li` だけだと Policy の根や入れ子 ul で外れるので、aside nav の直下を広く取る。 */
+aside nav ul,
+aside nav > ul {
   display: flex;
   flex-direction: column;
 }
 
+aside nav > ul > *:has(.i-lucide-contact),
+aside nav > ul > *:has(.i-lucide-library-big),
+aside nav > ul > *:has(.i-lucide-chart-spline),
+aside nav > ul > *:has(.i-lucide-bolt),
+aside nav > ul > *:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
+aside nav > ul > *:has(.i-woot-captain),
+aside nav > ul > *:has(.i-lucide-building-2),
+aside nav > ul > *:has(.i-lucide-phone),
+aside nav > ul > *:has(.i-lucide-sparkles),
+aside nav > ul > *:has(.i-lucide-bot),
+aside nav > ul > *:has(.i-lucide-building),
+aside nav > ul > *:has([title="連絡先"]),
+aside nav > ul > *:has([title="キャンペーン"]),
+aside nav > ul > *:has([title="ヘルプセンター"]),
+aside nav > ul > *:has([title="レポート"]),
+aside nav > ul > *:has([title="設定"]),
+aside nav > ul > *:has([title="企業"]),
+aside nav > ul > *:has([title="通話"]),
+aside nav > ul > *:has([title="AIアシスタント"]),
+aside nav > ul > *:has([title="Contacts"]),
+aside nav > ul > *:has([title="Campaigns"]),
+aside nav > ul > *:has([title="Help Center"]),
+aside nav > ul > *:has([title="Reports"]),
+aside nav > ul > *:has([title="Settings"]),
 aside nav ul > li:has(.i-lucide-contact),
-aside nav ul > li:has(a[href*="/contacts"]),
-aside nav ul > li:has(a[href*="/campaigns"]),
-aside nav ul > li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
-aside nav ul > li:has(a[href*="/portals"]),
 aside nav ul > li:has(.i-lucide-library-big),
-aside nav ul > li:has(a[href*="/captain"]),
+aside nav ul > li:has(.i-lucide-chart-spline),
+aside nav ul > li:has(.i-lucide-bolt),
+aside nav ul > li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
+aside nav ul > li:has(.i-woot-captain),
+aside nav ul > li:has(.i-lucide-building-2),
+aside nav ul > li:has(.i-lucide-phone),
 aside nav ul > li:has(.i-lucide-sparkles),
 aside nav ul > li:has(.i-lucide-bot),
-aside nav ul > li:has(a[href*="/companies"]),
 aside nav ul > li:has(.i-lucide-building),
+aside nav ul > li:has(a[href*="/contacts"]),
+aside nav ul > li:has(a[href*="/campaigns"]),
+aside nav ul > li:has(a[href*="/portals"]),
+aside nav ul > li:has(a[href*="/reports"]),
+aside nav ul > li:has(a[href*="/settings"]),
+aside nav ul > li:has(a[href*="/captain"]),
+aside nav ul > li:has(a[href*="/companies"]),
 aside nav ul > li:has(a[href*="/calls"]),
-aside nav ul > li:has(.i-lucide-phone),
-aside nav ul > li:has(a[href*="/notifications"]) {
+aside nav ul > li:has(a[href*="/notifications"]),
+aside nav ul > li:has([title="連絡先"]),
+aside nav ul > li:has([title="キャンペーン"]),
+aside nav ul > li:has([title="ヘルプセンター"]),
+aside nav ul > li:has([title="レポート"]),
+aside nav ul > li:has([title="設定"]) {
   display: none !important;
 }
 
 aside nav ul > li:has(a[href*="/inbox"]),
 aside nav ul > li:has(a[href*="inbox-view"]),
-aside nav ul > li:has(a[href*="/conversations"]) {
+aside nav ul > li:has(a[href*="/conversations"]),
+aside nav > ul > *:has(.i-lucide-inbox),
+aside nav > ul > *:has(.i-lucide-message-circle),
+aside nav > ul > *:has([title="会話"]) {
   order: 1;
 }
 
 aside nav ul > li:has([data-toybaco-post-entry]),
-aside nav ul > li[data-toybaco-post-entry-wrap] {
+aside nav ul > li[data-toybaco-post-entry-wrap],
+aside nav > ul > *:has([data-toybaco-post-entry]),
+aside nav > ul > *[data-toybaco-post-entry-wrap] {
   order: 2;
 }
 
-aside nav ul > li:has([data-toybaco-billing-entry]) {
+aside nav ul > li:has([data-toybaco-billing-entry]),
+aside nav > ul > *:has([data-toybaco-billing-entry]) {
   order: 3;
-}
-
-aside nav ul > li:has(a[href*="/reports"]) {
-  order: 4;
-}
-
-aside nav ul > li:has(a[href*="/settings"]) {
-  order: 5;
 }
 
 /* 一次ナビ: 選択は wash + ネイビー + 半径9 + 800。バッジはネイビピル */
