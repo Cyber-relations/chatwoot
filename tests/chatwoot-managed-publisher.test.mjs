@@ -67,7 +67,7 @@ function validatePostEntryNavigation(source) {
   const markedWrap =
     "if (existingWrap && existingWrap.getAttribute('data-' + MARK + '-wrap') === '1') {";
   const repairPosition = 'placeEntry(sample, existingWrap);';
-  const removeExisting = 'removePostEntry();';
+  const removeExisting = '      removePostEntry();\n      var now = findMenu();';
   const duplicateGuard = "if (document.querySelector('[data-' + MARK + ']')) return;";
   const insertAfterFirst = 'placeEntry(now, buildEntry(now, id));';
 

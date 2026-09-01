@@ -95,7 +95,10 @@ namespace :toybaco do
   # スターター: Instagram DM はスタンダード以上(LP の記載どおり)
   PLAN_DISABLED_FEATURES = {
     'starter' => %w[channel_instagram],
+    'light' => %w[channel_instagram], # v2: starter 相当(3名まで・IG なし)
     'standard' => [],
+    'pro' => [],                      # v2: standard 相当+AI(AI 有効化は手動セット)
+    'premium' => [],                  # v2: 3店舗+AI 1,500件(追加店舗はダッシュボード運用)
     'business' => []
   }.freeze
 
@@ -113,13 +116,63 @@ namespace :toybaco do
     attrs = account.internal_attributes || {}
     updates = { 'toybaco_plan' => plan }
     # スタンダード以上は投稿機能を内包する(スターターはオプション契約時に enable_posting)
-    if %w[standard business].include?(plan)
+    if %w[standard business pro premium].include?(plan)
       updates['postiz'] = (attrs['postiz'] || {}).merge('enabled' => true)
     end
     account.update!(internal_attributes: attrs.merge(updates))
 
     puts "#{account.name}(##{account.id})に #{plan} の設定を適用しました" \
-         "(無効化: #{disabled.presence&.join(', ') || 'なし'} / 投稿: #{%w[standard business].include?(plan) ? '内包' : 'オプション'})"
+         "(無効化: #{disabled.presence&.join(', ') || 'なし'} / 投稿: #{%w[standard business pro premium].include?(plan) ? '内包' : 'オプション'})"
+  end
+
+  desc '決済完了からのアカウント自動開通(rake toybaco:provision[Base64のJSON])。冪等'
+  task :provision, [:payload] => :environment do |_t, args|
+    require 'base64'
+    require 'securerandom'
+
+    data = JSON.parse(Base64.strict_decode64(args[:payload].to_s))
+    email = data.fetch('email').to_s.strip.downcase
+    name = data['name'].presence || email.split('@').first
+    plan = data.fetch('plan')
+    posting = data['posting'] == true
+    subscription_id = data.fetch('subscription_id')
+    abort 'プランが不正です' unless PLAN_DISABLED_FEATURES.key?(plan)
+    abort 'メールが不正です' unless email.match?(URI::MailTo::EMAIL_REGEXP)
+
+    # 冪等: 同じサブスクリプションで既に開通済みなら何もしない(Stripe の再送対策)
+    existing = Account.find_each.find do |a|
+      a.internal_attributes&.dig('toybaco_subscription_id') == subscription_id
+    end
+    if existing
+      puts "既に開通済み: account ##{existing.id}(subscription #{subscription_id})"
+      next
+    end
+
+    ActiveRecord::Base.transaction do
+      user = User.from_email(email)
+      if user.nil?
+        user = User.new(name: name, email: email, password: "#{SecureRandom.alphanumeric(20)}aA1!")
+        user.skip_confirmation! # パスワード設定メール(下記)に一本化する
+        user.save!
+      end
+
+      account = Account.create!(name: name, locale: 'ja')
+      AccountUser.create!(account: account, user: user, role: :administrator)
+
+      disabled = PLAN_DISABLED_FEATURES[plan]
+      account.disable_features!(*disabled) if disabled.any?
+      attrs = account.internal_attributes || {}
+      updates = { 'toybaco_plan' => plan, 'toybaco_subscription_id' => subscription_id }
+      if %w[standard business pro premium].include?(plan) || posting
+        updates['postiz'] = (attrs['postiz'] || {}).merge('enabled' => true)
+      end
+      account.update!(internal_attributes: attrs.merge(updates))
+
+      # トイバコ化済みの「パスワード再設定」メールが実質の開通案内リンクになる
+      user.send_reset_password_instructions
+      puts "開通完了: account ##{account.id} #{name} / #{email} / #{plan}" \
+           "#{posting ? ' / 投稿オプション' : ''} / subscription #{subscription_id}"
+    end
   end
 
   desc 'プラン・利用状況の一覧(スターターの人数上限 3 名は目視で確認する)'
@@ -130,7 +183,7 @@ namespace :toybaco do
       agents = account.account_users.count
       ig = account.feature_enabled?('channel_instagram') ? 'IG可' : 'IG不可'
       posting = attrs.dig('postiz', 'enabled') == true ? '投稿あり' : '投稿なし'
-      over = plan == 'starter' && agents > 3 ? ' ★人数超過(スターターは3名まで)' : ''
+      over = %w[starter light].include?(plan) && agents > 3 ? ' ★人数超過(このプランは3名まで)' : ''
       puts "##{account.id} #{account.name}: #{plan} / #{agents}名 / #{ig} / #{posting}#{over}"
     end
   end
