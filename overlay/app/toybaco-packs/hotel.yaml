@@ -7,47 +7,56 @@ accent: blue
 
 canned_responses:
   - short_code: akishitsu-kakunin
+    name: 空室確認
     content: |
       お問い合わせありがとうございます。
       ご希望の宿泊日、泊数、人数、部屋数をお知らせください。
       空室状況を確認してご案内します。
   - short_code: akishitsu-annai
+    name: 空室案内
     content: |
       空室状況についてご案内します。
       ◯月◯日は◯室の空きがあります。
       料金と宿泊条件は<URL>からご確認ください。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       予約内容の変更についてご連絡ありがとうございます。
       ご予約者名、宿泊日、変更をご希望の内容をお知らせください。
       内容を確認して、あらためてご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       キャンセルについてご連絡ありがとうございます。
       ご予約者名と宿泊日をお知らせください。
       予約内容と規定を確認して、担当者からご案内します。
   - short_code: amenity-annai
+    name: アメニティ案内
     content: |
       アメニティについてお問い合わせありがとうございます。
       お部屋には◯をご用意しています。
       必要なものがありましたら、事前にお知らせください。
   - short_code: checkin-annai
+    name: チェックイン案内
     content: |
       チェックインについてご案内します。
       チェックインは◯時から◯時まで、チェックアウトは◯時までです。
       到着予定時刻が変わる場合は、このメッセージにご返信ください。
   - short_code: access-annai
+    name: アクセス案内
     content: |
       所在地はこちらです。
       <URL>
       ◯からの交通手段は◯です。
       道順についてご不明な場合は、お気軽にお問い合わせください。
   - short_code: dantai-sodan
+    name: 団体相談
     content: |
       団体利用のご相談ありがとうございます。
       ご希望の日程、人数、部屋数、ご利用目的をお知らせください。
       内容を確認して、担当者からご案内します。
   - short_code: heya-kibo
+    name: 部屋希望
     content: |
       お部屋の設備やご希望についてお問い合わせありがとうございます。
       確認したい設備やご希望の内容をお知らせください。

@@ -150,9 +150,11 @@ integration_ruby_file_list() {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
-        -name 'toybaco_postiz_lifecycle.rb' \) -print
+        -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o \
+        -name 'toybaco_inbound_email.rb' \) -print
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
-        \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' \) -print
+        \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o \
+        -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' \) -print
       find overlay/app/lib/toybaco/oidc -type f -name '*.rb' -print
       find overlay/app/spec -type f -name '*_spec.rb' -print
     } | LC_ALL=C sort -u
@@ -296,6 +298,7 @@ assert_control_contract() {
 
   for required_path in \
     'overlay/app/spec/requests/toybaco/oidc_spec.rb' \
+    'overlay/app/spec/requests/toybaco/inbound_email_ingress_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_database_spec.rb' \
     'overlay/app/spec/lib/toybaco/oidc/session_reader_spec.rb' \
@@ -635,7 +638,10 @@ test_env_args() {
     '--env' 'TOYBACO_OIDC_CLIENT_ID=toybaco-gate-client' \
     '--env' 'TOYBACO_OIDC_CLIENT_SECRET=toybaco-gate-test-only' \
     '--env' 'TOYBACO_OIDC_REDIRECT_URIS=https://post.toybaco.test/auth/callback' \
-    '--env' 'TOYBACO_OIDC_ISSUER=https://app.toybaco.test'
+    '--env' 'TOYBACO_OIDC_ISSUER=https://app.toybaco.test' \
+    '--env' 'MAILER_INBOUND_EMAIL_DOMAIN=inbox.staging.toybaco.jp' \
+    '--env' 'RAILS_INBOUND_EMAIL_SERVICE=ses' \
+    '--env' 'ACTION_MAILBOX_SES_SNS_TOPIC=arn:aws:sns:ap-northeast-1:000000000000:toybaco-gate-inbound'
 }
 
 run_test_container() {
@@ -680,6 +686,9 @@ production_env_args() {
     '--env' 'TOYBACO_OIDC_CLIENT_SECRET=toybaco-gate-test-only' \
     '--env' 'TOYBACO_OIDC_REDIRECT_URIS=https://post.toybaco.test/auth/callback' \
     '--env' 'TOYBACO_OIDC_ISSUER=https://app.toybaco.test' \
+    '--env' 'MAILER_INBOUND_EMAIL_DOMAIN=inbox.staging.toybaco.jp' \
+    '--env' 'RAILS_INBOUND_EMAIL_SERVICE=ses' \
+    '--env' 'ACTION_MAILBOX_SES_SNS_TOPIC=arn:aws:sns:ap-northeast-1:000000000000:toybaco-gate-inbound' \
     '--env' "TOYBACO_EXPECTED_CHATWOOT_REVISION=$CHATWOOT_SOURCE_COMMIT"
 }
 

@@ -7,43 +7,52 @@ accent: pink
 
 canned_responses:
   - short_code: taiken-moushikomi
+    name: 体験申込
     content: |
       体験授業へのお申し込みありがとうございます。
       ご希望のコースと日時、参加される方の学年または年代をお知らせください。
       空き状況を確認してご案内します。
   - short_code: taiken-kakutei
+    name: 体験確定
     content: |
       体験授業のお申し込みを承りました。
       日時は◯月◯日◯曜日の◯時から、コースは◯です。
       当日は受付へお越しください。
   - short_code: furikae-uketsuke
+    name: 振替受付
     content: |
       振替希望のご連絡ありがとうございます。
       欠席される授業の日程と、ご希望の振替日時をお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: furikae-kakutei
+    name: 振替確定
     content: |
       振替を承りました。
       振替後の授業は◯月◯日◯曜日の◯時からです。
       ご都合が変わった場合は、このメッセージにご返信ください。
   - short_code: kesseki-renraku
+    name: 欠席連絡
     content: |
       欠席のご連絡ありがとうございます。
       ◯月◯日の授業を欠席として承りました。
       振替をご希望の場合は、ご希望の日時をお知らせください。
   - short_code: gessha-annai
+    name: 月謝案内
     content: |
       月謝と諸費用の一覧はこちらです: <URL>
       コースにより金額が異なるため、ご希望のコースをお知らせいただければ該当する内容をご案内します。
   - short_code: course-annai
+    name: コース案内
     content: |
       コースと対象学年または年代の一覧はこちらです: <URL>
       ご希望や通える曜日をお知らせいただければ、該当するコースをご案内します。
   - short_code: mochimono-annai
+    name: 持ち物案内
     content: |
       当日のお持ち物は◯です。
       服装や事前準備についてはこちらからご確認ください: <URL>
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       受付時間は◯時から◯時まで、◯曜日はお休みです。
       所在地とアクセス方法はこちらからご確認ください: <URL>

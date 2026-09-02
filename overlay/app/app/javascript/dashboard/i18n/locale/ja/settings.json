@@ -312,7 +312,7 @@
     "CURRENTLY_VIEWING_ACCOUNT": "現在表示中のアカウント:",
     "SWITCH": "切り替え",
     "INBOX_VIEW": "受信トレイビュー",
-    "CONVERSATIONS": "会話データ",
+    "CONVERSATIONS": "会話",
     "INBOX": "会話",
     "ALL_CONVERSATIONS": "すべての会話",
     "MENTIONED_CONVERSATIONS": "メンション",
@@ -361,7 +361,7 @@
     "NEW_LABEL": "新しいラベル",
     "NEW_TEAM": "新しいチーム",
     "NEW_INBOX": "新しい受信トレイ",
-    "REPORTS_CONVERSATION": "会話データ",
+    "REPORTS_CONVERSATION": "会話",
     "CSAT": "顧客満足度",
     "LIVE_CHAT": "ライブチャット",
     "SMS": "SMS",
@@ -413,7 +413,7 @@
     },
     "DOCS": "ドキュメントを読む",
     "SECURITY": "[セキュリティ]",
-    "CAPTAIN_AI": "AIアシスタント",
+    "CAPTAIN_AI": "AI",
     "CONVERSATION_WORKFLOW": "会話ワークフロー"
   },
   "DATA_IMPORTS": {
@@ -431,7 +431,7 @@
     },
     "TYPES": {
       "CONTACTS": "連絡先",
-      "CONVERSATIONS": "会話データ",
+      "CONVERSATIONS": "会話",
       "MESSAGES": "メッセージ"
     },
     "DRAWER": {

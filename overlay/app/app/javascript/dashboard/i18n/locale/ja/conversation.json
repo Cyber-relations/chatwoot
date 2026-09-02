@@ -272,7 +272,7 @@
       "MESSAGING_RESTRICTED_WHATSAPP": "24 時間メッセージウィンドウの制限により、テンプレートメッセージのみを使用して返信できます",
       "MESSAGING_RESTRICTED_API": "メッセージウィンドウの制限により、テンプレートメッセージを使用してのみ返信できます",
       "MESSAGE_SIGNATURE_NOT_CONFIGURED": "メッセージ署名が構成されていません。プロフィール設定で構成してください。",
-      "COPILOT_MSG_INPUT": "Copilot に追加のプロンプトを送るか、ほかの質問をしてください… Enter キーでフォローアップを送信",
+      "COPILOT_MSG_INPUT": "AI に追加のプロンプトを送るか、ほかの質問をしてください… Enter キーでフォローアップを送信",
       "CLICK_HERE": "ここをクリックして更新",
       "WHATSAPP_TEMPLATES": "Whatsapp テンプレート"
     },
@@ -294,7 +294,7 @@
       "IMAGE_UPLOAD_SUCCESS": "画像が正常にアップロードされました",
       "START_AUDIO_RECORDING": "音声録音を開始",
       "STOP_AUDIO_RECORDING": "音声録音を停止",
-      "COPILOT_THINKING": "Copilotが考え中",
+      "COPILOT_THINKING": "✦ AI が考え中",
       "EMAIL_HEAD": {
         "TO": "宛先",
         "ADD_BCC": "Bcc を追加",
@@ -385,7 +385,7 @@
     },
     "SIDEBAR": {
       "CONTACT": "連絡先",
-      "COPILOT": "コパイロット"
+      "COPILOT": "AI"
     },
     "VOICE_WIDGET": {
       "INCOMING_CALL": "着信コール",

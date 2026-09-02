@@ -1,9 +1,9 @@
 {
   "WHATSAPP_TEMPLATE_MGMT": {
     "TITLE": "テンプレート",
-    "DESCRIPTION": "WhatsApp 受信トレイから同期されたメッセージテンプレートを表示します。テンプレートを作成または編集するには、プロバイダーで管理してください。",
+    "DESCRIPTION": "受信トレイから同期されたメッセージテンプレートを表示します。テンプレートはプロバイダー側で管理してください。",
     "COUNT": "{n} テンプレート | {n} テンプレート",
-    "KNOW_MORE": "詳細を見る",
+    "KNOW_MORE": "",
     "SYNC_TEMPLATES": "テンプレートを同期",
     "SYNC_SUCCESS": "すべての WhatsApp 受信ボックスのテンプレート同期が開始されました。更新には数分かかる場合があります。",
     "PARTIAL_SYNC_ERROR": "一部のWhatsApp受信トレイでテンプレートの同期が開始されましたが、他の受信トレイは同期できませんでした。",
@@ -12,7 +12,7 @@
     "MANAGE_IN_META": "Meta で管理",
     "MANAGE_IN_TWILIO": "Twilio で管理",
     "LOADING": "WhatsApp テンプレートをロード中...",
-    "EMPTY": "WhatsApp テンプレートは見つかりませんでした。",
+    "EMPTY": "テンプレートは見つかりませんでした。",
     "NO_RESULTS": "フィルターに一致するテンプレートはありません。",
     "FETCH_ERROR": "WhatsApp テンプレートを読み込めません。もう一度試してください。",
     "PARTIAL_FETCH_ERROR": "一部の WhatsApp テンプレートを読み込めませんでした。もう一度試してください。",

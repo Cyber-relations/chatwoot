@@ -63,6 +63,8 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
 
   <div class="card">
     <% if @portal_ready %>
+      <%# FOLLOW-UP(このPRでは実装しない): 管理画面からの解約 2 クリック。
+          既存の Stripe Customer Portal を日本語の確認ダイアログから開く。 %>
       <button class="btn btn-navy" id="portal">お支払い方法・プラン変更・請求履歴</button>
       <p class="note">カード情報の確認・変更は、決済代行(Stripe)の安全なページで行います。トイバコがカード番号をお預かりすることはありません。</p>
       <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、チャットでお知らせください。</p>

@@ -7,38 +7,47 @@ accent: amber
 
 canned_responses:
   - short_code: yoyaku-uketsuke
+    name: 予約受付
     content: |
       お問い合わせありがとうございます。
       ご希望の日時・ご利用内容(トリミング・診療など)・ペットの種類と年齢をお知らせください。空き状況を確認してご案内します。
   - short_code: yoyaku-kakutei
+    name: 予約確定
     content: |
       ご予約を承りました。
       ご予約日時は◯月◯日(◯) ◯:◯から、ご利用内容は◯です。当日はお気をつけてお越しください。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       ご連絡ありがとうございます。ご希望の変更日時をお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       キャンセルを承りました。ご連絡ありがとうございました。
       またのご利用をお待ちしています。
   - short_code: konzatsu-kakunin
+    name: 混雑確認
     content: |
       混雑状況についてお問い合わせありがとうございます。
       ご来店予定の日時をお知らせください。現在の状況を確認してご案内します。
   - short_code: mochimono-annai
+    name: 持ち物案内
     content: |
       当日の持ち物は◯です。
       ご利用前の注意事項はこちらをご確認ください。<URL>
   - short_code: hajimete-annai
+    name: 初めての案内
     content: |
       初めてのご利用ありがとうございます。
       ペットの種類・年齢・ご希望の内容と、ワクチン接種の状況をお知らせください。受付に必要な情報を確認してご案内します。
   - short_code: menu-ryoukin
+    name: メニュー・料金
     content: |
       ご利用内容と料金の一覧はこちらです。<URL>
       ご不明な点がありましたら、ご希望の内容をお知らせください。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       営業時間は◯:◯から◯:◯まで、定休日は◯曜日です。
       場所はこちらです。<URL>

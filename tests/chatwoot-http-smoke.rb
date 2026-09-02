@@ -51,7 +51,7 @@ abort 'dashboard html lang is not ja' unless login_body.match?(%r{<html\b[^>]*\b
 abort 'dashboard title is not Toybaco' unless login_body.match?(%r{<title>\s*トイバコ\s*</title>}i)
 abort 'globalConfig INSTALLATION_NAME is not Toybaco' unless login_body.match?(/"INSTALLATION_NAME"\s*:\s*"トイバコ"/)
 abort 'globalConfig BRAND_NAME is not Toybaco' unless login_body.match?(/"BRAND_NAME"\s*:\s*"トイバコ"/)
-japanese_noscript = 'このアプリを快適に利用するには、JavaScriptを有効にしてください。'
+japanese_noscript = 'このアプリを利用するにはJavaScriptを有効にしてください。'
 english_noscript = 'This app works best with JavaScript enabled.'
 abort 'dashboard Japanese noscript is missing' unless login_body.include?(japanese_noscript)
 abort 'dashboard English noscript remains' if login_body.include?(english_noscript)
@@ -87,4 +87,10 @@ bad_scope = request(
 )
 abort "invalid OIDC scope did not fail closed: #{bad_scope.code}" unless bad_scope.code == '400'
 
-puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present'
+ingress = request(base, '/rails/action_mailbox/ses/inbound_emails')
+abort "SES ingress HTTP status: #{ingress.code}" unless %w[400 401 403 405 415 422].include?(ingress.code)
+ingress_body = ingress.body.to_s.dup.force_encoding(Encoding::UTF_8)
+abort 'SES ingress returned Chatwoot HTML 404' if
+  ingress_body.include?('Page not found') || ingress_body.include?('ページが見つかりません')
+
+puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present ses-ingress=drawn'
