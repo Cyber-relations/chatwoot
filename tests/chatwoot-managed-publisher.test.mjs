@@ -61,7 +61,7 @@ function validatePostEntryNavigation(source) {
       menu.ul.insertBefore(entry, menu.li.nextSibling);
     }
   }`;
-  const nativeFirst = "var li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');";
+  const nativeFirst = "li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');";
   const sameAccount = "if (existing && existing.getAttribute('data-account') === id) {";
   const existingWrap = 'var existingWrap = existing.parentElement;';
   const markedWrap =

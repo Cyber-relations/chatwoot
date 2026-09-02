@@ -16,6 +16,8 @@ Rails.application.routes.append do
   # ご契約内容(OIDC の設定有無に関わらず提供する)
   get '/toybaco/billing', to: 'toybaco/billing#show'
   post '/toybaco/billing/portal', to: 'toybaco/billing#portal'
+  get '/toybaco/ai_reply_mode', to: 'toybaco/ai_reply#show'
+  put '/toybaco/ai_reply_mode', to: 'toybaco/ai_reply#update'
 
   if toybaco_oidc_required_envs.all? { |name| ENV[name].present? }
     get '/toybaco/connect', to: 'toybaco/oidc#authorize'

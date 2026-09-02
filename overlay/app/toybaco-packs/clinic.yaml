@@ -7,44 +7,53 @@ accent: blue
 
 canned_responses:
   - short_code: shoshin-yoyaku
+    name: 初診予約
     content: |
       初めて受診される方のお問い合わせを承ります。
       ご希望の日時と受診を希望される方のお名前をお知らせください。
       空き状況を確認してご案内します。
   - short_code: saishin-yoyaku
+    name: 再診予約
     content: |
       再診のご予約を承ります。
       ご希望の日時と受診を希望される方のお名前をお知らせください。
       空き状況を確認してご案内します。
   - short_code: yoyaku-kakutei
+    name: 予約確定
     content: |
       ご予約を承りました。
       ご予約日時は◯月◯日◯曜日の◯時◯分、受付内容は◯です。
       当日は受付へお越しください。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       ご予約変更のご連絡ありがとうございます。
       現在の予約日時とご希望の変更日時をお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       ご予約のキャンセルを承りました。
       ご連絡ありがとうございました。
       あらためて受診をご希望の際は、ご希望日時をお知らせください。
   - short_code: shoujou-soudan
+    name: 症状相談
     content: |
       症状についてのご相談ありがとうございます。
       詳しい内容は受診時にお伺いしますので、ご希望の日時をお知らせください。
       空き状況を確認してご案内します。
   - short_code: mochimono-annai
+    name: 持ち物案内
     content: |
       受診時のお持ち物は◯です。
       初めて受診される方は、受付方法もあわせてこちらからご確認ください: <URL>
   - short_code: shinryou-jikan
+    name: 診療時間
     content: |
       診療時間は◯時◯分から◯時◯分まで、休診日は◯曜日です。
       最新の診療時間はこちらからご確認ください: <URL>
   - short_code: access-annai
+    name: アクセス案内
     content: |
       所在地は◯です。
       アクセス方法と地図はこちらからご確認ください: <URL>

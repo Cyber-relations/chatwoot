@@ -7,44 +7,53 @@ accent: amber
 
 canned_responses:
   - short_code: shaken-mitsumori
+    name: 車検見積
     content: |
       車検見積のお問い合わせありがとうございます。
       車種、初度登録年月、車検満了日をお知らせください。
       内容を確認して、見積のご案内に必要な来店日時を調整します。
   - short_code: seibi-mitsumori
+    name: 整備見積
     content: |
       整備見積のお問い合わせありがとうございます。
       車種とご希望の整備内容、来店希望日時をお知らせください。
       担当者が内容を確認してご案内します。
   - short_code: daisha-kakunin
+    name: 代車確認
     content: |
       代車をご希望の場合は、ご利用を希望される期間をお知らせください。
       空き状況を確認して、利用可否をご案内します。
   - short_code: nyuuko-kakutei
+    name: 入庫確定
     content: |
       ご入庫の予約を承りました。
       日時は◯月◯日◯曜日の◯時、受付内容は◯です。
       当日は受付へお越しください。
   - short_code: seibi-shinchoku
+    name: 整備進捗
     content: |
       お預かりしているお車の進捗をご連絡します。
       現在は◯まで完了しており、◯月◯日の◯時頃に次のご連絡を予定しています。
       追加の確認事項がある場合は担当者からご連絡します。
   - short_code: nouki-goannai
+    name: 納期ご案内
     content: |
       お車のお渡し(納車)予定日は◯月◯日です。
       お渡し場所とお持ち物は◯です。
       ご都合が変わった場合は、このメッセージにご返信ください。
   - short_code: sharyou-toiawase
+    name: 車両問い合わせ
     content: |
       お車についてのお問い合わせありがとうございます。
       ご希望の車種と確認したい内容をお知らせください。
       展示状況を確認して、担当者からご案内します。
   - short_code: shijou-yoyaku
+    name: 試乗予約
     content: |
       試乗をご希望の車種と日時をお知らせください。
       車両と担当者の予定を確認して、あらためてご案内します。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       営業時間は◯時から◯時まで、定休日は◯曜日です。
       所在地とアクセス方法はこちらからご確認ください: <URL>

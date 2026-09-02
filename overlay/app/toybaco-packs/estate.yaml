@@ -7,39 +7,48 @@ accent: blue
 
 canned_responses:
   - short_code: bukken-toiawase
+    name: 物件問い合わせ
     content: |
       物件へのお問い合わせありがとうございます。
       物件名または掲載ページをお知らせください。詳細を確認してご案内します。
   - short_code: bukken-jokyo
+    name: 物件状況
     content: |
       お問い合わせの物件について、現在の募集状況を確認します。
       確認でき次第、担当者からご返信します。
   - short_code: kibou-joken
+    name: 希望条件
     content: |
       物件探しのご相談ありがとうございます。
       ご希望のエリア・物件種別・ご予算・入居希望時期をお知らせください。条件を確認してご案内します。
   - short_code: naiken-uketsuke
+    name: 内見受付
     content: |
       内見のご希望ありがとうございます。
       ご希望の日時を◯つほどお知らせください。物件と担当者の予定を確認してご案内します。
   - short_code: naiken-kakutei
+    name: 内見確定
     content: |
       内見の日時を承りました。
       ◯月◯日(◯) ◯:◯に、◯でお待ち合わせをお願いします。
       当日の連絡先は◯です。
   - short_code: naiken-henkou
+    name: 内見変更
     content: |
       ご連絡ありがとうございます。変更をご希望の日時をお知らせください。
       物件と担当者の予定を確認して、あらためてご案内します。
   - short_code: shiryo-seikyu
+    name: 資料請求
     content: |
       資料のご請求ありがとうございます。
       ご希望の物件と送付先をお知らせください。内容を確認してご返信します。
   - short_code: moushikomi-soudan
+    name: 申込相談
     content: |
       お申し込みに関するご相談ありがとうございます。
       ご希望の物件と確認したい内容をお知らせください。必要な手続きや書類を担当者からご案内します。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
       ご来店場所はこちらです: <URL>

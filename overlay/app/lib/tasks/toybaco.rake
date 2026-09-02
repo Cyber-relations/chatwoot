@@ -106,7 +106,7 @@ namespace :toybaco do
   task :apply_plan, [:account_id, :plan] => :environment do |_t, args|
     account = Account.find(args[:account_id])
     plan = args[:plan].to_s
-    disabled = PLAN_DISABLED_FEATURES[plan] or abort 'プランは starter / standard / business のいずれかです'
+    disabled = PLAN_DISABLED_FEATURES[plan] or abort 'プランは starter / light / standard / pro / premium / business のいずれかです'
 
     # 他プランで無効化対象の機能は、このプランで対象外なら有効に戻す(プラン変更に対応)
     re_enable = PLAN_DISABLED_FEATURES.values.flatten.uniq - disabled
@@ -175,6 +175,9 @@ namespace :toybaco do
     end
   end
 
+  # FOLLOW-UP(このPRでは実装しない): Light 3席のサーバ強制。
+  # CE の usage_limits は agents=100000 固定。AgentBuilder / AccountUser 作成で 402 する。
+  # 解約 2 クリックもここでは触らない(ご契約画面の Customer Portal 導線が土台)。
   desc 'プラン・利用状況の一覧(スターターの人数上限 3 名は目視で確認する)'
   task plan_status: :environment do
     Account.find_each do |account|

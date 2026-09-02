@@ -190,7 +190,7 @@
         "GRAMMAR": "文法とスペルを修正",
         "SUGGESTION": "返信を提案",
         "SUMMARIZE": "会話をまとめる",
-        "ASK_COPILOT": "副操縦士に聞く"
+        "ASK_COPILOT": "AI に聞く"
       },
       "ASSISTANCE_MODAL": {
         "DRAFT_TITLE": "下書き内容",
@@ -573,10 +573,10 @@
       "EMPTY_LIST": "アシスタントが見つかりません。始めるにはアシスタントを作成してください。"
     },
     "COPILOT": {
-      "TITLE": "コパイロット",
+      "TITLE": "AI",
       "TRY_THESE_PROMPTS": "これらのプロンプトを試してください",
-      "PANEL_TITLE": "Copilotの使い始め",
-      "KICK_OFF_MESSAGE": "簡単な要約が欲しい、過去の会話を確認したい、より良い返信を作成したい？Copilotが処理をスピードアップします。",
+      "PANEL_TITLE": "AI の使い始め",
+      "KICK_OFF_MESSAGE": "簡単な要約が欲しい、過去の会話を確認したい、より良い返信を作成したい？AI が処理をスピードアップします。",
       "SEND_MESSAGE": "メッセージを送信...",
       "EMPTY_MESSAGE": "回答の生成中にエラーが発生しました。もう一度お試しください。",
       "LOADER": "AIアシスタントが考え中",

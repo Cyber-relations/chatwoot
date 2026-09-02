@@ -7,46 +7,55 @@ accent: pink
 
 canned_responses:
   - short_code: akibi-kakunin
+    name: 空き日確認
     content: |
       お問い合わせありがとうございます。
       ご希望の日程と、撮影・挙式・ご法要などのご利用内容、人数をお知らせください。
       空き状況を確認してご案内します。
   - short_code: ryokin-plan
+    name: 料金プラン
     content: |
       料金とプランの一覧はこちらです。
       <URL>
       ご希望の内容をお知らせいただければ、担当者からご案内します。
   - short_code: uchiawase-chosei
+    name: 打ち合わせ調整
     content: |
       打ち合わせの日程についてご連絡ありがとうございます。
       ご都合のよい候補日時を◯つお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       日程や内容の変更についてご連絡ありがとうございます。
       ご予約者名、現在の日程、変更をご希望の内容をお知らせください。
       内容を確認して、担当者からご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       キャンセルについてご連絡ありがとうございます。
       ご予約者名とご利用予定日をお知らせください。
       キャンセル料の有無を確認して、担当者からご案内します。
   - short_code: junbi-mochimono
+    name: 準備・持ち物
     content: |
       当日の準備と持ち物についてご案内します。
       ご用意いただくものは◯です。
       ご不明な点がありましたら、事前にお知らせください。
   - short_code: isho-soudan
+    name: 衣装相談
     content: |
       衣装についてご相談ありがとうございます。
       ご希望の種類、サイズ、利用予定日をお知らせください。
       取り扱い状況を確認して、担当者からご案内します。
   - short_code: shiagari-kakunin
+    name: 仕上がり確認
     content: |
       写真や商品の仕上がり時期についてお問い合わせありがとうございます。
       ご予約者名とご利用日をお知らせください。
       現在の状況を確認して、あらためてご案内します。
   - short_code: access-annai
+    name: アクセス案内
     content: |
       所在地はこちらです。
       <URL>

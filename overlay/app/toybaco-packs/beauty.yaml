@@ -7,43 +7,53 @@ accent: pink
 
 canned_responses:
   - short_code: yoyaku-uketsuke
+    name: 予約受付
     content: |
       お問い合わせありがとうございます。
       ご希望の日時・メニュー・指名の有無をお知らせください。空き状況を確認してご案内します。
   - short_code: yoyaku-kakutei
+    name: 予約確定
     content: |
       ご予約を承りました。
       ◯月◯日(◯) ◯:◯〜 / メニュー: ◯ / 担当: ◯
       当日お気をつけてお越しください。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       ご連絡ありがとうございます。ご希望の変更日時をお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       キャンセルを承りました。ご連絡ありがとうございました。
       またのご予約をお待ちしています。
   - short_code: zenjitsu-remind
+    name: 前日リマインド
     content: |
       明日◯:◯からのご予約のご確認です。
       ご都合が変わった場合は、このメッセージにそのままご返信ください。
   - short_code: chikoku-henshin
+    name: 遅刻の返信
     content: |
       ご連絡ありがとうございます。◯分程度でしたらそのままお越しください。
       以降のご予約状況により、当日の施術内容をご相談させていただく場合があります。
   - short_code: menu-ryoukin
+    name: メニュー・料金
     content: |
       メニューと料金の一覧はこちらです: <URL>
       初めての方は、カウンセリングでご希望の仕上がりを伺ってからご提案します。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
       場所はこちらです: <URL>
   - short_code: raiten-orei
+    name: 来店お礼
     content: |
       本日はご来店ありがとうございました。
       仕上がりで気になる点がありましたら、◯日以内にご連絡ください。お直しいたします。
   - short_code: kuchikomi-onegai
+    name: 口コミのお願い
     content: |
       よろしければ、Google マップで感想をお聞かせください: <URL>
       いただいた声はスタッフの励みになります。

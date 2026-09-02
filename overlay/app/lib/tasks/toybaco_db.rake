@@ -35,7 +35,8 @@ toybaco_db_namespace = namespace :db do
       toybaco_db_namespace['seed'].invoke if needs_seed
     end
 
-    # seed が ENV 由来の InstallationConfig を再保存するため、最後に固定ブランド値へ戻す。
+    # InstallationConfigは同名のENVより優先されるため、既存DBも毎回
+    # トイバコの既定ブランドへidempotentに揃える。
     Rake::Task['toybaco:branding'].invoke
   end
 end

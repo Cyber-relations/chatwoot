@@ -7,39 +7,48 @@ accent: green
 
 canned_responses:
   - short_code: shokai-soudan
+    name: 初回相談
     content: |
       初回相談のお問い合わせありがとうございます。
       ご相談の概要と面談希望日時を◯つほどお知らせください。担当者が確認してご案内します。
   - short_code: mendan-kakutei
+    name: 面談確定
     content: |
       面談を承りました。
       日時は◯月◯日(◯) ◯:◯から、面談方法は◯です。当日のご案内はこちらをご確認ください。<URL>
   - short_code: mendan-henkou
+    name: 面談変更
     content: |
       ご連絡ありがとうございます。ご希望の変更日時を◯つほどお知らせください。
       日程を確認して、あらためてご案内します。
   - short_code: mendan-cancel
+    name: 面談キャンセル
     content: |
       面談のキャンセルを承りました。ご連絡ありがとうございました。
       あらためて面談をご希望の際は、このメッセージからご相談ください。
   - short_code: soudan-hani
+    name: 相談範囲
     content: |
       ご相談内容が対応範囲に含まれるか確認するため、まずは概要をお知らせください。
       個別のご事情に応じた判断は、担当者との面談でご案内します。
   - short_code: mitsumori-irai
+    name: 見積依頼
     content: |
       お見積もりのご依頼ありがとうございます。
       ご相談内容とご希望の支援範囲を面談で伺ったうえで、担当者からお見積もりをご案内します。
   - short_code: shorui-kakunin
+    name: 書類確認
     content: |
       書類についてのお問い合わせありがとうございます。
       確認したい書類名とご相談の概要をお知らせください。必要書類や提出方法は担当者との面談でご案内します。
   - short_code: seido-toiawase
+    name: 制度問い合わせ
     content: |
       制度についてのお問い合わせありがとうございます。
       一般的なご案内はこちらをご確認ください。<URL>
       ご状況に応じたご案内は、担当者との面談でいたします。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       受付時間は◯:◯から◯:◯まで、休業日は◯曜日です。
       所在地と面談方法はこちらをご確認ください。<URL>

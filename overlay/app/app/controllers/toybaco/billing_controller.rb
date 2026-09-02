@@ -11,16 +11,10 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   before_action :set_no_cache
   before_action :load_user_and_account
 
-  PLAN_INFO = {
-    'starter' => { name: 'スターター', price: 9_800, total: 10_780 },
-    'standard' => { name: 'スタンダード', price: 29_800, total: 32_780 },
-    'business' => { name: 'ビジネス', price: 69_800, total: 76_780 }
-  }.freeze
-
   def show
     attrs = @account.internal_attributes || {}
     @plan_key = attrs['toybaco_plan']
-    @plan = PLAN_INFO[@plan_key]
+    @plan = Toybaco::Checkout::Catalog.billing_info(@plan_key)
     @posting = attrs.dig('postiz', 'enabled') == true
     @subscription_id = attrs['toybaco_subscription_id'].presence
     @admin = @account_user.administrator?

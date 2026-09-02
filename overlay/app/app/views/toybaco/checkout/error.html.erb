@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>お申し込みを続けられません | トイバコ</title>
+<style>
+:root{--navy:#1F3A5F;--coral:#FF6B5B;--base:#FAF7F2;--paper:#FFFDF9;--ink:#24303F;--muted:#6B7684;--line:#E5E3DB}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--base);color:var(--ink);line-height:1.8;font-size:15px;padding:48px 24px}
+.wrap{max-width:520px;margin:0 auto}
+h1{font-size:1.25rem;color:var(--navy);margin-bottom:10px}
+p{color:var(--muted);margin-bottom:22px}
+.card{background:var(--paper);border:1.5px solid var(--line);border-radius:16px;padding:26px 24px}
+.btn{display:inline-block;background:var(--navy);color:#fff;text-decoration:none;font-weight:700;border-radius:999px;padding:12px 26px}
+.btn:hover{opacity:.88}
+.alt{display:inline-block;margin-left:12px;color:var(--navy);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>お申し込みを続けられません</h1>
+    <p><%= @message %></p>
+    <a class="btn" href="https://toybaco.jp/pricing/">料金ページへ戻る</a>
+    <a class="alt" href="https://toybaco.jp/signup/">申し込みページへ</a>
+  </div>
+</div>
+</body>
+</html>

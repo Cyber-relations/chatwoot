@@ -7,39 +7,48 @@ accent: amber
 
 canned_responses:
   - short_code: yoyaku-uketsuke
+    name: 予約受付
     content: |
       お問い合わせありがとうございます。
       ご希望の日時・人数・お席の希望をお知らせください。空き状況を確認してご案内します。
   - short_code: yoyaku-kakutei
+    name: 予約確定
     content: |
       ご予約を承りました。
       ◯月◯日(◯) ◯:◯から、◯名様でお席をご用意します。
       当日お気をつけてお越しください。
   - short_code: yoyaku-henkou
+    name: 予約変更
     content: |
       ご連絡ありがとうございます。変更をご希望の日時と人数をお知らせください。
       空き状況を確認して、あらためてご案内します。
   - short_code: yoyaku-cancel
+    name: 予約キャンセル
     content: |
       キャンセルを承りました。ご連絡ありがとうございました。
       またのご利用をお待ちしています。
   - short_code: kashikiri-soudan
+    name: 貸切相談
     content: |
       貸切のご相談ありがとうございます。
       ご希望の日時・人数・ご予算をお知らせください。内容を確認してご案内します。
   - short_code: menu-annai
+    name: メニュー案内
     content: |
       メニューと料金の一覧はこちらです: <URL>
       ご不明な点がありましたら、ご希望のメニューをお知らせください。
   - short_code: arerugi-kakunin
+    name: アレルギー確認
     content: |
       アレルギーに関するお問い合わせありがとうございます。
       対象の食材とご希望のメニューをお知らせください。調理担当に確認のうえ、対応可否をご案内します。
   - short_code: eigyo-access
+    name: 営業・アクセス
     content: |
       営業時間は◯:◯〜◯:◯、定休日は◯曜日です。
       場所はこちらです: <URL>
   - short_code: goiken-uketsuke
+    name: ご意見受付
     content: |
       このたびはご不快な思いをおかけし、申し訳ございません。
       差し支えなければ、ご利用日時と状況をお知らせください。内容を確認してご返信します。

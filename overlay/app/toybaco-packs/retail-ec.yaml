@@ -7,39 +7,48 @@ accent: green
 
 canned_responses:
   - short_code: zaiko-kakunin
+    name: 在庫確認
     content: |
       在庫についてお問い合わせいただきありがとうございます。
       商品名・品番・ご希望の色やサイズをお知らせください。在庫状況を確認してご返信します。
   - short_code: sainyuka-yotei
+    name: 再入荷予定
     content: |
       再入荷についてお問い合わせいただきありがとうございます。
       商品名・品番をお知らせください。入荷予定を確認してご案内します。
   - short_code: shouhin-shousai
+    name: 商品詳細
     content: |
       商品についてお問い合わせいただきありがとうございます。
       確認したい商品名と内容をお知らせください。商品情報を確認してご返信します。
   - short_code: hassou-yotei
+    name: 発送予定
     content: |
       ご注文番号をお知らせください。
       発送予定を確認してご案内します。
   - short_code: haisou-kakunin
+    name: 配送確認
     content: |
       ご注文番号をお知らせください。
       配送状況を確認でき次第ご返信します。
   - short_code: henpin-annai
+    name: 返品案内
     content: |
       返品についてお問い合わせいただきありがとうございます。
       返品条件と手順はこちらです: <URL>
       ご注文番号と商品名をお知らせいただけましたら、内容を確認してご案内します。
   - short_code: koukan-uketsuke
+    name: 交換受付
     content: |
       商品交換のご相談ありがとうございます。
       ご注文番号・商品名・商品の状態をお知らせください。内容を確認してご返信します。
   - short_code: chumon-henkou
+    name: 注文変更
     content: |
       ご注文内容の変更についてお問い合わせいただきありがとうございます。
       ご注文番号と変更をご希望の内容をお知らせください。発送準備の状況を確認してご案内します。
   - short_code: madoguchi-annai
+    name: 窓口案内
     content: |
       お問い合わせの受付は◯:◯〜◯:◯、◯曜日はお休みです。
       受付時間外にいただいたメッセージは、翌受付時間に順番にご返信します。

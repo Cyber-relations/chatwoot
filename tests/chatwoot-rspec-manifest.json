@@ -24,13 +24,14 @@
     "run_time",
     "status"
   ],
-  "example_count": 64,
-  "examples_sha256": "65f81c69fb25cf1c89d6d0fcf397320c93bedd37965ca548cafdc82041848a9c",
+  "example_count": 66,
+  "examples_sha256": "6b5f4fb15983661a17a0ae680474f4b7b848a25b4d7c8608b27d22d1f1539419",
   "spec_files": [
     "spec/lib/toybaco/oidc/session_reader_spec.rb",
     "spec/lib/toybaco/postiz_sync_database_spec.rb",
     "spec/lib/toybaco/postiz_sync_spec.rb",
     "spec/models/toybaco/postiz_lifecycle_spec.rb",
+    "spec/requests/toybaco/inbound_email_ingress_spec.rb",
     "spec/requests/toybaco/oidc_spec.rb"
   ]
 }

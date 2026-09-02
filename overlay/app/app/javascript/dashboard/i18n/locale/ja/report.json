@@ -1,6 +1,6 @@
 {
   "REPORT": {
-    "HEADER": "会話データ",
+    "HEADER": "会話",
     "LOADING_CHART": "グラフデータを読み込んでいます...",
     "NO_ENOUGH_DATA": "レポートを生成するための十分なデータポイントを受信していません。後でもう一度お試しください。",
     "DOWNLOAD_CONVERSATION_REPORTS": "会話レポートをダウンロードする",
@@ -8,7 +8,7 @@
     "SUMMARY_FETCHING_FAILED": "サマリーの取得に失敗しました。後でもう一度お試しください。",
     "METRICS": {
       "CONVERSATIONS": {
-        "NAME": "会話データ",
+        "NAME": "会話",
         "DESC": "(合計)"
       },
       "INCOMING_MESSAGES": {
@@ -163,7 +163,7 @@
     },
     "METRICS": {
       "CONVERSATIONS": {
-        "NAME": "会話データ",
+        "NAME": "会話",
         "DESC": "(合計)"
       },
       "INCOMING_MESSAGES": {
@@ -236,7 +236,7 @@
     },
     "METRICS": {
       "CONVERSATIONS": {
-        "NAME": "会話データ",
+        "NAME": "会話",
         "DESC": "(合計)"
       },
       "INCOMING_MESSAGES": {
@@ -311,7 +311,7 @@
     },
     "METRICS": {
       "CONVERSATIONS": {
-        "NAME": "会話データ",
+        "NAME": "会話",
         "DESC": "(合計)"
       },
       "INCOMING_MESSAGES": {
@@ -387,7 +387,7 @@
     },
     "METRICS": {
       "CONVERSATIONS": {
-        "NAME": "会話データ",
+        "NAME": "会話",
         "DESC": "(合計)"
       },
       "INCOMING_MESSAGES": {

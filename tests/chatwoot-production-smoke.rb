@@ -24,6 +24,19 @@ oidc_paths = Rails.application.routes.routes.map { |route| route.path.spec.to_s 
   abort "OIDC route is not reachable: #{path}" unless oidc_paths.include?(path)
 end
 
+if Toybaco::InboundEmail.ingress_enabled?
+  ingress = "#{Toybaco::InboundEmail::INGRESS_PATH}(.:format)"
+  abort "SES ActionMailbox ingress is not reachable: #{ingress}" unless oidc_paths.include?(ingress)
+  ingress_routes = Rails.application.routes.routes.select do |route|
+    route.path.spec.to_s == ingress
+  end
+  verbs = ingress_routes.map { |route| route.verb.to_s }.join(' ')
+  abort "SES ActionMailbox ingress is not POST: #{verbs}" unless verbs.include?('POST')
+  abort "SES ActionMailbox GET ingress is missing: #{verbs}" unless verbs.include?('GET')
+else
+  abort 'SES ActionMailbox ingress env is required for production smoke'
+end
+
 abort 'AccountUser lifecycle hook is not installed' unless
   AccountUser < Toybaco::PostizLifecycle::AccountUserHooks
 abort 'Account lifecycle hook is not installed' unless
@@ -34,4 +47,4 @@ abort 'Postiz DB boundary is not configured' unless Toybaco::PostizSync.configur
 abort 'FORCE_SSL must be true in production' unless ENV['FORCE_SSL'] == 'true'
 abort 'Account locale default must be Japanese' unless Account.columns_hash.fetch('locale').default.to_i == 7
 
-puts 'TOYBACO_CHATWOOT_PRODUCTION_SMOKE=PASS post-entry=automatic locale-default=ja'
+puts 'TOYBACO_CHATWOOT_PRODUCTION_SMOKE=PASS post-entry=automatic locale-default=ja ses-ingress=drawn'

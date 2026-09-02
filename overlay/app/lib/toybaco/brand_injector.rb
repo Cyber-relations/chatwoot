@@ -16,6 +16,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     POST_ENTRY_ASSET =
       %(<script src="/brand-assets/toybaco-post-entry.js?v=#{POST_ENTRY_ASSET_DIGEST}" defer></script>).freeze
     DASHBOARD_PREFIXES = %w[/app /v3app].freeze
+    ENGLISH_NOSCRIPT = 'This app works best with JavaScript enabled.'
+    JAPANESE_NOSCRIPT = 'このアプリを利用するにはJavaScriptを有効にしてください。'
     DEFAULT_BILLING_URL = 'https://billing.stripe.com/p/login/28E00l3TTdn3bX40cy4F200'
 
     # 差し替え運用するブランド資産。Cloudflare/ブラウザに1年持たれないよう短TTLにする。
@@ -42,7 +44,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       body.each { |part| buf << part.to_s }
       body.close if body.respond_to?(:close)
 
-      normalize_dashboard_html!(env['PATH_INFO'], buf)
+      localize_dashboard_html!(env, buf)
       tags = injection_tags(env, buf)
       buf.sub!('</head>', "  #{tags}\n  </head>") || buf.sub!('<body', "#{tags}<body") unless tags.empty?
 
@@ -54,6 +56,21 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     private
 
+    def localize_dashboard_html!(env, body)
+      return unless dashboard_path?(env['PATH_INFO'])
+
+      html_tag = body[/<html\b[^>]*>/i]
+      if html_tag
+        localized_tag = if html_tag.match?(/\blang=(?:"[^"]*"|'[^']*')/i)
+                          html_tag.sub(/\blang=(?:"[^"]*"|'[^']*')/i, 'lang="ja"')
+                        else
+                          html_tag.sub(/\A<html/i, '<html lang="ja"')
+                        end
+        body.sub!(html_tag, localized_tag)
+      end
+      body.sub!(ENGLISH_NOSCRIPT, JAPANESE_NOSCRIPT)
+    end
+
     def injection_tags(env, body)
       tags = +''
       tags << TAG if missing?(body, 'toybaco-brand.css')
@@ -64,22 +81,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     def missing?(body, marker)
       body.index(marker).nil?
-    end
-
-    def normalize_dashboard_html!(path, body)
-      return unless dashboard_path?(path)
-
-      body.sub!(/<html\b[^>]*>/i) do |tag|
-        if tag.match?(/\blang\s*=/i)
-          tag.sub(/\blang\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, 'lang="ja"')
-        else
-          tag.sub(/\A<html\b/i, '<html lang="ja"')
-        end
-      end
-      body.gsub!(
-        'This app works best with JavaScript enabled.',
-        'このアプリを快適に利用するには、JavaScriptを有効にしてください。'
-      )
     end
 
     def post_entry_tags

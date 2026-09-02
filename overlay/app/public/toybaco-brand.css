@@ -419,10 +419,12 @@ select:focus {
   color: var(--toybaco-muted) !important;
 }
 
-/* 一次ナビ: Chatwoot v4 の在庫グループを隠す。投稿・ご契約は post-entry 注入を残す。
- * グループ親(連絡先/キャンペーン/ヘルプ/レポート/設定)は to が無く、ヘッダは
- * div[title] + i-lucide-*。href は展開後の子にしか付かない。
- * `ul > li` だけだと Policy の根や入れ子 ul で外れるので、aside nav の直下を広く取る。 */
+/* 一次ナビ正本: 会話 / 投稿 / ご契約内容 / レポート / 設定。
+ * 在庫グループ(連絡先/キャンペーン/ヘルプ/Captain/通話/企業)と
+ * 会話データ・設定サブツリーは客面のグローバル左ナビから消す。
+ * レポートと設定の親は残す。設定画面の内側一覧は設定ページ側に任せる。
+ * グループ親は to が無く title + lucide。href は展開後の子にしか付かない。
+ * `ul > li` だけだと Policy の根や入れ子 ul で外れるので aside nav を広く取る。 */
 aside nav ul,
 aside nav > ul {
   display: flex;
@@ -431,53 +433,119 @@ aside nav > ul {
 
 aside nav > ul > *:has(.i-lucide-contact),
 aside nav > ul > *:has(.i-lucide-library-big),
-aside nav > ul > *:has(.i-lucide-chart-spline),
-aside nav > ul > *:has(.i-lucide-bolt),
 aside nav > ul > *:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
 aside nav > ul > *:has(.i-woot-captain),
 aside nav > ul > *:has(.i-lucide-building-2),
 aside nav > ul > *:has(.i-lucide-phone),
 aside nav > ul > *:has(.i-lucide-sparkles),
 aside nav > ul > *:has(.i-lucide-bot),
+aside nav > ul > *:has(.i-lucide-book),
+aside nav > ul > *:has(.i-lucide-book-open),
 aside nav > ul > *:has(.i-lucide-building),
+aside nav > ul > *:has(.i-lucide-users),
+aside nav > ul > *:has(.i-lucide-users-round),
+aside nav > ul > *:has(.i-lucide-messages-square),
 aside nav > ul > *:has([title="連絡先"]),
 aside nav > ul > *:has([title="キャンペーン"]),
 aside nav > ul > *:has([title="ヘルプセンター"]),
-aside nav > ul > *:has([title="レポート"]),
-aside nav > ul > *:has([title="設定"]),
+aside nav > ul > *:has([title="ヘルプ"]),
 aside nav > ul > *:has([title="企業"]),
 aside nav > ul > *:has([title="通話"]),
 aside nav > ul > *:has([title="AIアシスタント"]),
+aside nav > ul > *:has([title="Captain"]),
+aside nav > ul > *:has([title="会話データ"]),
+aside nav > ul > *:has([title="チーム"]),
 aside nav > ul > *:has([title="Contacts"]),
 aside nav > ul > *:has([title="Campaigns"]),
 aside nav > ul > *:has([title="Help Center"]),
-aside nav > ul > *:has([title="Reports"]),
-aside nav > ul > *:has([title="Settings"]),
-aside nav ul > li:has(.i-lucide-contact),
-aside nav ul > li:has(.i-lucide-library-big),
-aside nav ul > li:has(.i-lucide-chart-spline),
-aside nav ul > li:has(.i-lucide-bolt),
-aside nav ul > li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
-aside nav ul > li:has(.i-woot-captain),
-aside nav ul > li:has(.i-lucide-building-2),
-aside nav ul > li:has(.i-lucide-phone),
-aside nav ul > li:has(.i-lucide-sparkles),
-aside nav ul > li:has(.i-lucide-bot),
-aside nav ul > li:has(.i-lucide-building),
-aside nav ul > li:has(a[href*="/contacts"]),
-aside nav ul > li:has(a[href*="/campaigns"]),
-aside nav ul > li:has(a[href*="/portals"]),
-aside nav ul > li:has(a[href*="/reports"]),
-aside nav ul > li:has(a[href*="/settings"]),
-aside nav ul > li:has(a[href*="/captain"]),
-aside nav ul > li:has(a[href*="/companies"]),
-aside nav ul > li:has(a[href*="/calls"]),
-aside nav ul > li:has(a[href*="/notifications"]),
-aside nav ul > li:has([title="連絡先"]),
-aside nav ul > li:has([title="キャンペーン"]),
-aside nav ul > li:has([title="ヘルプセンター"]),
-aside nav ul > li:has([title="レポート"]),
-aside nav ul > li:has([title="設定"]) {
+aside nav > ul > *:has([title="Help"]),
+aside nav > ul > *:has([title="Companies"]),
+aside nav > ul > *:has([title="Calls"]),
+aside nav > ul > *:has([title="Conversation Data"]),
+aside nav > ul > *:has([title="Teams"]),
+aside nav li:has(.i-lucide-contact),
+aside nav li:has(.i-lucide-library-big),
+aside nav li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
+aside nav li:has(.i-woot-captain),
+aside nav li:has(.i-lucide-building-2),
+aside nav li:has(.i-lucide-phone),
+aside nav li:has(.i-lucide-sparkles),
+aside nav li:has(.i-lucide-bot),
+aside nav li:has(.i-lucide-book),
+aside nav li:has(.i-lucide-book-open),
+aside nav li:has(.i-lucide-building),
+aside nav li:has(.i-lucide-users),
+aside nav li:has(.i-lucide-users-round),
+aside nav li:has(.i-lucide-messages-square),
+aside nav li:has(a[href*="/contacts"]),
+aside nav li:has(a[href*="/campaigns"]),
+aside nav li:has(a[href*="/portals"]),
+aside nav li:has(a[href*="/captain"]),
+aside nav li:has(a[href*="/companies"]),
+aside nav li:has(a[href*="/calls"]),
+aside nav li:has(a[href*="/notifications"]),
+aside nav li:has(a[href*="/mentions"]),
+aside nav li:has(a[href*="/participating"]),
+aside nav li:has([title="連絡先"]),
+aside nav li:has([title="キャンペーン"]),
+aside nav li:has([title="ヘルプセンター"]),
+aside nav li:has([title="ヘルプ"]),
+aside nav li:has([title="企業"]),
+aside nav li:has([title="通話"]),
+aside nav li:has([title="AIアシスタント"]),
+aside nav li:has([title="Captain"]),
+aside nav li:has([title="会話データ"]),
+aside nav li:has([title="チーム"]),
+aside nav li:has([title="すべての会話"]),
+aside nav li:has([title="メンション"]),
+aside nav li:has([title="参加中"]),
+aside nav li:has([title="Contacts"]),
+aside nav li:has([title="Campaigns"]),
+aside nav li:has([title="Help Center"]),
+aside nav li:has([title="Help"]),
+aside nav li:has([title="Conversation Data"]),
+aside nav li:has([title="Teams"]),
+aside nav li:has(> a[href*="/settings/agents"]),
+aside nav li:has(> a[href*="/settings/teams"]),
+aside nav li:has(> a[href*="/settings/inboxes"]),
+aside nav li:has(> a[href*="/settings/templates"]),
+aside nav li:has(> a[href*="/settings/labels"]),
+aside nav li:has(> a[href*="/settings/custom-attribute"]),
+aside nav li:has(> a[href*="/settings/attributes"]),
+aside nav li:has(> a[href*="/settings/automation"]),
+aside nav li:has(> a[href*="/settings/agent-bots"]),
+aside nav li:has(> a[href*="/settings/macros"]),
+aside nav li:has(> a[href*="/settings/canned"]),
+aside nav li:has(> [title="アカウント設定"]),
+aside nav li:has(> [title="担当者"]),
+aside nav li:has(> [title="テンプレート"]),
+aside nav li:has(> [title="ラベル"]),
+aside nav li:has(> [title="カスタム属性"]),
+aside nav li:has(> [title="自動化"]),
+aside nav li:has(> [title="ボット"]),
+aside nav li:has(> [title="マクロ"]),
+aside nav li:has(> [title="定型文"]),
+aside nav li:has(> [title="Account Settings"]),
+aside nav li:has(> [title="Agents"]),
+aside nav li:has(> [title="Inboxes"]),
+aside nav li:has(> [title="Templates"]),
+aside nav li:has(> [title="Labels"]),
+aside nav li:has(> [title="Custom Attributes"]),
+aside nav li:has(> [title="Automations"]),
+aside nav li:has(> [title="Bots"]),
+aside nav li:has(> [title="Macros"]),
+aside nav li:has(> [title="Canned Responses"]),
+aside nav [title="会話データ"],
+aside nav [title="チーム"],
+aside nav [title="ヘルプセンター"],
+aside nav [title="ヘルプ"],
+aside nav [title="AIアシスタント"],
+aside nav [title="Captain"] {
+  display: none !important;
+}
+
+/* 展開した設定サブツリー・レポート子・会話フォルダはグローバル左ナビに出さない */
+aside nav > ul > li ul {
   display: none !important;
 }
 
@@ -500,6 +568,124 @@ aside nav > ul > *[data-toybaco-post-entry-wrap] {
 aside nav ul > li:has([data-toybaco-billing-entry]),
 aside nav > ul > *:has([data-toybaco-billing-entry]) {
   order: 3;
+}
+
+/* AI 一次応答の2モードは左ナビではなく返信欄の横 */
+[data-toybaco-ai-mode-bar] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: #fcfbf8;
+  color: #24303f;
+  border: 1px solid #e7e4dc;
+  border-radius: 11px;
+  box-shadow: 0 2px 6px rgba(31, 58, 95, 0.05);
+}
+
+[data-toybaco-ai-mode-h] {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--toybaco-navy);
+  margin-right: 4px;
+  cursor: pointer;
+}
+
+[data-toybaco-ai-mode] {
+  border: 1px solid #e7e4dc;
+  background: #fff;
+  color: #24303f;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+[data-toybaco-ai-mode][data-toybaco-ai-on="1"] {
+  background: var(--toybaco-navy);
+  color: #fff;
+  border-color: var(--toybaco-navy);
+}
+
+[data-toybaco-ai-mode-panel] {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 40;
+  width: 320px;
+  max-width: calc(100% - 32px);
+  background: #fcfbf8;
+  color: #24303f;
+  border: 1px solid #e7e4dc;
+  border-radius: 11px;
+  box-shadow: 0 8px 24px rgba(31, 58, 95, 0.12);
+  padding: 14px 16px 16px;
+}
+
+[data-toybaco-ai-mode-head] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+[data-toybaco-ai-mode-head] strong {
+  color: var(--toybaco-navy);
+  font-size: 15px;
+}
+
+[data-toybaco-ai-mode-head] button {
+  border: none;
+  background: none;
+  color: #6B7684;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+[data-toybaco-ai-mode-panel] p {
+  font-size: 12px;
+  color: #6B7684;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+[data-toybaco-ai-mode][data-toybaco-ai-kind="card"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 11px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+[data-toybaco-ai-mode][data-toybaco-ai-kind="card"] small {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.78;
+  margin-top: 2px;
+}
+
+aside nav ul > li:has(a[href*="/reports"]),
+aside nav > ul > *:has(.i-lucide-chart-spline),
+aside nav > ul > *:has([title="レポート"]) {
+  order: 4;
+}
+
+aside nav ul > li:has(a[href*="/settings"]),
+aside nav > ul > *:has(.i-lucide-bolt),
+aside nav > ul > *:has([title="設定"]) {
+  order: 5;
 }
 
 /* 一次ナビ: 選択は wash + ネイビー + 半径9 + 800。バッジはネイビピル */
@@ -689,4 +875,114 @@ aside nav span.inline-grid.rounded-full {
 .reply-box button.rounded-full > .absolute.rounded-full {
   background-color: var(--toybaco-wash) !important;
   border-radius: 7px !important;
+}
+
+/* テンプレート空状態の他社ヘルプリンクは客面に出さない */
+a[href*="developers.facebook.com"],
+a[href*="business.facebook.com"],
+a[href*="facebook.com/business"],
+a[href*="business.whatsapp.com"],
+a[href*="twilio.com/docs"],
+a[href*="help.chatwoot.com"],
+a[href*="www.chatwoot.com/hc"] {
+  display: none !important;
+}
+
+/* 定型文: ローマ字コマンドは残し、日本語名だけを併記する */
+[data-toybaco-canned-name] {
+  display: inline-block;
+  margin-left: 8px;
+  font-weight: 700;
+  color: var(--toybaco-navy);
+  font-size: 12px;
+}
+
+/* 受信箱 compose の「/」定型文。LP .slash-pop と同じ箱を実画面でも出す */
+[data-toybaco-slash-canned] {
+  position: fixed;
+  width: 280px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--toybaco-surface);
+  border: 1px solid var(--toybaco-hairline);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 14px 34px rgba(31, 58, 95, 0.18);
+  z-index: 40;
+}
+
+[data-toybaco-slash-h] {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--toybaco-muted);
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+}
+
+[data-toybaco-slash-item] {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 9px;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  align-items: baseline;
+  cursor: pointer;
+}
+
+[data-toybaco-slash-item] b {
+  color: var(--toybaco-navy);
+  font-size: 11px;
+}
+
+[data-toybaco-slash-item] small {
+  color: var(--toybaco-muted);
+  font-weight: 500;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 100%;
+}
+
+[data-toybaco-slash-item][data-toybaco-slash-hl="1"] {
+  background: var(--toybaco-wash);
+}
+
+[data-toybaco-slash-empty] {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--toybaco-muted);
+  padding: 8px 9px;
+}
+
+/* トイバコの一覧を出している間は、本体の遅延ピッカーを重ねない */
+body:has([data-toybaco-slash-canned]) [data-preview-picker],
+html:has([data-toybaco-slash-canned]) [data-preview-picker] {
+  visibility: hidden !important;
+}
+
+/* 本体AIは LP .pack-mock ライトの同じ箱。夜モックは LP 側だけ。Captain は出さない。✦ は可 */
+.reply-box [class*="copilot"],
+.reply-box [class*="Copilot"],
+[data-testid*="copilot"],
+[class*="captain-panel"],
+[class*="CaptainPanel"],
+.dark .reply-box [class*="copilot"],
+.dark .reply-box [class*="Copilot"],
+.dark [data-testid*="copilot"],
+.dark [class*="captain-panel"],
+.dark [class*="CaptainPanel"] {
+  background: #fcfbf8 !important;
+  color: #24303f !important;
+  border: 1px solid #e7e4dc !important;
+  border-radius: 11px !important;
+  box-shadow: 0 2px 6px rgba(31, 58, 95, 0.05) !important;
+}
+
+.reply-box .i-lucide-sparkles,
+[data-testid*="copilot"] .i-lucide-sparkles,
+.ai-badge {
+  color: var(--toybaco-navy);
 }
