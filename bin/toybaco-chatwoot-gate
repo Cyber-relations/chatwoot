@@ -106,6 +106,7 @@ control_file_list() {
     'scripts/generate-chatwoot-active-ja-overrides.rb' \
     'scripts/generate-chatwoot-ja-overrides.rb' \
     'tests/chatwoot_full_japanese_test.rb' \
+    'tests/chatwoot_postgres_health_test.rb' \
     'tests/chatwoot-http-smoke.rb' \
     'tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json' \
     'tests/chatwoot-overlay-manifest.tsv' \
@@ -151,10 +152,12 @@ integration_ruby_file_list() {
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
         -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o \
-        -name 'toybaco_inbound_email.rb' \) -print
+        -name 'toybaco_inbound_email.rb' -o \
+        -name 'toybaco_postgres_health.rb' \) -print
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
         \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o \
-        -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' \) -print
+        -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' -o \
+        -name 'postgres_health.rb' \) -print
       find overlay/app/lib/toybaco/oidc -type f -name '*.rb' -print
       find overlay/app/spec -type f -name '*_spec.rb' -print
     } | LC_ALL=C sort -u
@@ -306,7 +309,9 @@ assert_control_contract() {
 
   for required_path in \
     'overlay/app/spec/requests/toybaco/oidc_spec.rb' \
+    'overlay/app/spec/requests/toybaco/api_health_spec.rb' \
     'overlay/app/spec/requests/toybaco/inbound_email_ingress_spec.rb' \
+    'overlay/app/spec/lib/toybaco/postgres_health_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_database_spec.rb' \
     'overlay/app/spec/lib/toybaco/oidc/session_reader_spec.rb' \
@@ -325,6 +330,8 @@ assert_control_contract() {
     'Chatwoot managed database prepare taskのRuby syntaxが不正です'
   bash -n "$CONTROL_ROOT/bin/toybaco-chatwoot-gate"
   ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" >/dev/null
+  ruby "$CONTROL_ROOT/tests/chatwoot_postgres_health_test.rb"
+  ruby "$ROOT/tests/chatwoot_postgres_health_test.rb"
 }
 
 git_source_fingerprint() {
