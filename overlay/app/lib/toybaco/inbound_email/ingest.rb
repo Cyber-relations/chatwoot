@@ -6,7 +6,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
     # SES/SNS 通知から会話へ載せる宛先を決める。未知宛先は拒否する。
     module Ingest
-      DESTINATION_KEYS = %w[destination to cc X-Original-To x-original-to].freeze
+      DESTINATION_KEYS = %w[
+        destination to cc
+        X-Original-To x-original-to
+        Delivered-To delivered-to
+        X-Forwarded-To x-forwarded-to
+      ].freeze
 
       def route(notification, mailboxes:)
         destinations = destinations_for(notification)

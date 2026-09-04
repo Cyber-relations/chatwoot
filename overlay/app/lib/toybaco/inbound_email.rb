@@ -2,6 +2,7 @@
 
 require_relative 'inbound_email/readiness'
 require_relative 'inbound_email/ingest'
+require_relative 'inbound_email/routing'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # SES inbound (ap-northeast-1) → Chatwoot Channel::Email の契約。
@@ -33,6 +34,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     extend Readiness
     extend Ingest
+    extend Routing
 
     module_function
 
@@ -72,15 +74,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     private_class_method :remember
 
     def create_channel!(account, address)
-      existing = Channel::Email.find_by('lower(email) = ?', address)
+      existing = Channel::Email.find_by('lower(email) = ? OR lower(forward_to_email) = ?', address, address)
       if existing
         raise NotReady, 'この受信アドレスは別アカウントで使われています' unless existing.account_id == account.id
 
+        sync_channel_addresses!(existing, address)
         return { channel: existing, inbox: existing.inbox, created: false }
       end
 
       account.enable_features!('inbound_emails') if account.respond_to?(:enable_features!)
-      channel = Channel::Email.create!(account: account, email: address, imap_enabled: false, smtp_enabled: false)
+      channel = Channel::Email.create!(
+        account: account,
+        email: address,
+        forward_to_email: address,
+        imap_enabled: false,
+        smtp_enabled: false
+      )
       inbox = Inbox.create!(account: account, name: INBOX_NAME, channel: channel)
       attach_members!(account, inbox)
       { channel: channel, inbox: inbox, created: true }
