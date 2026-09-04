@@ -7,7 +7,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       MAILBOX_LOG_NAMES = %w[SupportMailbox ReplyMailbox DefaultMailbox].freeze
       MESSAGE_ID = /\A<?[^\s<>]{1,200}>?\z/
       FIXTURE_TOKEN = /toybaco-fixture-([0-9a-f]{8,32})/i
-      MESSAGE_ID_HEADER = /\AMessage-ID:\s*(.+?)\s*\z/i
+      NAMED_HEADER = /\A([A-Za-z0-9-]+):\s*(.+?)\s*\z/
 
       private
 
@@ -31,9 +31,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def extract_header_message_id(raw)
+        header_field(raw, 'Message-ID')
+      end
+
+      def header_field(raw, name)
         raw.to_s.each_line do |line|
-          match = MESSAGE_ID_HEADER.match(line)
-          return match[1].strip if match
+          match = NAMED_HEADER.match(line)
+          return match[2] if match && match[1].casecmp?(name)
 
           break if line.strip.empty?
         end

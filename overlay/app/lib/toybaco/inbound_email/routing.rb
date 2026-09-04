@@ -2,6 +2,7 @@
 
 require_relative 'route_log'
 require_relative 'routing_hooks'
+require_relative 'ingress_log'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
@@ -10,6 +11,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module Routing
       include RouteLog
       include RoutingHooks
+      include IngressLog
 
       RECIPIENT_HEADER_NAMES = %w[X-Original-To Delivered-To X-Forwarded-To].freeze
       FINDER_EXTRA_HEADERS = %w[Delivered-To X-Forwarded-To].freeze
@@ -67,6 +69,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def install_action_mailbox_hooks!
         install_ses_source_hook!
         install_channel_finder_hook!
+        install_inbound_email_create_hook!
       end
     end
   end

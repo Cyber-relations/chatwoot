@@ -47,6 +47,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         EmailChannelFinder.prepend(ChannelFinderRecipients)
       end
 
+      module CreateAndExtractMessageId
+        def create_and_extract_message_id!(source, **)
+          super
+        ensure
+          Toybaco::InboundEmail.log_ingress_mailbox_route(source)
+        end
+      end
+
+      def install_inbound_email_create_hook!
+        return unless defined?(ActionMailbox::InboundEmail)
+
+        owner = ActionMailbox::InboundEmail.singleton_class
+        return if owner <= CreateAndExtractMessageId
+
+        owner.prepend(CreateAndExtractMessageId)
+      end
+
       private
 
       def recipient_source_headers(destination)

@@ -3,11 +3,13 @@
 # 未知宛先は会話を作らない。token 付きで DefaultMailbox と分かるように残す。
 class DefaultMailbox < ApplicationMailbox
   def process
+    raw = inbound_email.respond_to?(:source) ? inbound_email.source : nil
     Rails.logger.info(
       Toybaco::InboundEmail.log_mailbox_route(
         mail,
         mailbox: 'DefaultMailbox',
-        conversation: false
+        conversation: false,
+        raw: raw
       )
     )
   end

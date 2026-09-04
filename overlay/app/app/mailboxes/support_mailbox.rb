@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 # v4.17.1 で消えた SupportMailbox を、ReplyMailbox の会話作成経路のまま戻す。
-# ログは process が落ちても ensure で出し、fixture token を同じ行へ残す。
+# before_processing が落ちても perform_processing の ensure で経路ログを出す。
+# 原本は inbound_email.source。Mail が Message-ID を書き換えても token を同じ行へ残す。
 class SupportMailbox < ReplyMailbox
-  def process
+  def perform_processing
     super
   ensure
     log_toybaco_support_route
@@ -15,14 +16,18 @@ class SupportMailbox < ReplyMailbox
     created = if conversation.respond_to?(:persisted?)
                 conversation.persisted?
               else
-                conversation.present?
+                !conversation.nil?
               end
+    raw = inbound_email.respond_to?(:source) ? inbound_email.source : nil
     Rails.logger.info(
       Toybaco::InboundEmail.log_mailbox_route(
         mail,
         mailbox: 'SupportMailbox',
-        conversation: created
+        conversation: created,
+        raw: raw
       )
     )
+  rescue StandardError
+    nil
   end
 end

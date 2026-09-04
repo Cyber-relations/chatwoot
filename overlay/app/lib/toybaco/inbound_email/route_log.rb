@@ -21,25 +21,26 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         parts.join(' ')
       end
 
-      def log_mailbox_route(mail, mailbox:, conversation: nil)
+      def log_mailbox_route(mail, mailbox:, conversation: nil, raw: nil)
+        source = [raw, mail_raw_source(mail)].compact.join("\n")
         mailbox_route_log(
           mailbox: mailbox,
-          message_id: route_message_id(mail),
+          message_id: route_message_id(mail, raw: source),
           conversation: conversation,
-          raw: mail_raw_source(mail)
+          raw: source
         )
       end
 
-      def route_message_id(mail)
-        raw = mail_raw_source(mail)
+      def route_message_id(mail, raw: nil)
+        source = raw || mail_raw_source(mail)
         candidates = [
-          extract_header_message_id(raw),
+          extract_header_message_id(source),
           mail_header(mail, 'Message-ID'),
           mail_header(mail, 'X-Toybaco-Fixture'),
           mail_accessor(mail, :message_id)
         ]
-        token = fixture_token(*candidates, raw)
-        prefer_fixture_message_id(candidates.compact.first, raw, token)
+        token = fixture_token(*candidates, source)
+        prefer_fixture_message_id(candidates.compact.first, source, token)
       end
 
       def mail_raw_source(mail)
