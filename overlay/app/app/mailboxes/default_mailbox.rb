@@ -4,7 +4,7 @@
 class DefaultMailbox < ApplicationMailbox
   def process
     raw = inbound_email.respond_to?(:source) ? inbound_email.source : nil
-    Rails.logger.info(
+    Toybaco::InboundEmail.emit_cloudwatch_line(
       Toybaco::InboundEmail.log_mailbox_route(
         mail,
         mailbox: 'DefaultMailbox',

@@ -51,17 +51,51 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         def create_and_extract_message_id!(source, **)
           super
         ensure
-          Toybaco::InboundEmail.log_ingress_mailbox_route(source)
+          Toybaco::InboundEmail.log_ses_create_route(source: source)
+        end
+      end
+
+      # aws-actionmailbox-ses 0.1.0 の create が 204 を返す過程。
+      # create_and_extract_message_id! への prepend は defined? で黙って
+      # 外れるので、コントローラ action 側でも同じ1行を出す。
+      module SesCreateRouteLog
+        def create
+          super
+        ensure
+          emit_toybaco_ses_create_route
+        end
+
+        private
+
+        def emit_toybaco_ses_create_route
+          return unless response&.status == 204
+
+          Toybaco::InboundEmail.log_ses_create_route(source: toybaco_ses_create_source)
+        end
+
+        def toybaco_ses_create_source
+          notification.message_content.to_s
+        rescue StandardError
+          request&.raw_post.to_s
         end
       end
 
       def install_inbound_email_create_hook!
-        return unless defined?(ActionMailbox::InboundEmail)
-
         owner = ActionMailbox::InboundEmail.singleton_class
         return if owner <= CreateAndExtractMessageId
 
         owner.prepend(CreateAndExtractMessageId)
+      rescue NameError
+        nil
+      end
+
+      def install_ses_ingress_create_hook!
+        klass = ActionMailbox::Ingresses::Ses::InboundEmailsController
+        return if klass < SesCreateRouteLog
+
+        klass.prepend(SesCreateRouteLog)
+      rescue NameError
+        nil
       end
 
       private
