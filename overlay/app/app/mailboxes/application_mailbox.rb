@@ -29,7 +29,7 @@ class ApplicationMailbox < ActionMailbox::Base
       mail = inbound_mail.respond_to?(:mail) ? inbound_mail.mail : inbound_mail
       raw = inbound_email_raw(inbound_mail)
       route = toybaco_resolve_route(mail)
-      Rails.logger.info(
+      Toybaco::InboundEmail.emit_cloudwatch_line(
         Toybaco::InboundEmail.log_mailbox_route(
           mail,
           mailbox: toybaco_mailbox_name(route),
