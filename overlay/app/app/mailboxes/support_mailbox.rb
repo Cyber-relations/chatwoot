@@ -1,18 +1,27 @@
 # frozen_string_literal: true
 
 # v4.17.1 で消えた SupportMailbox を、ReplyMailbox の会話作成経路のまま戻す。
-# ログは fixture token と同じ Message-ID を含め、READ-ONLY 診断が拾えるようにする。
+# ログは process が落ちても ensure で出し、fixture token を同じ行へ残す。
 class SupportMailbox < ReplyMailbox
-  after_processing :log_toybaco_support_route
+  def process
+    super
+  ensure
+    log_toybaco_support_route
+  end
 
   private
 
   def log_toybaco_support_route
+    created = if conversation.respond_to?(:persisted?)
+                conversation.persisted?
+              else
+                conversation.present?
+              end
     Rails.logger.info(
-      Toybaco::InboundEmail.mailbox_route_log(
+      Toybaco::InboundEmail.log_mailbox_route(
+        mail,
         mailbox: 'SupportMailbox',
-        message_id: mail.message_id,
-        conversation: conversation.present?
+        conversation: created
       )
     )
   end

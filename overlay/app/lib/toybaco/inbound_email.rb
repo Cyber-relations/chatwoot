@@ -2,6 +2,9 @@
 
 require_relative 'inbound_email/readiness'
 require_relative 'inbound_email/ingest'
+require_relative 'inbound_email/route_log_helpers'
+require_relative 'inbound_email/route_log'
+require_relative 'inbound_email/routing_hooks'
 require_relative 'inbound_email/routing'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
