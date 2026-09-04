@@ -4,9 +4,9 @@
 class DefaultMailbox < ApplicationMailbox
   def process
     Rails.logger.info(
-      Toybaco::InboundEmail.mailbox_route_log(
+      Toybaco::InboundEmail.log_mailbox_route(
+        mail,
         mailbox: 'DefaultMailbox',
-        message_id: mail.message_id,
         conversation: false
       )
     )
