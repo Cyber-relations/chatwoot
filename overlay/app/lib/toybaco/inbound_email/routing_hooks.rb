@@ -55,9 +55,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
-      # aws-actionmailbox-ses 0.1.0 の create が 204 を返す過程。
-      # create_and_extract_message_id! への prepend は defined? で黙って
-      # 外れるので、コントローラ action 側でも同じ1行を出す。
+      # gem コントローラへの prepend は backup。正本は overlay の
+      # Toybaco::SesInboundEmailsController が RouteSet から直接 create する。
       module SesCreateRouteLog
         def create
           super
@@ -80,20 +79,90 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      SES_INGRESS_CONTROLLER_NAMES = [
+        'ActionMailbox::Ingresses::Ses::InboundEmailsController',
+        'ActionMailbox::Ingresses::Ses::InboundEmails'
+      ].freeze
+      SES_INGRESS_CONTROLLER_RELATIVE =
+        'app/controllers/action_mailbox/ingresses/ses/inbound_emails_controller.rb'
+
+      # ActionMailbox::RoutingJob#perform は staging で既に CW に出ている経路。
+      module RoutingJobRouteLog
+        def perform(inbound_email)
+          super
+        ensure
+          emit_toybaco_routing_job_route(inbound_email)
+        end
+
+        private
+
+        def emit_toybaco_routing_job_route(inbound_email)
+          source = if inbound_email.respond_to?(:source)
+                     inbound_email.source
+                   else
+                     inbound_email
+                   end
+          Toybaco::InboundEmail.log_ses_create_route(source: source.to_s)
+        rescue StandardError
+          nil
+        end
+      end
+
+      def load_ses_ingress_controller!
+        found = ses_ingress_controller_class
+        return found if found
+
+        require 'aws/action_mailbox/ses'
+        spec = Gem.loaded_specs['aws-actionmailbox-ses']
+        if spec
+          path = File.join(spec.full_gem_path, SES_INGRESS_CONTROLLER_RELATIVE)
+          require path if File.file?(path)
+        end
+        ses_ingress_controller_class
+      rescue LoadError, NameError
+        ses_ingress_controller_class
+      end
+
+      def ses_ingress_controller_class
+        SES_INGRESS_CONTROLLER_NAMES.each do |name|
+          found = constantize_without_autoload(name)
+          return found if found.is_a?(Class)
+        end
+        nil
+      end
+
       def install_inbound_email_create_hook!
+        return unless defined?(ActionMailbox) && ActionMailbox.const_defined?(:InboundEmail)
+
         owner = ActionMailbox::InboundEmail.singleton_class
         return if owner <= CreateAndExtractMessageId
 
         owner.prepend(CreateAndExtractMessageId)
-      rescue NameError
-        nil
       end
 
       def install_ses_ingress_create_hook!
-        klass = ActionMailbox::Ingresses::Ses::InboundEmailsController
+        klass = load_ses_ingress_controller!
+        return unless klass
         return if klass < SesCreateRouteLog
 
         klass.prepend(SesCreateRouteLog)
+      end
+
+      def install_routing_job_hook!
+        return unless defined?(ActionMailbox) && ActionMailbox.const_defined?(:RoutingJob)
+
+        klass = ActionMailbox::RoutingJob
+        return if klass < RoutingJobRouteLog
+
+        klass.prepend(RoutingJobRouteLog)
+      end
+
+      def constantize_without_autoload(name)
+        name.split('::').reduce(Object) do |mod, part|
+          return nil unless mod.is_a?(Module) && mod.const_defined?(part, false)
+
+          mod.const_get(part, false)
+        end
       rescue NameError
         nil
       end

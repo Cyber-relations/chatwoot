@@ -67,10 +67,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def install_action_mailbox_hooks!
+        load_ses_ingress_controller!
         install_ses_source_hook!
         install_channel_finder_hook!
         install_inbound_email_create_hook!
         install_ses_ingress_create_hook!
+        install_routing_job_hook!
       end
     end
   end

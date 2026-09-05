@@ -26,7 +26,8 @@ RSpec.describe Toybaco::InboundEmail do
 
   def filter_pattern_line?(text)
     line = text.to_s
-    line.include?("toybaco-fixture-#{token}") &&
+    line.include?('toybaco-route-log') &&
+      line.include?("toybaco-fixture-#{token}") &&
       line.include?('mailbox=SupportMailbox') &&
       line.match?(/Conversation=(yes|no)/) &&
       line.exclude?("\n")
@@ -80,7 +81,26 @@ RSpec.describe Toybaco::InboundEmail do
     end.new(fixture_source)
 
     expect { controller.create }.to output(
-      a_string_including("toybaco-fixture-#{token}")
+      a_string_including('toybaco-route-log')
+        .and(a_string_including("toybaco-fixture-#{token}"))
+        .and(a_string_including('mailbox=SupportMailbox'))
+        .and(a_string_matching(/Conversation=(yes|no)/))
+    ).to_stdout
+  end
+
+  it 'ActionMailbox::RoutingJob#perform の ensure が FilterPattern と同じ1行を出す' do
+    job = Class.new do
+      prepend Toybaco::InboundEmail::RoutingHooks::RoutingJobRouteLog
+
+      def perform(_inbound_email)
+        true
+      end
+    end.new
+    inbound = Struct.new(:source).new(fixture_source)
+
+    expect { job.perform(inbound) }.to output(
+      a_string_including('toybaco-route-log')
+        .and(a_string_including("toybaco-fixture-#{token}"))
         .and(a_string_including('mailbox=SupportMailbox'))
         .and(a_string_matching(/Conversation=(yes|no)/))
     ).to_stdout

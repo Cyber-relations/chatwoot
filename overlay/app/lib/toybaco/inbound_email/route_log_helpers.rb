@@ -5,6 +5,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     # RouteLog の Message-ID / ヘッダ読み取り。本体の ModuleLength を抑える。
     module RouteLogHelpers
       MAILBOX_LOG_NAMES = %w[SupportMailbox ReplyMailbox DefaultMailbox].freeze
+      ROUTE_LOG_PREFIX = 'toybaco-route-log'
       MESSAGE_ID = /\A<?[^\s<>]{1,200}>?\z/
       FIXTURE_TOKEN = /toybaco-fixture-([0-9a-f]{8,32})/i
       NAMED_HEADER = /\A([A-Za-z0-9-]+):\s*(.+?)\s*\z/

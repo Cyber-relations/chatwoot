@@ -5,6 +5,7 @@ require_relative 'inbound_email/ingest'
 require_relative 'inbound_email/route_log_helpers'
 require_relative 'inbound_email/route_log'
 require_relative 'inbound_email/routing_hooks'
+require_relative 'inbound_email/ingress_log_helpers'
 require_relative 'inbound_email/ingress_log'
 require_relative 'inbound_email/routing'
 
@@ -18,7 +19,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     INGRESS_SCOPE = '/rails/action_mailbox'
     INGRESS_MODULE = 'action_mailbox/ingresses'
     INGRESS_ROUTE_PATH = '/ses/inbound_emails'
-    INGRESS_TO = 'ses/inbound_emails#create'
+    # gem の RouteSet 短縮名は ses/inbound_emails#create。to_prepare prepend は
+    # app/controllers 未ロードで NameError になるので、overlay の subclass を描く。
+    INGRESS_TO = 'toybaco/ses_inbound_emails#create'
+    INGRESS_SES_CONTROLLER = 'ActionMailbox::Ingresses::Ses::InboundEmailsController'
     INGRESS_AS = :toybaco_rails_ses_inbound_emails
     INGRESS_GET_TO = 'toybaco/inbound_email_ingress#method_not_allowed'
     INGRESS_GET_AS = :toybaco_rails_ses_inbound_emails_get

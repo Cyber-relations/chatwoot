@@ -28,7 +28,8 @@ RSpec.describe SupportMailbox do
 
   def combined_route_line?(text)
     line = text.to_s
-    line.include?("toybaco-fixture-#{token}") &&
+    line.include?('toybaco-route-log') &&
+      line.include?("toybaco-fixture-#{token}") &&
       line.include?('mailbox=SupportMailbox') &&
       line.match?(/Conversation=(yes|no)/)
   end
