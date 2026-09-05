@@ -33,6 +33,15 @@ RSpec.describe 'Toybaco ActionMailbox SES ingress', type: :request do
       expect(Toybaco::InboundEmail::ALLOWED_INGRESS_STATUSES).to include(response.status)
       expect(html_not_found?(response.body)).to be(false)
     end
+
+    it 'live RouteSet の SES POST は overlay subclass を指す' do
+      recognized = Rails.application.routes.recognize_path(ingress_path, method: :post)
+
+      expect(recognized[:controller]).to eq(Toybaco::InboundEmail::INGRESS_CONTROLLER)
+      expect(recognized[:action]).to eq('create')
+      expect(recognized[:controller]).to eq('toybaco/ses_inbound_emails')
+      expect(Toybaco::InboundEmail.ses_ingress_mounted_on_overlay?).to be(true)
+    end
   end
 
   describe '受信ENVがないとき' do

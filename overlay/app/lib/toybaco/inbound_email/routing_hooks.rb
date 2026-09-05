@@ -142,10 +142,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def install_ses_ingress_create_hook!
         klass = load_ses_ingress_controller!
-        return unless klass
-        return if klass < SesCreateRouteLog
+        unless klass
+          emit_ses_route_mismatch('controller_missing')
+          return
+        end
 
-        klass.prepend(SesCreateRouteLog)
+        klass.class_eval do
+          hook = Toybaco::InboundEmail::RoutingHooks::SesCreateRouteLog
+          prepend hook unless self < hook
+        end
       end
 
       def install_routing_job_hook!

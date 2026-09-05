@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 74,
-  "examples_sha256": "616484b093ced380ec5e8e0e8d37bd0bd1c9900146151294acde73700ca08ccf",
+  "example_count": 75,
+  "examples_sha256": "35648e7c990436ee64ebf67869d4a8b21a136b6b206d2e068c9c5cf6fd32d353",
   "spec_files": [
     "spec/lib/toybaco/oidc/session_reader_spec.rb",
     "spec/lib/toybaco/postgres_health_spec.rb",

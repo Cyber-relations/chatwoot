@@ -2,8 +2,8 @@
 
 # aws-actionmailbox-ses 0.1.0 の create（204）を overlay の RouteSet から直接呼ぶ。
 # 本物の定数は ActionMailbox::Ingresses::Ses::InboundEmailsController。
-# to_prepare prepend は gem の app/controllers 未ロードで NameError になり、
-# 素の create だけが 204 を返して SupportMailbox 行が残らなかった。
+# #104 の routes.append は gem の mount Engine => '/' より後になり、
+# ライブは素の create 204 だけが残った。正本は prepend + middleware。
 Toybaco::InboundEmail.load_ses_ingress_controller!
 
 class Toybaco::SesInboundEmailsController < ActionMailbox::Ingresses::Ses::InboundEmailsController
