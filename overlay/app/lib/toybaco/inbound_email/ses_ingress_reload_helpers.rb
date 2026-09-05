@@ -28,11 +28,20 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def process_action_source(payload)
         [
+          request_store_raw_token,
           Thread.current[:toybaco_ses_route_raw],
           request_store_source(payload[:headers]),
           header_fixture_token(payload[:headers]),
           params_message_source(payload[:params])
         ].compact.map(&:to_s).reject(&:empty?).join("\n")
+      end
+
+      def request_store_raw_token
+        return unless defined?(RequestStore) && RequestStore.respond_to?(:store)
+
+        RequestStore.store[:toybaco_ses_route_raw]
+      rescue StandardError
+        nil
       end
 
       def request_store_source(headers)

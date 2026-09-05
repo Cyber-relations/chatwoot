@@ -89,8 +89,12 @@ RSpec.describe Toybaco::InboundEmail do
     ).to_stdout
   end
 
-  it 'SES path middleware は gem コントローラ 204 でも FilterPattern と同じ1行を出す' do
-    app = ->(_env) { [204, {}, []] }
+  it 'SES path middleware は token だけ残し toybaco-route-log を puts しない' do
+    seen = nil
+    app = lambda do |_env|
+      seen = described_class.stored_ses_route_token
+      [204, {}, []]
+    end
     middleware = Toybaco::InboundEmail::SesInboundRouteMiddleware.new(app)
     env = {
       'REQUEST_METHOD' => 'POST',
@@ -98,16 +102,16 @@ RSpec.describe Toybaco::InboundEmail do
       'rack.input' => StringIO.new(fixture_source)
     }
 
-    expect { middleware.call(env) }.to output(
-      a_string_including('toybaco-route-log')
-        .and(a_string_including("toybaco-fixture-#{token}"))
-        .and(a_string_including('mailbox=SupportMailbox'))
-        .and(a_string_matching(/Conversation=(yes|no)/))
-    ).to_stdout
+    expect { middleware.call(env) }.not_to output(a_string_including('toybaco-route-log')).to_stdout
+    expect(seen).to include("toybaco-fixture-#{token}")
   end
 
-  it 'SES path middleware は Engine の SCRIPT_NAME 分割でも 204 行を出す' do
-    app = ->(_env) { [204, {}, []] }
+  it 'SES path middleware は Engine の SCRIPT_NAME 分割でも token を残す' do
+    seen = nil
+    app = lambda do |_env|
+      seen = described_class.stored_ses_route_token
+      [204, {}, []]
+    end
     middleware = Toybaco::InboundEmail::SesInboundRouteMiddleware.new(app)
     env = {
       'REQUEST_METHOD' => 'POST',
@@ -117,11 +121,8 @@ RSpec.describe Toybaco::InboundEmail do
       'rack.input' => StringIO.new('')
     }
 
-    expect { middleware.call(env) }.to output(
-      a_string_including('toybaco-route-log')
-        .and(a_string_including("toybaco-fixture-#{token}"))
-        .and(a_string_matching(/Conversation=(yes|no)/))
-    ).to_stdout
+    expect { middleware.call(env) }.not_to output(a_string_including('toybaco-route-log')).to_stdout
+    expect(seen).to include("toybaco-fixture-#{token}")
   end
 
   it 'live RouteSet が gem コントローラなら toybaco-ses-route-mismatch を ERROR する' do
@@ -137,26 +138,47 @@ RSpec.describe Toybaco::InboundEmail do
     end.to output(a_string_including('toybaco-ses-route-mismatch')).to_stdout
   end
 
-  it 'gem コントローラ 204 の process_action が ActionController.logger に route-log を出す' do
-    described_class.install_ses_process_action_subscriber!
+  it 'LogSubscriber process_action の Completed 204 と同じ info に route-log を出す' do
     messages = []
-    logger = ActionController::Base.logger
-    allow(logger).to receive(:info).and_wrap_original do |method, *args|
-      messages << args.first.to_s
-      method.call(*args)
+    logger = instance_double(Logger)
+    allow(logger).to receive(:info) do |msg = nil, &block|
+      messages << (block ? block.call : msg).to_s
     end
 
-    ActiveSupport::Notifications.instrument(
-      'process_action.action_controller',
-      controller: 'ses/inbound_emails',
+    subscriber = Class.new do
+      attr_reader :logger
+
+      def initialize(logger)
+        @logger = logger
+      end
+
+      def info(progname = nil, &)
+        logger.info(progname, &)
+      end
+
+      def process_action(event)
+        info { "Completed #{event.payload[:status]} No Content" }
+      end
+
+      prepend Toybaco::InboundEmail::SesIngressLogSubscriber
+    end.new(logger)
+
+    described_class.store_ses_route_token(fixture_source)
+    event = Struct.new(:payload).new(
+      controller: 'ActionMailbox::Ingresses::Ses::InboundEmailsController',
       action: 'create',
       status: 204,
-      path: '/ses/inbound_emails',
-      params: { 'Message' => fixture_source },
+      path: '/rails/action_mailbox/ses/inbound_emails',
+      params: {},
       headers: {}
     )
+    subscriber.process_action(event)
 
+    expect(messages.any? { |text| text.include?('Completed 204') }).to be(true)
     expect(messages.any? { |text| filter_pattern_line?(text) }).to be(true)
+    expect(messages.any? { |text| text.include?('toybaco-fixture-') }).to be(true)
+  ensure
+    described_class.clear_ses_route_token
   end
 
   it 'ActionMailbox::RoutingJob#perform の ensure が FilterPattern と同じ1行を出す' do

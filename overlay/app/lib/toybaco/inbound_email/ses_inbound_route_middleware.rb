@@ -5,9 +5,8 @@ require 'stringio'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
-    # RouteSet が gem の mount Engine => '/' でも、SES 204 の
-    # toybaco-route-log を残す。PATH_INFO 完全一致だけだと Engine が
-    # SCRIPT_NAME を切ったあとに外れる。token は body 再読とヘッダから取る。
+    # SES inbound の fixture token を RequestStore / Thread.current に残すだけ。
+    # puts / logger は出さない。行は ActionController::LogSubscriber の info が書く。
     class SesInboundRouteMiddleware
       def initialize(app)
         @app = app
@@ -15,17 +14,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def call(env)
         ses = ses_inbound_post?(env)
-        Thread.current[:toybaco_ses_route_request] = true if ses
-        Thread.current[:toybaco_ses_route_emitted] = nil if ses
-        raw = snapshot_input(env) if ses
-        Thread.current[:toybaco_ses_route_raw] = raw if ses
-        status, headers, body = @app.call(env)
-        emit_ses_route_log(env, raw) if ses && status.to_i == 204
-        [status, headers, body]
+        Toybaco::InboundEmail.store_ses_route_token(recover_source(env, snapshot_input(env)), env) if ses
+        @app.call(env)
       ensure
-        Thread.current[:toybaco_ses_route_request] = nil
-        Thread.current[:toybaco_ses_route_emitted] = nil
-        Thread.current[:toybaco_ses_route_raw] = nil
+        Toybaco::InboundEmail.clear_ses_route_token if ses
       end
 
       private
@@ -59,10 +51,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         raw.to_s
       rescue StandardError
         ''
-      end
-
-      def emit_ses_route_log(env, snapshot)
-        Toybaco::InboundEmail.log_ses_create_route(source: recover_source(env, snapshot))
       end
 
       def recover_source(env, snapshot)
