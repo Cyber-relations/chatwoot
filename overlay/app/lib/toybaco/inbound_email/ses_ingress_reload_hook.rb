@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
 require_relative 'ses_ingress_reload_helpers'
+require_relative 'ses_ingress_log_subscriber'
 require_relative 'ses_ingress_process_action'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
-    # #105 bake は middleware / prepend ファイルを載せたが、gem create の
-    # class_eval は Engine / Zeitwerk 再ロードで剥がれ、204 は素の gem のまま。
-    # Reloader と Zeitwerk on_load で wrap を載せ直す。rescue-nil はしない。
+    # #107 の Notifications.subscribe は LogSubscriber#info と同じ口ではない。
+    # 正本は ActionController::LogSubscriber の prepend。Reloader は wrap 用。
     module SesIngressReloadHook
       include SesIngressReloadHelpers
       include SesIngressProcessAction
@@ -21,7 +21,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       ].freeze
 
       def install_ses_ingress_reload_hooks!
-        install_ses_process_action_subscriber!
+        install_ses_log_subscriber_hook!
         watch_zeitwerk_ses_classes!
         register_ses_reloader_hook!
         Toybaco::InboundEmail.reapply_ses_ingress_wrappers!
@@ -46,7 +46,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         install_inbound_email_create_hook!
         install_ses_ingress_create_hook!
         install_routing_job_hook!
-        Toybaco::InboundEmail.install_ses_ingress_token_capture!
+        Toybaco::InboundEmail.install_ses_log_subscriber_hook!
       end
 
       def zeitwerk_ses_class_names

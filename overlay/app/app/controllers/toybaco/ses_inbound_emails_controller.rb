@@ -2,8 +2,9 @@
 
 # aws-actionmailbox-ses 0.1.0 の create（204）を overlay の RouteSet から直接呼ぶ。
 # 本物の定数は ActionMailbox::Ingresses::Ses::InboundEmailsController。
-# #106 の wrap / middleware は $stdout 並行 sink で CW の Completed 204 を逃した。
-# 正本は process_action.action_controller → ActionController::Base.logger。
+# #107 の Notifications.subscribe + ActionController.logger.info は
+# Completed 204 の LogSubscriber#info と同じ口ではなかった。
+# 正本は ActionController::LogSubscriber#process_action の同じ info。
 Toybaco::InboundEmail.load_ses_ingress_controller!
 
 class Toybaco::SesInboundEmailsController < ActionMailbox::Ingresses::Ses::InboundEmailsController

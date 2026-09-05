@@ -1,85 +1,88 @@
 # frozen_string_literal: true
 
 require_relative 'ses_ingress_reload_helpers'
+require_relative 'ses_ingress_log_subscriber'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
-    # gem コントローラへ prepend_before_action し、token を request store へ残す。
-    # Reloader は明示定数で載せ直す（#106 の裸メソッド NoMethodError）。
-    module SesIngressTokenCapture
-      def store_toybaco_ses_ingress_token
-        Toybaco::InboundEmail.store_ses_ingress_token_from_request(self)
+    # middleware が token を RequestStore / Thread.current に残すだけ。puts はしない。
+    module SesIngressTokenStore
+      RAW_KEY = :toybaco_ses_route_raw
+
+      def store_ses_route_token(raw, env = nil)
+        text = raw.to_s
+        Thread.current[RAW_KEY] = text
+        write_ses_request_store(text)
+        env['toybaco.ses_route_source'] = text if env.is_a?(Hash)
+        text
+      end
+
+      def stored_ses_route_token
+        stored = read_ses_request_store
+        return stored unless stored.to_s.empty?
+
+        Thread.current[RAW_KEY].to_s
+      end
+
+      def clear_ses_route_token
+        Thread.current[RAW_KEY] = nil
+        write_ses_request_store(nil)
+      end
+
+      private
+
+      def write_ses_request_store(value)
+        return unless defined?(RequestStore) && RequestStore.respond_to?(:store)
+
+        RequestStore.store[SesIngressTokenStore::RAW_KEY] = value
+      rescue StandardError
+        nil
+      end
+
+      def read_ses_request_store
+        return unless defined?(RequestStore) && RequestStore.respond_to?(:store)
+
+        RequestStore.store[SesIngressTokenStore::RAW_KEY]
+      rescue StandardError
+        nil
       end
     end
 
-    # Completed 204 と同じ process_action.action_controller で route-log を出す。
-    # #106 は Event 1個配信を 5引数コンストラクタへ渡して落ち、Notifications が飲んだ。
-    # $stdout 並行 sink は /ecs/toybaco-staging の Completed 204 行と同じ口ではない。
+    # ActionController::LogSubscriber を prepend し、Completed 204 と同じ info へ出す。
     module SesIngressProcessAction
       include SesIngressReloadHelpers
+      include SesIngressTokenStore
 
       PROCESS_ACTION_EVENT = 'process_action.action_controller'
 
-      def install_ses_process_action_subscriber!
-        return if @ses_process_action_subscribed
-        return unless defined?(ActiveSupport::Notifications)
+      def install_ses_log_subscriber_hook!
+        prepend_ses_log_subscriber!
+        return if @ses_log_subscriber_hooked
+        return if @ses_log_subscriber_on_load
+        return unless defined?(ActiveSupport) && ActiveSupport.respond_to?(:on_load)
 
-        @ses_process_action_subscribed = true
-        ActiveSupport::Notifications.subscribe(PROCESS_ACTION_EVENT) do |*args|
-          Toybaco::InboundEmail.emit_process_action_ses_route(args)
+        @ses_log_subscriber_on_load = true
+        ActiveSupport.on_load(:action_controller) do
+          Toybaco::InboundEmail.prepend_ses_log_subscriber!
         end
       end
 
-      def install_ses_ingress_token_capture!
-        klass = load_ses_ingress_controller!
-        return unless klass
+      def prepend_ses_log_subscriber!
+        return if @ses_log_subscriber_hooked
+        return unless defined?(ActionController) && ActionController.const_defined?(:LogSubscriber)
 
-        hook = Toybaco::InboundEmail::SesIngressTokenCapture
-        klass.class_eval do
-          prepend hook unless self < hook
-          unless instance_variable_defined?(:@_toybaco_ses_token_before_action)
-            @_toybaco_ses_token_before_action = true
-            prepend_before_action :store_toybaco_ses_ingress_token if respond_to?(:prepend_before_action)
-          end
-        end
+        klass = ActionController::LogSubscriber
+        hook = Toybaco::InboundEmail::SesIngressLogSubscriber
+        klass.prepend(hook) unless klass < hook
+        @ses_log_subscriber_hooked = true
       end
 
-      def emit_process_action_ses_route(args)
-        payload = process_action_payload(args)
-        return unless payload[:status].to_i == 204
-        return unless ses_process_action?(payload)
-
-        Toybaco::InboundEmail.log_ses_create_route_via_action_controller(
-          source: process_action_source(payload)
-        )
+      def ses_completed_route_target?(payload)
+        ses_process_action?(payload)
       end
 
-      def store_ses_ingress_token_from_request(controller)
-        request = controller.request if controller.respond_to?(:request)
-        source = ses_request_token_source(request)
-        Thread.current[:toybaco_ses_route_raw] = source unless source.empty?
-        request.env['toybaco.ses_route_source'] = source if request.respond_to?(:env) && request.env
-        source
-      end
-
-      def process_action_payload(args)
-        values = args.is_a?(Array) ? args : [args]
-        first = values[0]
-        return first.payload if first.respond_to?(:payload)
-        return values[4] if values.size >= 5 && values[4].is_a?(Hash)
-        return first if first.is_a?(Hash)
-
-        {}
-      end
-
-      def ses_request_token_source(request)
-        return '' unless request
-
-        header = request.headers if request.respond_to?(:headers)
-        [
-          header && header['X-Toybaco-Fixture'],
-          (request.raw_post if request.respond_to?(:raw_post))
-        ].compact.map(&:to_s).reject(&:empty?).join("\n")
+      def ses_completed_route_source(payload)
+        process_action_source(payload)
       end
     end
   end

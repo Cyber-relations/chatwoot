@@ -4,6 +4,7 @@ require_relative 'route_log'
 require_relative 'routing_hooks'
 require_relative 'ingress_log'
 require_relative 'ses_ingress_reload_helpers'
+require_relative 'ses_ingress_log_subscriber'
 require_relative 'ses_ingress_process_action'
 require_relative 'ses_ingress_reload_hook'
 
