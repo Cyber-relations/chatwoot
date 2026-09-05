@@ -165,11 +165,13 @@ RSpec.describe Toybaco::InboundEmail do
 
     described_class.store_ses_route_token(fixture_source)
     event = Struct.new(:payload).new(
-      controller: 'ses/inbound_emails',
-      action: 'create',
-      path: '/ses/inbound_emails',
-      params: {},
-      headers: {}
+      {
+        controller: 'ses/inbound_emails',
+        action: 'create',
+        path: '/ses/inbound_emails',
+        params: {},
+        headers: {}
+      }
     )
     subscriber.start_processing(event)
 
@@ -202,12 +204,14 @@ RSpec.describe Toybaco::InboundEmail do
 
     described_class.store_ses_route_token(fixture_source)
     event = Struct.new(:payload).new(
-      controller: 'action_mailbox/ingresses/ses/inbound_emails',
-      action: 'create',
-      status: 204,
-      path: '/rails/action_mailbox/ses/inbound_emails',
-      params: {},
-      headers: {}
+      {
+        controller: 'action_mailbox/ingresses/ses/inbound_emails',
+        action: 'create',
+        status: 204,
+        path: '/rails/action_mailbox/ses/inbound_emails',
+        params: {},
+        headers: {}
+      }
     )
     subscriber.process_action(event)
 
@@ -251,12 +255,14 @@ RSpec.describe Toybaco::InboundEmail do
 
     described_class.store_ses_route_token(fixture_source)
     event = Struct.new(:payload).new(
-      controller: 'ActionMailbox::Ingresses::Ses::InboundEmailsController',
-      action: 'create',
-      status: 204,
-      path: '/rails/action_mailbox/ses/inbound_emails',
-      params: {},
-      headers: {}
+      {
+        controller: 'ActionMailbox::Ingresses::Ses::InboundEmailsController',
+        action: 'create',
+        status: 204,
+        path: '/rails/action_mailbox/ses/inbound_emails',
+        params: {},
+        headers: {}
+      }
     )
     subscriber.process_action(event)
 

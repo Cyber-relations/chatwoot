@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
 require 'net/http'
+require_relative '../../../lib/toybaco/entitlements'
+require_relative '../../../lib/toybaco/checkout'
+require_relative '../../../lib/toybaco/billing_subscription'
 
 # トイバコ内の「ご契約内容」画面。
 # プラン・オプションの表示はトイバコ側のデータだけで行い、カード変更・プラン変更・
 # 請求履歴など決済情報に触れる操作だけ、ログイン済み本人に紐づくカスタマーポータルの
 # セッションを発行して Stripe の安全な画面に渡す(カード情報はトイバコでは一切保持しない)。
+# 解約はお支払い方法と混ぜず、ご契約内容から 解約する → 解約する の2クリックで期間末解約する。
 class Toybaco::BillingController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
   before_action :set_no_cache
@@ -14,11 +18,18 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   def show
     attrs = @account.internal_attributes || {}
     @plan_key = attrs['toybaco_plan']
-    @plan = Toybaco::Checkout::Catalog.billing_info(@plan_key)
     @posting = attrs.dig('postiz', 'enabled') == true
     @subscription_id = attrs['toybaco_subscription_id'].presence
     @admin = @account_user.administrator?
     @portal_ready = @admin && @subscription_id.present? && ENV['TOYBACO_STRIPE_KEY'].present?
+    @contract = Toybaco::Entitlements.contract_for(@account)
+    @plan = @contract && { name: @contract.fetch('name') }
+    load_actual_billing
+    render 'toybaco/billing/show', layout: false
+  rescue Toybaco::PlanCatalog::Invalid
+    @plan = nil
+    @billing = nil
+    @billing_error = true
     render 'toybaco/billing/show', layout: false
   end
 
@@ -38,7 +49,32 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     render json: { error: 'portal_failed' }, status: :bad_gateway
   end
 
+  def cancel
+    guard = portal_guard_error
+    return render(json: { error: guard[:error] }, status: guard[:status]) if guard
+
+    key = ENV.fetch('TOYBACO_STRIPE_KEY', '')
+    sub_id = @account.internal_attributes&.dig('toybaco_subscription_id')
+    subscription = stripe_request(:get, "/v1/subscriptions/#{sub_id}", key)
+    unless subscription['cancel_at_period_end'] || subscription['status'] == 'canceled'
+      stripe_request(:post, "/v1/subscriptions/#{sub_id}", key, Toybaco::BillingCancel.period_end_params)
+    end
+    render json: { cancelled: true }
+  rescue StandardError => e
+    Rails.logger.error("toybaco billing cancel error: #{e.class}: #{e.message}")
+    render json: { error: 'cancel_failed' }, status: :bad_gateway
+  end
+
   private
+
+  def load_actual_billing
+    return unless @admin && @subscription_id && ENV['TOYBACO_STRIPE_KEY'].present?
+
+    client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY'))
+    @billing = Toybaco::BillingSubscription.summarize(client.retrieve_subscription(@subscription_id), expected_id: @subscription_id)
+  rescue Toybaco::Checkout::Error, Toybaco::BillingSubscription::Unavailable
+    @billing_error = true
+  end
 
   # ポータル発行の事前条件(権限・呼び出し元・設定)。満たさない場合はエラー内容を返す
   def portal_guard_error

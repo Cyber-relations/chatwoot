@@ -2,6 +2,10 @@
 # administrate はリソース名を activerecord.models、項目名を activerecord.attributes から引く。
 # Chatwoot 本体の ja.yml に activerecord キーは無いので競合しない。
 ja:
+  devise:
+    mailer:
+      reset_password_instructions:
+        subject: '【トイバコ】パスワード設定のご案内'
   administrate:
     actions:
       # 既定は "%{name}を作成" だが Chatwoot のビューが name に生の英語名を渡すため、名前に依存しない文言へ

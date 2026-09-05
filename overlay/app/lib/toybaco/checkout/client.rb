@@ -29,6 +29,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         request(:get, "/v1/prices/#{price_id}")
       end
 
+      def retrieve_subscription(subscription_id)
+        raise Unavailable, 'invalid subscription id' unless subscription_id.to_s.match?(/\Asub_[A-Za-z0-9]+\z/)
+
+        query = URI.encode_www_form([
+                                      ['expand[]', 'items.data.price.product'], ['expand[]', 'latest_invoice']
+                                    ])
+        request(:get, "/v1/subscriptions/#{subscription_id}?#{query}")
+      end
+
       def create_customer(params)
         request(:post, '/v1/customers', params)
       end

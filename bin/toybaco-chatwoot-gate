@@ -101,18 +101,34 @@ control_file_list() {
   printf '%s\n' \
     '.dockerignore' \
     'Dockerfile' \
+    'config/toybaco-plans.json' \
+    'scripts/generate-plan-catalog.py' \
+    'tests/toybaco_plan_catalog_test.rb' \
+    'tests/toybaco_billing_subscription_test.rb' \
+    'tests/toybaco_subscription_sync_test.rb' \
+    'tests/toybaco_ai_usage_test.rb' \
     'bin/toybaco-chatwoot-gate' \
     'infra/terraform/ecs.tf' \
     'scripts/generate-chatwoot-active-ja-overrides.rb' \
     'scripts/generate-chatwoot-ja-overrides.rb' \
     'tests/chatwoot_full_japanese_test.rb' \
+    'tests/chatwoot_checkout_session_test.rb' \
+    'tests/chatwoot_billing_plan_names_test.rb' \
+    'tests/chatwoot_billing_cancel_test.rb' \
+    'tests/chatwoot_ai_reply_mode_test.rb' \
+    'tests/chatwoot_agent_seat_limit_test.rb' \
+    'tests/chatwoot_agent_login_test.rb' \
     'tests/chatwoot_postgres_health_test.rb' \
+    'docs/staging-agent-login.md' \
     'tests/chatwoot-http-smoke.rb' \
     'tests/chatwoot-migrations-v4.16.2-to-v4.17.1.json' \
     'tests/chatwoot-overlay-manifest.tsv' \
     'tests/chatwoot-rspec-manifest.json' \
     'tests/chatwoot-test.Dockerfile' \
     'tests/chatwoot_frame_policy_test.rb' \
+    'tests/toybaco_inbound_email_test.rb' \
+    'tests/chatwoot_ses_ingress_identity_test.rb' \
+    'scripts/toybaco-inbound-email-sns-fixture.rb' \
     'tests/chatwoot-production-smoke.rb' \
     'tests/postiz_identity_contract.sql' \
     'tests/verify_chatwoot_auth_cookie.rb' \
@@ -152,13 +168,18 @@ integration_ruby_file_list() {
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
         -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o \
-        -name 'toybaco_inbound_email.rb' -o \
-        -name 'toybaco_postgres_health.rb' \) -print
+        -name 'toybaco_inbound_email.rb' -o -name 'toybaco_agent_seat_limit.rb' -o \
+        -name 'toybaco_agent_login.rb' -o -name 'toybaco_postgres_health.rb' -o -name 'toybaco_ai_usage.rb' \) -print
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
         \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o \
         -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' -o \
-        -name 'postgres_health.rb' \) -print
+        -name 'billing_cancel.rb' -o -name 'billing_subscription.rb' -o -name 'agent_seat_limit.rb' -o \
+        -name 'agent_login.rb' -o -name 'postgres_health.rb' -o \
+        -name 'plan_catalog.rb' -o -name 'entitlements.rb' -o -name 'contract_addons.rb' -o -name 'subscription_sync.rb' -o -name 'ai_usage.rb' \) -print
+      find overlay/app/lib/toybaco/inbound_email -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/checkout -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/oidc -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/agent_login -type f -name '*.rb' -print
       find overlay/app/spec -type f -name '*_spec.rb' -print
     } | LC_ALL=C sort -u
   )
@@ -263,18 +284,10 @@ assert_control_contract() {
     'production Dockerfileのmusl-utils修正版が固定されていません'
   grep -Fq "zlib=1.3.2-r0" "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileのzlib修正版が固定されていません'
-  grep -Fq "expat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileのexpat修正版が固定されていません'
-  grep -Fq "libexpat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileのlibexpat修正版が固定されていません'
   grep -Fq 'cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/' \
     "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版zlib実体をfinal stageへコピーしません'
-  grep -Fq 'cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.12.4 /toybaco-runtime-root/usr/lib/' \
-    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版libexpat実体をfinal stageへコピーしません'
   grep -Fq 'test ! -e /usr/lib/libz.so.1.3.1' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileが旧zlib実体を拒否しません'
-  grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.3' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileが旧libexpat実体を拒否しません'
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
     'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
   grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -310,11 +323,17 @@ assert_control_contract() {
   for required_path in \
     'overlay/app/spec/requests/toybaco/oidc_spec.rb' \
     'overlay/app/spec/requests/toybaco/api_health_spec.rb' \
+    'overlay/app/spec/requests/toybaco/agent_login_spec.rb' \
     'overlay/app/spec/requests/toybaco/inbound_email_ingress_spec.rb' \
+    'overlay/app/spec/requests/toybaco/ai_usage_spec.rb' \
+    'overlay/app/spec/requests/toybaco/checkout_terms_spec.rb' \
+    'overlay/app/spec/lib/toybaco/ai_usage_database_spec.rb' \
     'overlay/app/spec/lib/toybaco/postgres_health_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_spec.rb' \
     'overlay/app/spec/lib/toybaco/postiz_sync_database_spec.rb' \
     'overlay/app/spec/lib/toybaco/oidc/session_reader_spec.rb' \
+    'overlay/app/spec/lib/toybaco/inbound_email_route_log_spec.rb' \
+    'overlay/app/spec/mailboxes/support_mailbox_spec.rb' \
     'overlay/app/spec/models/toybaco/postiz_lifecycle_spec.rb'; do
     [[ -f "$CONTROL_ROOT/$required_path" ]] || fail "必須Toybaco specがありません: $required_path"
   done
@@ -330,6 +349,19 @@ assert_control_contract() {
     'Chatwoot managed database prepare taskのRuby syntaxが不正です'
   bash -n "$CONTROL_ROOT/bin/toybaco-chatwoot-gate"
   ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_migration_contract.rb" >/dev/null
+  # control snapshot には site/ が無い。Session 契約は snapshot で、LP 通しはリポジトリ実体で見る。
+  ruby "$CONTROL_ROOT/tests/chatwoot_checkout_session_test.rb"
+  ruby "$ROOT/tests/chatwoot_checkout_session_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_billing_plan_names_test.rb"
+  ruby "$ROOT/tests/chatwoot_billing_plan_names_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_billing_cancel_test.rb"
+  ruby "$ROOT/tests/chatwoot_billing_cancel_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_ai_reply_mode_test.rb"
+  ruby "$ROOT/tests/chatwoot_ai_reply_mode_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_agent_seat_limit_test.rb"
+  ruby "$ROOT/tests/chatwoot_agent_seat_limit_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_agent_login_test.rb"
+  ruby "$ROOT/tests/chatwoot_agent_login_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_postgres_health_test.rb"
   ruby "$ROOT/tests/chatwoot_postgres_health_test.rb"
 }
@@ -526,7 +558,7 @@ verify_toybaco_database_prepare() {
   local recovery_database='chatwoot_recovery_test'
   local upstream_sha256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
   local target_sha256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
-  local branding_readback config_count expected_branding_readback locale_default metadata_guard_log metadata_missing_log
+  local branding_contract config_count locale_default metadata_guard_log metadata_missing_log
 
   STAGE='Chatwoot managed fresh database prepare'
   run_test_container \
@@ -538,12 +570,11 @@ verify_toybaco_database_prepare() {
   config_count="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c 'SELECT count(*) FROM public.installation_configs;')"
   [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
-  branding_readback="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
+  branding_contract="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c \
-    "SELECT name || '=' || split_part(split_part((serialized_value #>> '{}'), E'value: ', 2), E'\\n', 1) FROM public.installation_configs WHERE name IN ('BRAND_NAME', 'BRAND_URL', 'DISPLAY_MANIFEST', 'INSTALLATION_NAME', 'PRIVACY_URL', 'TERMS_URL', 'WIDGET_BRAND_URL') ORDER BY name COLLATE \"C\";")"
-  expected_branding_readback=$'BRAND_NAME=トイバコ\nBRAND_URL=https://toybaco.jp\nDISPLAY_MANIFEST=false\nINSTALLATION_NAME=トイバコ\nPRIVACY_URL=https://toybaco.jp/privacy\nTERMS_URL=https://toybaco.jp/terms\nWIDGET_BRAND_URL=https://toybaco.jp'
-  [[ "$branding_readback" == "$expected_branding_readback" ]] || fail \
-    "fresh prepare後のToybaco brandingが不一致です: $branding_readback"
+    "SELECT name || '=' || split_part(split_part((serialized_value #>> '{}'), E'value: ', 2), E'\\n', 1) FROM public.installation_configs WHERE name IN ('BRAND_NAME','BRAND_URL','DISPLAY_MANIFEST','INSTALLATION_NAME','PRIVACY_URL','TERMS_URL','WIDGET_BRAND_URL') ORDER BY name COLLATE \"C\";")"
+  [[ "$branding_contract" == $'BRAND_NAME=トイバコ\nBRAND_URL=https://toybaco.jp\nDISPLAY_MANIFEST=false\nINSTALLATION_NAME=トイバコ\nPRIVACY_URL=https://toybaco.jp/privacy\nTERMS_URL=https://toybaco.jp/terms\nWIDGET_BRAND_URL=https://toybaco.jp' ]] || \
+    fail 'fresh prepare後のトイバコbrand readbackが不一致です'
   locale_default="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c \
     "SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='public.accounts'::regclass AND a.attname='locale';")"
@@ -790,6 +821,37 @@ verify_base_and_frame_contract() {
   printf '%s\n' "$frame_output"
   grep -Eq '5 runs, 36 assertions, 0 failures, 0 errors, 0 skips' <<< "$frame_output" || fail \
     'frame-policy contractのrun/assertion数または結果が不正です'
+
+  inbound_output="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    --workdir /contract "$CHATWOOT_IMAGE" ruby tests/toybaco_inbound_email_test.rb)"
+  printf '%s\n' "$inbound_output"
+  grep -Eq '0 failures, 0 errors' <<< "$inbound_output" || fail \
+    'inbound email ingest contractが失敗しています'
+
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" bundle exec ruby /contract/tests/chatwoot_ses_ingress_identity_test.rb
+
+  python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_plan_catalog_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_billing_subscription_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_subscription_sync_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_ai_usage_test.rb
 }
 
 build_test_image() {
@@ -952,11 +1014,6 @@ build_and_smoke_production_image() {
       test "$(readlink /usr/lib/libz.so.1)" = "libz.so.1.3.2"
       test -f /usr/lib/libz.so.1.3.2
       test ! -e /usr/lib/libz.so.1.3.1
-      test "$(apk info -v | grep "^expat-")" = "expat-2.8.4-r0"
-      test "$(apk info -v | grep "^libexpat-")" = "libexpat-2.8.4-r0"
-      test "$(readlink /usr/lib/libexpat.so.1)" = "libexpat.so.1.12.4"
-      test -f /usr/lib/libexpat.so.1.12.4
-      test ! -e /usr/lib/libexpat.so.1.12.3
       test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
   docker run --rm --network none --read-only --cap-drop ALL \
@@ -1346,6 +1403,7 @@ main() {
     return 0
   fi
   require_command docker
+  require_command python3
   docker info >/dev/null 2>&1 || fail 'Docker daemonを利用できません'
   # Docker Desktopが既に共有しているworkspace filesystem上、かつGit rootの外へ
   # 専用tmpを作る。repo自体やrepoの親をmountすることはなく、bindするのは

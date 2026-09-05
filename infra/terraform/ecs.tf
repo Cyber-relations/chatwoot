@@ -64,9 +64,14 @@ resource "aws_iam_role_policy" "task_s3" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
-      Resource = [aws_s3_bucket.storage.arn, "${aws_s3_bucket.storage.arn}/*"]
+      Effect = "Allow"
+      Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+      Resource = [
+        aws_s3_bucket.storage.arn,
+        "${aws_s3_bucket.storage.arn}/*",
+        aws_s3_bucket.inbound_email.arn,
+        "${aws_s3_bucket.inbound_email.arn}/*",
+      ]
     }]
   })
 }
@@ -109,6 +114,14 @@ locals {
     { name = "SMTP_AUTHENTICATION", value = "login" },
     { name = "SMTP_ENABLE_STARTTLS_AUTO", value = "true" },
     { name = "MAILER_SENDER_EMAIL", value = "トイバコ <no-reply@${local.domain}>" },
+    # 受信メール(Chatwoot Channel::Email + ActionMailbox SES ingress)。
+    # MX/ルールセットが未整備ならアプリ側が受信箱を作らず fail-closed する。
+    { name = "MAILER_INBOUND_EMAIL_DOMAIN", value = local.inbound_email_domain },
+    { name = "RAILS_INBOUND_EMAIL_SERVICE", value = "ses" },
+    { name = "ACTION_MAILBOX_SES_SNS_TOPIC", value = aws_sns_topic.inbound_email.arn },
+    { name = "TOYBACO_INBOUND_EMAIL_MX", value = local.inbound_email_mx_host },
+    { name = "TOYBACO_INBOUND_EMAIL_REGION", value = var.aws_region },
+    { name = "TOYBACO_INBOUND_EMAIL_BUCKET", value = aws_s3_bucket.inbound_email.bucket },
 
     # トイバコID: 受信箱のログインで投稿画面にも入れるようにする。
     # 設定が無いうちは機能ごと止まっているので、受信箱の動作には影響しない。
@@ -116,8 +129,11 @@ locals {
     { name = "TOYBACO_OIDC_REDIRECT_URIS", value = "https://${local.post_fqdn}/settings" },
     { name = "TOYBACO_OIDC_ISSUER", value = "https://${local.app_fqdn}" },
     { name = "TOYBACO_OIDC_COOKIE_DOMAIN", value = ".${local.domain}" },
-    # AWSCURRENTの値が変わればrails/sidekiq/migrateも新revisionへして再起動する。
+    { name = "TOYBACO_POST_URL", value = "https://${local.post_fqdn}" },
+    # 参照する2つのAWSCURRENTが変わればrails/sidekiq/migrateも新revisionへして再起動する。
+    # version IDは非機密であり、secret本文をtask definitionへ埋め込まない。
     { name = "TOYBACO_APP_SECRET_VERSION", value = aws_secretsmanager_secret_version.app.version_id },
+    { name = "TOYBACO_POSTIZ_SECRET_VERSION", value = aws_secretsmanager_secret_version.postiz.version_id },
   ]
 
   app_secrets = [
@@ -125,6 +141,8 @@ locals {
     { name = "POSTGRES_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:POSTGRES_PASSWORD::" },
     { name = "SMTP_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:SMTP_USERNAME::" },
     { name = "SMTP_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:SMTP_PASSWORD::" },
+    # ご契約内容画面(カスタマーポータルのセッション発行)用の Stripe 制限付きキー
+    { name = "TOYBACO_STRIPE_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_KEY::" },
 
     # トイバコID の合言葉と、投稿画面側へ会社・利用者を作るための接続情報
     { name = "TOYBACO_OIDC_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.postiz.arn}:OIDC_CLIENT_SECRET::" },
@@ -149,6 +167,7 @@ resource "aws_ecs_task_definition" "rails" {
   network_mode             = "awsvpc"
   cpu                      = 512
   memory                   = 1024
+  skip_destroy             = true
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
@@ -173,6 +192,7 @@ resource "aws_ecs_task_definition" "sidekiq" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 1024
+  skip_destroy             = true
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
@@ -231,6 +251,7 @@ resource "aws_ecs_task_definition" "migrate" {
   network_mode             = "awsvpc"
   cpu                      = 512
   memory                   = 1024
+  skip_destroy             = true
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 

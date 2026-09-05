@@ -36,8 +36,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'customer_update[name]' => 'auto',
           'metadata[toybaco_plan]' => plan,
           'metadata[toybaco_cycle]' => cycle,
+          'metadata[toybaco_plan_version]' => input.fetch(:version),
+          'metadata[toybaco_reference_price_id]' => input.fetch(:price).fetch('id'),
           'subscription_data[metadata][toybaco_plan]' => plan,
           'subscription_data[metadata][toybaco_cycle]' => cycle,
+          'subscription_data[metadata][toybaco_plan_version]' => input.fetch(:version),
+          'subscription_data[metadata][toybaco_reference_price_id]' => input.fetch(:price).fetch('id'),
           'success_url' => input.fetch(:success_url),
           'cancel_url' => input.fetch(:cancel_url)
         }.merge(LineItem.subscription(input))

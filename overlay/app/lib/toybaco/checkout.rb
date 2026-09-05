@@ -17,20 +17,34 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     module_function
 
-    def start!(plan:, cycle: 'month', client: nil, environment: ENV)
+    def start!(plan:, cycle: 'month', version: nil, client: nil, environment: ENV)
       plan, cycle = normalize_selection(plan, cycle)
+      terms = Catalog.sale(plan, cycle, version: version)
       http = client || Client.new(environment['TOYBACO_STRIPE_KEY'])
-      price = Resolver.price(lookup_key(plan, cycle), client: http, environment: environment)
-      assert_jpy!(price, cycle)
+      price = Resolver.price_for(terms, cycle, client: http, environment: environment)
+      assert_catalog_price!(price, terms, cycle, environment)
       customer = http.create_customer(customer_params(plan: plan, cycle: cycle))
       http.create_checkout_session(
         session_params(
-          plan: plan, cycle: cycle, price: price, customer_id: customer.fetch('id'),
+          plan: plan, cycle: cycle, version: terms.fetch('plan_version'), price: price, customer_id: customer.fetch('id'),
           success_url: Resolver.success_url(environment),
           cancel_url: Resolver.cancel_url(environment, plan),
           optional_price_ids: Resolver.optional_price_ids(client: http, cycle: cycle)
         )
       )
+    end
+
+    def assert_catalog_price!(price, terms, cycle, environment = nil)
+      assert_jpy!(price, cycle)
+      expected = terms.fetch('cycles').fetch(cycle)
+      raise Unavailable, 'price does not match advertised terms' unless price['unit_amount'] == expected.fetch('amount')
+
+      if environment && price.key?('livemode')
+        mode = environment.fetch('TOYBACO_STRIPE_MODE', 'live')
+        raise Unavailable, 'invalid Stripe mode' unless %w[test live].include?(mode)
+        raise Unavailable, 'Stripe mode mismatch' unless price['livemode'] == (mode == 'live')
+      end
+      true
     end
 
     def normalize_selection(plan, cycle)
@@ -69,6 +83,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         'address[country]' => Catalog::COUNTRY,
         'preferred_locales[]' => Catalog::LOCALE,
         'metadata[toybaco_plan]' => selected_plan,
+        'metadata[toybaco_plan_version]' => Catalog.sale(selected_plan, selected_cycle).fetch('plan_version'),
         'metadata[toybaco_cycle]' => selected_cycle
       }
     end
@@ -76,11 +91,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     def session_params(**input)
       plan, cycle = normalize_selection(input.fetch(:plan), input.fetch(:cycle))
       price = input.fetch(:price)
-      assert_jpy!(price, cycle)
+      terms = Catalog.sale(plan, cycle, version: input[:version])
+      assert_catalog_price!(price, terms, cycle)
       customer_id = input.fetch(:customer_id)
       raise InvalidPlan unless customer_id.to_s.match?(Catalog::CUSTOMER_ID)
 
-      SessionForm.build(input.merge(plan: plan, cycle: cycle, customer_id: customer_id))
+      SessionForm.build(input.merge(plan: plan, cycle: cycle, version: terms.fetch('plan_version'), customer_id: customer_id))
     end
   end
 end

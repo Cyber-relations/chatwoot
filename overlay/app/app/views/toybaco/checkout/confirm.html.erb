@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>お申し込み内容の確認 | トイバコ</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f5f3ef;color:#263a32;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;line-height:1.8}main{max-width:560px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #dce3dd;border-radius:18px}h1{font-size:24px;line-height:1.5}.brand{font-weight:700;color:#225c45}dl{display:grid;grid-template-columns:auto 1fr;gap:12px 24px;padding:20px 0;border-block:1px solid #e6e9e5}dt{color:#56665d}dd{margin:0;text-align:right;font-weight:600}button{width:100%;background:#225c45;color:white;border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #d9a548;outline-offset:4px}a{color:#225c45}small{color:#56665d}@media(max-width:600px){main{margin:20px 12px;padding:24px}dl{gap:12px}h1{font-size:22px}}
+  </style>
+</head>
+<body><main>
+  <p class="brand">トイバコ</p>
+  <h1>現在のお申し込み内容を<br>ご確認ください</h1>
+  <p>以前のページやリンクからお越しの場合は、現在の料金と利用条件をご確認のうえ、決済へお進みください。</p>
+  <% limits = @terms.fetch('entitlements').fetch('limits') %>
+  <% features = @terms.fetch('entitlements').fetch('features') %>
+  <dl>
+    <dt>プラン</dt><dd><%= @terms.fetch('name') %></dd>
+    <dt>お支払い</dt><dd><%= number_with_delimiter(@terms.fetch('cycles').fetch(@cycle).fetch('amount')) %>円 / <%= @cycle == 'year' ? '年' : '月' %>（税別）</dd>
+    <dt>担当者</dt><dd><%= limits['agents'].nil? ? '人数制限なし' : "#{limits['agents']}名まで" %></dd>
+    <dt>SNS投稿</dt><dd><%= features['posting'] ? '利用できます' : '含まれません' %></dd>
+    <dt>AI応答</dt><dd><%= features['ai_reply'] ? (limits['ai_replies'].nil? ? '回数制限なし' : "月#{number_with_delimiter(limits['ai_replies'])}回まで") : '含まれません' %></dd>
+  </dl>
+  <p><small>税額・割引・追加オプションを含むお支払い総額は、次の決済画面でご確認いただけます。</small></p>
+  <form action="/toybaco/checkout" method="post">
+    <input type="hidden" name="plan" value="<%= @plan %>">
+    <input type="hidden" name="cycle" value="<%= @cycle %>">
+    <input type="hidden" name="version" value="<%= @terms.fetch('plan_version') %>">
+    <button type="submit">この内容で決済に進む</button>
+  </form>
+  <p><a href="https://toybaco.jp/pricing/">料金・プランを選び直す</a></p>
+</main></body>
+</html>

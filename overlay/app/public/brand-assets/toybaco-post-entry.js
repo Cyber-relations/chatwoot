@@ -67,8 +67,12 @@
   AI_MODE_LABELS[AI_MODE_AUTO] = '全自動';
   AI_MODE_LABELS[AI_MODE_DRAFT] = '下書き';
   var AI_NAV_LABEL = 'AI応答';
-  var aiModeCache = {};
+  var AI_MODE_TIMEOUT_MS = 10000;
+  var aiModeStates = {};
   var aiModeInflight = {};
+  var aiModeAccount = null;
+  var aiUsageStates = {};
+  var aiUsageInflight = {};
   var CANNED_NAMES = {
     'access-annai': 'アクセス案内',
     'after-uketsuke': 'アフター受付',
@@ -543,29 +547,39 @@
 
   var SELECTED_CLASS = 'bg-n-alpha-2';
 
+  function navigationClassName(node) {
+    return classNameOf(node).split(/\s+/).filter(function (name) {
+      return name && name !== 'router-link-active' && name !== 'router-link-exact-active' && name !== SELECTED_CLASS;
+    }).join(' ');
+  }
+
   function syncPostingSelection() {
     try {
-      var entry = document.querySelector('[data-' + MARK + ']');
-      if (!entry) return;
-      var on = !!panel;
-      var cls = classNameOf(entry);
-      var has = (' ' + cls + ' ').indexOf(' ' + SELECTED_CLASS + ' ') !== -1;
-      if (on && !has) {
-        entry.className = cls ? (cls + ' ' + SELECTED_CLASS) : SELECTED_CLASS;
-      } else if (!on && has) {
-        entry.className = cls
-          .replace(new RegExp('(?:^|\\s)' + SELECTED_CLASS + '(?:\\s|$)', 'g'), ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+      var path = window.location.pathname;
+      var selected = billingPanel ? 'billing' : panel ? 'posting' :
+        /\/reports(?:\/|$)/.test(path) ? 'reports' :
+        /\/settings(?:\/|$)/.test(path) ? 'settings' :
+        /\/(dashboard|inbox|inbox-view|conversations)(?:\/|$)/.test(path) ? 'inbox' : '';
+      var links = document.querySelectorAll('[data-toybaco-nav-link]');
+      for (var i = 0; i < links.length; i += 1) {
+        var link = links[i];
+        var kind = link.getAttribute('data-toybaco-nav-link');
+        var on = kind === selected;
+        link.setAttribute('data-toybaco-nav-current', on ? 'true' : 'false');
+        // 注入行はVue Routerの選択classを引き継がない。
+        if (kind === 'posting' || kind === 'billing') {
+          link.className = navigationClassName(link) + (on ? ' ' + SELECTED_CLASS : '');
+        }
+        if (on) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
       }
-      if (on && entry.setAttribute) entry.setAttribute('aria-current', 'page');
-      else if (entry.removeAttribute) entry.removeAttribute('aria-current');
     } catch (e) { /* 選択表示が無くても開閉は続ける */ }
   }
 
   function openPanel(path, fromHash) {
     if (panel) return;
     closeAiModePanel();
+    closeBillingPanel();
     // 開けない場面(ログイン前など)で hash だけ残ると、以後ずっと
     // 「開いているつもり」の状態になる。消してから戻る。
     if (!isLoggedInView()) { stripHash(); return; }
@@ -643,10 +657,11 @@
 
     var a = document.createElement('a');
     a.href = postingHash(DEFAULT_PATH);
-    a.className = sampleRow.inner.className;
+    a.className = navigationClassName(sampleRow.inner);
     a.title = LABEL;
     a.setAttribute('data-' + MARK, '1');
     a.setAttribute('data-account', accountId);
+    a.setAttribute('data-toybaco-nav-link', 'posting');
 
     var iconWrap = document.createElement('div');
     iconWrap.className = 'relative flex items-center gap-2';
@@ -874,6 +889,74 @@
     return ((node && node.getAttribute && node.getAttribute('href')) || (node && node.href) || '') + '';
   }
 
+  function primaryNavKind(row) {
+    var kind = '';
+    walkOwnRow(row, function (node) {
+      var title = node.getAttribute && node.getAttribute('title');
+      if (/^(会話|Conversations|Inbox)$/.test(title || '')) kind = 'inbox';
+      else if (/^(レポート|Reports)$/.test(title || '')) kind = 'reports';
+      else if (/^(設定|Settings)$/.test(title || '')) kind = 'settings';
+    });
+    return kind;
+  }
+
+  function primaryNavDestination(kind, id) {
+    var prefix = '/app/accounts/' + id;
+    return prefix + (kind === 'reports' ? '/reports/overview' : kind === 'settings' ? '/settings/general' : '/dashboard');
+  }
+
+  function ensurePrimaryNavigation(sample) {
+    var id = currentAccountId();
+    if (!id || !sample) return;
+    var rows = sample.ul.children || [];
+    for (var i = 0; i < rows.length; i += 1) {
+      var row = rows[i];
+      if (isToybacoNavRow(row)) continue;
+      var kind = primaryNavKind(row);
+      if (!kind) continue;
+      var link = rowInner(row);
+      if (!link) continue;
+      row.setAttribute('data-toybaco-primary-nav', kind);
+      link.setAttribute('data-toybaco-nav-link', kind);
+      if (link.tagName === 'A') {
+        var dest = primaryNavDestination(kind, id);
+        link.setAttribute('href', dest);
+        link.href = dest;
+      } else if (!link.getAttribute('data-toybaco-nav-keyboard')) {
+        link.setAttribute('tabindex', '0');
+        link.setAttribute('data-toybaco-nav-keyboard', '1');
+        link.addEventListener('keydown', function (event) {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          navigatePrimaryNav(this.getAttribute('data-toybaco-nav-link'));
+        }, true);
+      }
+    }
+  }
+
+  function navigatePrimaryNav(kind) {
+    var id = currentAccountId();
+    if (!id) return;
+    var returnToConversation = kind === 'inbox' && (panel || billingPanel) &&
+      /\/(dashboard|inbox|conversations)(?:\/|$)/.test(window.location.pathname);
+    closeAiModePanel();
+    closeBillingPanel();
+    closePanel();
+    if (returnToConversation) return;
+    var dest = primaryNavDestination(kind, id);
+    if (window.location.pathname === dest) { syncPostingSelection(); return; }
+    // 既存の子RouterLinkを経由し、Vueの会話・下書きを保ったまま画面を切り替える。
+    var nativeLink = null;
+    walkNavNodes(primaryNavList(), function (node) {
+      if (nativeLink || !node || !node.getAttribute || node.getAttribute('data-toybaco-nav-link')) return;
+      if (hrefOf(node) === dest && typeof node.click === 'function') nativeLink = node;
+    });
+    if (nativeLink) nativeLink.click();
+    else window.location.href = dest;
+  }
+
   function isInboxSample(row) {
     if (!row) return false;
     try {
@@ -989,9 +1072,10 @@
       li.className = sample.li.className;
       var a = document.createElement('a');
       a.href = '#';
-      a.className = sample.inner.className;
+      a.className = navigationClassName(sample.inner);
       a.title = 'ご契約内容';
       a.setAttribute('data-' + BILLING_MARK, '1');
+      a.setAttribute('data-toybaco-nav-link', 'billing');
       var iconWrap = document.createElement('div');
       iconWrap.className = 'relative flex items-center gap-2';
       var icon = document.createElement('span');
@@ -1018,17 +1102,22 @@
   function normalizeAiMode(value) {
     var text = (value || '').toString();
     if (text === AI_MODE_DRAFT || text === AI_MODE_LABELS[AI_MODE_DRAFT]) return AI_MODE_DRAFT;
-    return AI_MODE_AUTO;
+    if (text === AI_MODE_AUTO || text === AI_MODE_LABELS[AI_MODE_AUTO]) return AI_MODE_AUTO;
+    return null;
   }
 
   function aiModeLabel(value) {
-    return AI_MODE_LABELS[normalizeAiMode(value)] || AI_MODE_LABELS[AI_MODE_AUTO];
+    return AI_MODE_LABELS[normalizeAiMode(value)] || '未確認';
+  }
+
+  function aiModeState(accountId) {
+    var id = accountId || currentAccountId() || '';
+    if (!aiModeStates[id]) aiModeStates[id] = { mode: null, phase: 'idle', message: '' };
+    return aiModeStates[id];
   }
 
   function currentAiMode(accountId) {
-    var id = accountId || currentAccountId();
-    if (id && aiModeCache[id]) return normalizeAiMode(aiModeCache[id]);
-    return AI_MODE_AUTO;
+    return aiModeState(accountId).mode;
   }
 
   function aiModeUrl(accountId) {
@@ -1038,13 +1127,25 @@
 
   function applyAiMode(accountId, mode) {
     var next = normalizeAiMode(mode);
-    if (accountId) aiModeCache[accountId] = next;
-    paintAiModeControls(next);
+    var state = aiModeState(accountId);
+    state.mode = next;
+    state.phase = next ? 'ready' : 'error';
+    state.message = '';
+    // 他店舗の遅れて届いた応答で、今開いている店舗の選択を変えない。
+    if (accountId === currentAccountId()) paintAiModeControls();
     return next;
   }
 
-  function paintAiModeControls(mode) {
-    var selected = normalizeAiMode(mode);
+  function paintAiModeControls() {
+    var state = aiModeState();
+    var selected = state.mode;
+    var busy = state.phase === 'loading' || state.phase === 'saving';
+    var text = state.message;
+    if (!text) {
+      if (state.phase === 'error') text = '設定を確認できませんでした。再確認してください。';
+      else if (state.phase !== 'ready') text = '店舗全体の設定を確認しています…';
+      else text = selected === AI_MODE_DRAFT ? '下書き：送信はスタッフが行います' : '全自動：AIがお客様へ送信します';
+    }
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
       var i;
@@ -1054,52 +1155,291 @@
         if (btn.setAttribute) {
           btn.setAttribute('aria-pressed', value === selected ? 'true' : 'false');
           btn.setAttribute('data-toybaco-ai-on', value === selected ? '1' : '0');
+          btn.setAttribute('aria-disabled', state.phase === 'ready' ? 'false' : 'true');
+          btn.disabled = state.phase !== 'ready';
         }
       }
-      var bar = document.querySelector('[data-toybaco-ai-mode-bar]');
-      if (bar && bar.setAttribute) bar.setAttribute('data-toybaco-ai-current', selected);
+      var groups = document.querySelectorAll('[data-toybaco-ai-mode-bar], [data-toybaco-ai-mode-panel]');
+      for (i = 0; i < groups.length; i += 1) {
+        groups[i].setAttribute('data-toybaco-ai-current', selected || 'unknown');
+        groups[i].setAttribute('data-toybaco-ai-state', state.phase);
+        groups[i].setAttribute('aria-busy', busy ? 'true' : 'false');
+      }
+      var statuses = document.querySelectorAll('[data-toybaco-ai-status]');
+      for (i = 0; i < statuses.length; i += 1) {
+        // 同じ文面を書き直してMutationObserverを再起動しない。
+        if (statuses[i].textContent !== text) statuses[i].textContent = text;
+      }
+      var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
+      for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error';
     } catch (e) { /* 選べなくても受信箱は壊さない */ }
   }
 
-  function prefetchAiMode(accountId) {
+  function requestAiJson(url, options, validate) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () { finish(new Error('timeout')); }, AI_MODE_TIMEOUT_MS);
+      function finish(error, body) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve(body);
+      }
+      try {
+        Promise.resolve(fetch(url, options)).then(function (res) {
+          if (!res || !res.ok) throw new Error('request failed');
+          return res.json();
+        }).then(function (body) {
+          finish(null, validate(body));
+        }).catch(function (error) { finish(error); });
+      } catch (error) { finish(error); }
+    });
+  }
+
+  function requestAiMode(url, options) {
+    return requestAiJson(url, options, function (body) {
+      if (!body || !normalizeAiMode(body.mode)) throw new Error('invalid mode');
+      return body;
+    });
+  }
+
+  function aiUsageState(accountId) {
+    var id = accountId || currentAccountId() || '';
+    if (!aiUsageStates[id]) aiUsageStates[id] = { phase: 'idle', data: null };
+    return aiUsageStates[id];
+  }
+
+  function validateAiUsage(body) {
+    function count(value) {
+      return typeof value === 'number' && isFinite(value) && value >= 0 &&
+        Math.floor(value) === value && value <= 9007199254740991;
+    }
+    var reasons = [null, 'unknown_contract', 'account_inactive', 'disabled', 'limit_reached'];
+    if (!body || typeof body.enabled !== 'boolean' || !count(body.used) || !count(body.reserved) ||
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.period) ||
+      typeof body.resets_at !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(body.resets_at) ||
+      !isFinite(Date.parse(body.resets_at)) ||
+      reasons.indexOf(body.reason) < 0 ||
+      (body.limit === null ? body.remaining !== null :
+        (!count(body.limit) || !count(body.remaining) || body.remaining > body.limit)) ||
+      (body.enabled ? (body.reason !== null && body.reason !== 'limit_reached') :
+        (body.reason === null || body.reason === 'limit_reached')) ||
+      (body.reason === 'limit_reached' && body.remaining !== 0)) {
+      throw new Error('invalid usage');
+    }
+    return body;
+  }
+
+  function aiUsageResetLabel(value) {
+    var japan = new Date(Date.parse(value) + 9 * 60 * 60 * 1000);
+    var minutes = ('0' + japan.getUTCMinutes()).slice(-2);
+    return japan.getUTCFullYear() + '年' + (japan.getUTCMonth() + 1) + '月' + japan.getUTCDate() +
+      '日 ' + japan.getUTCHours() + ':' + minutes + '（日本時間）に更新';
+  }
+
+  function paintAiUsage() {
+    var card = document.querySelector('[data-toybaco-ai-usage]');
+    if (!card || card.getAttribute('data-account') !== currentAccountId()) return;
+    var state = aiUsageState();
+    var data = state.phase === 'ready' ? state.data : null;
+    var active = data && data.enabled;
+    var busy = state.phase === 'loading' || state.phase === 'idle';
+    var message = busy ? '利用状況を確認しています…' : '利用状況を取得できませんでした。再確認してください。';
+    if (data) {
+      if (data.reason === 'unknown_contract') message = 'AI応答の利用条件を確認できません。ご契約内容をご確認ください。';
+      else if (data.reason === 'account_inactive') message = '現在、この店舗のAI応答はご利用いただけません。ご契約内容をご確認ください。';
+      else if (data.reason === 'disabled') message = '現在のご契約にはAI応答が含まれていません。';
+      else if (data.remaining === 0) message = '現在、利用できる残り枠がありません。';
+      else message = '全自動・下書きで共通の利用枠です。';
+    }
+    card.setAttribute('aria-busy', busy ? 'true' : 'false');
+    card.setAttribute('data-toybaco-ai-usage-state', state.phase === 'error' ? 'error' :
+      (data && (!active || data.remaining === 0) ? 'limited' : state.phase));
+    var heading = card.querySelector('[data-toybaco-ai-usage-heading]');
+    heading.textContent = active ? data.period.slice(0, 4) + '年' + Number(data.period.slice(5)) + '月のAI応答' : 'AI応答の利用状況';
+    var value = card.querySelector('[data-toybaco-ai-usage-value]');
+    value.textContent = active ? data.used.toLocaleString('ja-JP') +
+      (data.limit === null ? ' 件利用済み' : ' / ' + data.limit.toLocaleString('ja-JP') + ' 件') : '';
+    value.hidden = !active;
+    var details = card.querySelector('[data-toybaco-ai-usage-details]');
+    details.textContent = active ? (data.remaining === null ? '利用上限なし' :
+      '残り ' + data.remaining.toLocaleString('ja-JP') + ' 件') +
+      (data.reserved ? ' · 処理中 ' + data.reserved.toLocaleString('ja-JP') + ' 件' : '') : '';
+    details.hidden = !active;
+    var reset = card.querySelector('[data-toybaco-ai-usage-reset]');
+    reset.textContent = active ? aiUsageResetLabel(data.resets_at) : '';
+    reset.hidden = !active;
+    card.querySelector('[data-toybaco-ai-usage-status]').textContent = message;
+    var refresh = card.querySelector('[data-toybaco-ai-usage-refresh]');
+    refresh.textContent = state.phase === 'error' ? '再確認' : '更新';
+    refresh.disabled = busy;
+    var meter = card.querySelector('[data-toybaco-ai-usage-meter]');
+    meter.hidden = !active || data.limit === null || data.limit === 0;
+    if (!meter.hidden) {
+      var used = Math.min(data.used, data.limit);
+      meter.setAttribute('aria-valuemin', '0');
+      meter.setAttribute('aria-valuemax', String(data.limit));
+      meter.setAttribute('aria-valuenow', String(used));
+      meter.setAttribute('aria-valuetext', value.textContent + '利用済み、' + details.textContent);
+      meter.querySelector('[data-toybaco-ai-usage-used]').style.width = (used / data.limit * 100) + '%';
+      meter.querySelector('[data-toybaco-ai-usage-reserved]').style.width =
+        (Math.min(data.reserved, data.limit - used) / data.limit * 100) + '%';
+    } else {
+      meter.removeAttribute('aria-valuenow');
+      meter.removeAttribute('aria-valuemax');
+      meter.removeAttribute('aria-valuetext');
+    }
+  }
+
+  function prefetchAiUsage(accountId) {
     var id = accountId || currentAccountId();
-    var url = aiModeUrl(id);
-    if (!url || !window.fetch) return;
-    if (aiModeInflight[id]) return aiModeInflight[id];
-    aiModeInflight[id] = fetch(url, {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' }
-    }).then(function (res) {
-      if (!res || !res.ok) return null;
-      return res.json();
-    }).then(function (body) {
-      if (body && body.mode) applyAiMode(id, body.mode);
+    if (!id || !/^[1-9]\d*$/.test(String(id))) return Promise.resolve(null);
+    if (aiUsageInflight[id]) {
+      if (id === currentAccountId()) paintAiUsage();
+      return aiUsageInflight[id];
+    }
+    var state = aiUsageState(id);
+    state.data = null;
+    state.phase = window.fetch ? 'loading' : 'error';
+    if (id === currentAccountId()) paintAiUsage();
+    if (!window.fetch) return Promise.resolve(null);
+    aiUsageInflight[id] = requestAiJson('/toybaco/ai_usage?account_id=' + encodeURIComponent(id), {
+      credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }
+    }, validateAiUsage).then(function (body) {
+      delete aiUsageInflight[id];
+      state.data = body;
+      state.phase = 'ready';
+      if (id === currentAccountId()) paintAiUsage();
       return body;
     }).catch(function () {
+      delete aiUsageInflight[id];
+      state.data = null;
+      state.phase = 'error';
+      if (id === currentAccountId()) paintAiUsage();
       return null;
+    });
+    return aiUsageInflight[id];
+  }
+
+  function appendAiUsage(host) {
+    var card = document.createElement('section');
+    card.setAttribute('data-toybaco-ai-usage', '1');
+    card.setAttribute('data-account', currentAccountId());
+    card.setAttribute('aria-label', 'AI応答の利用状況');
+    var head = document.createElement('div');
+    head.setAttribute('data-toybaco-ai-usage-head', '1');
+    var title = document.createElement('strong');
+    title.setAttribute('data-toybaco-ai-usage-heading', '1');
+    head.appendChild(title);
+    var refresh = document.createElement('button');
+    refresh.type = 'button';
+    refresh.setAttribute('data-toybaco-ai-usage-refresh', '1');
+    refresh.setAttribute('aria-label', 'AI応答の利用状況を更新');
+    refresh.addEventListener('click', function () { prefetchAiUsage(currentAccountId()); });
+    head.appendChild(refresh);
+    card.appendChild(head);
+    ['value', 'details', 'reset', 'status'].forEach(function (name) {
+      var node = document.createElement(name === 'value' ? 'strong' : 'div');
+      node.setAttribute('data-toybaco-ai-usage-' + name, '1');
+      if (name === 'status') { node.setAttribute('role', 'status'); node.setAttribute('aria-live', 'polite'); }
+      card.appendChild(node);
+    });
+    var meter = document.createElement('div');
+    meter.setAttribute('data-toybaco-ai-usage-meter', '1');
+    meter.setAttribute('role', 'progressbar');
+    meter.setAttribute('aria-label', 'AI応答の利用枠');
+    ['used', 'reserved'].forEach(function (name) {
+      var fill = document.createElement('span');
+      fill.setAttribute('data-toybaco-ai-usage-' + name, '1');
+      meter.appendChild(fill);
+    });
+    card.insertBefore(meter, card.querySelector('[data-toybaco-ai-usage-details]'));
+    host.appendChild(card);
+  }
+
+  function prefetchAiMode(accountId, force, recoveredMessage) {
+    var id = accountId || currentAccountId();
+    var url = aiModeUrl(id);
+    if (!url) return Promise.resolve(null);
+    if (id === currentAccountId() && aiModeAccount !== id) {
+      aiModeAccount = id;
+      closeAiModePanel();
+      force = true;
+    }
+    if (aiModeInflight[id]) return aiModeInflight[id];
+    var state = aiModeState(id);
+    // DOMの描画ごとにGETを繰り返さず、店舗切替・設定を開く・再確認で更新する。
+    if (!force && state.phase !== 'idle') return Promise.resolve(null);
+    state.mode = null;
+    state.phase = window.fetch ? 'loading' : 'error';
+    state.message = recoveredMessage ? '保存結果を確認しています…' : '';
+    if (id === currentAccountId()) paintAiModeControls();
+    if (!window.fetch) return Promise.resolve(null);
+    aiModeInflight[id] = requestAiMode(url, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
     }).then(function (body) {
       delete aiModeInflight[id];
+      applyAiMode(id, body.mode);
+      state.message = recoveredMessage ? '変更の応答を確認できませんでした。現在の設定：' + aiModeLabel(body.mode) : '';
+      if (id === currentAccountId()) paintAiModeControls();
       return body;
+    }).catch(function () {
+      delete aiModeInflight[id];
+      state.phase = 'error';
+      state.mode = null;
+      state.message = recoveredMessage ? '保存結果を確認できませんでした。再確認してください。' : '';
+      if (id === currentAccountId()) paintAiModeControls();
+      return null;
     });
     return aiModeInflight[id];
   }
 
   function saveAiMode(mode) {
     var id = currentAccountId();
-    var next = applyAiMode(id, mode);
+    var next = normalizeAiMode(mode);
     var url = aiModeUrl(id);
-    if (!url || !window.fetch) return;
-    fetch(url, {
+    var state = aiModeState(id);
+    if (!url || !next || !window.fetch) return Promise.resolve(null);
+    if (aiModeAccount !== id) return prefetchAiMode(id, true);
+    // 取得中・保存中の連打や、古い店舗のボタン操作から二重PUTを作らない。
+    if (state.phase !== 'ready' || next === state.mode) return aiModeInflight[id] || Promise.resolve(null);
+    state.phase = 'saving';
+    state.message = aiModeLabel(next) + 'へ変更しています…';
+    paintAiModeControls();
+    aiModeInflight[id] = requestAiMode(url, {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ mode: next })
-    }).then(function (res) {
-      if (!res || !res.ok) return null;
-      return res.json();
     }).then(function (body) {
-      if (body && body.mode) applyAiMode(id, body.mode);
-    }).catch(function () { /* 保存に失敗しても表示は維持する */ });
+      delete aiModeInflight[id];
+      applyAiMode(id, body.mode);
+      return body;
+    }).catch(function () {
+      delete aiModeInflight[id];
+      // 通信が途切れてもサーバー側は保存済みの可能性がある。推測で戻さず読戻す。
+      return prefetchAiMode(id, true, true);
+    });
+    return aiModeInflight[id];
+  }
+
+  function appendAiModeStatus(host) {
+    var status = document.createElement('span');
+    status.setAttribute('data-toybaco-ai-status', '1');
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    host.appendChild(status);
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.setAttribute('data-toybaco-ai-retry', '1');
+    retry.textContent = '再確認';
+    retry.hidden = true;
+    retry.addEventListener('click', function () { prefetchAiMode(currentAccountId(), true); });
+    host.appendChild(retry);
   }
 
   function buildAiModeButton(mode, kind) {
@@ -1110,6 +1450,7 @@
     btn.textContent = aiModeLabel(mode);
     btn.setAttribute('aria-pressed', currentAiMode() === mode ? 'true' : 'false');
     btn.setAttribute('data-toybaco-ai-on', currentAiMode() === mode ? '1' : '0');
+    btn.disabled = aiModeState().phase !== 'ready';
     return btn;
   }
 
@@ -1145,22 +1486,32 @@
         title.setAttribute('data-' + AI_MARK, '1');
         title.textContent = AI_NAV_LABEL;
         bar.appendChild(title);
+        var scope = document.createElement('span');
+        scope.setAttribute('data-toybaco-ai-scope', '1');
+        scope.textContent = '店舗全体';
+        bar.appendChild(scope);
         bar.appendChild(buildAiModeButton(AI_MODE_AUTO, 'chip'));
         bar.appendChild(buildAiModeButton(AI_MODE_DRAFT, 'chip'));
+        appendAiModeStatus(bar);
         box.parentElement.insertBefore(bar, box);
       }
-      paintAiModeControls(currentAiMode());
+      paintAiModeControls();
     } catch (e) { /* 返信欄の横に出せなくても受信箱は壊さない */ }
   }
 
   var aiPanel = null;
+  var aiPanelReturnFocus = null;
 
   function openAiModePanel() {
     try {
       if (aiPanel) { closeAiModePanel(); return; }
       closeBillingPanel();
+      prefetchAiMode(currentAccountId(), true);
+      aiPanelReturnFocus = document.activeElement;
       var wrapEl = document.createElement('div');
       wrapEl.setAttribute('data-toybaco-ai-mode-panel', '1');
+      wrapEl.setAttribute('role', 'dialog');
+      wrapEl.setAttribute('aria-label', '店舗全体のAI応答設定');
       var head = document.createElement('div');
       head.setAttribute('data-toybaco-ai-mode-head', '1');
       var title = document.createElement('strong');
@@ -1173,7 +1524,7 @@
       head.appendChild(close);
       wrapEl.appendChild(head);
       var lead = document.createElement('p');
-      lead.textContent = 'お客様への一次応答の送り方';
+      lead.textContent = 'この店舗全体の設定です。お客様への一次応答の送り方を変更します。';
       wrapEl.appendChild(lead);
       var autoBtn = buildAiModeButton(AI_MODE_AUTO, 'card');
       var autoHelp = document.createElement('small');
@@ -1185,11 +1536,15 @@
       draftHelp.textContent = 'AI は下書き・送信は人';
       draftBtn.appendChild(draftHelp);
       wrapEl.appendChild(draftBtn);
+      appendAiModeStatus(wrapEl);
+      appendAiUsage(wrapEl);
       var host = document.querySelector('main') || document.body;
       if (host && host.appendChild) host.appendChild(wrapEl);
       else document.body.appendChild(wrapEl);
       aiPanel = wrapEl;
-      paintAiModeControls(currentAiMode());
+      paintAiModeControls();
+      prefetchAiUsage(currentAccountId());
+      if (close.focus) close.focus();
       document.addEventListener('keydown', escCloseAiMode);
     } catch (e) { /* 開けなくても邪魔はしない */ }
   }
@@ -1199,6 +1554,10 @@
     try { aiPanel.remove(); } catch (e) { /* noop */ }
     aiPanel = null;
     document.removeEventListener('keydown', escCloseAiMode);
+    if (aiPanelReturnFocus && aiPanelReturnFocus.isConnected !== false && aiPanelReturnFocus.focus) {
+      aiPanelReturnFocus.focus();
+    }
+    aiPanelReturnFocus = null;
   }
 
   function escCloseAiMode(e) {
@@ -1206,6 +1565,7 @@
   }
 
   var billingPanel = null;
+  var billingPath = null;
 
   // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
   // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
@@ -1214,6 +1574,7 @@
       if (billingPanel) { closeBillingPanel(); return; }
       var id = currentAccountId();
       if (!id) return;
+      closePanel();
       var wrapEl = document.createElement('div');
       wrapEl.setAttribute('data-toybaco-billing-panel', '1');
       wrapEl.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:' + computeLeft() +
@@ -1227,11 +1588,14 @@
       bar.appendChild(close);
       var frame = document.createElement('iframe');
       frame.src = '/toybaco/billing?account_id=' + encodeURIComponent(id);
+      frame.title = 'ご契約内容';
       frame.style.cssText = 'flex:1;border:none;width:100%;';
       wrapEl.appendChild(bar);
       wrapEl.appendChild(frame);
       document.body.appendChild(wrapEl);
       billingPanel = wrapEl;
+      billingPath = window.location.pathname;
+      syncPostingSelection();
       document.addEventListener('keydown', escCloseBilling);
     } catch (e) { /* 開けなくても邪魔はしない */ }
   }
@@ -1240,7 +1604,9 @@
     if (!billingPanel) return;
     try { billingPanel.remove(); } catch (e) { /* noop */ }
     billingPanel = null;
+    billingPath = null;
     document.removeEventListener('keydown', escCloseBilling);
+    syncPostingSelection();
   }
 
   function escCloseBilling(e) {
@@ -1269,6 +1635,16 @@
   function onNavClickCapture(e) {
     try {
       var t = e.target || e.srcElement;
+      var navLink = closestAttr(t, 'data-toybaco-nav-link');
+      var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
+      if (navKind === 'inbox' || navKind === 'reports' || navKind === 'settings') {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        navigatePrimaryNav(navKind);
+        return;
+      }
       if (closestMarked(t, MARK)) {
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
@@ -1314,18 +1690,6 @@
         if (entry.removeAttribute) entry.removeAttribute('data-' + BILLING_MARK);
       }
     } catch (e) { /* href を直せなくても click キャプチャでカレンダーへ */ }
-  }
-
-  function bounceDashboardToInbox() {
-    try {
-      var path = window.location.pathname || '';
-      var m = path.match(/^\/app\/accounts\/(\d+)\/dashboard\/?$/);
-      if (!m) return false;
-      var dest = '/app/accounts/' + m[1] + '/inbox-view';
-      if (window.location.replace) window.location.replace(dest);
-      else window.location.href = dest;
-      return true;
-    } catch (e) { return false; }
   }
 
   function cannedCodeFromLabel(text) {
@@ -1785,7 +2149,9 @@
       ensureComposerAiBar();
       var sample = findMenu();
       if (!sample) return;
+      ensurePrimaryNavigation(sample);
       injectBilling(sample);
+      syncPostingSelection();
 
       var id = currentAccountId();
       if (!id) return;
@@ -1841,7 +2207,7 @@
   }
 
   function afterNavChange() {
-    if (bounceDashboardToInbox()) return;
+    if (billingPanel && window.location.pathname !== billingPath) closeBillingPanel();
     inject();
     ensurePostingContract();
     if (!panel && (currentHashPath() !== null || hasPendingPath())) {
@@ -1868,7 +2234,6 @@
   }
 
   function start() {
-    if (bounceDashboardToInbox()) return;
     inject();
     ensurePostingContract();
     hookHistory();

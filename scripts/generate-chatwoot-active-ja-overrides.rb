@@ -356,6 +356,10 @@ REPLACEMENTS = {
     replacement('image-alt="Labels"', 'image-alt="ラベル"')
   ],
   'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue' => [
+    replacement("        Enter: {\n          action: e => {\n            if (this.isAValidEvent('enter')) {",
+                "        Enter: {\n          action: e => {\n            // Safari may report isComposing=false on the IME confirmation key.\n            if (e.isComposing || e.keyCode === 229) return;\n            if (this.isAValidEvent('enter')) {"),
+    replacement("        '$mod+Enter': {\n          action: () => {\n            if (this.copilot.isActive.value && this.isFocused) {",
+                "        '$mod+Enter': {\n          action: e => {\n            if (e.isComposing || e.keyCode === 229) return;\n            if (this.copilot.isActive.value && this.isFocused) {"),
     replacement("      } catch (error) {\n        const errorMessage =\n          error?.response?.data?.error || this.$t('CONVERSATION.MESSAGE_ERROR');\n        useAlert(errorMessage);",
                 "      } catch {\n        useAlert(this.$t('CONVERSATION.MESSAGE_ERROR'));")
   ],

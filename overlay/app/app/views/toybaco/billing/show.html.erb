@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ご契約内容 | トイバコ</title>
 <style>
-:root{--navy:#1F3A5F;--coral:#FF6B5B;--base:#FAF7F2;--paper:#FFFDF9;--ink:#24303F;--muted:#6B7684;--line:#E5E3DB;--green:#2FA35C}
+:root{--navy:#1F3A5F;--navy-deep:#163049;--coral:#FF6B5B;--surface:#FCFBF8;--paper:#FFFDF9;--ink:#24303F;--muted:#6B7684;--line:#E5E3DB;--green:#2FA35C}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--base);color:var(--ink);line-height:1.8;font-size:15px;padding:32px 24px}
+body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--surface);color:var(--ink);line-height:1.8;font-size:15px;padding:32px 24px}
 .wrap{max-width:640px;margin:0 auto}
 h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
 .lead{color:var(--muted);font-size:.85rem;margin-bottom:22px}
@@ -24,9 +24,17 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
 .btn{display:inline-block;border:none;cursor:pointer;font-family:inherit;font-size:.92rem;font-weight:700;border-radius:999px;padding:12px 26px;transition:opacity .15s}
 .btn:hover{opacity:.88}
 .btn-navy{background:var(--navy);color:#fff}
+.btn-back{background:transparent;color:var(--navy-deep);border:1.5px solid var(--line)}
 .note{font-size:.78rem;color:var(--muted);margin-top:10px}
 .note a{color:var(--navy)}
 .err{display:none;color:#C0392B;font-size:.82rem;margin-top:8px}
+.lp-line{color:var(--navy-deep);font-size:.9rem;margin-bottom:16px}
+.dlg-back{position:fixed;inset:0;background:rgba(22,48,73,.42);display:flex;align-items:center;justify-content:center;padding:24px;z-index:20}
+.dlg-back[hidden]{display:none}
+.dlg{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:22px 24px;max-width:420px;width:100%}
+.dlg-title{font-size:1.05rem;font-weight:700;color:var(--navy);margin-bottom:8px}
+.dlg-body{color:var(--navy-deep);font-size:.9rem;margin-bottom:18px}
+.dlg-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -37,8 +45,27 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
   <div class="card">
     <% if @plan %>
       <div class="plan-name"><%= @plan[:name] %> プラン</div>
-      <div class="plan-price">¥<%= number_with_delimiter(@plan[:price]) %><span> /月(税別)</span></div>
-      <p class="plan-total">お支払いは月額 ¥<%= number_with_delimiter(@plan[:total]) %>(税込)です。</p>
+      <% if @billing %>
+        <p class="note"><%= @billing[:status_label] %><%= @billing[:cancel_at_period_end] ? '・現在の契約期間末で解約予定' : '' %></p>
+        <% @billing[:items].each do |item| %>
+          <div class="row"><span><%= item[:name] %> × <%= item[:quantity] %></span></div>
+          <div class="plan-price">¥<%= number_with_delimiter(item[:amount]) %><span> /<%= item[:cycle_label] %>（<%= item[:tax_label] %>）</span></div>
+        <% end %>
+        <p class="note">上記は契約した料金です。割引・税・日割り調整を含む実際のお支払いは請求内容をご確認ください。</p>
+        <% if (invoice = @billing[:invoice]) %>
+          <div class="row"><span>直近の請求額（税込）</span><strong>¥<%= number_with_delimiter(invoice[:total]) %></strong></div>
+          <div class="row"><span>お支払い済みの金額</span><span>¥<%= number_with_delimiter(invoice[:amount_paid]) %></span></div>
+          <% unless invoice[:discount].nil? %><div class="row"><span>割引額</span><span>¥<%= number_with_delimiter(invoice[:discount]) %></span></div><% end %>
+          <% unless invoice[:tax].nil? %><div class="row"><span>税額</span><span>¥<%= number_with_delimiter(invoice[:tax]) %></span></div><% end %>
+          <% if invoice[:url] %><p class="note"><a href="<%= invoice[:url] %>" target="_blank" rel="noopener">直近の請求内容を確認する</a></p><% end %>
+        <% end %>
+      <% elsif !@admin %>
+        <p class="note">請求情報は管理者の方が確認できます。</p>
+      <% elsif @subscription_id %>
+        <p class="note" role="status">現在の請求情報を取得できません。時間をおいて再度お試しください。お支払い方法・プラン変更・請求履歴からも確認できます。</p>
+      <% else %>
+        <p class="note">料金とお支払い条件は、ご契約時の案内をご確認ください。</p>
+      <% end %>
     <% else %>
       <div class="plan-name">ご契約プランの情報が見つかりません</div>
       <p class="note">開通処理の途中か、個別契約の可能性があります。<a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へお問い合わせください。</p>
@@ -63,8 +90,6 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
 
   <div class="card">
     <% if @portal_ready %>
-      <%# FOLLOW-UP(このPRでは実装しない): 管理画面からの解約 2 クリック。
-          既存の Stripe Customer Portal を日本語の確認ダイアログから開く。 %>
       <button class="btn btn-navy" id="portal">お支払い方法・プラン変更・請求履歴</button>
       <p class="note">カード情報の確認・変更は、決済代行(Stripe)の安全なページで行います。トイバコがカード番号をお預かりすることはありません。</p>
       <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、チャットでお知らせください。</p>
@@ -74,6 +99,24 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
       <p class="note">このご契約は請求書払い(または個別契約)です。お支払い方法やプランの変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へご連絡ください。</p>
     <% end %>
   </div>
+
+  <% if @portal_ready && (!@billing || (!@billing[:cancel_at_period_end] && @billing[:status] != 'canceled')) %>
+  <div class="card" id="cancel-box">
+    <p class="lp-line">月払いは契約の縛りなし。解約はいつでも、管理画面から2クリック</p>
+    <button type="button" class="btn btn-navy" id="cancel-open">解約する</button>
+    <p class="err" id="cancel-err">解約できませんでした。時間をおいて再度お試しください。</p>
+  </div>
+  <div class="dlg-back" id="cancel-dialog" hidden>
+    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
+      <p class="dlg-title" id="cancel-title">この契約を解約しますか？</p>
+      <p class="dlg-body">お申し出以降、次回分の請求は発生しません。日割りの返金はありません。</p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-back" id="cancel-back">戻る</button>
+        <button type="button" class="btn btn-navy" id="cancel-confirm">解約する</button>
+      </div>
+    </div>
+  </div>
+  <% end %>
 </div>
 
 <script>
@@ -93,6 +136,41 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
       })
       .catch(function () { document.getElementById('portal-err').style.display = 'block'; })
       .finally(function () { btn.disabled = false; });
+  });
+})();
+(function () {
+  var openBtn = document.getElementById('cancel-open');
+  var dialog = document.getElementById('cancel-dialog');
+  var backBtn = document.getElementById('cancel-back');
+  var confirmBtn = document.getElementById('cancel-confirm');
+  var err = document.getElementById('cancel-err');
+  if (!openBtn || !dialog || !backBtn || !confirmBtn) return;
+  function hideDialog() { dialog.hidden = true; }
+  openBtn.addEventListener('click', function () {
+    if (err) err.style.display = 'none';
+    dialog.hidden = false;
+  });
+  backBtn.addEventListener('click', hideDialog);
+  confirmBtn.addEventListener('click', function () {
+    confirmBtn.disabled = true;
+    fetch(window.location.pathname + '/cancel' + window.location.search, {
+      method: 'POST', credentials: 'same-origin'
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (d) {
+        if (!d || d.cancelled !== true) throw new Error('not cancelled');
+        hideDialog();
+        openBtn.hidden = true;
+        if (!document.getElementById('cancel-done')) {
+          var done = document.createElement('p');
+          done.id = 'cancel-done';
+          done.className = 'note';
+          done.textContent = 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。';
+          openBtn.parentNode.appendChild(done);
+        }
+      })
+      .catch(function () { if (err) err.style.display = 'block'; })
+      .finally(function () { confirmBtn.disabled = false; });
   });
 })();
 </script>

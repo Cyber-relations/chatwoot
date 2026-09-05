@@ -17,7 +17,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'line_items[0][price_data][recurring][interval]' => input.fetch(:cycle),
           'line_items[0][price_data][tax_behavior]' => 'exclusive',
           'line_items[0][price_data][product_data][name]' => Catalog::PRODUCT_NAMES.fetch(plan),
-          'line_items[0][price_data][product_data][description]' => Catalog::PRODUCT_DESCRIPTIONS.fetch(plan)
+          'line_items[0][price_data][product_data][description]' => Catalog::PRODUCT_DESCRIPTIONS.fetch(plan),
+          'line_items[0][price_data][product_data][metadata][toybaco_plan]' => plan,
+          'line_items[0][price_data][product_data][metadata][toybaco_plan_version]' => input.fetch(:version),
+          'line_items[0][price_data][product_data][metadata][toybaco_reference_price_id]' => price.fetch('id')
         }
       end
     end

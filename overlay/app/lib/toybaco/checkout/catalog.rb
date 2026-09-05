@@ -1,33 +1,27 @@
 # frozen_string_literal: true
 
+require_relative '../plan_catalog'
+
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Checkout
     # セルフサーブ対象プランと Stripe lookup_key の対応。
     module Catalog
-      PLANS = %w[light standard pro].freeze
-      CYCLES = %w[month year].freeze
-      LOCALE = 'ja'
-      CURRENCY = 'jpy'
-      COUNTRY = 'JP'
+      DATA = Toybaco::PlanCatalog.default
+      SALES = DATA.sales.freeze
+      PLANS = SALES.map { |plan| plan.fetch('plan_id') }.freeze
+      CYCLES = SALES.flat_map { |plan| plan.fetch('cycles').keys }.uniq.freeze
+      LOCALE = DATA.data.fetch('locale')
+      CURRENCY = DATA.data.fetch('currency')
+      COUNTRY = DATA.data.fetch('country')
       DEFAULT_SUCCESS_URL = 'https://toybaco.jp/welcome/'
       DEFAULT_CANCEL_BASE = 'https://toybaco.jp/signup/'
-      OPTIONAL_LOOKUP_KEYS = {
-        'month' => %w[setup-standard opt-store],
-        'year' => %w[setup-standard]
-      }.freeze
-      LOOKUP_KEYS = {
-        'light' => { 'month' => 'light', 'year' => 'light-annual' },
-        'standard' => { 'month' => 'standard', 'year' => 'standard-annual' },
-        'pro' => { 'month' => 'pro', 'year' => 'pro-annual' }
-      }.freeze
-      PRICE_ENV_KEYS = {
-        'light' => 'TOYBACO_STRIPE_PRICE_LIGHT',
-        'light-annual' => 'TOYBACO_STRIPE_PRICE_LIGHT_ANNUAL',
-        'standard' => 'TOYBACO_STRIPE_PRICE_STANDARD',
-        'standard-annual' => 'TOYBACO_STRIPE_PRICE_STANDARD_ANNUAL',
-        'pro' => 'TOYBACO_STRIPE_PRICE_PRO',
-        'pro-annual' => 'TOYBACO_STRIPE_PRICE_PRO_ANNUAL'
-      }.freeze
+      OPTIONAL_LOOKUP_KEYS = DATA.data.fetch('optional_lookup_keys')
+      LOOKUP_KEYS = SALES.to_h do |plan|
+        [plan.fetch('plan_id'), plan.fetch('cycles').transform_values { |price| price.dig('stripe', 'live', 'lookup_key') }]
+      end.freeze
+      PRICE_ENV_KEYS = SALES.flat_map do |plan|
+        plan.fetch('cycles').values.map { |price| [price.dig('stripe', 'live', 'lookup_key'), price.dig('stripe', 'live', 'price_env')] }
+      end.to_h.freeze
       INDUSTRIES = [
         %w[beauty 美容室・サロン],
         %w[food 飲食店],
@@ -45,33 +39,21 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       PRICE_ID = /\Aprice_[A-Za-z0-9]+\z/
       CUSTOMER_ID = /\Acus_[A-Za-z0-9]+\z/
       LIGHT_NO_SNS = 'SNS投稿機能はありません'
-      PRODUCT_NAMES = {
-        'light' => 'トイバコ ライト',
-        'standard' => 'トイバコ スタンダード',
-        'pro' => 'トイバコ プロ'
-      }.freeze
-      PRODUCT_DESCRIPTIONS = {
-        'light' => "問い合わせ管理だけを小さく始めたいお店に。LINE・メール・Webチャット/3名まで。#{LIGHT_NO_SNS}",
-        'standard' => 'Instagram・SNS投稿まで全部使いたいお店に。人数無制限',
-        'pro' => 'AI応答(月500件)で夜間・繁忙時間まで自動化したいお店に'
-      }.freeze
-      # ご契約画面の客面名。LP https://toybaco.jp/pricing のセルフサーブ3プランに固定する。
-      CUSTOMER_PLAN_NAMES = {
-        'light' => 'ライト',
-        'standard' => 'スタンダード',
-        'pro' => 'プロ'
-      }.freeze
-      MONTHLY_AMOUNTS = {
-        'light' => { price: 9_800, total: 10_780 },
-        'standard' => { price: 29_800, total: 32_780 },
-        'pro' => { price: 44_800, total: 49_280 }
-      }.freeze
-      # 旧 lookup_key は改名のみ。第4の消費者プランは作らない。
-      PLAN_KEY_ALIASES = {
-        'starter' => 'light'
-      }.freeze
+      PRODUCT_NAMES = SALES.to_h { |plan| [plan.fetch('plan_id'), plan.fetch('product_name')] }.freeze
+      PRODUCT_DESCRIPTIONS = SALES.to_h { |plan| [plan.fetch('plan_id'), plan.fetch('description')] }.freeze
+      CUSTOMER_PLAN_NAMES = SALES.to_h { |plan| [plan.fetch('plan_id'), plan.fetch('name')] }.freeze
+      # Listing prices are never used as the actual amount billed to an existing subscriber.
+      MONTHLY_AMOUNTS = SALES.to_h do |plan|
+        amount = plan.dig('cycles', 'month', 'amount')
+        [plan.fetch('plan_id'), { price: amount, total: (amount * (1 + DATA.data.fetch('display_tax_rate'))).round }]
+      end.freeze
+      PLAN_KEY_ALIASES = DATA.data.fetch('display_aliases')
 
       module_function
+
+      def sale(plan, cycle, version: nil)
+        DATA.sale(plan, cycle, version: version)
+      end
 
       def billing_info(plan_key)
         key = PLAN_KEY_ALIASES[plan_key.to_s] || plan_key.to_s

@@ -8,6 +8,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module Resolver
       module_function
 
+      def price_for(terms, cycle, client:, environment: ENV)
+        mode = environment.fetch('TOYBACO_STRIPE_MODE', 'live')
+        raise Unavailable, 'invalid Stripe mode' unless %w[test live].include?(mode)
+
+        reference = terms.fetch('cycles').fetch(cycle).fetch('stripe').fetch(mode)
+        override = environment[reference.fetch('price_env')].to_s
+        found = if override.match?(Catalog::PRICE_ID)
+                  client.retrieve_price(override)
+                else
+                  client.find_price_by_lookup_key(reference.fetch('lookup_key'))
+                end
+        raise Unavailable, 'price not found' unless found.is_a?(Hash)
+
+        found
+      end
+
       def price(key, client:, environment: ENV)
         override = environment[Catalog::PRICE_ENV_KEYS.fetch(key)].to_s
         found = if override.match?(Catalog::PRICE_ID)
