@@ -164,4 +164,71 @@ class ToybacoPlanCatalogTest < Minitest::Test
     price['recurring']['interval'] = 'year'
     assert_raises(Toybaco::Checkout::NonJpyPrice) { Toybaco::Checkout.assert_catalog_price!(price, terms, 'month') }
   end
+
+  def change_plan(id, cycle = 'month', version = '2026-09-06.1')
+    { plan_id: id, plan_version: version, cycle: cycle }
+  end
+
+  def test_all_explicit_plan_and_cycle_changes_use_the_declared_policy
+    catalog = Catalog.default
+    catalog.sales.product(catalog.sales, Catalog::CYCLES, Catalog::CYCLES).each do |source, target, from_cycle, to_cycle|
+      from = change_plan(source['plan_id'], from_cycle)
+      to = change_plan(target['plan_id'], to_cycle)
+      if from == to
+        assert_raises(Catalog::Invalid) { catalog.change_policy(from: from, to: to) }
+        next
+      end
+      kind = from_cycle == to_cycle ? data.dig('plan_changes', 'same_cycle', source['plan_id'], target['plan_id']) : 'cycle_change'
+      expected = data.dig('plan_changes', 'policies', kind).merge('kind' => kind, 'version' => '2026-09-06.1')
+      assert_equal expected, catalog.change_policy(from: from, to: to)
+    end
+  end
+
+  def test_transition_direction_never_uses_plan_names_or_prices
+    changed = data
+    light = changed['plans']['light']['versions']['2026-09-06.1']
+    light['name'] = '最上位のように見える名前'
+    light['cycles']['month']['amount'] = 99_800
+    policy = Catalog.new(changed).change_policy(from: change_plan('light'), to: change_plan('pro'))
+    assert_equal 'upgrade', policy['kind']
+    assert_equal 'after_payment', policy['effective']
+    assert_equal 'invoice_difference', policy['proration']
+  end
+
+  def test_unlisted_pair_legacy_unknown_version_and_cycle_are_rejected
+    changed = data
+    changed['plan_changes']['same_cycle']['light'].delete('pro')
+    catalog = Catalog.new(changed)
+    %w[month year].each do |cycle|
+      assert_raises(Catalog::Invalid) { catalog.change_policy(from: change_plan('light'), to: change_plan('pro', cycle)) }
+    end
+    [change_plan('starter', 'month', 'legacy-unversioned'), change_plan('light', 'month', 'missing'),
+     change_plan('light', 'week'), { plan_id: 'light' }].each do |source|
+      assert_raises(Catalog::Invalid) { catalog.change_policy(from: source, to: change_plan('standard')) }
+    end
+  end
+
+  def test_policy_revision_does_not_rewrite_purchased_snapshot_or_addons
+    purchased = snapshot.merge('addons' => [Entitlements.new_addon('manual-posting', quantity: 1, source: 'manual')])
+    before = Marshal.load(Marshal.dump(purchased))
+    changed = data
+    changed['plan_changes']['version'] = 'future-policy'
+    changed['plan_changes']['policies']['upgrade'] = { 'effective' => 'period_end', 'proration' => 'none' }
+    catalog = Catalog.new(changed)
+    account = Account.new({ 'toybaco_contract' => purchased }, {})
+    policy = catalog.change_policy(from: change_plan('light'), to: change_plan('standard'))
+    assert_equal 'future-policy', policy['version']
+    assert_equal 'period_end', policy['effective']
+    assert_equal before, Entitlements.contract_for(account, catalog: catalog)
+    assert_equal true, Entitlements.for_account(account, catalog: catalog).dig('features', 'posting')
+  end
+
+  def test_invalid_declared_transitions_and_policy_combinations_are_rejected
+    changed = data
+    changed['plan_changes']['same_cycle']['light']['unknown'] = 'upgrade'
+    assert_raises(Catalog::Invalid) { Catalog.new(changed) }
+    changed = data
+    changed['plan_changes']['policies']['upgrade']['proration'] = 'none'
+    assert_raises(Catalog::Invalid) { Catalog.new(changed) }
+  end
 end

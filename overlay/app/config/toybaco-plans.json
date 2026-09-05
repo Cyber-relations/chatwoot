@@ -9,6 +9,42 @@
     "standard": "2026-09-06.1",
     "pro": "2026-09-06.1"
   },
+  "plan_changes": {
+    "version": "2026-09-06.1",
+    "eligible_versions": {
+      "light": "2026-09-06.1",
+      "standard": "2026-09-06.1",
+      "pro": "2026-09-06.1"
+    },
+    "same_cycle": {
+      "light": {
+        "standard": "upgrade",
+        "pro": "upgrade"
+      },
+      "standard": {
+        "light": "downgrade",
+        "pro": "upgrade"
+      },
+      "pro": {
+        "light": "downgrade",
+        "standard": "downgrade"
+      }
+    },
+    "policies": {
+      "upgrade": {
+        "effective": "after_payment",
+        "proration": "invoice_difference"
+      },
+      "downgrade": {
+        "effective": "period_end",
+        "proration": "none"
+      },
+      "cycle_change": {
+        "effective": "period_end",
+        "proration": "none"
+      }
+    }
+  },
   "legacy_plan_versions": {
     "starter": "legacy-unversioned",
     "light": "legacy-unversioned",

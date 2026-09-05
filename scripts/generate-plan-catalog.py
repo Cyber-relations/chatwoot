@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = ('site/index.html', 'site/pricing/index.html', 'site/signup/index.html')
+POLICY_PAGES = ('site/faq/index.html', 'site/terms/index.html', 'site/tokushoho/index.html')
 MARKER = re.compile(r'<!-- toybaco-plans:([a-z_-]+):start -->(.*?)<!-- toybaco-plans:\1:end -->', re.S)
 
 
@@ -176,6 +177,46 @@ def runtime(plans):
     return '<script id="toybaco-sales-data" type="application/json">' + payload + '</script>\n<script>\n' + RUNTIME + '\n</script>'
 
 
+def change_policy_text(data):
+    changes = data['plan_changes']
+    if not isinstance(changes.get('version'), str) or not changes['version']:
+        raise ValueError('missing plan change policy version')
+    labels = {
+        'upgrade': '同じ支払周期の上位プランへの変更',
+        'downgrade': '下位プランへの変更',
+        'cycle_change': '月払い・年払いの切替',
+    }
+    actions = {
+        ('after_payment', 'invoice_difference'): 'は、差額を日割りで請求し、決済成功後すぐに反映します。',
+        ('period_end', 'none'): 'は、現在の契約期間の終了時に反映し、期間途中の追加請求・返金は行いません。',
+    }
+    grouped = {}
+    for kind, label in labels.items():
+        policy = changes['policies'][kind]
+        key = (policy['effective'], policy['proration'])
+        if key not in actions:
+            raise ValueError('unsupported plan change policy')
+        grouped.setdefault(key, []).append(label)
+    return ''.join('と'.join(names) + actions[key] for key, names in grouped.items())
+
+
+def billing_copy(data):
+    plans = sales(data)
+    if any(p.get('billing_policy', {}).get('cancellation') != 'period_end' for p in plans):
+        raise ValueError('unsupported cancellation policy')
+    cycles = {cycle for plan in plans for cycle in plan['cycles']}
+    periods = '、'.join(label for cycle, label in [('month', '月払いは1か月'), ('year', '年払いは1年')] if cycle in cycles)
+    return {
+        'change_policy': escape(change_policy_text(data)),
+        'change_scope': '変更可能なプラン・料金・適用日は「ご契約内容」でご確認ください。旧契約や追加オプションを含む契約の変更は、お問い合わせください。',
+        'billing_periods': '契約期間はお申し込み時に選択する支払周期(' + periods + ')です。期間満了までに解約のお申し込みがない場合、契約時の条件で自動更新します。' + ('年払いは1年分の一括前払いです。' if 'year' in cycles else ''),
+        'billing_payment': 'クレジットカード: お申し込み時に初回料金(該当する場合は初期設定費用を含む)を決済し、以後は選択した支払周期の更新日に自動決済します。月払いは毎月、年払いは毎年1年分を一括でお支払いいただきます。',
+        'cancellation': '解約はいつでもお申し込みいただけます。次回の更新を停止し、現在の契約期間の終了までご利用いただけます。期間途中の解約による日割り返金はありません。',
+        'legal_prices': '<ul>\n' + '\n'.join('    <li>' + escape(p['name']) + ': 月額 ' + yen(p['cycles']['month']['amount']) +
+                                          (' / 年一括 ' + yen(p['cycles']['year']['amount']) if 'year' in p['cycles'] else '') + '</li>' for p in plans) + '\n  </ul>',
+    }
+
+
 def replacements(data, path):
     plans = sales(data)
     cheapest = min(plans, key=lambda p: p['cycles']['month']['amount'])
@@ -192,6 +233,7 @@ def replacements(data, path):
     title = ('料金プラン — 月' + minimum + 'から | トイバコ') if '/pricing/' in path else ('トイバコ | 問い合わせ・SNS投稿・AI応答をひとつに 月' + minimum + 'から')
     description = price_description if '/pricing/' in path else base_description
     result = {
+        **billing_copy(data),
         'cards': cards(plans, data, path),
         'runtime': runtime(plans),
         'title': '<title>' + escape(title) + '</title>',
@@ -226,7 +268,10 @@ def render_page(source, data, path):
         found.add(key)
         return f'<!-- toybaco-plans:{key}:start -->{values[key]}<!-- toybaco-plans:{key}:end -->'
     result = MARKER.sub(replace, source)
-    if not {'cards', 'runtime'}.issubset(found):
+    required = {'cards', 'runtime', 'change_policy'} if path in PAGES else {'change_policy', 'cancellation', 'billing_periods'}
+    if path == 'site/tokushoho/index.html':
+        required |= {'billing_payment', 'legal_prices'}
+    if not required.issubset(found):
         raise ValueError(path + ': missing required generated regions')
     # Structured data is parsed so changes cannot corrupt unrelated schema fields.
     def schema(match):
@@ -235,6 +280,15 @@ def render_page(source, data, path):
             if isinstance(node, dict):
                 if node.get('@type') == 'SoftwareApplication':
                     node['offers'] = [{'@type': 'Offer', 'name': p['name'], 'price': str(p['cycles']['month']['amount']), 'priceCurrency': 'JPY'} for p in sales(data)]
+                if node.get('@type') == 'Question':
+                    copy = billing_copy(data)
+                    answers = {
+                        'プランの変更はできますか?': change_policy_text(data) + copy['change_scope'],
+                        '契約期間の縛りや違約金はありますか?': copy['billing_periods'] + copy['cancellation'],
+                        '解約の手続きはどうすればいいですか?': copy['cancellation'],
+                    }
+                    if node.get('name') in answers:
+                        node['acceptedAnswer']['text'] = answers[node['name']]
                 for value in node.values():
                     visit(value)
             elif isinstance(node, list):
@@ -258,6 +312,7 @@ def knowledge(data):
         terms += '、AI応答' + (ai_count(plan) if ent['features']['ai_reply'] else 'なし')
         url = 'https://toybaco.jp/' + link(plan, 'month', signup=True, root_page=True)
         lines.append(plan['name'] + ': ' + price + '。' + terms + '。申込: ' + url)
+    lines.append('プラン変更: ' + change_policy_text(data) + billing_copy(data)['change_scope'])
     return '\n'.join(lines)
 
 
@@ -279,7 +334,7 @@ def generate(root=ROOT, check=False, scope='all'):
     sales(data)
     outputs = {root / 'overlay/app/config/toybaco-plans.json': raw}
     if scope == 'all':
-        for page in PAGES:
+        for page in PAGES + POLICY_PAGES:
             outputs[root / page] = render_page((root / page).read_text(), data, page).encode()
         bot = root / 'bot/handler.py'
         outputs[bot] = render_knowledge(bot.read_text(), data).encode()

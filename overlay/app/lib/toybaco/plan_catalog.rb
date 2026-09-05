@@ -52,6 +52,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       definition(id, version)
     end
 
+    def change_policy(from:, to:)
+      source, target = [from, to].map { |value| value.transform_keys(&:to_s) }
+      [source, target].each { |plan| validate_change_plan!(plan) }
+      sale(target.fetch('plan_id'), target.fetch('cycle'), version: target.fetch('plan_version'))
+      kind = change_kind(source, target)
+      changes = data.fetch('plan_changes')
+      changes.fetch('policies').fetch(kind).merge('kind' => kind, 'version' => changes.fetch('version'))
+    rescue KeyError, NoMethodError, TypeError
+      raise Invalid, 'この契約条件ではプラン変更を受け付けられません。'
+    end
+
     def validate!
       raise Invalid, 'unsupported catalog schema' unless data['schema_version'] == 1
       raise Invalid, 'catalog currency must be JPY' unless data['currency'] == 'jpy'
@@ -59,6 +70,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       data.fetch('plans').each { |id, plan| validate_plan!(id, plan) }
       validate_sales!
       data.fetch('legacy_plan_versions').each { |id, version| definition(id, version) }
+      validate_plan_changes!
       true
     rescue KeyError, NoMethodError, TypeError => e
       raise Invalid, "invalid catalog: #{e.class}"
@@ -101,6 +113,48 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     end
 
     private
+
+    def validate_change_plan!(plan)
+      id, version, cycle = plan.values_at('plan_id', 'plan_version', 'cycle')
+      terms = definition(id, version)
+      eligible = data.fetch('plan_changes').fetch('eligible_versions')
+      return if eligible[id] == version && !terms['legacy'] && CYCLES.include?(cycle) && terms.fetch('cycles').key?(cycle)
+
+      raise Invalid, 'この契約条件ではプラン変更を受け付けられません。'
+    end
+
+    def change_kind(source, target)
+      same_plan = source.fetch('plan_id') == target.fetch('plan_id')
+      same_cycle = source.fetch('cycle') == target.fetch('cycle')
+      raise Invalid, '現在と同じプラン・支払周期です。' if same_plan && same_cycle
+
+      direction = data.dig('plan_changes', 'same_cycle', source.fetch('plan_id'), target.fetch('plan_id'))
+      raise Invalid, 'このプランへの変更は受け付けられません。' unless same_plan || direction
+
+      same_cycle ? direction : 'cycle_change'
+    end
+
+    def validate_plan_changes!
+      changes = data.fetch('plan_changes')
+      raise Invalid, 'missing plan change policy version' if changes.fetch('version').to_s.empty?
+
+      changes.fetch('eligible_versions').each { |id, version| definition(id, version) }
+      changes.fetch('same_cycle').each do |source, targets|
+        targets.each { |target, kind| validate_change_pair!(changes, source, target, kind) }
+      end
+      supported = [%w[after_payment invoice_difference], %w[period_end none]]
+      %w[upgrade downgrade cycle_change].each do |kind|
+        policy = changes.fetch('policies').fetch(kind)
+        raise Invalid, 'unsupported plan change policy' unless supported.include?(policy.values_at('effective', 'proration'))
+      end
+    end
+
+    def validate_change_pair!(changes, source, target, kind)
+      eligible = changes.fetch('eligible_versions')
+      return if source != target && eligible.key?(source) && eligible.key?(target) && %w[upgrade downgrade].include?(kind)
+
+      raise Invalid, 'invalid explicit plan transition'
+    end
 
     def validate_sales!
       data.fetch('current_versions').each do |id, version|

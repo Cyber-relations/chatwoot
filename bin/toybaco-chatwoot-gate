@@ -105,6 +105,8 @@ control_file_list() {
     'scripts/generate-plan-catalog.py' \
     'tests/toybaco_plan_catalog_test.rb' \
     'tests/toybaco_billing_subscription_test.rb' \
+    'tests/toybaco_plan_change_test.rb' \
+    'tests/toybaco-plan-change-ui.test.mjs' \
     'tests/toybaco_subscription_sync_test.rb' \
     'tests/toybaco_ai_usage_test.rb' \
     'bin/toybaco-chatwoot-gate' \
@@ -167,7 +169,7 @@ integration_ruby_file_list() {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
-        -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o \
+        -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o -name 'toybaco_billing.rb' -o \
         -name 'toybaco_inbound_email.rb' -o -name 'toybaco_agent_seat_limit.rb' -o \
         -name 'toybaco_agent_login.rb' -o -name 'toybaco_postgres_health.rb' -o -name 'toybaco_ai_usage.rb' \) -print
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
@@ -836,6 +838,7 @@ verify_base_and_frame_contract() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$CHATWOOT_IMAGE" bundle exec ruby /contract/tests/chatwoot_ses_ingress_identity_test.rb
 
+  node "$CONTROL_ROOT/tests/toybaco-plan-change-ui.test.mjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -845,6 +848,10 @@ verify_base_and_frame_contract() {
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_billing_subscription_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_plan_change_test.rb
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \

@@ -24,10 +24,11 @@
     "run_time",
     "status"
   ],
-  "example_count": 109,
-  "examples_sha256": "5551a13b1b9d74688446e2eea17aa66d799ac952d8013da6bb6e2288be341a3b",
+  "example_count": 117,
+  "examples_sha256": "d8c46969101b67096ddfdc182d14e0f2db2e34a98a35d5c7c810a17da4ef6084",
   "spec_files": [
     "spec/lib/toybaco/ai_usage_database_spec.rb",
+    "spec/lib/toybaco/checkout/plan_change_lock_spec.rb",
     "spec/lib/toybaco/inbound_email_route_log_spec.rb",
     "spec/lib/toybaco/oidc/session_reader_spec.rb",
     "spec/lib/toybaco/postgres_health_spec.rb",
@@ -39,6 +40,7 @@
     "spec/requests/toybaco/ai_readiness_spec.rb",
     "spec/requests/toybaco/ai_usage_spec.rb",
     "spec/requests/toybaco/api_health_spec.rb",
+    "spec/requests/toybaco/billing_plan_change_spec.rb",
     "spec/requests/toybaco/checkout_terms_spec.rb",
     "spec/requests/toybaco/inbound_email_ingress_spec.rb",
     "spec/requests/toybaco/oidc_spec.rb"
