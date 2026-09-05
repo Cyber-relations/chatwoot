@@ -20,8 +20,9 @@ oidc_paths = Rails.application.routes.routes.map { |route| route.path.spec.to_s 
   /toybaco/oidc/authorize(.:format)
   /toybaco/oidc/token(.:format)
   /toybaco/oidc/userinfo(.:format)
+  /toybaco/agent-login(.:format)
 ].each do |path|
-  abort "OIDC route is not reachable: #{path}" unless oidc_paths.include?(path)
+  abort "required overlay route is not reachable: #{path}" unless oidc_paths.include?(path)
 end
 
 if Toybaco::InboundEmail.ingress_enabled?

@@ -43,18 +43,18 @@ abort 'Secure欠落cookie fixtureをverifierが拒否しません' unless
 
 login = request(base, '/app/login')
 abort "dashboard HTTP status: #{login.code}" unless login.code == '200'
-cookie_errors = session_cookie_contract_errors(login.get_fields('set-cookie').to_a)
-abort "production Set-Cookie contract mismatch: #{cookie_errors.inspect}" unless cookie_errors.empty?
 login_body = login.body.dup.force_encoding(Encoding::UTF_8)
 abort 'dashboard HTML is not valid UTF-8' unless login_body.valid_encoding?
-abort 'dashboard html lang is not ja' unless login_body.match?(%r{<html\b[^>]*\blang=(['"])ja\1}i)
-abort 'dashboard title is not Toybaco' unless login_body.match?(%r{<title>\s*トイバコ\s*</title>}i)
-abort 'globalConfig INSTALLATION_NAME is not Toybaco' unless login_body.match?(/"INSTALLATION_NAME"\s*:\s*"トイバコ"/)
-abort 'globalConfig BRAND_NAME is not Toybaco' unless login_body.match?(/"BRAND_NAME"\s*:\s*"トイバコ"/)
-japanese_noscript = 'このアプリを利用するにはJavaScriptを有効にしてください。'
-english_noscript = 'This app works best with JavaScript enabled.'
-abort 'dashboard Japanese noscript is missing' unless login_body.include?(japanese_noscript)
-abort 'dashboard English noscript remains' if login_body.include?(english_noscript)
+abort 'dashboard document language is not Japanese' unless login_body.match?(%r{<html\b[^>]*\blang="ja"}i)
+abort 'dashboard title is not Toybaco' unless login_body.match?(%r{<title>\s*トイバコ\s*</title>}m)
+abort 'dashboard global installation name is not Toybaco' unless
+  login_body.include?('"INSTALLATION_NAME":"トイバコ"')
+abort 'dashboard global brand name is not Toybaco' unless login_body.include?('"BRAND_NAME":"トイバコ"')
+abort 'dashboard Japanese noscript copy is missing' unless
+  login_body.include?('このアプリを利用するにはJavaScriptを有効にしてください。')
+abort 'dashboard English noscript copy remains' if login_body.include?('This app works best with JavaScript enabled.')
+cookie_errors = session_cookie_contract_errors(login.get_fields('set-cookie').to_a)
+abort "production Set-Cookie contract mismatch: #{cookie_errors.inspect}" unless cookie_errors.empty?
 csp = login.fetch('content-security-policy')
 frame_src = csp.split(';').map(&:strip).grep(/\Aframe-src\b/)
 frame_ancestors = csp.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
@@ -87,10 +87,14 @@ bad_scope = request(
 )
 abort "invalid OIDC scope did not fail closed: #{bad_scope.code}" unless bad_scope.code == '400'
 
+agent_login = request(base, '/toybaco/agent-login?token=invalid')
+abort "agent-login did not fail closed on non-staging host: #{agent_login.code}" unless
+  %w[403 404].include?(agent_login.code)
+
 ingress = request(base, '/rails/action_mailbox/ses/inbound_emails')
 abort "SES ingress HTTP status: #{ingress.code}" unless %w[400 401 403 405 415 422].include?(ingress.code)
 ingress_body = ingress.body.to_s.dup.force_encoding(Encoding::UTF_8)
 abort 'SES ingress returned Chatwoot HTML 404' if
   ingress_body.include?('Page not found') || ingress_body.include?('ページが見つかりません')
 
-puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present ses-ingress=drawn'
+puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present ses-ingress=drawn agent-login=fail-closed'
