@@ -14,10 +14,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         token = fixture_token(message_id, raw)
         mid = sanitize_message_id(prefer_fixture_message_id(message_id, raw, token))
         marker = token && "toybaco-fixture-#{token}"
-        parts = ["Toybaco inbound route mailbox=#{name}"]
+        parts = [ROUTE_LOG_PREFIX]
+        parts << marker if marker
+        parts << "mailbox=#{name}"
         parts << (conversation ? 'Conversation=yes' : 'Conversation=no') unless conversation.nil?
         parts << "message_id=#{mid}"
-        parts << marker if marker && mid.downcase.exclude?(marker)
         parts.join(' ')
       end
 
