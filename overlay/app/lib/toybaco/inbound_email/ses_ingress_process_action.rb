@@ -2,6 +2,8 @@
 
 require_relative 'ses_ingress_reload_helpers'
 require_relative 'ses_ingress_log_subscriber'
+require_relative 'ses_ingress_route_emit'
+require_relative 'ses_ingress_lograge'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
@@ -12,6 +14,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def store_ses_route_token(raw, env = nil)
         text = raw.to_s
         Thread.current[RAW_KEY] = text
+        Thread.current[SesIngressRouteEmit::REQUEST_FLAG] = true
         write_ses_request_store(text)
         env['toybaco.ses_route_source'] = text if env.is_a?(Hash)
         text
@@ -26,6 +29,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def clear_ses_route_token
         Thread.current[RAW_KEY] = nil
+        Thread.current[SesIngressRouteEmit::REQUEST_FLAG] = nil
+        Thread.current[:toybaco_ses_route_emitted] = nil
         write_ses_request_store(nil)
       end
 
@@ -48,15 +53,18 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
     end
 
-    # ActionController::LogSubscriber を prepend し、Completed 204 と同じ info へ出す。
+    # lograge が外した AC LogSubscriber ではなく、params を書く口へ出す。
     module SesIngressProcessAction
       include SesIngressReloadHelpers
       include SesIngressTokenStore
+      include SesIngressRouteEmit
+      include SesIngressLograge
 
       PROCESS_ACTION_EVENT = 'process_action.action_controller'
 
       def install_ses_log_subscriber_hook!
         prepend_ses_log_subscriber!
+        install_ses_lograge_hook!
         return if @ses_log_subscriber_hooked
         return if @ses_log_subscriber_on_load
         return unless defined?(ActiveSupport) && ActiveSupport.respond_to?(:on_load)
@@ -64,6 +72,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @ses_log_subscriber_on_load = true
         ActiveSupport.on_load(:action_controller) do
           Toybaco::InboundEmail.prepend_ses_log_subscriber!
+          Toybaco::InboundEmail.install_ses_lograge_hook!
         end
       end
 

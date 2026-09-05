@@ -6,6 +6,9 @@ require_relative 'ingress_log'
 require_relative 'ses_ingress_reload_helpers'
 require_relative 'ses_ingress_log_subscriber'
 require_relative 'ses_ingress_process_action'
+require_relative 'ses_ingress_route_emit'
+require_relative 'ses_ingress_lograge'
+require_relative 'ses_ingress_boot'
 require_relative 'ses_ingress_reload_hook'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
@@ -16,6 +19,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       include RouteLog
       include RoutingHooks
       include IngressLog
+      include SesIngressBoot
       include SesIngressReloadHook
 
       RECIPIENT_HEADER_NAMES = %w[X-Original-To Delivered-To X-Forwarded-To].freeze
