@@ -290,6 +290,14 @@ assert_control_contract() {
     "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版zlib実体をfinal stageへコピーしません'
   grep -Fq 'test ! -e /usr/lib/libz.so.1.3.1' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileが旧zlib実体を拒否しません'
+  grep -Fq "libexpat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileのlibexpat修正版が固定されていません'
+  grep -Fq 'cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.12.4 /toybaco-runtime-root/usr/lib/' \
+    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版libexpat実体をfinal stageへコピーしません'
+  grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.3' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileが旧libexpat実体を拒否しません'
+  grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileがlibexpatの実ロードを検証しません'
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
     'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
   grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -1012,6 +1020,7 @@ build_and_smoke_production_image() {
     --security-opt no-new-privileges \
     --mount "type=bind,src=$production_contract,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" sh -c '
+      set -e
       test ! -e /app/spec
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
@@ -1022,6 +1031,11 @@ build_and_smoke_production_image() {
       test "$(readlink /usr/lib/libz.so.1)" = "libz.so.1.3.2"
       test -f /usr/lib/libz.so.1.3.2
       test ! -e /usr/lib/libz.so.1.3.1
+      test "$(apk info -v | grep "^libexpat-")" = "libexpat-2.8.4-r0"
+      test "$(readlink /usr/lib/libexpat.so.1)" = "libexpat.so.1.12.4"
+      test -f /usr/lib/libexpat.so.1.12.4
+      test ! -e /usr/lib/libexpat.so.1.12.3
+      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
       test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
   docker run --rm --network none --read-only --cap-drop ALL \

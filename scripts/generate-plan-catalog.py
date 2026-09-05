@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = ('site/index.html', 'site/pricing/index.html', 'site/signup/index.html')
 POLICY_PAGES = ('site/faq/index.html', 'site/terms/index.html', 'site/tokushoho/index.html')
+DETAIL_PAGES = ('site/ai/index.html',)
 MARKER = re.compile(r'<!-- toybaco-plans:([a-z_-]+):start -->(.*?)<!-- toybaco-plans:\1:end -->', re.S)
 
 
@@ -217,6 +218,32 @@ def billing_copy(data):
     }
 
 
+def ai_copy(plan):
+    available = plan is not None
+    name = plan['name'] if available else 'AI 対応プラン'
+    count = ai_count(plan) if available else '販売プランの掲載準備中'
+    inclusion = name + 'プランに' + count + 'のAI応答を標準搭載しています。' if available else 'AI 応答対応プランは、料金ページでご確認ください。'
+    description = 'お店のFAQをもとにAIが営業時間外や混雑時の問い合わせに一次応答。答えられない相談は人に引き継ぎ。' + inclusion
+    summary = '現在のAI応答対応プランは、料金ページでご確認ください。'
+    if available:
+        entitlements = plan['entitlements']
+        agents = entitlements['limits']['agents']
+        summary = 'AI 応答エージェント <b>' + escape(count) + '</b>を標準搭載。'
+        if entitlements['features']['posting']:
+            summary += 'SNS予約投稿・承認フローも使えます。'
+        summary += '利用人数は無制限です。' if agents is None else f'利用は{agents:,}名までです。'
+    return {
+        'ai_description': '<meta name="description" content="' + escape(description) + '">',
+        'ai_og_description': '<meta property="og:description" content="' + escape(description) + '">',
+        'ai_inclusion': escape(inclusion),
+        'ai_caption': escape(name + 'プランに標準搭載') if available else '料金ページでご確認ください',
+        'ai_plan_name': escape(name),
+        'ai_price_heading': 'AI 応答つきで、月 ' + yen(plan['cycles']['month']['amount']) if available else 'AI 応答の料金は、料金ページでご確認ください',
+        'ai_month_price': yen(plan['cycles']['month']['amount']) + '<small> /月(税別)</small>' if available else '掲載準備中',
+        'ai_plan_summary': summary,
+    }
+
+
 def replacements(data, path):
     plans = sales(data)
     cheapest = min(plans, key=lambda p: p['cycles']['month']['amount'])
@@ -234,6 +261,7 @@ def replacements(data, path):
     description = price_description if '/pricing/' in path else base_description
     result = {
         **billing_copy(data),
+        **ai_copy(ai_plan),
         'cards': cards(plans, data, path),
         'runtime': runtime(plans),
         'title': '<title>' + escape(title) + '</title>',
@@ -269,6 +297,8 @@ def render_page(source, data, path):
         return f'<!-- toybaco-plans:{key}:start -->{values[key]}<!-- toybaco-plans:{key}:end -->'
     result = MARKER.sub(replace, source)
     required = {'cards', 'runtime', 'change_policy'} if path in PAGES else {'change_policy', 'cancellation', 'billing_periods'}
+    if path in DETAIL_PAGES:
+        required = set(ai_copy(None)) | {'ai_count'}
     if path == 'site/tokushoho/index.html':
         required |= {'billing_payment', 'legal_prices'}
     if not required.issubset(found):
@@ -334,7 +364,7 @@ def generate(root=ROOT, check=False, scope='all'):
     sales(data)
     outputs = {root / 'overlay/app/config/toybaco-plans.json': raw}
     if scope == 'all':
-        for page in PAGES + POLICY_PAGES:
+        for page in PAGES + POLICY_PAGES + DETAIL_PAGES:
             outputs[root / page] = render_page((root / page).read_text(), data, page).encode()
         bot = root / 'bot/handler.py'
         outputs[bot] = render_knowledge(bot.read_text(), data).encode()
