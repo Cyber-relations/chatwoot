@@ -24,6 +24,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      # prepend ブロックは RouteSet 再描画時に再実行される。Engine append の
+      # あとに外れていたら reload してから mismatch を出す。
+      def ensure_ses_ingress_route!
+        return if @ensuring_ses_ingress_route
+
+        @ensuring_ses_ingress_route = true
+        register_ses_ingress_route_block!
+        return unless ingress_enabled?
+        return if ses_ingress_mounted_on_overlay?
+
+        reload_application_routes!
+        return if ses_ingress_mounted_on_overlay?
+
+        emit_ses_route_mismatch("expected=#{INGRESS_CONTROLLER} actual=#{recognized_ses_controller}")
+      ensure
+        @ensuring_ses_ingress_route = false
+      end
+
       def recognized_ses_controller(routes = default_ses_routes)
         return 'missing' unless routes
 
@@ -72,6 +90,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def rails_error_logger
         Rails.logger if defined?(Rails) && Rails.respond_to?(:logger)
+      end
+
+      def reload_application_routes!
+        return unless defined?(Rails) && Rails.application.respond_to?(:reload_routes!)
+
+        Rails.application.reload_routes!
       end
     end
   end
