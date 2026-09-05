@@ -7,6 +7,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module IngressLogHelpers
       private
 
+      def already_emitted_ses_route?(raw)
+        return false unless Thread.current[:toybaco_ses_route_request]
+
+        token = fixture_token(raw)
+        key = token ? "fixture:#{token}" : "raw:#{raw.bytesize}"
+        return true if Thread.current[:toybaco_ses_route_emitted] == key
+
+        Thread.current[:toybaco_ses_route_emitted] = key
+        false
+      end
+
       def guarantee_filter_pattern(line, raw)
         token = fixture_token(line, raw)
         return line unless token

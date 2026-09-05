@@ -18,6 +18,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def log_ses_create_route(source:, channel_found: nil)
         raw = source.to_s
+        return if already_emitted_ses_route?(raw)
+
         emit_cloudwatch_line(ses_create_route_line(raw, channel_found: channel_found))
       rescue StandardError
         emit_cloudwatch_line(ingress_fallback_line(source.to_s))

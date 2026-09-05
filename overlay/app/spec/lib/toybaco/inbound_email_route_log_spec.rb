@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'stringio'
 
 # FilterLogEvents の FilterPattern は `toybaco-fixture-<token>`。
 # SES ingress の 204（Ingresses::Ses::InboundEmails#create）と同じ1行に
@@ -86,6 +87,36 @@ RSpec.describe Toybaco::InboundEmail do
         .and(a_string_including('mailbox=SupportMailbox'))
         .and(a_string_matching(/Conversation=(yes|no)/))
     ).to_stdout
+  end
+
+  it 'SES path middleware は gem コントローラ 204 でも FilterPattern と同じ1行を出す' do
+    app = ->(_env) { [204, {}, []] }
+    middleware = Toybaco::InboundEmail::SesInboundRouteMiddleware.new(app)
+    env = {
+      'REQUEST_METHOD' => 'POST',
+      'PATH_INFO' => Toybaco::InboundEmail::INGRESS_PATH,
+      'rack.input' => StringIO.new(fixture_source)
+    }
+
+    expect { middleware.call(env) }.to output(
+      a_string_including('toybaco-route-log')
+        .and(a_string_including("toybaco-fixture-#{token}"))
+        .and(a_string_including('mailbox=SupportMailbox'))
+        .and(a_string_matching(/Conversation=(yes|no)/))
+    ).to_stdout
+  end
+
+  it 'live RouteSet が gem コントローラなら toybaco-ses-route-mismatch を ERROR する' do
+    routes = Object.new
+    def routes.recognize_path(_path, *)
+      { controller: 'action_mailbox/ingresses/ses/inbound_emails', action: 'create' }
+    end
+
+    expect do
+      line = described_class.warn_unless_ses_route_is_ours!(routes)
+      expect(line).to include('toybaco-ses-route-mismatch')
+      expect(line).to include('action_mailbox/ingresses/ses/inbound_emails')
+    end.to output(a_string_including('toybaco-ses-route-mismatch')).to_stdout
   end
 
   it 'ActionMailbox::RoutingJob#perform の ensure が FilterPattern と同じ1行を出す' do
