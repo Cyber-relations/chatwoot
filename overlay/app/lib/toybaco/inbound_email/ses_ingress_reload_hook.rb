@@ -6,8 +6,8 @@ require_relative 'ses_ingress_process_action'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
-    # #107 の Notifications.subscribe は LogSubscriber#info と同じ口ではない。
-    # 正本は ActionController::LogSubscriber の prepend。Reloader は wrap 用。
+    # #108 の AC LogSubscriber prepend は lograge が購読を外すと 0 行。
+    # 正本は Lograge subscriber / start_processing（params が既に CW に出る口）。
     module SesIngressReloadHook
       include SesIngressReloadHelpers
       include SesIngressProcessAction
@@ -47,6 +47,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         install_ses_ingress_create_hook!
         install_routing_job_hook!
         Toybaco::InboundEmail.install_ses_log_subscriber_hook!
+        Toybaco::InboundEmail.install_ses_lograge_hook!
       end
 
       def zeitwerk_ses_class_names

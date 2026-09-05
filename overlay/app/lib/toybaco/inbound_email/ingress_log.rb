@@ -6,7 +6,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
     # SES create 204 と同じ過程で FilterPattern `toybaco-fixture-<token>` の
     # 1行へ mailbox と Conversation を載せる。行頭は toybaco-route-log。
-    # LogSubscriber 204 は ActionController::LogSubscriber#info（Completed 204 と同じ口）。
+    # 正本は lograge / start_processing（token が既に CW に出る口）。
     module IngressLog
       include RouteLogHelpers
       include IngressLogHelpers

@@ -5,9 +5,10 @@ require_relative '../../lib/toybaco/inbound_email'
 # Chatwoot 公式イメージの aws-actionmailbox-ses 0.1.0 は
 # routes.append { mount Engine => '/' } し、Engine の config/routes.rb が
 # POST /rails/action_mailbox/ses/inbound_emails を gem コントローラへ描く。
-# #107 の Notifications.subscribe + ActionController.logger.info は
-# Completed 204 を書く ActionController::LogSubscriber#info と同じ口ではない。
-# LogSubscriber#process_action を prepend し、同じ info で route-log を出す。
+# #108 の ActionController::LogSubscriber prepend は、lograge が
+# その購読を外すと Completed 204 も route-log も CW に出ない。
+# token が既に出る口（lograge params / start_processing）へ載せる。
+# 起動時に toybaco-inbound-hooks-loaded=<sha> を1行出す。
 # middleware は token を RequestStore / Thread.current に残すだけ（puts なし）。
 # 受信 ENV が無ければルート自体を作らない。
 Rails.application.config.middleware.unshift Toybaco::InboundEmail::SesInboundRouteMiddleware
@@ -30,4 +31,5 @@ Rails.application.config.after_initialize do
   Toybaco::InboundEmail.warn_unless_ses_controller_loaded!
   Toybaco::InboundEmail.ensure_ses_ingress_route!
   Toybaco::InboundEmail.warn_unless_ses_route_is_ours!
+  Toybaco::InboundEmail.emit_inbound_hooks_loaded_banner!
 end

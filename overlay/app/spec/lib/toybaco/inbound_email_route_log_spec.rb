@@ -138,6 +138,92 @@ RSpec.describe Toybaco::InboundEmail do
     end.to output(a_string_including('toybaco-ses-route-mismatch')).to_stdout
   end
 
+  it 'LogSubscriber start_processing の Parameters と同じ logger に route-log を出す' do
+    messages = []
+    logger = instance_double(Logger)
+    allow(logger).to receive(:info) do |msg = nil, &block|
+      messages << (block ? block.call : msg).to_s
+    end
+
+    subscriber = Class.new do
+      attr_reader :logger
+
+      def initialize(logger)
+        @logger = logger
+      end
+
+      def info(progname = nil, &)
+        logger.info(progname, &)
+      end
+
+      def start_processing(_event)
+        info { 'Started POST /rails/action_mailbox/ses/inbound_emails' }
+      end
+
+      prepend Toybaco::InboundEmail::SesIngressLogSubscriber
+    end.new(logger)
+
+    described_class.store_ses_route_token(fixture_source)
+    event = Struct.new(:payload).new(
+      controller: 'ses/inbound_emails',
+      action: 'create',
+      path: '/ses/inbound_emails',
+      params: {},
+      headers: {}
+    )
+    subscriber.start_processing(event)
+
+    expect(messages.any? { |text| text.include?('Started POST') }).to be(true)
+    expect(messages.any? { |text| filter_pattern_line?(text) }).to be(true)
+  ensure
+    described_class.clear_ses_route_token
+  end
+
+  it 'Lograge process_action の同じ logger に route-log を出す' do
+    messages = []
+    logger = instance_double(Logger)
+    allow(logger).to receive(:info) do |msg = nil, &block|
+      messages << (block ? block.call : msg).to_s
+    end
+
+    subscriber = Class.new do
+      attr_reader :logger
+
+      def initialize(logger)
+        @logger = logger
+      end
+
+      def process_action(_event)
+        logger.info('{"method":"POST","status":204}')
+      end
+
+      prepend Toybaco::InboundEmail::SesIngressLogrageSubscriber
+    end.new(logger)
+
+    described_class.store_ses_route_token(fixture_source)
+    event = Struct.new(:payload).new(
+      controller: 'action_mailbox/ingresses/ses/inbound_emails',
+      action: 'create',
+      status: 204,
+      path: '/rails/action_mailbox/ses/inbound_emails',
+      params: {},
+      headers: {}
+    )
+    subscriber.process_action(event)
+
+    expect(messages.any? { |text| text.include?('"status":204') }).to be(true)
+    expect(messages.any? { |text| filter_pattern_line?(text) }).to be(true)
+  ensure
+    described_class.clear_ses_route_token
+  end
+
+  it '起動バナーは toybaco-inbound-hooks-loaded の一意部分を1行出す' do
+    described_class.instance_variable_set(:@inbound_hooks_loaded_banner_emitted, false)
+    expect { described_class.emit_inbound_hooks_loaded_banner! }.to output(
+      a_string_including('toybaco-inbound-hooks-loaded=e148640e9ee1')
+    ).to_stdout
+  end
+
   it 'LogSubscriber process_action の Completed 204 と同じ info に route-log を出す' do
     messages = []
     logger = instance_double(Logger)

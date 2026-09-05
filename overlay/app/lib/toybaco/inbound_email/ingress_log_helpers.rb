@@ -47,11 +47,21 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def captured_loggers
         loggers = []
+        lograge = lograge_info_logger
+        loggers << lograge if lograge
         job_logger = active_job_logger
         loggers << job_logger if job_logger
         rails = rails_info_logger
         loggers << rails if rails
         loggers.compact.uniq
+      end
+
+      def lograge_info_logger
+        return unless defined?(Lograge) && Lograge.respond_to?(:logger)
+
+        Lograge.logger
+      rescue StandardError
+        nil
       end
 
       def active_job_logger

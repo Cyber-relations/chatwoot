@@ -19,7 +19,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def ses_process_action?(payload)
         action = payload[:action].to_s
         return false if !action.empty? && action != 'create'
-        return true if SES_PROCESS_CONTROLLERS.include?(payload[:controller].to_s)
+
+        controller = payload[:controller].to_s
+        return true if SES_PROCESS_CONTROLLERS.include?(controller)
+        return true if controller.end_with?('inbound_emails')
+        return true unless stored_ses_route_token.to_s.empty?
 
         path = payload[:path].to_s
         path.end_with?('/ses/inbound_emails') ||
