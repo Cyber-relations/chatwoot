@@ -175,7 +175,7 @@ integration_ruby_file_list() {
         -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' -o \
         -name 'billing_cancel.rb' -o -name 'billing_subscription.rb' -o -name 'agent_seat_limit.rb' -o \
         -name 'agent_login.rb' -o -name 'postgres_health.rb' -o \
-        -name 'plan_catalog.rb' -o -name 'entitlements.rb' -o -name 'contract_addons.rb' -o -name 'subscription_sync.rb' -o -name 'ai_usage.rb' \) -print
+        -name 'plan_catalog.rb' -o -name 'entitlements.rb' -o -name 'contract_addons.rb' -o -name 'subscription_sync.rb' -o -name 'ai_usage.rb' -o -name 'ai_readiness.rb' \) -print
       find overlay/app/lib/toybaco/inbound_email -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/checkout -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/oidc -type f -name '*.rb' -print
@@ -326,6 +326,7 @@ assert_control_contract() {
     'overlay/app/spec/requests/toybaco/agent_login_spec.rb' \
     'overlay/app/spec/requests/toybaco/inbound_email_ingress_spec.rb' \
     'overlay/app/spec/requests/toybaco/ai_usage_spec.rb' \
+    'overlay/app/spec/requests/toybaco/ai_readiness_spec.rb' \
     'overlay/app/spec/requests/toybaco/checkout_terms_spec.rb' \
     'overlay/app/spec/lib/toybaco/ai_usage_database_spec.rb' \
     'overlay/app/spec/lib/toybaco/postgres_health_spec.rb' \

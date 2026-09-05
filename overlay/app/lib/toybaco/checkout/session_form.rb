@@ -22,8 +22,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'adaptive_pricing[enabled]' => 'false',
           'automatic_tax[enabled]' => 'true',
           'tax_id_collection[enabled]' => 'true',
-          'allow_promotion_codes' => 'true',
-          'payment_method_data[billing_details][address][country]' => Catalog::COUNTRY
+          'allow_promotion_codes' => 'true'
         }
       end
 

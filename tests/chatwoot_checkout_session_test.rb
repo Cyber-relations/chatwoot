@@ -36,12 +36,12 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     )
   end
 
-  def test_session_is_japanese_yen_and_japan
+  def test_session_uses_supported_japanese_yen_parameters
     params = session_params
 
     assert_equal 'ja', params['locale']
     assert_equal 'jpy', params['currency']
-    assert_equal 'JP', params['payment_method_data[billing_details][address][country]']
+    refute params.keys.any? { |key| key.start_with?('payment_method_data[billing_details]') }
     assert_equal 'false', params['adaptive_pricing[enabled]']
     assert_equal 'required', params['billing_address_collection']
     assert_equal 'subscription', params['mode']
@@ -172,9 +172,48 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     refute client.last_session.key?('line_items[0][price]')
     assert_equal 'ja', client.last_session['locale']
     assert_equal 'jpy', client.last_session['currency']
-    assert_equal 'JP', client.last_session['payment_method_data[billing_details][address][country]']
+    refute client.last_session.keys.any? { |key| key.start_with?('payment_method_data[billing_details]') }
     assert_equal 'JP', client.last_customer['address[country]']
     assert_equal 'cus_testjapan1', client.last_session['customer']
+  end
+
+  def test_staging_checkout_returns_to_staging_and_keeps_selected_terms
+    client = FakeStripe.new('pro-annual' => jpy_price('pro', 'year').merge('livemode' => false))
+    env = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STRIPE_MODE' => 'test' }
+
+    Toybaco::Checkout.start!(plan: 'pro', cycle: 'year', client: client, environment: env)
+
+    assert_equal 'https://staging.toybaco.jp/welcome/', client.last_session['success_url']
+    uri = URI.parse(client.last_session['cancel_url'])
+    assert_equal 'staging.toybaco.jp', uri.host
+    assert_equal '/signup/', uri.path
+    assert_equal({ 'plan' => 'pro', 'cycle' => 'year', 'version' => '2026-09-06.1' }, URI.decode_www_form(uri.query).to_h)
+  end
+
+  def test_staging_rejects_live_and_unknown_environment_before_creating_customer
+    [{ 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STRIPE_MODE' => 'live' },
+     { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'preview', 'TOYBACO_STRIPE_MODE' => 'test' }].each do |env|
+      client = FakeStripe.new('light' => jpy_price('light'))
+      assert_raises(Toybaco::Checkout::Unavailable) do
+        Toybaco::Checkout.start!(plan: 'light', client: client, environment: env)
+      end
+      assert_nil client.last_customer
+      assert_nil client.last_session
+    end
+  end
+
+  def test_return_urls_cannot_cross_environment_or_redirect_to_an_untrusted_origin
+    env = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STRIPE_MODE' => 'test' }
+    ['https://toybaco.jp/welcome/', 'https://staging.toybaco.jp.evil.example/',
+     'http://staging.toybaco.jp/', 'https://evil.example/',
+     'https://user@staging.toybaco.jp/', 'https://staging.toybaco.jp:444/',
+     'https://staging.toybaco.jp/#fragment'].each do |url|
+      result = Toybaco::Checkout::Resolver.success_url(env.merge('TOYBACO_CHECKOUT_SUCCESS_URL' => url))
+      assert_equal 'https://staging.toybaco.jp/welcome/', result
+    end
+    assert_equal 'https://toybaco.jp/welcome/', Toybaco::Checkout::Resolver.success_url(
+      'TOYBACO_CHECKOUT_SUCCESS_URL' => 'https://staging.toybaco.jp/welcome/'
+    )
   end
 
   def test_start_fails_closed_when_resolved_price_is_not_jpy

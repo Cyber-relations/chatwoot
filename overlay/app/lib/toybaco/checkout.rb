@@ -20,6 +20,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     def start!(plan:, cycle: 'month', version: nil, client: nil, environment: ENV)
       plan, cycle = normalize_selection(plan, cycle)
       terms = Catalog.sale(plan, cycle, version: version)
+      urls = Resolver.return_urls(environment, plan: plan, cycle: cycle, version: terms.fetch('plan_version'))
       http = client || Client.new(environment['TOYBACO_STRIPE_KEY'])
       price = Resolver.price_for(terms, cycle, client: http, environment: environment)
       assert_catalog_price!(price, terms, cycle, environment)
@@ -27,8 +28,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       http.create_checkout_session(
         session_params(
           plan: plan, cycle: cycle, version: terms.fetch('plan_version'), price: price, customer_id: customer.fetch('id'),
-          success_url: Resolver.success_url(environment),
-          cancel_url: Resolver.cancel_url(environment, plan),
+          **urls,
           optional_price_ids: Resolver.optional_price_ids(client: http, cycle: cycle)
         )
       )

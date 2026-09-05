@@ -87,6 +87,8 @@ locals {
     # Cloudflare側もmax-age=15552000・includeSubDomains・preload offで別途固定する。
     { name = "FORCE_SSL", value = "true" },
     { name = "FRONTEND_URL", value = "https://${local.app_fqdn}" },
+    { name = "TOYBACO_DEPLOYMENT_ENVIRONMENT", value = var.deployment_environment },
+    { name = "TOYBACO_STRIPE_MODE", value = local.is_production ? "live" : "test" },
     { name = "DEFAULT_LOCALE", value = "ja" },
     { name = "TZ", value = "Asia/Tokyo" },
     { name = "ENABLE_ACCOUNT_SIGNUP", value = "false" },

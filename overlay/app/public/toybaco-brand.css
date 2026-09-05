@@ -534,13 +534,19 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 }
 
 [data-toybaco-ai-scope],
+[data-toybaco-ai-readiness],
 [data-toybaco-ai-status] {
   font-size: 12px;
   color: var(--toybaco-muted);
   line-height: 1.6;
 }
 
-[data-toybaco-ai-mode-bar] [data-toybaco-ai-status] {
+[data-toybaco-ai-readiness] {
+  display: block;
+}
+
+[data-toybaco-ai-mode-bar] [data-toybaco-ai-status],
+[data-toybaco-ai-mode-bar] [data-toybaco-ai-readiness] {
   flex-basis: 100%;
 }
 
@@ -549,6 +555,12 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 }
 
 [data-toybaco-ai-state="error"] [data-toybaco-ai-mode] {
+  cursor: not-allowed;
+}
+
+[data-toybaco-ai-connection="unconnected"] [data-toybaco-ai-mode],
+[data-toybaco-ai-connection="unknown"] [data-toybaco-ai-mode],
+[data-toybaco-ai-connection="error"] [data-toybaco-ai-mode] {
   cursor: not-allowed;
 }
 
@@ -591,6 +603,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 }
 
 .dark [data-toybaco-ai-scope],
+.dark [data-toybaco-ai-readiness],
 .dark [data-toybaco-ai-status],
 .dark [data-toybaco-ai-mode-h],
 .dark [data-toybaco-ai-mode-head] strong,

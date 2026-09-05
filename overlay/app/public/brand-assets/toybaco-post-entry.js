@@ -71,6 +71,8 @@
   var aiModeStates = {};
   var aiModeInflight = {};
   var aiModeAccount = null;
+  var aiReadinessStates = {};
+  var aiReadinessInflight = {};
   var aiUsageStates = {};
   var aiUsageInflight = {};
   var CANNED_NAMES = {
@@ -1120,6 +1122,54 @@
     return aiModeState(accountId).mode;
   }
 
+  function aiReadinessState(accountId) {
+    var id = accountId || currentAccountId() || '';
+    if (!aiReadinessStates[id]) aiReadinessStates[id] = { phase: 'idle', data: null };
+    return aiReadinessStates[id];
+  }
+
+  function aiModeCanEdit() {
+    var readiness = aiReadinessState();
+    return aiModeState().phase === 'ready' && readiness.phase === 'ready' &&
+      readiness.data.connection === 'configured';
+  }
+
+  function prefetchAiReadiness(accountId, force) {
+    var id = accountId || currentAccountId();
+    if (!id || !/^[1-9]\d*$/.test(String(id))) return Promise.resolve(null);
+    if (aiReadinessInflight[id]) return aiReadinessInflight[id];
+    var state = aiReadinessState(id);
+    if (!force && state.phase !== 'idle') return Promise.resolve(null);
+    state.data = null;
+    state.phase = window.fetch ? 'loading' : 'error';
+    if (id === currentAccountId()) paintAiModeControls();
+    if (!window.fetch) return Promise.resolve(null);
+    aiReadinessInflight[id] = requestAiJson('/toybaco/ai_readiness?account_id=' + encodeURIComponent(id), {
+      credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }
+    }, function (body) {
+      function count(value) { return typeof value === 'number' && isFinite(value) && value >= 0 && Math.floor(value) === value; }
+      if (!body || ['configured', 'unconnected', 'unknown'].indexOf(body.connection) < 0 ||
+        !count(body.configured_inboxes) || !count(body.total_inboxes) ||
+        body.configured_inboxes > body.total_inboxes || body.live_verification !== 'unverified' ||
+        (body.connection === 'configured' && body.configured_inboxes === 0) ||
+        (body.connection === 'unconnected' && body.configured_inboxes !== 0)) throw new Error('invalid connection');
+      return body;
+    }).then(function (body) {
+      delete aiReadinessInflight[id];
+      state.phase = 'ready';
+      state.data = body;
+      if (id === currentAccountId()) paintAiModeControls();
+      return body;
+    }).catch(function () {
+      delete aiReadinessInflight[id];
+      state.phase = 'error';
+      state.data = null;
+      if (id === currentAccountId()) paintAiModeControls();
+      return null;
+    });
+    return aiReadinessInflight[id];
+  }
+
   function aiModeUrl(accountId) {
     if (!accountId || !/^\d+$/.test(String(accountId))) return '';
     return '/toybaco/ai_reply_mode?account_id=' + encodeURIComponent(accountId);
@@ -1138,14 +1188,21 @@
 
   function paintAiModeControls() {
     var state = aiModeState();
+    var readiness = aiReadinessState();
+    var connection = readiness.phase === 'ready' ? readiness.data.connection : 'unknown';
     var selected = state.mode;
-    var busy = state.phase === 'loading' || state.phase === 'saving';
+    var busy = state.phase === 'loading' || state.phase === 'saving' || readiness.phase === 'loading';
     var text = state.message;
     if (!text) {
       if (state.phase === 'error') text = '設定を確認できませんでした。再確認してください。';
       else if (state.phase !== 'ready') text = '店舗全体の設定を確認しています…';
-      else text = selected === AI_MODE_DRAFT ? '下書き：送信はスタッフが行います' : '全自動：AIがお客様へ送信します';
+      else text = '保存された設定：' + aiModeLabel(selected);
     }
+    var connectionText = 'AI応答の接続状態を確認できません。再確認してください。';
+    if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI応答の接続設定を確認しています…';
+    else if (connection === 'unconnected') connectionText = 'AI応答は未接続です。担当者が返信してください。';
+    else if (connection === 'configured') connectionText = '接続設定あり（受信箱 ' + readiness.data.configured_inboxes +
+      ' / ' + readiness.data.total_inboxes + ' 件）。外部への応答動作は未確認です。利用可否・残り枠はご契約の利用状況をご確認ください。';
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
       var i;
@@ -1155,14 +1212,15 @@
         if (btn.setAttribute) {
           btn.setAttribute('aria-pressed', value === selected ? 'true' : 'false');
           btn.setAttribute('data-toybaco-ai-on', value === selected ? '1' : '0');
-          btn.setAttribute('aria-disabled', state.phase === 'ready' ? 'false' : 'true');
-          btn.disabled = state.phase !== 'ready';
+          btn.setAttribute('aria-disabled', aiModeCanEdit() ? 'false' : 'true');
+          btn.disabled = !aiModeCanEdit();
         }
       }
       var groups = document.querySelectorAll('[data-toybaco-ai-mode-bar], [data-toybaco-ai-mode-panel]');
       for (i = 0; i < groups.length; i += 1) {
         groups[i].setAttribute('data-toybaco-ai-current', selected || 'unknown');
         groups[i].setAttribute('data-toybaco-ai-state', state.phase);
+        groups[i].setAttribute('data-toybaco-ai-connection', readiness.phase === 'ready' ? connection : readiness.phase);
         groups[i].setAttribute('aria-busy', busy ? 'true' : 'false');
       }
       var statuses = document.querySelectorAll('[data-toybaco-ai-status]');
@@ -1170,8 +1228,13 @@
         // 同じ文面を書き直してMutationObserverを再起動しない。
         if (statuses[i].textContent !== text) statuses[i].textContent = text;
       }
+      var connections = document.querySelectorAll('[data-toybaco-ai-readiness]');
+      for (i = 0; i < connections.length; i += 1) {
+        if (connections[i].textContent !== connectionText) connections[i].textContent = connectionText;
+      }
       var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
-      for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error';
+      for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error' &&
+        readiness.phase !== 'error' && (readiness.phase !== 'ready' || connection === 'configured');
     } catch (e) { /* 選べなくても受信箱は壊さない */ }
   }
 
@@ -1368,6 +1431,7 @@
       closeAiModePanel();
       force = true;
     }
+    prefetchAiReadiness(id, force);
     if (aiModeInflight[id]) return aiModeInflight[id];
     var state = aiModeState(id);
     // DOMの描画ごとにGETを繰り返さず、店舗切替・設定を開く・再確認で更新する。
@@ -1406,7 +1470,7 @@
     if (!url || !next || !window.fetch) return Promise.resolve(null);
     if (aiModeAccount !== id) return prefetchAiMode(id, true);
     // 取得中・保存中の連打や、古い店舗のボタン操作から二重PUTを作らない。
-    if (state.phase !== 'ready' || next === state.mode) return aiModeInflight[id] || Promise.resolve(null);
+    if (!aiModeCanEdit() || next === state.mode) return aiModeInflight[id] || Promise.resolve(null);
     state.phase = 'saving';
     state.message = aiModeLabel(next) + 'へ変更しています…';
     paintAiModeControls();
@@ -1433,6 +1497,11 @@
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
     host.appendChild(status);
+    var connection = document.createElement('span');
+    connection.setAttribute('data-toybaco-ai-readiness', '1');
+    connection.setAttribute('role', 'status');
+    connection.setAttribute('aria-live', 'polite');
+    host.appendChild(connection);
     var retry = document.createElement('button');
     retry.type = 'button';
     retry.setAttribute('data-toybaco-ai-retry', '1');
@@ -1450,7 +1519,7 @@
     btn.textContent = aiModeLabel(mode);
     btn.setAttribute('aria-pressed', currentAiMode() === mode ? 'true' : 'false');
     btn.setAttribute('data-toybaco-ai-on', currentAiMode() === mode ? '1' : '0');
-    btn.disabled = aiModeState().phase !== 'ready';
+    btn.disabled = !aiModeCanEdit();
     return btn;
   }
 
@@ -1524,11 +1593,11 @@
       head.appendChild(close);
       wrapEl.appendChild(head);
       var lead = document.createElement('p');
-      lead.textContent = 'この店舗全体の設定です。お客様への一次応答の送り方を変更します。';
+      lead.textContent = 'この店舗全体で使う、AI応答の送り方の保存設定です。接続設定と利用条件は別に確認します。';
       wrapEl.appendChild(lead);
       var autoBtn = buildAiModeButton(AI_MODE_AUTO, 'card');
       var autoHelp = document.createElement('small');
-      autoHelp.textContent = 'AI が一次応答を送ります';
+      autoHelp.textContent = '一次応答を自動送信する設定';
       autoBtn.appendChild(autoHelp);
       wrapEl.appendChild(autoBtn);
       var draftBtn = buildAiModeButton(AI_MODE_DRAFT, 'card');
