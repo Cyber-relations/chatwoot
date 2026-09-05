@@ -15,6 +15,12 @@ class Toybaco::SesInboundEmailsController < ActionMailbox::Ingresses::Ses::Inbou
 
   private
 
+  # Rails derives this from the class namespace. The branded subclass must keep
+  # the SES identity or ensure_configured rejects valid deliveries before auth.
+  def ingress_name
+    :ses
+  end
+
   def emit_toybaco_ses_create_route
     return unless response&.status == 204
 

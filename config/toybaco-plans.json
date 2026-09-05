@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "currency": "jpy",
+  "locale": "ja",
+  "country": "JP",
+  "display_tax_rate": 0.1,
+  "current_versions": {
+    "light": "2026-09-06.1",
+    "standard": "2026-09-06.1",
+    "pro": "2026-09-06.1"
+  },
+  "plan_changes": {
+    "version": "2026-09-06.1",
+    "eligible_versions": {
+      "light": "2026-09-06.1",
+      "standard": "2026-09-06.1",
+      "pro": "2026-09-06.1"
+    },
+    "same_cycle": {
+      "light": {
+        "standard": "upgrade",
+        "pro": "upgrade"
+      },
+      "standard": {
+        "light": "downgrade",
+        "pro": "upgrade"
+      },
+      "pro": {
+        "light": "downgrade",
+        "standard": "downgrade"
+      }
+    },
+    "policies": {
+      "upgrade": {
+        "effective": "after_payment",
+        "proration": "invoice_difference"
+      },
+      "downgrade": {
+        "effective": "period_end",
+        "proration": "none"
+      },
+      "cycle_change": {
+        "effective": "period_end",
+        "proration": "none"
+      }
+    }
+  },
+  "legacy_plan_versions": {
+    "starter": "legacy-unversioned",
+    "light": "legacy-unversioned",
+    "standard": "legacy-unversioned",
+    "pro": "legacy-unversioned",
+    "premium": "legacy-unversioned",
+    "business": "legacy-unversioned"
+  },
+  "display_aliases": {
+    "starter": "light"
+  },
+  "plans": {
+    "light": {
+      "versions": {
+        "2026-09-06.1": {
+          "name": "ライト",
+          "product_name": "トイバコ ライト",
+          "description": "問い合わせ管理だけを小さく始めたいお店に。LINE・メール・Webチャット/3名まで。SNS投稿機能はありません",
+          "sellable": true,
+          "cycles": {
+            "month": {
+              "amount": 9800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "light",
+                  "price_env": "TOYBACO_STRIPE_PRICE_LIGHT"
+                },
+                "live": {
+                  "lookup_key": "light",
+                  "price_env": "TOYBACO_STRIPE_PRICE_LIGHT"
+                }
+              }
+            },
+            "year": {
+              "amount": 105840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "light-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_LIGHT_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "light-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_LIGHT_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": false,
+              "posting": false,
+              "ai_reply": false
+            },
+            "limits": {
+              "agents": 3,
+              "stores": 1,
+              "ai_replies": 0
+            },
+            "ai_meter": {
+              "unit": "generated_reply",
+              "period": "calendar_month",
+              "timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        },
+        "legacy-unversioned": {
+          "name": "ライト",
+          "product_name": "トイバコ ライト",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": false,
+              "posting": false
+            },
+            "limits": {
+              "agents": 3
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    },
+    "standard": {
+      "versions": {
+        "2026-09-06.1": {
+          "name": "スタンダード",
+          "product_name": "トイバコ スタンダード",
+          "description": "Instagram・SNS投稿まで全部使いたいお店に。人数無制限",
+          "sellable": true,
+          "cycles": {
+            "month": {
+              "amount": 29800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "standard",
+                  "price_env": "TOYBACO_STRIPE_PRICE_STANDARD"
+                },
+                "live": {
+                  "lookup_key": "standard",
+                  "price_env": "TOYBACO_STRIPE_PRICE_STANDARD"
+                }
+              }
+            },
+            "year": {
+              "amount": 321840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "standard-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_STANDARD_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "standard-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_STANDARD_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": false
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "ai_replies": 0
+            },
+            "ai_meter": {
+              "unit": "generated_reply",
+              "period": "calendar_month",
+              "timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        },
+        "legacy-unversioned": {
+          "name": "スタンダード",
+          "product_name": "トイバコ スタンダード",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true
+            },
+            "limits": {
+              "agents": null
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    },
+    "pro": {
+      "versions": {
+        "2026-09-06.1": {
+          "name": "プロ",
+          "product_name": "トイバコ プロ",
+          "description": "AI応答(月500件)で夜間・繁忙時間まで自動化したいお店に",
+          "sellable": true,
+          "cycles": {
+            "month": {
+              "amount": 44800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "pro",
+                  "price_env": "TOYBACO_STRIPE_PRICE_PRO"
+                },
+                "live": {
+                  "lookup_key": "pro",
+                  "price_env": "TOYBACO_STRIPE_PRICE_PRO"
+                }
+              }
+            },
+            "year": {
+              "amount": 483840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "pro-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_PRO_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "pro-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_PRO_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": true
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "ai_replies": 500
+            },
+            "ai_meter": {
+              "unit": "generated_reply",
+              "period": "calendar_month",
+              "timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        },
+        "legacy-unversioned": {
+          "name": "プロ",
+          "product_name": "トイバコ プロ",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true
+            },
+            "limits": {
+              "agents": null
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    },
+    "starter": {
+      "versions": {
+        "legacy-unversioned": {
+          "name": "ライト",
+          "product_name": "トイバコ ライト",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": false,
+              "posting": false
+            },
+            "limits": {
+              "agents": 3
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    },
+    "premium": {
+      "versions": {
+        "legacy-unversioned": {
+          "name": "個別契約",
+          "product_name": "トイバコ 個別契約",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true
+            },
+            "limits": {
+              "agents": null
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    },
+    "business": {
+      "versions": {
+        "legacy-unversioned": {
+          "name": "個別契約",
+          "product_name": "トイバコ 個別契約",
+          "description": "既存の契約条件を維持します。",
+          "sellable": false,
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true
+            },
+            "limits": {
+              "agents": null
+            }
+          },
+          "legacy": true,
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "canceled"
+            ],
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions"
+          }
+        }
+      }
+    }
+  },
+  "addons": {
+    "manual-posting": {
+      "current_version": "2026-09-06.1",
+      "versions": {
+        "2026-09-06.1": {
+          "sellable": false,
+          "scope": "account",
+          "features": {
+            "posting": true
+          }
+        }
+      }
+    },
+    "opt-store": {
+      "current_version": "2026-09-06.1",
+      "versions": {
+        "2026-09-06.1": {
+          "sellable": true,
+          "scope": "separate_account",
+          "unit": "store",
+          "quantity_max": 1,
+          "plan_id": "light",
+          "plan_version": "2026-09-06.1",
+          "stripe_lookup_key": "opt-store"
+        }
+      }
+    },
+    "setup-standard": {
+      "current_version": "2026-09-06.1",
+      "versions": {
+        "2026-09-06.1": {
+          "sellable": true,
+          "scope": "service",
+          "unit": "setup",
+          "quantity_max": 1,
+          "stripe_lookup_key": "setup-standard"
+        }
+      }
+    }
+  },
+  "optional_lookup_keys": {
+    "month": [
+      "setup-standard",
+      "opt-store"
+    ],
+    "year": [
+      "setup-standard"
+    ]
+  },
+  "legacy_addon_versions": {
+    "manual-posting": "2026-09-06.1",
+    "opt-store": "2026-09-06.1",
+    "setup-standard": "2026-09-06.1"
+  }
+}
