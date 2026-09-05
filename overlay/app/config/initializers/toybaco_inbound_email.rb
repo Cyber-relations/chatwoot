@@ -5,11 +5,13 @@ require_relative '../../lib/toybaco/inbound_email'
 # Chatwoot 公式イメージの aws-actionmailbox-ses 0.1.0 は
 # routes.append { mount Engine => '/' } し、Engine の config/routes.rb が
 # POST /rails/action_mailbox/ses/inbound_emails を gem コントローラへ描く。
-# #104 の routes.append は後勝ちせず、ライブは素の create 204 だけが残った。
-# prepend は Journey の先勝ちで overlay subclass を取る。middleware は
-# RouteSet 再描画では外れない。受信 ENV が無ければルート自体を作らない。
-Rails.application.config.middleware.insert_before 0, Toybaco::InboundEmail::SesInboundRouteMiddleware
+# #105 の prepend + PATH_INFO 完全一致 middleware + boot 1回 class_eval は、
+# Engine 再ロードと SCRIPT_NAME+/ses/inbound_emails で 204 行を逃した。
+# unshift middleware は RouteSet 再描画では外れない。Zeitwerk / Reloader で
+# gem create を載せ直す。受信 ENV が無ければルート自体を作らない。
+Rails.application.config.middleware.unshift Toybaco::InboundEmail::SesInboundRouteMiddleware
 Toybaco::InboundEmail.register_ses_ingress_route_block!
+Toybaco::InboundEmail.install_ses_ingress_reload_hooks!
 
 Rails.application.config.to_prepare do
   begin
@@ -24,5 +26,7 @@ end
 # ライブ RouteSet が overlay でなければ ERROR を1行出す。
 Rails.application.config.after_initialize do
   Toybaco::InboundEmail.install_action_mailbox_hooks!
+  Toybaco::InboundEmail.warn_unless_ses_controller_loaded!
+  Toybaco::InboundEmail.ensure_ses_ingress_route!
   Toybaco::InboundEmail.warn_unless_ses_route_is_ours!
 end

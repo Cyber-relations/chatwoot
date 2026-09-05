@@ -103,8 +103,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
                      inbound_email
                    end
           Toybaco::InboundEmail.log_ses_create_route(source: source.to_s)
-        rescue StandardError
-          nil
         end
       end
 
@@ -112,15 +110,30 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         found = ses_ingress_controller_class
         return found if found
 
-        require 'aws/action_mailbox/ses'
-        spec = Gem.loaded_specs['aws-actionmailbox-ses']
-        if spec
-          path = File.join(spec.full_gem_path, SES_INGRESS_CONTROLLER_RELATIVE)
-          require path if File.file?(path)
+        begin
+          require 'aws/action_mailbox/ses'
+          spec = Gem.loaded_specs['aws-actionmailbox-ses']
+          if spec
+            path = File.join(spec.full_gem_path, SES_INGRESS_CONTROLLER_RELATIVE)
+            require path if File.file?(path)
+          end
+        rescue LoadError
+          # Chatwoot 固定 image 以外では gem が無い。
         end
-        ses_ingress_controller_class
-      rescue LoadError, NameError
-        ses_ingress_controller_class
+        found = ses_ingress_controller_class
+        return found if found
+
+        autoload_ses_ingress_controller
+      end
+
+      def autoload_ses_ingress_controller
+        SES_INGRESS_CONTROLLER_NAMES.each do |name|
+          found = name.split('::').reduce(Object) { |mod, part| mod.const_get(part) }
+          return found if found.is_a?(Class)
+        rescue NameError
+          next
+        end
+        nil
       end
 
       def ses_ingress_controller_class
@@ -142,10 +155,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def install_ses_ingress_create_hook!
         klass = load_ses_ingress_controller!
-        unless klass
-          emit_ses_route_mismatch('controller_missing')
-          return
-        end
+        return unless klass
 
         klass.class_eval do
           hook = Toybaco::InboundEmail::RoutingHooks::SesCreateRouteLog
@@ -160,6 +170,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         return if klass < RoutingJobRouteLog
 
         klass.prepend(RoutingJobRouteLog)
+      end
+
+      # 早期 boot では gem クラス未ロードが普通。mismatch は after_initialize で出す。
+      def warn_unless_ses_controller_loaded!
+        return if load_ses_ingress_controller!
+
+        emit_ses_route_mismatch('controller_missing')
       end
 
       def constantize_without_autoload(name)

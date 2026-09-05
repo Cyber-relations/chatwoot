@@ -3,6 +3,8 @@
 require_relative 'route_log'
 require_relative 'routing_hooks'
 require_relative 'ingress_log'
+require_relative 'ses_ingress_reload_helpers'
+require_relative 'ses_ingress_reload_hook'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
@@ -12,6 +14,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       include RouteLog
       include RoutingHooks
       include IngressLog
+      include SesIngressReloadHook
 
       RECIPIENT_HEADER_NAMES = %w[X-Original-To Delivered-To X-Forwarded-To].freeze
       FINDER_EXTRA_HEADERS = %w[Delivered-To X-Forwarded-To].freeze
@@ -67,13 +70,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def install_action_mailbox_hooks!
-        load_ses_ingress_controller!
-        install_ses_source_hook!
-        install_channel_finder_hook!
-        install_inbound_email_create_hook!
-        install_ses_ingress_create_hook!
-        install_routing_job_hook!
-        register_ses_ingress_route_block!
+        reapply_ses_ingress_wrappers!
+        ensure_ses_ingress_route!
       end
     end
   end

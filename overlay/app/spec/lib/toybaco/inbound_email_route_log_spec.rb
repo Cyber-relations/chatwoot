@@ -106,6 +106,24 @@ RSpec.describe Toybaco::InboundEmail do
     ).to_stdout
   end
 
+  it 'SES path middleware は Engine の SCRIPT_NAME 分割でも 204 行を出す' do
+    app = ->(_env) { [204, {}, []] }
+    middleware = Toybaco::InboundEmail::SesInboundRouteMiddleware.new(app)
+    env = {
+      'REQUEST_METHOD' => 'POST',
+      'SCRIPT_NAME' => Toybaco::InboundEmail::INGRESS_SCOPE,
+      'PATH_INFO' => Toybaco::InboundEmail::INGRESS_ROUTE_PATH,
+      'HTTP_X_TOYBACO_FIXTURE' => "toybaco-fixture-#{token}",
+      'rack.input' => StringIO.new('')
+    }
+
+    expect { middleware.call(env) }.to output(
+      a_string_including('toybaco-route-log')
+        .and(a_string_including("toybaco-fixture-#{token}"))
+        .and(a_string_matching(/Conversation=(yes|no)/))
+    ).to_stdout
+  end
+
   it 'live RouteSet が gem コントローラなら toybaco-ses-route-mismatch を ERROR する' do
     routes = Object.new
     def routes.recognize_path(_path, *)

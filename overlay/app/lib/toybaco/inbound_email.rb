@@ -9,6 +9,8 @@ require_relative 'inbound_email/ingress_log_helpers'
 require_relative 'inbound_email/ingress_log'
 require_relative 'inbound_email/ses_route_mount'
 require_relative 'inbound_email/ses_inbound_route_middleware'
+require_relative 'inbound_email/ses_ingress_reload_helpers'
+require_relative 'inbound_email/ses_ingress_reload_hook'
 require_relative 'inbound_email/routing'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
