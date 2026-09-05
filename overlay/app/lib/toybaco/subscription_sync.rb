@@ -150,11 +150,21 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       return nil unless price.is_a?(Hash)
 
       metadata = price_metadata(price)
-      id = metadata['toybaco_addon']
-      version = metadata['toybaco_addon_version']
-      return [id, version] if id && version && @catalog.data.dig('addons', id, 'versions', version)
+      # Lookup compatibility is only for old prices without any metadata.
+      return addon_for_lookup(price['lookup_key']) if metadata.empty?
+      return unless metadata.key?('toybaco_addon') || metadata.key?('toybaco_addon_version')
 
-      addon_for_lookup(price['lookup_key'])
+      verified_addon_version(metadata)
+    end
+
+    def verified_addon_version(metadata)
+      id, version = metadata.values_at('toybaco_addon', 'toybaco_addon_version')
+      unless id.is_a?(String) && version.is_a?(String) && !id.strip.empty? && !version.strip.empty? &&
+             @catalog.data.dig('addons', id, 'versions', version)
+        raise Unresolved, 'addon price has no verified contract version'
+      end
+
+      [id, version]
     end
 
     def addon_for_lookup(lookup_key)

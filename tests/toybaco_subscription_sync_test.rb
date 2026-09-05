@@ -37,6 +37,19 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
       } }] } }
   end
 
+  def addon_metadata
+    { 'toybaco_addon' => 'opt-store',
+      'toybaco_addon_version' => Toybaco::PlanCatalog.default.data.dig('addons', 'opt-store', 'current_version') }
+  end
+
+  def store_item(metadata: {}, product_metadata: {})
+    { 'id' => 'si_store', 'quantity' => 1, 'price' => {
+      'id' => 'price_store', 'lookup_key' => 'opt-store', 'currency' => 'jpy', 'unit_amount' => 9800,
+      'recurring' => { 'interval' => 'month', 'interval_count' => 1 },
+      'metadata' => metadata, 'product' => { 'metadata' => product_metadata }
+    } }
+  end
+
   def setup
     @account = Account.new(contract)
     @latest = subscription
@@ -121,6 +134,107 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     assert_equal Toybaco::PlanCatalog.default.sale('pro', 'month')['plan_version'], stored['plan_version']
     assert_equal 'price_catalogpro', stored['stripe_price_id']
     assert_equal 500, stored.dig('entitlements', 'limits', 'ai_replies')
+  end
+
+  def test_base_plan_metadata_is_not_reclassified_by_an_addon_lookup_key
+    @latest.dig('items', 'data', 0, 'price')['lookup_key'] = 'opt-store'
+    assert_equal 'applied', sync
+    assert_equal 'standard', stored['plan_id']
+    assert_empty stored['addons']
+  end
+
+  def test_known_explicit_addon_metadata_binds_from_price_or_product
+    [{ metadata: addon_metadata }, { product_metadata: addon_metadata }].each do |metadata|
+      @latest = subscription
+      @latest['items']['data'] << store_item(**metadata)
+      @account.internal_attributes['toybaco_contract'] = contract
+      assert_equal 'applied', sync
+      addon = stored['addons'].find { |item| item['source'] == 'stripe' }
+      assert_equal 'opt-store', addon['id']
+      assert_equal addon_metadata['toybaco_addon_version'], addon['version']
+      assert_equal 'separate_account', addon.dig('terms', 'scope')
+      assert_equal 'price_store', addon['stripe_price_id']
+    end
+  end
+
+  def test_invalid_explicit_addon_metadata_preserves_snapshot_manual_store_and_rights
+    manual = Toybaco::Entitlements.new_addon('opt-store', quantity: 1, source: 'manual').merge('account_id' => 42)
+    @account.internal_attributes['toybaco_contract']['addons'] = [manual]
+    sync
+    original = Marshal.load(Marshal.dump(stored))
+    features = @account.features.dup
+    postiz = @account.internal_attributes['postiz'].dup
+    invalid = [
+      addon_metadata.merge('toybaco_addon' => 'unknown-addon'),
+      addon_metadata.merge('toybaco_addon_version' => 'unknown-version'),
+      { 'toybaco_addon' => 'opt-store' }, { 'toybaco_addon_version' => addon_metadata['toybaco_addon_version'] },
+      addon_metadata.merge('toybaco_addon' => ''), addon_metadata.merge('toybaco_addon_version' => ''),
+      addon_metadata.merge('toybaco_addon' => nil), addon_metadata.merge('toybaco_addon_version' => nil),
+      addon_metadata.merge('toybaco_addon' => 1), addon_metadata.merge('toybaco_addon_version' => 1),
+      addon_metadata.merge('toybaco_addon_version' => ' '), { 'unrelated' => 'not an unversioned price' }
+    ]
+    invalid.each do |metadata|
+      [{ metadata: metadata }, { product_metadata: metadata }].each do |placement|
+        @latest = subscription(plan: 'pro', price_id: 'price_newpro')
+        @latest['items']['data'] << store_item(**placement)
+        assert_equal 'needs_review', sync, metadata.inspect
+        assert_equal original, stored
+        assert_equal features, @account.features
+        assert_equal postiz, @account.internal_attributes['postiz']
+        assert @account.active?
+        assert_equal true, @account.internal_attributes['toybaco_billing_review']
+      end
+    end
+  end
+
+  def test_unknown_price_addon_version_cannot_fall_back_to_known_product_metadata
+    sync
+    original = Marshal.load(Marshal.dump(stored))
+    @latest['items']['data'] << store_item(
+      metadata: { 'toybaco_addon_version' => 'unknown-version' }, product_metadata: addon_metadata
+    )
+    assert_equal 'needs_review', sync
+    assert_equal original, stored
+  end
+
+  def test_empty_addon_identifiers_are_rejected_even_if_catalog_has_empty_keys
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    data['addons'][''] = { 'versions' => { '' => data['addons']['opt-store']['versions'].values.first } }
+    @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: Toybaco::PlanCatalog.new(data))
+    original = Marshal.load(Marshal.dump(stored))
+    @latest['items']['data'] << store_item(metadata: { 'toybaco_addon' => '', 'toybaco_addon_version' => '' })
+
+    assert_equal 'needs_review', sync
+    assert_equal original, stored
+  end
+
+  def test_legacy_addon_without_metadata_binds_only_a_unique_lookup_version
+    @latest['items']['data'] << store_item(metadata: nil, product_metadata: nil)
+    assert_equal 'applied', sync
+    assert_equal addon_metadata['toybaco_addon_version'], stored['addons'][0]['version']
+
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    versions = data['addons']['opt-store']['versions']
+    versions['ambiguous-version'] = Marshal.load(Marshal.dump(versions.values.first))
+    @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: Toybaco::PlanCatalog.new(data))
+    @account.internal_attributes['toybaco_contract'] = contract
+    original = Marshal.load(Marshal.dump(stored))
+    assert_equal 'needs_review', sync
+    assert_equal original, stored
+  end
+
+  def test_saved_stripe_addon_keeps_terms_after_catalog_removal_and_metadata_change
+    @latest['items']['data'] << store_item(metadata: addon_metadata)
+    sync
+    purchased = Marshal.load(Marshal.dump(stored))
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    data['addons'].delete('opt-store')
+    @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: Toybaco::PlanCatalog.new(data))
+    @latest['items']['data'][1]['price']['metadata'] = addon_metadata.merge('toybaco_addon_version' => 'future-version')
+
+    assert_equal 'applied', sync
+    assert_equal purchased, stored
+    assert_equal false, @account.internal_attributes['toybaco_billing_review']
   end
 
   def test_grace_and_period_end_cancellation_preserve_access_until_contract_ends
