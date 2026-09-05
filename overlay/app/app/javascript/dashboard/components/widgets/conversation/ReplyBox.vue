@@ -764,6 +764,8 @@ export default {
         },
         Enter: {
           action: e => {
+            // Safari may report isComposing=false on the IME confirmation key.
+            if (e.isComposing || e.keyCode === 229) return;
             if (this.isAValidEvent('enter')) {
               this.onSendReply();
               e.preventDefault();
@@ -772,7 +774,8 @@ export default {
           allowOnFocusedInput: true,
         },
         '$mod+Enter': {
-          action: () => {
+          action: e => {
+            if (e.isComposing || e.keyCode === 229) return;
             if (this.copilot.isActive.value && this.isFocused) {
               this.onSubmitCopilotReply();
             } else if (this.isAValidEvent('cmd_enter')) {

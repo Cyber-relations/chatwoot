@@ -17,8 +17,12 @@ class Toybaco::CheckoutController < ActionController::Base # rubocop:disable Rai
   private
 
   def start_checkout
-    session = Toybaco::Checkout.start!(plan: params[:plan], cycle: params[:cycle])
+    return if confirm_current_terms
+
+    session = Toybaco::Checkout.start!(plan: params[:plan], cycle: params[:cycle], version: params[:version].presence)
     redirect_to session.fetch('url'), allow_other_host: true, status: :see_other
+  rescue Toybaco::PlanCatalog::Invalid => e
+    render_error(e.message, :conflict)
   rescue Toybaco::Checkout::InvalidPlan
     render_error('プランが正しくありません。料金ページから選び直してください。', :bad_request)
   rescue Toybaco::Checkout::NonJpyPrice
@@ -28,6 +32,14 @@ class Toybaco::CheckoutController < ActionController::Base # rubocop:disable Rai
   rescue StandardError => e
     Rails.logger.error("toybaco checkout error: #{e.class}: #{e.message}")
     render_error('決済ページの作成に失敗しました。右下のチャットからお申し込みください。', :bad_gateway)
+  end
+
+  def confirm_current_terms
+    @plan, @cycle = Toybaco::Checkout.normalize_selection(params[:plan], params[:cycle])
+    @terms = Toybaco::Checkout::Catalog.sale(@plan, @cycle)
+    return false if params[:version].to_s == @terms.fetch('plan_version')
+
+    render 'toybaco/checkout/confirm', layout: false
   end
 
   def render_error(message, status)

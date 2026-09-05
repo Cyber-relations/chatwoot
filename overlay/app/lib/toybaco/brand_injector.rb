@@ -15,6 +15,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     POST_ENTRY_ASSET_DIGEST = Digest::SHA256.file(POST_ENTRY_ASSET_PATH).hexdigest.freeze
     POST_ENTRY_ASSET =
       %(<script src="/brand-assets/toybaco-post-entry.js?v=#{POST_ENTRY_ASSET_DIGEST}" defer></script>).freeze
+    AGENT_SEAT_ASSET_PATH = File.expand_path('../../public/brand-assets/toybaco-agent-seat.js', __dir__).freeze
+    AGENT_SEAT_ASSET_DIGEST = Digest::SHA256.file(AGENT_SEAT_ASSET_PATH).hexdigest.freeze
+    AGENT_SEAT_ASSET =
+      %(<script src="/brand-assets/toybaco-agent-seat.js?v=#{AGENT_SEAT_ASSET_DIGEST}" defer></script>).freeze
     DASHBOARD_PREFIXES = %w[/app /v3app].freeze
     ENGLISH_NOSCRIPT = 'This app works best with JavaScript enabled.'
     JAPANESE_NOSCRIPT = 'このアプリを利用するにはJavaScriptを有効にしてください。'
@@ -75,7 +79,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       tags = +''
       tags << TAG if missing?(body, 'toybaco-brand.css')
       tags << SUPERADMIN_TAG if env['PATH_INFO'].to_s.start_with?('/super_admin') && missing?(body, 'toybaco-superadmin.css')
-      tags << post_entry_tags if dashboard_path?(env['PATH_INFO']) && missing?(body, 'data-toybaco-post-config')
+      if dashboard_path?(env['PATH_INFO'])
+        tags << post_entry_tags if missing?(body, 'data-toybaco-post-config')
+        tags << AGENT_SEAT_ASSET if missing?(body, 'toybaco-agent-seat.js')
+      end
       tags
     end
 

@@ -8,6 +8,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module Resolver
       module_function
 
+      def price_for(terms, cycle, client:, environment: ENV)
+        mode = environment.fetch('TOYBACO_STRIPE_MODE', 'live')
+        raise Unavailable, 'invalid Stripe mode' unless %w[test live].include?(mode)
+
+        reference = terms.fetch('cycles').fetch(cycle).fetch('stripe').fetch(mode)
+        override = environment[reference.fetch('price_env')].to_s
+        found = if override.match?(Catalog::PRICE_ID)
+                  client.retrieve_price(override)
+                else
+                  client.find_price_by_lookup_key(reference.fetch('lookup_key'))
+                end
+        raise Unavailable, 'price not found' unless found.is_a?(Hash)
+
+        found
+      end
+
       def price(key, client:, environment: ENV)
         override = environment[Catalog::PRICE_ENV_KEYS.fetch(key)].to_s
         found = if override.match?(Catalog::PRICE_ID)
@@ -34,15 +50,32 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def success_url(environment)
-        safe_site_url(environment['TOYBACO_CHECKOUT_SUCCESS_URL'], Catalog::DEFAULT_SUCCESS_URL)
+        host = site_host(environment)
+        safe_site_url(environment['TOYBACO_CHECKOUT_SUCCESS_URL'], "https://#{host}/welcome/")
       end
 
-      def cancel_url(environment, plan)
-        uri = URI.parse(safe_site_url(environment['TOYBACO_CHECKOUT_CANCEL_URL'], Catalog::DEFAULT_CANCEL_BASE))
-        kept = URI.decode_www_form(uri.query.to_s).reject { |pair| pair.first == 'plan' }
-        kept << ['plan', plan]
+      def cancel_url(environment, plan, cycle: nil, version: nil)
+        host = site_host(environment)
+        uri = URI.parse(safe_site_url(environment['TOYBACO_CHECKOUT_CANCEL_URL'], "https://#{host}/signup/"))
+        kept = URI.decode_www_form(uri.query.to_s).reject { |pair| %w[plan cycle version].include?(pair.first) }
+        kept.concat({ 'plan' => plan, 'cycle' => cycle, 'version' => version }.compact.to_a)
         uri.query = URI.encode_www_form(kept)
         uri.to_s
+      end
+
+      def return_urls(environment, plan:, cycle:, version:)
+        {
+          success_url: success_url(environment),
+          cancel_url: cancel_url(environment, plan, cycle: cycle, version: version)
+        }
+      end
+
+      def site_host(environment)
+        deployment = environment.fetch('TOYBACO_DEPLOYMENT_ENVIRONMENT', 'production')
+        return 'toybaco.jp' if deployment == 'production'
+        return 'staging.toybaco.jp' if deployment == 'staging' && environment['TOYBACO_STRIPE_MODE'] == 'test'
+
+        raise Unavailable, 'invalid checkout environment or staging Stripe mode'
       end
 
       def safe_site_url(raw, fallback)
@@ -50,10 +83,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         return fallback if value.empty?
 
         uri = URI.parse(value)
-        https_site = uri.is_a?(URI::HTTPS) && uri.host == 'toybaco.jp' && uri.userinfo.nil? && uri.fragment.nil?
-        https_site ? uri.to_s : fallback
+        trusted_site?(uri, URI.parse(fallback).host) ? uri.to_s : fallback
       rescue URI::InvalidURIError
         fallback
+      end
+
+      def trusted_site?(uri, host)
+        uri.is_a?(URI::HTTPS) && uri.host == host && uri.port == 443 && uri.userinfo.nil? && uri.fragment.nil?
       end
     end
   end

@@ -363,7 +363,7 @@ select:focus {
  * --toybaco-navy-deep は #163049 のまま(LP :root の #16273E は持ち込まない)。 */
 :root {
   --toybaco-surface: #fcfbf8;
-  --toybaco-wash: #e8eef5;
+  --toybaco-wash: #e9eff6;
   --toybaco-hairline: #e7e4dc;
   --toybaco-line: #0b7a35;
   --toybaco-line-wash: #e7f6ec;
@@ -371,6 +371,9 @@ select:focus {
 }
 
 .dark {
+  --toybaco-offwhite: #0f151e;
+  --toybaco-ink: #d6e4f2;
+  --toybaco-muted: #8ea6c0;
   --toybaco-surface: #121a26;
   --toybaco-wash: #1f3046;
   --toybaco-hairline: #22304a;
@@ -402,18 +405,24 @@ select:focus {
   border-right: 1px solid var(--toybaco-hairline);
 }
 
+/* 狭い幅の開閉式パネルまで196pxに固定せず、デスクトップだけLPの密度へ寄せる。 */
+@media (min-width: 1180px) {
+  [class*="md:w-[320px]"][class*="2xl:w-[360px]"] {
+    width: 196px !important;
+    min-width: 196px !important;
+    max-width: 196px !important;
+  }
+}
+
 [class*="md:w-[320px]"][class*="2xl:w-[360px]"] {
-  width: 196px !important;
-  min-width: 196px !important;
-  max-width: 196px !important;
   border-left: 1px solid var(--toybaco-hairline);
-  background-color: var(--toybaco-offwhite) !important;
-  font-size: 12.5px;
+  background-color: var(--toybaco-surface) !important;
+  font-size: 14px;
 }
 
 [class*="md:w-[320px]"][class*="2xl:w-[360px]"] h3,
 [class*="md:w-[320px]"][class*="2xl:w-[360px]"] h4 {
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em;
   color: var(--toybaco-muted) !important;
@@ -431,116 +440,20 @@ aside nav > ul {
   flex-direction: column;
 }
 
-aside nav > ul > *:has(.i-lucide-contact),
-aside nav > ul > *:has(.i-lucide-library-big),
-aside nav > ul > *:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
-aside nav > ul > *:has(.i-woot-captain),
-aside nav > ul > *:has(.i-lucide-building-2),
-aside nav > ul > *:has(.i-lucide-phone),
-aside nav > ul > *:has(.i-lucide-sparkles),
-aside nav > ul > *:has(.i-lucide-bot),
-aside nav > ul > *:has(.i-lucide-book),
-aside nav > ul > *:has(.i-lucide-book-open),
-aside nav > ul > *:has(.i-lucide-building),
-aside nav > ul > *:has(.i-lucide-users),
-aside nav > ul > *:has(.i-lucide-users-round),
-aside nav > ul > *:has(.i-lucide-messages-square),
-aside nav > ul > *:has([title="連絡先"]),
-aside nav > ul > *:has([title="キャンペーン"]),
-aside nav > ul > *:has([title="ヘルプセンター"]),
-aside nav > ul > *:has([title="ヘルプ"]),
-aside nav > ul > *:has([title="企業"]),
-aside nav > ul > *:has([title="通話"]),
-aside nav > ul > *:has([title="AIアシスタント"]),
-aside nav > ul > *:has([title="Captain"]),
-aside nav > ul > *:has([title="会話データ"]),
-aside nav > ul > *:has([title="チーム"]),
-aside nav > ul > *:has([title="Contacts"]),
-aside nav > ul > *:has([title="Campaigns"]),
-aside nav > ul > *:has([title="Help Center"]),
-aside nav > ul > *:has([title="Help"]),
-aside nav > ul > *:has([title="Companies"]),
-aside nav > ul > *:has([title="Calls"]),
-aside nav > ul > *:has([title="Conversation Data"]),
-aside nav > ul > *:has([title="Teams"]),
-aside nav li:has(.i-lucide-contact),
-aside nav li:has(.i-lucide-library-big),
-aside nav li:has(.i-lucide-megaphone):not(:has([data-toybaco-post-entry])):not([data-toybaco-post-entry-wrap]),
-aside nav li:has(.i-woot-captain),
-aside nav li:has(.i-lucide-building-2),
-aside nav li:has(.i-lucide-phone),
-aside nav li:has(.i-lucide-sparkles),
-aside nav li:has(.i-lucide-bot),
-aside nav li:has(.i-lucide-book),
-aside nav li:has(.i-lucide-book-open),
-aside nav li:has(.i-lucide-building),
-aside nav li:has(.i-lucide-users),
-aside nav li:has(.i-lucide-users-round),
-aside nav li:has(.i-lucide-messages-square),
-aside nav li:has(a[href*="/contacts"]),
-aside nav li:has(a[href*="/campaigns"]),
-aside nav li:has(a[href*="/portals"]),
-aside nav li:has(a[href*="/captain"]),
-aside nav li:has(a[href*="/companies"]),
-aside nav li:has(a[href*="/calls"]),
-aside nav li:has(a[href*="/notifications"]),
-aside nav li:has(a[href*="/mentions"]),
-aside nav li:has(a[href*="/participating"]),
-aside nav li:has([title="連絡先"]),
-aside nav li:has([title="キャンペーン"]),
-aside nav li:has([title="ヘルプセンター"]),
-aside nav li:has([title="ヘルプ"]),
-aside nav li:has([title="企業"]),
-aside nav li:has([title="通話"]),
-aside nav li:has([title="AIアシスタント"]),
-aside nav li:has([title="Captain"]),
-aside nav li:has([title="会話データ"]),
-aside nav li:has([title="チーム"]),
-aside nav li:has([title="すべての会話"]),
-aside nav li:has([title="メンション"]),
-aside nav li:has([title="参加中"]),
-aside nav li:has([title="Contacts"]),
-aside nav li:has([title="Campaigns"]),
-aside nav li:has([title="Help Center"]),
-aside nav li:has([title="Help"]),
-aside nav li:has([title="Conversation Data"]),
-aside nav li:has([title="Teams"]),
-aside nav li:has(> a[href*="/settings/agents"]),
-aside nav li:has(> a[href*="/settings/teams"]),
-aside nav li:has(> a[href*="/settings/inboxes"]),
-aside nav li:has(> a[href*="/settings/templates"]),
-aside nav li:has(> a[href*="/settings/labels"]),
-aside nav li:has(> a[href*="/settings/custom-attribute"]),
-aside nav li:has(> a[href*="/settings/attributes"]),
-aside nav li:has(> a[href*="/settings/automation"]),
-aside nav li:has(> a[href*="/settings/agent-bots"]),
-aside nav li:has(> a[href*="/settings/macros"]),
-aside nav li:has(> a[href*="/settings/canned"]),
-aside nav li:has(> [title="アカウント設定"]),
-aside nav li:has(> [title="担当者"]),
-aside nav li:has(> [title="テンプレート"]),
-aside nav li:has(> [title="ラベル"]),
-aside nav li:has(> [title="カスタム属性"]),
-aside nav li:has(> [title="自動化"]),
-aside nav li:has(> [title="ボット"]),
-aside nav li:has(> [title="マクロ"]),
-aside nav li:has(> [title="定型文"]),
-aside nav li:has(> [title="Account Settings"]),
-aside nav li:has(> [title="Agents"]),
-aside nav li:has(> [title="Inboxes"]),
-aside nav li:has(> [title="Templates"]),
-aside nav li:has(> [title="Labels"]),
-aside nav li:has(> [title="Custom Attributes"]),
-aside nav li:has(> [title="Automations"]),
-aside nav li:has(> [title="Bots"]),
-aside nav li:has(> [title="Macros"]),
-aside nav li:has(> [title="Canned Responses"]),
-aside nav [title="会話データ"],
-aside nav [title="チーム"],
-aside nav [title="ヘルプセンター"],
-aside nav [title="ヘルプ"],
-aside nav [title="AIアシスタント"],
-aside nav [title="Captain"] {
+/* 親行自身のラベル・アイコンだけを判定する。
+ * 子孫全体への :has() は、配下に担当者や会話レポートを持つ「設定」「レポート」まで隠す。 */
+aside nav > ul > li:has(> :is(a, [role="button"]):is(
+  [title="連絡先"], [title="キャンペーン"], [title="ヘルプセンター"],
+  [title="ヘルプ"], [title="企業"], [title="通話"], [title="AIアシスタント"],
+  [title="Captain"], [title="会話データ"], [title="チーム"],
+  [title="Contacts"], [title="Campaigns"], [title="Help Center"],
+  [title="Companies"], [title="Calls"], [title="Conversation Data"], [title="Teams"]
+)),
+aside nav > ul > li:has(> :is(a, [role="button"]) :is(
+  .i-lucide-contact, .i-lucide-library-big, .i-woot-captain,
+  .i-lucide-building-2, .i-lucide-phone, .i-lucide-messages-square
+)),
+aside nav [data-toybaco-stock-hidden="1"] {
   display: none !important;
 }
 
@@ -573,6 +486,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 /* AI 一次応答の2モードは左ナビではなく返信欄の横 */
 [data-toybaco-ai-mode-bar] {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin: 0 0 8px;
@@ -614,6 +528,94 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   border-color: var(--toybaco-navy);
 }
 
+[data-toybaco-ai-mode]:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+[data-toybaco-ai-scope],
+[data-toybaco-ai-readiness],
+[data-toybaco-ai-status] {
+  font-size: 12px;
+  color: var(--toybaco-muted);
+  line-height: 1.6;
+}
+
+[data-toybaco-ai-readiness] {
+  display: block;
+}
+
+[data-toybaco-ai-mode-bar] [data-toybaco-ai-status],
+[data-toybaco-ai-mode-bar] [data-toybaco-ai-readiness] {
+  flex-basis: 100%;
+}
+
+[data-toybaco-ai-state="error"] [data-toybaco-ai-status] {
+  color: #b42318;
+}
+
+[data-toybaco-ai-state="error"] [data-toybaco-ai-mode] {
+  cursor: not-allowed;
+}
+
+[data-toybaco-ai-connection="unconnected"] [data-toybaco-ai-mode],
+[data-toybaco-ai-connection="unknown"] [data-toybaco-ai-mode],
+[data-toybaco-ai-connection="error"] [data-toybaco-ai-mode] {
+  cursor: not-allowed;
+}
+
+[data-toybaco-ai-retry] {
+  border: 1px solid #e7e4dc;
+  border-radius: 8px;
+  background: #fcfbf8;
+  color: var(--toybaco-navy);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+[data-toybaco-ai-retry][hidden] {
+  display: none;
+}
+
+[data-toybaco-ai-mode]:focus-visible,
+[data-toybaco-ai-mode-h]:focus-visible,
+[data-toybaco-ai-retry]:focus-visible,
+[data-toybaco-ai-usage-refresh]:focus-visible,
+[data-toybaco-ai-mode-head] button:focus-visible {
+  outline: 2px solid var(--toybaco-coral);
+  outline-offset: 3px;
+}
+
+.dark [data-toybaco-ai-mode-bar],
+.dark [data-toybaco-ai-mode-panel],
+.dark [data-toybaco-ai-retry],
+.dark [data-toybaco-ai-mode] {
+  background: #121a26;
+  color: #d6e4f2;
+  border-color: #22304a;
+}
+
+.dark [data-toybaco-ai-mode][data-toybaco-ai-on="1"] {
+  background: #1f3046;
+  border-color: #4a76a6;
+}
+
+.dark [data-toybaco-ai-scope],
+.dark [data-toybaco-ai-readiness],
+.dark [data-toybaco-ai-status],
+.dark [data-toybaco-ai-mode-h],
+.dark [data-toybaco-ai-mode-head] strong,
+.dark [data-toybaco-ai-mode-head] button,
+.dark [data-toybaco-ai-mode-panel] p {
+  color: #8ea6c0;
+}
+
+.dark [data-toybaco-ai-state="error"] [data-toybaco-ai-status] {
+  color: #ffb4a8;
+}
+
 [data-toybaco-ai-mode-panel] {
   position: fixed;
   top: 80px;
@@ -621,6 +623,9 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   z-index: 40;
   width: 320px;
   max-width: calc(100% - 32px);
+  max-height: calc(100vh - 104px);
+  max-height: calc(100dvh - 104px);
+  overflow-y: auto;
   background: #fcfbf8;
   color: #24303f;
   border: 1px solid #e7e4dc;
@@ -676,6 +681,60 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   margin-top: 2px;
 }
 
+[data-toybaco-ai-usage] {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e7e4dc;
+  border-radius: 11px;
+  color: #24303f;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+[data-toybaco-ai-usage-head] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+[data-toybaco-ai-usage-heading] { color: #1f3a5f; font-size: 12px; }
+[data-toybaco-ai-usage-value] { display: block; font-size: 22px; font-weight: 800; }
+[data-toybaco-ai-usage-details] { font-weight: 700; }
+[data-toybaco-ai-usage-reset] { margin-top: 3px; color: #6b7684; font-size: 11px; }
+[data-toybaco-ai-usage-status] { margin-top: 8px; color: #6b7684; font-size: 11px; }
+[data-toybaco-ai-usage-state="limited"] [data-toybaco-ai-usage-status] { color: #926b22; }
+[data-toybaco-ai-usage-state="error"] [data-toybaco-ai-usage-status] { color: #b42318; }
+
+[data-toybaco-ai-usage-refresh] {
+  border: 1px solid #e7e4dc;
+  border-radius: 7px;
+  padding: 3px 8px;
+  background: #fcfbf8;
+  color: #1f3a5f;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+[data-toybaco-ai-usage-refresh]:disabled { cursor: wait; opacity: 0.6; }
+[data-toybaco-ai-usage-meter] { display: flex; height: 6px; margin: 9px 0; background: #edf1f6; border-radius: 99px; overflow: hidden; }
+[data-toybaco-ai-usage-used] { background: #1f3a5f; }
+[data-toybaco-ai-usage-reserved] { background: #d6b577; }
+[data-toybaco-ai-usage] [hidden] { display: none; }
+
+.dark [data-toybaco-ai-usage],
+.dark [data-toybaco-ai-usage-refresh] { background: #121a26; color: #d6e4f2; border-color: #22304a; }
+.dark [data-toybaco-ai-usage-heading] { color: #d6e4f2; }
+.dark [data-toybaco-ai-usage-reset],
+.dark [data-toybaco-ai-usage-status] { color: #8ea6c0; }
+.dark [data-toybaco-ai-usage-meter] { background: #22304a; }
+.dark [data-toybaco-ai-usage-used] { background: #7ba9df; }
+.dark [data-toybaco-ai-usage-state="limited"] [data-toybaco-ai-usage-status] { color: #e6c58d; }
+.dark [data-toybaco-ai-usage-state="error"] [data-toybaco-ai-usage-status] { color: #ffb4a8; }
+
 aside nav ul > li:has(a[href*="/reports"]),
 aside nav > ul > *:has(.i-lucide-chart-spline),
 aside nav > ul > *:has([title="レポート"]) {
@@ -694,32 +753,59 @@ aside nav [role="button"] {
   border-radius: 9px !important;
 }
 
-aside nav a.router-link-active,
-aside nav a.bg-n-alpha-2,
-aside nav [role="button"].bg-n-alpha-2,
-aside nav a[class*="bg-n-alpha-2"],
-aside nav [role="button"][class*="bg-n-alpha-2"] {
+aside nav a.router-link-active:not([data-toybaco-nav-current="false"]),
+aside nav a.bg-n-alpha-2:not([data-toybaco-nav-current="false"]),
+aside nav [role="button"].bg-n-alpha-2:not([data-toybaco-nav-current="false"]),
+aside nav [data-toybaco-nav-current="true"] {
   background-color: var(--toybaco-wash) !important;
   color: var(--toybaco-navy) !important;
   font-weight: 800 !important;
 }
 
-aside nav a.router-link-active span,
-aside nav a.bg-n-alpha-2 span,
-aside nav [role="button"].bg-n-alpha-2 span {
+aside nav a.router-link-active:not([data-toybaco-nav-current="false"]) span,
+aside nav a.bg-n-alpha-2:not([data-toybaco-nav-current="false"]) span,
+aside nav [role="button"].bg-n-alpha-2:not([data-toybaco-nav-current="false"]) span,
+aside nav [data-toybaco-nav-current="true"] span {
   color: var(--toybaco-navy) !important;
   font-weight: 800 !important;
 }
 
-.dark aside nav a.router-link-active,
-.dark aside nav a.bg-n-alpha-2,
-.dark aside nav [role="button"].bg-n-alpha-2 {
+.dark aside nav a.router-link-active:not([data-toybaco-nav-current="false"]),
+.dark aside nav a.bg-n-alpha-2:not([data-toybaco-nav-current="false"]),
+.dark aside nav [role="button"].bg-n-alpha-2:not([data-toybaco-nav-current="false"]),
+.dark aside nav [data-toybaco-nav-current="true"] {
   color: #bbd3ee !important;
 }
 
-.dark aside nav a.router-link-active span,
-.dark aside nav a.bg-n-alpha-2 span {
+.dark aside nav a.router-link-active:not([data-toybaco-nav-current="false"]) span,
+.dark aside nav a.bg-n-alpha-2:not([data-toybaco-nav-current="false"]) span,
+.dark aside nav [data-toybaco-nav-current="true"] span {
   color: #bbd3ee !important;
+}
+
+aside nav [data-toybaco-nav-current="false"] {
+  background-color: transparent !important;
+  color: var(--toybaco-muted) !important;
+  font-weight: 600 !important;
+}
+
+aside nav [data-toybaco-nav-link] {
+  min-height: 36px;
+}
+
+aside nav [data-toybaco-nav-link]:focus-visible {
+  outline: 2px solid var(--toybaco-coral);
+  outline-offset: 2px;
+}
+
+aside nav [data-toybaco-nav-link] :is(.i-lucide-chevron-down, .i-lucide-chevron-right) {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  aside nav [data-toybaco-nav-link] {
+    min-height: 44px;
+  }
 }
 
 aside nav [data-test-id="sidebar-unread-badge"],
@@ -740,8 +826,7 @@ aside nav span.inline-grid.rounded-full {
 }
 
 .conversations-list-wrap li > a.text-n-blue-11,
-.conversations-list-wrap li > a[class*="text-n-blue-11"],
-.conversations-list-wrap li > a[class*="after:bg-n-brand"] {
+.conversations-list-wrap li > a.after\:bg-n-brand {
   background-color: var(--toybaco-wash) !important;
   color: var(--toybaco-navy) !important;
   font-weight: 700 !important;
@@ -751,8 +836,7 @@ aside nav span.inline-grid.rounded-full {
   display: none !important;
 }
 
-.conversations-list-wrap li > a.text-n-blue-11 > div,
-.conversations-list-wrap li > a[class*="text-n-blue-11"] > div {
+.conversations-list-wrap li > a.text-n-blue-11 > div {
   background-color: var(--toybaco-navy) !important;
   color: #fff !important;
 }
@@ -774,6 +858,12 @@ aside nav span.inline-grid.rounded-full {
 }
 
 /* 吹き出し: 受信=surface+罫線 / 送信=ネイビー塗り */
+.left-bubble,
+.right-bubble {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 .left-bubble {
   background-color: var(--toybaco-surface) !important;
   color: var(--toybaco-ink) !important;
@@ -801,11 +891,11 @@ aside nav span.inline-grid.rounded-full {
   background-color: var(--toybaco-navy) !important;
 }
 
-/* システム行: 開いた会話の黄。Chatwoot 既存 amber スケールのみ。新しい hex は足さない */
+/* システム行はLP同様に補助色で表示し、お客様のメッセージと区別する。 */
 [data-bubble-name="activity"] {
-  background-color: rgb(var(--amber-3)) !important;
-  color: rgb(var(--amber-11)) !important;
-  border: 1px solid rgb(var(--amber-5));
+  background-color: transparent !important;
+  color: var(--toybaco-muted) !important;
+  border: none;
   font-weight: 600;
 }
 
@@ -847,6 +937,11 @@ aside nav span.inline-grid.rounded-full {
   border-radius: 11px !important;
 }
 
+.reply-box.is-private {
+  background-color: rgb(var(--amber-2)) !important;
+  border-color: rgb(var(--amber-6)) !important;
+}
+
 .reply-box button[type="submit"],
 .reply-box .send-button,
 .reply-box .right-wrap > button:last-child {
@@ -867,7 +962,8 @@ aside nav span.inline-grid.rounded-full {
   filter: none !important;
 }
 
-.reply-box.is-private button[type="submit"] {
+.reply-box.is-private button[type="submit"],
+.reply-box.is-private .send-button {
   background-color: #c9842a !important;
 }
 
@@ -985,4 +1081,33 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
 [data-testid*="copilot"] .i-lucide-sparkles,
 .ai-badge {
   color: var(--toybaco-navy);
+}
+
+/* ライトの担当者上限。シェルトークンはそのまま使う */
+[data-toybaco-agent-seat-banner] {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: #fcfbf8;
+  color: #1f3a5f;
+  border: 1.5px solid #163049;
+  border-radius: 12px;
+}
+
+[data-toybaco-agent-seat-banner-title] {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1f3a5f;
+}
+
+[data-toybaco-agent-seat-banner-body] {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: #163049;
+}
+
+[data-toybaco-agent-seat-locked] {
+  opacity: 0.45 !important;
+  pointer-events: none !important;
 }
