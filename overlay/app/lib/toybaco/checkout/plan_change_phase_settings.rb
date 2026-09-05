@@ -14,6 +14,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def writable_phase(phase)
         reject_unknown!(phase, PHASE_FIELDS + ['items'])
         result = phase.slice(*PHASE_FIELDS).compact
+        # Stripe returns [], but this optional invoice-item list cannot be unset with ''.
+        result.delete('add_invoice_items') if result['add_invoice_items'] == []
         normalize_ids!(result, 'default_tax_rates')
         result['default_payment_method'] = object_id_value(result['default_payment_method']) if result.key?('default_payment_method')
         result['items'] = phase.fetch('items').map { |item| writable_item(item) }

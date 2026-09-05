@@ -91,7 +91,8 @@ class ToybacoPlanChangeTest < Minitest::Test
           'id' => 'sub_sched_fixture', 'subscription' => id, 'status' => 'active', 'metadata' => {}, 'end_behavior' => 'release',
           'default_settings' => { 'automatic_tax' => { 'enabled' => true }, 'default_payment_method' => 'pm_keep' },
           'phases' => [{ 'start_date' => item['current_period_start'], 'end_date' => item['current_period_end'],
-                         'items' => [{ 'price' => item.dig('price', 'id'), 'quantity' => 1, 'tax_rates' => [] }],
+                         'items' => [{ 'price' => item.dig('price', 'id'), 'quantity' => 1, 'tax_rates' => [], 'discounts' => [] }],
+                         'add_invoice_items' => [], 'discounts' => [],
                          'metadata' => { 'keep' => 'phase-value' }, 'default_tax_rates' => [], 'proration_behavior' => 'create_prorations' }]
         }
         sub['schedule'] = @schedule['id']
@@ -102,6 +103,7 @@ class ToybacoPlanChangeTest < Minitest::Test
     def update_subscription_schedule(_id, params, idempotency_key:)
       mutate(:configure, params, idempotency_key) do
         @schedule.merge!(copy(params.reject { |key, _| key == 'proration_behavior' }))
+        @schedule['phases'].each { |phase| phase['add_invoice_items'] ||= [] }
         @schedule
       end
     end
@@ -527,6 +529,48 @@ class ToybacoPlanChangeTest < Minitest::Test
       assert_equal({ 'items[0][id]' => 'si_fixture', 'items[0][price]' => 'price_proyear', 'items[0][quantity]' => '1',
                      'payment_behavior' => 'pending_if_incomplete', 'proration_date' => '1800000000' }, URI.decode_www_form(request.body).to_h)
     end
+  end
+
+  def test_schedule_configuration_omits_empty_extra_invoice_items_but_preserves_explicit_resets
+    state = commit(preview('pro', 'year'))
+    assert_equal 'reserved', state['status']
+    configuration = mutations.last[1]
+    with_http_capture do |client, requests|
+      client.update_subscription_schedule('sub_sched_fixture', configuration, idempotency_key: 'configure-fixture')
+      form = URI.decode_www_form(requests.last.body).to_h
+      2.times do |index|
+        refute form.key?("phases[#{index}][add_invoice_items]"), 'Stripe does not accept an empty add_invoice_items value'
+        assert_equal '', form.fetch("phases[#{index}][discounts]")
+        assert_equal '', form.fetch("phases[#{index}][default_tax_rates]")
+        assert_equal '', form.fetch("phases[#{index}][items][0][tax_rates]")
+        assert_equal '', form.fetch("phases[#{index}][items][0][discounts]")
+        assert_equal [], @client.schedule.dig('phases', index, 'add_invoice_items')
+      end
+    end
+    assert_equal 'reserved', @service.refresh['status']
+    assert_equal 'released', @service.cancel_reservation(state['cancellation_token'])['status']
+    assert_equal 'light', snapshot['plan_id']
+  end
+
+  def test_phase_projection_preserves_nonempty_extra_invoice_items_and_does_not_mutate_source
+    phase = {
+      'items' => [{ 'price' => 'price_lightmonth', 'quantity' => 1, 'tax_rates' => [] }],
+      'add_invoice_items' => [{ 'price' => 'price_existing_extra', 'quantity' => 2 }], 'discounts' => []
+    }
+    before = Marshal.load(Marshal.dump(phase))
+    projected = @service.send(:writable_phase, phase)
+    assert_equal before, phase
+    assert_equal phase['add_invoice_items'], projected['add_invoice_items']
+    with_http_capture do |client, requests|
+      client.update_subscription_schedule('sub_sched_fixture', { 'phases' => [projected] }, idempotency_key: 'nonempty-fixture')
+      form = URI.decode_www_form(requests.last.body).to_h
+      assert_equal 'price_existing_extra', form.fetch('phases[0][add_invoice_items][0][price]')
+      assert_equal '2', form.fetch('phases[0][add_invoice_items][0][quantity]')
+      assert_equal '', form.fetch('phases[0][discounts]')
+    end
+    phase['add_invoice_items'] = []
+    @service.send(:writable_phase, phase)
+    assert_equal [], phase.fetch('add_invoice_items')
   end
 
   def test_schedule_transport_creates_from_subscription_only_and_releases_without_cancel
