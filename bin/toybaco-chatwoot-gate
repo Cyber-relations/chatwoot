@@ -275,6 +275,7 @@ assert_control_contract() {
     "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileの公開source labelが固定値ではありません'
   grep -Fq "jp.toybaco.source.tree=\"$CHATWOOT_SOURCE_TREE\"" "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileのsource tree labelが固定値ではありません'
+  assert_single_exact_line "$CONTROL_ROOT/.dockerignore" 'overlay/app/spec'
   assert_single_exact_line "$CONTROL_ROOT/.dockerignore" 'overlay/app/spec/**'
   assert_single_exact_line "$CONTROL_ROOT/tests/chatwoot-test.Dockerfile" \
     "ARG CHATWOOT_IMAGE=$CHATWOOT_IMAGE"

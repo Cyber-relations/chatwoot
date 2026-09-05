@@ -2,4 +2,5 @@
 !overlay/
 !overlay/app/
 !overlay/app/**
+overlay/app/spec
 overlay/app/spec/**
