@@ -16,7 +16,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def self.price_search_query(lookup_key)
-        "lookup_keys[]=#{CGI.escape(lookup_key)}&currency=#{Catalog::CURRENCY}&active=true&limit=1"
+        "lookup_keys[]=#{CGI.escape(lookup_key)}&currency=#{Catalog::CURRENCY}&active=true&limit=1&expand[]=data.product"
       end
 
       def find_price_by_lookup_key(lookup_key)
@@ -26,7 +26,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def retrieve_price(price_id)
         raise Unavailable, 'invalid price id' unless price_id.to_s.match?(Catalog::PRICE_ID)
 
-        request(:get, "/v1/prices/#{price_id}")
+        request(:get, "/v1/prices/#{price_id}?expand[]=product")
       end
 
       def retrieve_subscription(subscription_id)

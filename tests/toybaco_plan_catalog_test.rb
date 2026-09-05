@@ -141,14 +141,19 @@ class ToybacoPlanCatalogTest < Minitest::Test
     params = Toybaco::Checkout.session_params(
       plan: 'pro', cycle: 'year', price: {
         'id' => 'price_ref1', 'unit_amount' => terms.dig('cycles', 'year', 'amount'),
-        'currency' => 'jpy', 'recurring' => { 'interval' => 'year' }
+        'currency' => 'jpy', 'active' => true, 'tax_behavior' => 'exclusive',
+        'billing_scheme' => 'per_unit', 'transform_quantity' => nil,
+        'recurring' => { 'interval' => 'year', 'interval_count' => 1, 'usage_type' => 'licensed' },
+        'metadata' => { 'toybaco_plan' => 'pro', 'toybaco_plan_version' => terms['plan_version'] },
+        'product' => { 'id' => 'prod_fixture', 'active' => true, 'name' => terms['product_name'], 'description' => terms['description'] }
       }, customer_id: 'cus_test1', success_url: 'https://toybaco.jp/welcome/', cancel_url: 'https://toybaco.jp/signup/'
     )
     assert_equal terms['plan_version'], params['metadata[toybaco_plan_version]']
     assert_equal terms['plan_version'], params['subscription_data[metadata][toybaco_plan_version]']
     assert_equal 'price_ref1', params['metadata[toybaco_reference_price_id]']
     assert_equal 'year', params['metadata[toybaco_cycle]']
-    assert_equal 'トイバコ プロ', params['line_items[0][price_data][product_data][name]']
+    assert_equal 'price_ref1', params['line_items[0][price]']
+    refute params.keys.any? { |key| key.include?('[price_data]') }
   end
 
   def test_price_amount_and_cycle_mismatch_stop_before_checkout

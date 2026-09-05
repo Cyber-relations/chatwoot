@@ -15,12 +15,18 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
   def jpy_price(plan, cycle = 'month')
     key = cycle == 'year' ? "#{plan}-annual" : plan
+    terms = Toybaco::Checkout::Catalog.sale(plan, cycle)
     {
       'id' => "price_test#{plan.delete('-')}#{cycle}",
       'currency' => 'jpy',
       'lookup_key' => key,
       'unit_amount' => AMOUNTS.fetch(plan).fetch(cycle),
-      'recurring' => { 'interval' => cycle }
+      'active' => true, 'livemode' => true, 'tax_behavior' => 'exclusive',
+      'billing_scheme' => 'per_unit', 'transform_quantity' => nil,
+      'recurring' => { 'interval' => cycle, 'interval_count' => 1, 'usage_type' => 'licensed' },
+      'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => terms['plan_version'] },
+      'product' => { 'id' => "prod_test#{plan}#{cycle}", 'active' => true,
+                     'name' => terms['product_name'], 'description' => terms['description'] }
     }
   end
 
@@ -45,8 +51,8 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     assert_equal 'false', params['adaptive_pricing[enabled]']
     assert_equal 'required', params['billing_address_collection']
     assert_equal 'subscription', params['mode']
-    assert_equal 'jpy', params['line_items[0][price_data][currency]']
-    refute params.key?('line_items[0][price]')
+    assert_equal jpy_price('light')['id'], params['line_items[0][price]']
+    refute params.keys.any? { |key| key.include?('[price_data]') }
   end
 
   def test_customer_prefers_japan_and_japanese
@@ -57,47 +63,46 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     assert_equal 'light', params['metadata[toybaco_plan]']
   end
 
-  def test_plan_id_passthrough_for_each_self_serve_plan
-    %w[light standard pro].each do |plan|
-      price = jpy_price(plan)
-      params = session_params(plan: plan, price: price)
+  def test_all_six_variants_use_the_validated_price_without_creating_products
+    %w[light standard pro].product(%w[month year]).each do |plan, cycle|
+      price = jpy_price(plan, cycle)
+      client = FakeStripe.new(price['lookup_key'] => price)
+      Toybaco::Checkout.start!(plan: plan, cycle: cycle, client: client)
+      params = client.last_session
 
+      assert_equal price['id'], params['line_items[0][price]']
+      assert_equal '1', params['line_items[0][quantity]']
+      refute params.keys.any? { |key| key.include?('[price_data]') }
       assert_equal plan, params['metadata[toybaco_plan]']
       assert_equal plan, params['subscription_data[metadata][toybaco_plan]']
-      assert_equal 'jpy', params['line_items[0][price_data][currency]']
-      assert_equal price['unit_amount'].to_s, params['line_items[0][price_data][unit_amount]']
-      refute params.key?('line_items[0][price]')
-      refute params.key?('line_items[0][price]')
+      assert_equal price['metadata']['toybaco_plan_version'], params['subscription_data[metadata][toybaco_plan_version]']
       assert_equal price['id'], params['metadata[toybaco_reference_price_id]']
-      assert_equal 'month', params['metadata[toybaco_cycle]']
+      assert_equal cycle, params['metadata[toybaco_cycle]']
+      assert_equal 'true', params['automatic_tax[enabled]']
+      assert_equal 'ja', params['locale']
+      assert_equal 'jpy', params['currency']
     end
   end
 
-  def test_light_description_states_no_sns_posting
-    params = session_params(plan: 'light')
-    description = params['line_items[0][price_data][product_data][description]']
-
-    assert_equal 'トイバコ ライト', params['line_items[0][price_data][product_data][name]']
-    assert_includes description, Toybaco::Checkout::Catalog::LIGHT_NO_SNS
+  def test_light_catalog_product_preserves_japanese_name_and_no_posting_description
+    price = jpy_price('light')
+    assert_equal 'トイバコ ライト', price['product']['name']
+    assert_includes price['product']['description'], Toybaco::Checkout::Catalog::LIGHT_NO_SNS
+    assert_equal price['id'], session_params(price: price)['line_items[0][price]']
   end
 
-  def test_standard_and_pro_do_not_claim_light_has_no_posting
+  def test_standard_and_pro_catalog_products_preserve_their_descriptions
     %w[standard pro].each do |plan|
-      description = session_params(plan: plan)['line_items[0][price_data][product_data][description]']
-
-      refute_includes description, Toybaco::Checkout::Catalog::LIGHT_NO_SNS
-      refute_includes description, 'SNS 投稿機能はありません'
+      price = jpy_price(plan)
+      refute_includes price['product']['description'], Toybaco::Checkout::Catalog::LIGHT_NO_SNS
+      assert_equal price['id'], session_params(plan: plan, price: price)['line_items[0][price]']
     end
   end
 
-  def test_leftover_usd_product_is_not_sent_to_session
-    price = jpy_price('light').merge('product' => 'prod_usdleftover1')
-    params = session_params(price: price)
-
-    refute_includes params.values, 'prod_usdleftover1'
-    refute params.key?('line_items[0][price]')
-    assert_equal price['id'], params['metadata[toybaco_reference_price_id]']
-    assert_equal 'jpy', params['line_items[0][price_data][currency]']
+  def test_unexpanded_or_unverified_products_are_not_sent_to_checkout
+    ['prod_usdleftover1', nil, { 'id' => 'prod_fixture', 'active' => true, 'name' => 'Old USD product' }].each do |product|
+      assert_raises(Toybaco::Checkout::Unavailable) { session_params(price: jpy_price('light').merge('product' => product)) }
+    end
   end
 
   def test_price_lookup_requests_jpy_only
@@ -106,6 +111,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     assert_includes query, 'currency=jpy'
     assert_includes query, 'lookup_keys[]=light'
     refute_includes query, 'usd'
+    assert_includes query, 'expand[]=data.product'
   end
 
   def test_annual_lookup_keys_and_cycle_survive
@@ -114,9 +120,8 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
     assert_equal 'pro', params['metadata[toybaco_plan]']
     assert_equal 'year', params['metadata[toybaco_cycle]']
-    assert_equal 'year', params['line_items[0][price_data][recurring][interval]']
-    assert_equal '483840', params['line_items[0][price_data][unit_amount]']
-    refute params.key?('line_items[0][price]')
+    assert_equal jpy_price('pro', 'year')['id'], params['line_items[0][price]']
+    refute params.keys.any? { |key| key.include?('[price_data]') }
   end
 
   def test_non_jpy_price_fails_closed
@@ -165,11 +170,8 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
     assert_equal 'https://checkout.stripe.com/c/pay/cs_testjapan1', session['url']
     assert_equal 'light', client.last_session['metadata[toybaco_plan]']
-    assert_equal 'jpy', client.last_session['line_items[0][price_data][currency]']
-    assert_equal '9800', client.last_session['line_items[0][price_data][unit_amount]']
-    assert_includes client.last_session['line_items[0][price_data][product_data][description]'],
-                    Toybaco::Checkout::Catalog::LIGHT_NO_SNS
-    refute client.last_session.key?('line_items[0][price]')
+    assert_equal jpy_price('light')['id'], client.last_session['line_items[0][price]']
+    refute client.last_session.keys.any? { |key| key.include?('[price_data]') }
     assert_equal 'ja', client.last_session['locale']
     assert_equal 'jpy', client.last_session['currency']
     refute client.last_session.keys.any? { |key| key.start_with?('payment_method_data[billing_details]') }
@@ -283,6 +285,46 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     assert_includes(signup, "params.get('plan')")
     assert_includes(signup, 'SNS 投稿機能はありません')
     refute_includes(signup, 'buy.stripe.com')
+  end
+
+  def test_new_sales_reject_unverified_prices_before_creating_customer_or_session
+    mutations = [
+      ->(p) { p['active'] = false }, ->(p) { p.delete('active') },
+      ->(p) { p['tax_behavior'] = 'unspecified' }, ->(p) { p['tax_behavior'] = 'inclusive' },
+      ->(p) { p['recurring']['interval_count'] = 2 }, ->(p) { p['recurring']['usage_type'] = 'metered' },
+      ->(p) { p['billing_scheme'] = 'tiered' }, ->(p) { p['transform_quantity'] = { 'divide_by' => 10, 'round' => 'up' } },
+      ->(p) { p['metadata']['toybaco_plan_version'] = 'old-version' },
+      ->(p) { p['metadata']['toybaco_plan'] = 'standard' }, ->(p) { p['metadata'] = {} },
+      ->(p) { p['product']['active'] = false }, ->(p) { p['product']['name'] = 'Old USD product' },
+      ->(p) { p['product']['description'] = '古い料金・機能の説明' },
+      ->(p) { p['livemode'] = false }, ->(p) { p.delete('livemode') }
+    ]
+    mutations.each_with_index do |mutate, index|
+      price = jpy_price('light')
+      mutate.call(price)
+      price_env = Toybaco::Checkout::Catalog.sale('light', 'month').dig('cycles', 'month', 'stripe', 'live', 'price_env')
+      [{}, { price_env => price['id'] }].each do |environment|
+        client = FakeStripe.new('light' => price)
+        assert_raises(Toybaco::Checkout::Unavailable, "invalid sale #{index}, override=#{!environment.empty?}") do
+          Toybaco::Checkout.start!(plan: 'light', client: client, environment: environment)
+        end
+        assert_nil client.last_customer
+        assert_nil client.last_session
+      end
+    end
+  end
+
+  def test_lookup_and_explicit_price_id_both_request_expanded_product
+    client = Toybaco::Checkout::Client.new('fixture-key')
+    requests = []
+    client.define_singleton_method(:request) do |method, path|
+      requests << [method, path]
+      { 'data' => [{ 'id' => 'price_fixture' }] }
+    end
+    client.find_price_by_lookup_key('light')
+    client.retrieve_price('price_fixture')
+    assert_equal [:get, '/v1/prices?lookup_keys[]=light&currency=jpy&active=true&limit=1&expand[]=data.product'], requests[0]
+    assert_equal [:get, '/v1/prices/price_fixture?expand[]=product'], requests[1]
   end
 
   def test_routes_and_controller_are_public_checkout

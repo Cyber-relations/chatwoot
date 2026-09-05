@@ -8,7 +8,7 @@ require_relative 'checkout/resolver'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # LP で選んだプランを Stripe Checkout Session に載せる。
-  # locale/通貨/請求国は日本向けに固定し、円建て以外の Price は作らない。
+  # locale/通貨/請求国は日本向けに固定し、販売条件と商品表示が一致する Price を使う。
   module Checkout
     class Error < StandardError; end
     class InvalidPlan < Error; end
@@ -23,7 +23,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       urls = Resolver.return_urls(environment, plan: plan, cycle: cycle, version: terms.fetch('plan_version'))
       http = client || Client.new(environment['TOYBACO_STRIPE_KEY'])
       price = Resolver.price_for(terms, cycle, client: http, environment: environment)
-      assert_catalog_price!(price, terms, cycle, environment)
+      assert_checkout_price!(price, terms, cycle, environment)
       customer = http.create_customer(customer_params(plan: plan, cycle: cycle))
       http.create_checkout_session(
         session_params(
@@ -44,6 +44,37 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         raise Unavailable, 'invalid Stripe mode' unless %w[test live].include?(mode)
         raise Unavailable, 'Stripe mode mismatch' unless price['livemode'] == (mode == 'live')
       end
+      true
+    end
+
+    # 新規販売だけの検証。既存 inline/archived Price の契約同期には適用しない。
+    def assert_checkout_price!(price, terms, cycle, environment = nil)
+      assert_catalog_price!(price, terms, cycle, environment)
+      raise Unavailable, 'price is not available for new sales' unless checkout_price_settings?(price)
+      if environment && price['livemode'] != (environment.fetch('TOYBACO_STRIPE_MODE', 'live') == 'live')
+        raise Unavailable, 'Stripe mode missing or mismatched'
+      end
+
+      metadata = price['metadata']
+      unless metadata.is_a?(Hash) && metadata.values_at('toybaco_plan', 'toybaco_plan_version') == terms.values_at('plan_id', 'plan_version')
+        raise Unavailable, 'price has no matching contract version'
+      end
+
+      assert_checkout_product!(price['product'], terms)
+    end
+
+    def checkout_price_settings?(price)
+      price['active'] == true && price['tax_behavior'] == 'exclusive' &&
+        price['billing_scheme'] == 'per_unit' && price['transform_quantity'].nil? &&
+        price.dig('recurring', 'interval_count') == 1 && price.dig('recurring', 'usage_type') == 'licensed'
+    end
+
+    def assert_checkout_product!(product, terms)
+      unless product.is_a?(Hash) && product['id'].to_s.match?(/\Aprod_[A-Za-z0-9]+\z/) && product['active'] == true &&
+             product['name'] == terms.fetch('product_name') && product['description'] == terms.fetch('description')
+        raise Unavailable, 'product does not match the published Japanese description'
+      end
+
       true
     end
 
@@ -92,7 +123,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       plan, cycle = normalize_selection(input.fetch(:plan), input.fetch(:cycle))
       price = input.fetch(:price)
       terms = Catalog.sale(plan, cycle, version: input[:version])
-      assert_catalog_price!(price, terms, cycle)
+      assert_checkout_price!(price, terms, cycle)
       customer_id = input.fetch(:customer_id)
       raise InvalidPlan unless customer_id.to_s.match?(Catalog::CUSTOMER_ID)
 

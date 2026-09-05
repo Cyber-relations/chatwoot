@@ -81,6 +81,48 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     assert_nil stored.dig('entitlements', 'limits', 'agents')
   end
 
+  def test_archived_inline_price_binds_from_product_metadata_without_requiring_new_sale_fields
+    price = @latest.dig('items', 'data', 0, 'price')
+    price['id'] = 'price_oldinline'
+    price['active'] = false
+    price['metadata'] = {}
+    price['product']['metadata']['toybaco_reference_price_id'] = 'price_oldreference'
+
+    assert_equal 'applied', sync
+    assert_equal 'price_oldinline', stored['stripe_price_id']
+    assert_equal 'price_oldreference', stored['reference_price_id']
+    assert_equal 'standard', stored['plan_id']
+  end
+
+  def test_same_inline_price_keeps_snapshot_when_product_display_and_metadata_change
+    @latest.dig('items', 'data', 0, 'price')['active'] = false
+    sync
+    purchased = Marshal.load(Marshal.dump(stored))
+    price = @latest.dig('items', 'data', 0, 'price')
+    price['product'] = { 'active' => false, 'name' => '過去の商品名', 'description' => '過去の説明',
+                         'metadata' => { 'toybaco_plan' => 'pro', 'toybaco_plan_version' => 'unpublished' } }
+
+    assert_equal 'applied', sync
+    assert_equal purchased, stored
+    refute @account.internal_attributes['toybaco_billing_review']
+  end
+
+  def test_explicit_change_from_inline_to_catalog_price_uses_price_metadata_for_new_terms
+    @latest.dig('items', 'data', 0, 'price')['active'] = false
+    sync
+    @latest = subscription(plan: 'pro', price_id: 'price_catalogpro')
+    price = @latest.dig('items', 'data', 0, 'price')
+    price['active'] = true
+    price['metadata'] = price['product']['metadata']
+    price['product'] = { 'metadata' => {} }
+
+    assert_equal 'applied', sync
+    assert_equal 'pro', stored['plan_id']
+    assert_equal Toybaco::PlanCatalog.default.sale('pro', 'month')['plan_version'], stored['plan_version']
+    assert_equal 'price_catalogpro', stored['stripe_price_id']
+    assert_equal 500, stored.dig('entitlements', 'limits', 'ai_replies')
+  end
+
   def test_grace_and_period_end_cancellation_preserve_access_until_contract_ends
     @latest['status'] = 'past_due'
     @latest['cancel_at_period_end'] = true
