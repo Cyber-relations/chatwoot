@@ -9,6 +9,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       SES_PROCESS_CONTROLLERS = [
         'toybaco/ses_inbound_emails',
         'action_mailbox/ingresses/ses/inbound_emails',
+        'ses/inbound_emails',
         'ActionMailbox::Ingresses::Ses::InboundEmailsController',
         'Toybaco::SesInboundEmailsController'
       ].freeze
@@ -16,6 +17,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       private
 
       def ses_process_action?(payload)
+        action = payload[:action].to_s
+        return false if !action.empty? && action != 'create'
         return true if SES_PROCESS_CONTROLLERS.include?(payload[:controller].to_s)
 
         path = payload[:path].to_s
@@ -26,9 +29,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def process_action_source(payload)
         [
           Thread.current[:toybaco_ses_route_raw],
+          request_store_source(payload[:headers]),
           header_fixture_token(payload[:headers]),
           params_message_source(payload[:params])
         ].compact.map(&:to_s).reject(&:empty?).join("\n")
+      end
+
+      def request_store_source(headers)
+        return unless headers
+        return headers.env['toybaco.ses_route_source'] if headers.respond_to?(:env) && headers.env
+
+        headers['toybaco.ses_route_source'] if headers.respond_to?(:[])
       end
 
       def header_fixture_token(headers)

@@ -137,6 +137,28 @@ RSpec.describe Toybaco::InboundEmail do
     end.to output(a_string_including('toybaco-ses-route-mismatch')).to_stdout
   end
 
+  it 'gem コントローラ 204 の process_action が ActionController.logger に route-log を出す' do
+    described_class.install_ses_process_action_subscriber!
+    messages = []
+    logger = ActionController::Base.logger
+    allow(logger).to receive(:info).and_wrap_original do |method, *args|
+      messages << args.first.to_s
+      method.call(*args)
+    end
+
+    ActiveSupport::Notifications.instrument(
+      'process_action.action_controller',
+      controller: 'ses/inbound_emails',
+      action: 'create',
+      status: 204,
+      path: '/ses/inbound_emails',
+      params: { 'Message' => fixture_source },
+      headers: {}
+    )
+
+    expect(messages.any? { |text| filter_pattern_line?(text) }).to be(true)
+  end
+
   it 'ActionMailbox::RoutingJob#perform の ensure が FilterPattern と同じ1行を出す' do
     job = Class.new do
       prepend Toybaco::InboundEmail::RoutingHooks::RoutingJobRouteLog

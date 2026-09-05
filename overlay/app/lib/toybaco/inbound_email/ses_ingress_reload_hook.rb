@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'ses_ingress_reload_helpers'
+require_relative 'ses_ingress_process_action'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
@@ -9,8 +10,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     # Reloader と Zeitwerk on_load で wrap を載せ直す。rescue-nil はしない。
     module SesIngressReloadHook
       include SesIngressReloadHelpers
+      include SesIngressProcessAction
 
-      PROCESS_ACTION_EVENT = 'process_action.action_controller'
+      PROCESS_ACTION_EVENT = SesIngressProcessAction::PROCESS_ACTION_EVENT
       # RoutingHooks の同名定数は兄弟モジュールなので、ここからは見えない。
       # boot の Zeitwerk on_load は自モジュールの定数を使う。
       SES_INGRESS_CONTROLLER_NAMES = [
@@ -44,25 +46,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         install_inbound_email_create_hook!
         install_ses_ingress_create_hook!
         install_routing_job_hook!
-      end
-
-      def install_ses_process_action_subscriber!
-        return if @ses_process_action_subscribed
-        return unless defined?(ActiveSupport::Notifications)
-
-        @ses_process_action_subscribed = true
-        ActiveSupport::Notifications.subscribe(PROCESS_ACTION_EVENT) do |*args|
-          Toybaco::InboundEmail.emit_process_action_ses_route(args)
-        end
-      end
-
-      def emit_process_action_ses_route(args)
-        event = ActiveSupport::Notifications::Event.new(*args)
-        payload = event.payload
-        return unless payload[:status].to_i == 204
-        return unless ses_process_action?(payload)
-
-        Toybaco::InboundEmail.log_ses_create_route(source: process_action_source(payload))
+        Toybaco::InboundEmail.install_ses_ingress_token_capture!
       end
 
       def zeitwerk_ses_class_names

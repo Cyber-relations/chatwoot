@@ -5,10 +5,10 @@ require_relative '../../lib/toybaco/inbound_email'
 # Chatwoot 公式イメージの aws-actionmailbox-ses 0.1.0 は
 # routes.append { mount Engine => '/' } し、Engine の config/routes.rb が
 # POST /rails/action_mailbox/ses/inbound_emails を gem コントローラへ描く。
-# #105 の prepend + PATH_INFO 完全一致 middleware + boot 1回 class_eval は、
-# Engine 再ロードと SCRIPT_NAME+/ses/inbound_emails で 204 行を逃した。
-# unshift middleware は RouteSet 再描画では外れない。Zeitwerk / Reloader で
-# gem create を載せ直す。受信 ENV が無ければルート自体を作らない。
+# #106 の Reloader wrap + $stdout middleware は 204 を返しても
+# /ecs/toybaco-staging の Completed 204 と同じ口に route-log を出せなかった。
+# process_action.action_controller を ActionController::Base.logger へ載せる。
+# 受信 ENV が無ければルート自体を作らない。
 Rails.application.config.middleware.unshift Toybaco::InboundEmail::SesInboundRouteMiddleware
 Toybaco::InboundEmail.register_ses_ingress_route_block!
 Toybaco::InboundEmail.install_ses_ingress_reload_hooks!
