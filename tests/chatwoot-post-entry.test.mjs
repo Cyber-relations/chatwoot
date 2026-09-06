@@ -661,6 +661,170 @@ assert.ok(
   );
 }
 
+// A paid contract must update this tab's cached navigation without reloading its workspace.
+function openBillingThroughUi(env) {
+  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  assert.ok(env.document.querySelector('[data-toybaco-billing-panel]'));
+}
+function closeBillingThroughUi(env) {
+  const panel = env.document.querySelector('[data-toybaco-billing-panel]');
+  assert.ok(panel);
+  fireClick(panel.querySelector('button'), env.docListeners.click || []);
+  assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null);
+}
+function statusResponse(enabled) { return { ok: true, status: 200, json: async () => ({ enabled }) }; }
+{
+  let allowed = false;
+  const env = loadInjectEntry(async () => statusResponse(allowed));
+  env.api.inject(); await flush();
+  assert.equal(postingEntry(env.document), null);
+  const unsaved = createDomNode('textarea');
+  unsaved.value = '未保存の本文';
+  unsaved.files = [{ name: 'owned.jpg', size: 71926 }];
+  env.body.appendChild(unsaved);
+  const selectedFiles = unsaved.files;
+  openBillingThroughUi(env);
+  allowed = true;
+  closeBillingThroughUi(env);
+  assert.equal(postingStatusFetches(env).length, 2, 'closing billing after payment must GET current eligibility once');
+  assert.equal(postingEntry(env.document), null, 'previous denial stays while the paid eligibility GET is pending');
+  await flush();
+  assert.ok(postingEntry(env.document), 'the existing tab must expose posting after the server confirms paid eligibility');
+  assert.equal(unsaved.parentElement, env.body);
+  assert.equal(unsaved.value, '未保存の本文');
+  assert.equal(unsaved.files, selectedFiles, 'local unsaved input references are not replaced (not a real composer/BU proof)');
+  for (let i = 0; i < 5; i += 1) env.api.afterNavChange();
+  assert.equal(postingStatusFetches(env).length, 2, 'ordinary redraws must not poll eligibility');
+  assert.ok(postingStatusFetches(env).every(({ opts }) => !opts.method || opts.method === 'GET'));
+  assert.ok(postingStatusFetches(env).every(({ opts }) => opts.credentials === 'same-origin'));
+}
+{
+  let allowed = true;
+  const env = loadInjectEntry(async () => statusResponse(allowed));
+  env.api.inject(); await flush(); openBillingThroughUi(env);
+  allowed = false;
+  env.window.location.pathname = '/app/accounts/1/settings/agents';
+  env.api.afterNavChange(); await flush();
+  assert.equal(postingStatusFetches(env).length, 2, 'same-account native navigation closes billing and checks once');
+  assert.equal(postingEntry(env.document), null, 'a confirmed revoked entitlement must remove the old entry');
+}
+{
+  const pending = [];
+  const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
+    ? new Promise((resolve) => pending.push(resolve))
+    : Promise.resolve({ ok: true, json: async () => ({}) }));
+  env.api.inject(); openBillingThroughUi(env); closeBillingThroughUi(env);
+  assert.equal(pending.length, 2, 'billing close must supersede a pre-payment in-flight lookup');
+  pending[1](statusResponse(true)); await flush();
+  pending[0](statusResponse(false)); await flush();
+  assert.ok(postingEntry(env.document), 'stale pre-payment denial must not overwrite the paid response');
+}
+{
+  const pending = [];
+  const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
+    ? new Promise((resolve) => pending.push(resolve))
+    : Promise.resolve({ ok: true, json: async () => ({}) }));
+  env.api.inject(); pending[0](statusResponse(false)); await flush();
+  openBillingThroughUi(env); closeBillingThroughUi(env);
+  openBillingThroughUi(env); closeBillingThroughUi(env);
+  assert.equal(pending.length, 3, 'each completed billing visit has one bounded new lookup');
+  pending[2](statusResponse(true)); await flush();
+  pending[1](statusResponse(false)); await flush();
+  assert.ok(postingEntry(env.document), 'a prior billing visit cannot overwrite the latest visit');
+}
+{
+  const pending = [];
+  const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
+    ? new Promise((resolve) => pending.push({ url: String(url), resolve }))
+    : Promise.resolve({ ok: true, json: async () => ({}) }));
+  env.api.inject(); pending[0].resolve(statusResponse(false)); await flush();
+  openBillingThroughUi(env);
+  env.window.location.pathname = '/app/accounts/2/inbox';
+  env.api.afterNavChange();
+  assert.equal(pending.length, 2, 'closing during a tenant switch must not refetch the previous tenant');
+  assert.match(pending[1].url, /account_id=2$/);
+  pending[1].resolve(statusResponse(false)); await flush();
+  assert.equal(postingEntry(env.document), null);
+}
+{
+  const pending = [];
+  const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
+    ? new Promise((resolve) => pending.push(resolve))
+    : Promise.resolve({ ok: true, json: async () => ({}) }));
+  env.api.inject(); pending[0](statusResponse(false)); await flush();
+  openBillingThroughUi(env); closeBillingThroughUi(env);
+  env.window.location.pathname = '/app/logout'; env.api.afterNavChange();
+  pending[1](statusResponse(true)); await flush();
+  assert.equal(postingEntry(env.document), null, 'late success after logout cannot restore navigation');
+  env.window.location.pathname = '/app/accounts/1/inbox'; env.api.afterNavChange();
+  assert.equal(pending.length, 3, 'return after logout must not reuse the old session eligibility');
+  pending[2](statusResponse(false)); await flush();
+  assert.equal(postingEntry(env.document), null);
+}
+for (const failure of [
+  () => Promise.reject(new Error('network')),
+  async () => ({ ok: false, status: 500 }),
+  async () => ({ ok: false, status: 401 }),
+  async () => ({ ok: false, status: 403 }),
+  async () => ({ ok: true, status: 200, json: async () => ({}) }),
+  async () => ({ ok: true, status: 200, json: async () => ({ enabled: 'true' }) }),
+  async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('broken'); } }),
+]) {
+  let next = async () => statusResponse(false);
+  const env = loadInjectEntry(() => next());
+  env.api.inject(); await flush(); next = failure;
+  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  assert.equal(postingEntry(env.document), null, 'unverified billing refresh must not promote a known denial');
+  env.api.inject(); assert.equal(postingStatusFetches(env).length, 2, 'failure must not trigger automatic retry');
+  next = async () => statusResponse(true);
+  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  assert.ok(postingEntry(env.document), 'a later deliberate billing visit may confirm eligibility');
+}
+for (const status of [401, 403]) {
+  let next = async () => statusResponse(true);
+  const env = loadInjectEntry(() => next());
+  env.api.inject(); await flush(); next = async () => ({ ok: false, status });
+  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  assert.equal(postingEntry(env.document), null, 'session/membership rejection cannot preserve an old allowed entry');
+}
+
+{
+  const pending = [];
+  const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
+    ? new Promise((resolve) => pending.push(resolve))
+    : Promise.resolve({ ok: true, json: async () => ({}) }));
+  env.api.inject(); pending[0](statusResponse(false)); await flush();
+  openBillingThroughUi(env); closeBillingThroughUi(env);
+  env.window.location.pathname = '/app/accounts/2/inbox'; env.api.afterNavChange();
+  env.window.location.pathname = '/app/accounts/1/inbox'; env.api.afterNavChange();
+  pending[1](statusResponse(true)); pending[2](statusResponse(true)); await flush();
+  assert.equal(postingEntry(env.document), null, 'A→B→A must not revive an older request from either view');
+  openBillingThroughUi(env); closeBillingThroughUi(env);
+  pending[3](statusResponse(true)); await flush();
+  assert.ok(postingEntry(env.document), 'only a current A lookup may restore the A entry');
+}
+{
+  const timers = new Map(); let timerId = 0; let resolveLate; let count = 0;
+  const env = loadInjectEntry((url) => {
+    if (!String(url).includes('/toybaco/posting_status')) return Promise.resolve({ ok: true, json: async () => ({}) });
+    count += 1;
+    return count === 2 ? new Promise((resolve) => { resolveLate = resolve; }) : Promise.resolve(statusResponse(count > 2));
+  }, '/app/accounts/1/inbox', {
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  env.api.inject(); await flush(); openBillingThroughUi(env); closeBillingThroughUi(env);
+  const timeout = [...timers.values()].filter((t) => t.ms === 5000);
+  assert.equal(timeout.length, 1);
+  timeout[0].fn(); await flush();
+  assert.equal(postingEntry(env.document), null, 'a timed-out contract lookup preserves a confirmed denial');
+  resolveLate(statusResponse(true)); await flush();
+  assert.equal(postingEntry(env.document), null, 'success after the deadline cannot overwrite timeout state');
+  env.api.inject(); assert.equal(count, 2, 'timeout does not cause background polling');
+  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  assert.ok(postingEntry(env.document), 'next natural billing visit can retry after a timeout');
+}
+
 // Postiz control snapshot は brand CSS を含めない。
 const brandCssPath = path.join(root, 'overlay/app/public/toybaco-brand.css');
 if (fs.existsSync(brandCssPath)) {

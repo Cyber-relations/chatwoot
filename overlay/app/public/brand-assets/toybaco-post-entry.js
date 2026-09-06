@@ -164,6 +164,8 @@
   // account_id -> true(出す/残す) / false(200かつenabled:falseで外す)
   var postingStatusCache = {};
   var postingStatusInflight = {};
+  var postingStatusAccount = null;
+  var postingStatusGeneration = 0;
   var panelSpinner = null;
 
   function postizLogoutUrl() {
@@ -398,14 +400,36 @@
     return postingStatusCache[accountId] === false;
   }
 
-  function resolvePostingAllowed(accountId, cb) {
+  function syncPostingStatusScope() {
+    var id = currentAccountId();
+    if (id === postingStatusAccount) return;
+    postingStatusAccount = id;
+    postingStatusGeneration += 1;
+    postingStatusInflight = {};
+    if (!id) postingStatusCache = {};
+  }
+
+  function resolvePostingAllowed(accountId, cb, refresh) {
     if (!accountId) { cb(true); return; }
-    if (Object.prototype.hasOwnProperty.call(postingStatusCache, accountId)) {
-      cb(postingStatusCache[accountId]);
+    syncPostingStatusScope();
+    if (refresh) {
+      // 契約画面から戻る1回だけ再確認し、以前の応答には表示を上書きさせない。
+      postingStatusGeneration += 1;
+      delete postingStatusInflight[accountId];
+    }
+    var generation = postingStatusGeneration;
+    function isCurrent() {
+      return generation === postingStatusGeneration && currentAccountId() === accountId && isLoggedInView();
+    }
+    function deliver(allowed) { if (isCurrent()) cb(allowed); }
+    var hasCached = Object.prototype.hasOwnProperty.call(postingStatusCache, accountId);
+    if (hasCached && !refresh) {
+      deliver(postingStatusCache[accountId]);
       return;
     }
+    var fallback = refresh ? (hasCached && postingStatusCache[accountId]) : true;
     if (postingStatusInflight[accountId]) {
-      postingStatusInflight[accountId].then(cb, function () { cb(true); });
+      postingStatusInflight[accountId].then(deliver, function () { deliver(fallback); });
       return;
     }
     var settled = false;
@@ -415,16 +439,18 @@
         var timer = setTimeout(function () {
           if (settled) return;
           settled = true;
-          resolve(true);
+          resolve(fallback);
         }, POSTING_STATUS_TIMEOUT_MS);
         fetch('/toybaco/posting_status?account_id=' + encodeURIComponent(accountId), {
           credentials: 'same-origin'
         }).then(function (r) {
-          if (!r || !r.ok) return true;
+          if (refresh && r && (r.status === 401 || r.status === 403)) return false;
+          if (!r || !r.ok) return fallback;
           return Promise.resolve(r.json()).then(function (d) {
+            if (refresh) return d && typeof d.enabled === 'boolean' ? d.enabled : fallback;
             return !(d && d.enabled === false);
-          }).catch(function () { return true; });
-        }).catch(function () { return true; }).then(function (allowed) {
+          }).catch(function () { return fallback; });
+        }).catch(function () { return fallback; }).then(function (allowed) {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -433,21 +459,22 @@
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          resolve(true);
+          resolve(fallback);
         });
       }).then(function (allowed) {
-        if (!Object.prototype.hasOwnProperty.call(postingStatusCache, accountId)) {
+        if (!isCurrent()) return allowed;
+        if (refresh || !Object.prototype.hasOwnProperty.call(postingStatusCache, accountId)) {
           postingStatusCache[accountId] = allowed;
         }
         delete postingStatusInflight[accountId];
         return postingStatusCache[accountId];
       });
     } catch (e) {
-      cb(true);
+      deliver(fallback);
       return;
     }
     postingStatusInflight[accountId] = request;
-    request.then(cb, function () { cb(true); });
+    request.then(deliver, function () { deliver(fallback); });
   }
 
   function showContractMissing() {
@@ -468,14 +495,17 @@
     showContractMissing();
   }
 
-  function reconcilePostingAccess(accountId) {
+  function reconcilePostingAccess(accountId, refresh) {
     resolvePostingAllowed(accountId, function (allowed) {
       try {
         if (currentAccountId() !== accountId) return;
-        if (allowed) return;
+        if (allowed) {
+          if (refresh) inject();
+          return;
+        }
         applyPostingDenied();
       } catch (e) { /* 入口を外せなくても受信箱の邪魔はしない */ }
-    });
+    }, refresh);
   }
 
   function mountPostFrame(path, spinner) {
@@ -1693,6 +1723,7 @@
 
   var billingPanel = null;
   var billingPath = null;
+  var billingAccountId = null;
 
   // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
   // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
@@ -1722,6 +1753,7 @@
       document.body.appendChild(wrapEl);
       billingPanel = wrapEl;
       billingPath = window.location.pathname;
+      billingAccountId = id;
       syncPostingSelection();
       document.addEventListener('keydown', escCloseBilling);
     } catch (e) { /* 開けなくても邪魔はしない */ }
@@ -1729,11 +1761,16 @@
 
   function closeBillingPanel() {
     if (!billingPanel) return;
+    var accountId = billingAccountId;
     try { billingPanel.remove(); } catch (e) { /* noop */ }
     billingPanel = null;
     billingPath = null;
+    billingAccountId = null;
     document.removeEventListener('keydown', escCloseBilling);
     syncPostingSelection();
+    if (accountId && currentAccountId() === accountId && isLoggedInView()) {
+      reconcilePostingAccess(accountId, true);
+    }
   }
 
   function escCloseBilling(e) {
@@ -2275,6 +2312,7 @@
   function inject() {
     try {
       installLogoutBridge();
+      syncPostingStatusScope();
       if (!isLoggedInView()) return;
       hideStockNav();
       annotateCannedLabels();
