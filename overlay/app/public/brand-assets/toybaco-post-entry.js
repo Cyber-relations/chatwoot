@@ -871,13 +871,24 @@
     return '';
   }
 
+  function isNativePrimaryChild(node, list) {
+    var row = node;
+    while (row && row.parentElement !== list) row = row.parentElement;
+    if (!row || row === node) return false;
+    var kind = primaryNavKind(row);
+    return kind === 'settings' || kind === 'reports';
+  }
+
   function hideLeftoverTrees() {
     try {
       var nav = document.querySelector('aside nav');
       if (!nav || !nav.querySelectorAll) return;
+      var list = primaryNavList();
       var nodes = nav.querySelectorAll('li, a, [role="button"], button, div[title], span');
       for (var i = 0; i < nodes.length; i += 1) {
         var node = nodes[i];
+        // 設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
+        if (isNativePrimaryChild(node, list)) continue;
         if (isToybacoNavRow(node)) continue;
         if (!nodeTitleOrLeaf(node)) continue;
         var row = node;
@@ -943,11 +954,11 @@
         row.setAttribute('data-toybaco-primary-nav', kind);
       }
       link.setAttribute('data-toybaco-nav-link', kind);
-      if (link.tagName === 'A') {
+      if (link.tagName === 'A' && kind === 'inbox') {
         var dest = primaryNavDestination(kind, id);
         link.setAttribute('href', dest);
         link.href = dest;
-      } else if (!link.getAttribute('data-toybaco-nav-keyboard')) {
+      } else if (link.tagName !== 'A' && !link.getAttribute('data-toybaco-nav-keyboard')) {
         link.setAttribute('tabindex', '0');
         link.setAttribute('data-toybaco-nav-keyboard', '1');
         link.addEventListener('keydown', function (event) {
@@ -955,7 +966,9 @@
           event.preventDefault();
           event.stopPropagation();
           if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-          navigatePrimaryNav(this.getAttribute('data-toybaco-nav-link'));
+          var kind = this.getAttribute('data-toybaco-nav-link');
+          if (kind === 'inbox') navigatePrimaryNav(kind);
+          else this.click();
         }, true);
       }
     }
@@ -1158,8 +1171,9 @@
 
   function aiModeCanEdit() {
     var readiness = aiReadinessState();
+    var usage = aiUsageState();
     return aiModeState().phase === 'ready' && readiness.phase === 'ready' &&
-      readiness.data.connection === 'configured';
+      readiness.data.connection === 'configured' && usage.phase === 'ready' && usage.data.enabled;
   }
 
   function prefetchAiReadiness(accountId, force) {
@@ -1217,20 +1231,29 @@
   function paintAiModeControls() {
     var state = aiModeState();
     var readiness = aiReadinessState();
+    var usage = aiUsageState();
     var connection = readiness.phase === 'ready' ? readiness.data.connection : 'unknown';
     var selected = state.mode;
-    var busy = state.phase === 'loading' || state.phase === 'saving' || readiness.phase === 'loading';
+    var busy = state.phase === 'loading' || state.phase === 'saving' || readiness.phase === 'loading' ||
+      usage.phase === 'loading' || usage.phase === 'idle';
     var text = state.message;
     if (!text) {
       if (state.phase === 'error') text = '設定を確認できませんでした。再確認してください。';
       else if (state.phase !== 'ready') text = '店舗全体の設定を確認しています…';
       else text = '保存された設定：' + aiModeLabel(selected);
+      if (state.phase === 'ready' && usage.phase === 'ready' && usage.data.reason === 'disabled') {
+        text += '（現在のご契約では適用されません）';
+      }
     }
     var connectionText = 'AI応答の接続状態を確認できません。再確認してください。';
     if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI応答の接続設定を確認しています…';
     else if (connection === 'unconnected') connectionText = 'AI応答は未接続です。担当者が返信してください。';
     else if (connection === 'configured') connectionText = '接続設定あり（受信箱 ' + readiness.data.configured_inboxes +
       ' / ' + readiness.data.total_inboxes + ' 件）。外部への応答動作は未確認です。利用可否・残り枠はご契約の利用状況をご確認ください。';
+    if (usage.phase === 'loading' || usage.phase === 'idle') connectionText = 'AI応答の利用条件を確認しています…';
+    else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
+    else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
+    else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
       var i;
@@ -1262,7 +1285,10 @@
       }
       var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
       for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error' &&
-        readiness.phase !== 'error' && (readiness.phase !== 'ready' || connection === 'configured');
+        usage.phase !== 'error' && readiness.phase !== 'error' &&
+        (usage.phase !== 'ready' || usage.data.reason !== 'unknown_contract') &&
+        (readiness.phase !== 'ready' || connection === 'configured' ||
+          (usage.phase === 'ready' && !usage.data.enabled));
     } catch (e) { /* 選べなくても受信箱は壊さない */ }
   }
 
@@ -1330,6 +1356,14 @@
       '日 ' + japan.getUTCHours() + ':' + minutes + '（日本時間）に更新';
   }
 
+  function aiUsageAccessMessage(data) {
+    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。ご契約内容をご確認ください。';
+    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。ご契約内容をご確認ください。';
+    if (data.reason === 'disabled') return '現在のご契約にはAI応答が含まれていません。ご契約内容をご確認ください。';
+    if (data.remaining === 0) return '現在、利用できる残り枠がありません。';
+    return '';
+  }
+
   function paintAiUsage() {
     var card = document.querySelector('[data-toybaco-ai-usage]');
     if (!card || card.getAttribute('data-account') !== currentAccountId()) return;
@@ -1339,11 +1373,7 @@
     var busy = state.phase === 'loading' || state.phase === 'idle';
     var message = busy ? '利用状況を確認しています…' : '利用状況を取得できませんでした。再確認してください。';
     if (data) {
-      if (data.reason === 'unknown_contract') message = 'AI応答の利用条件を確認できません。ご契約内容をご確認ください。';
-      else if (data.reason === 'account_inactive') message = '現在、この店舗のAI応答はご利用いただけません。ご契約内容をご確認ください。';
-      else if (data.reason === 'disabled') message = '現在のご契約にはAI応答が含まれていません。';
-      else if (data.remaining === 0) message = '現在、利用できる残り枠がありません。';
-      else message = '全自動・下書きで共通の利用枠です。';
+      message = aiUsageAccessMessage(data) || '全自動・下書きで共通の利用枠です。';
     }
     card.setAttribute('aria-busy', busy ? 'true' : 'false');
     card.setAttribute('data-toybaco-ai-usage-state', state.phase === 'error' ? 'error' :
@@ -1384,17 +1414,15 @@
     }
   }
 
-  function prefetchAiUsage(accountId) {
+  function prefetchAiUsage(accountId, force) {
     var id = accountId || currentAccountId();
     if (!id || !/^[1-9]\d*$/.test(String(id))) return Promise.resolve(null);
-    if (aiUsageInflight[id]) {
-      if (id === currentAccountId()) paintAiUsage();
-      return aiUsageInflight[id];
-    }
+    if (aiUsageInflight[id]) return aiUsageInflight[id];
     var state = aiUsageState(id);
+    if (!force && state.phase !== 'idle') return Promise.resolve(null);
     state.data = null;
     state.phase = window.fetch ? 'loading' : 'error';
-    if (id === currentAccountId()) paintAiUsage();
+    if (id === currentAccountId()) { paintAiUsage(); paintAiModeControls(); }
     if (!window.fetch) return Promise.resolve(null);
     aiUsageInflight[id] = requestAiJson('/toybaco/ai_usage?account_id=' + encodeURIComponent(id), {
       credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }
@@ -1402,13 +1430,13 @@
       delete aiUsageInflight[id];
       state.data = body;
       state.phase = 'ready';
-      if (id === currentAccountId()) paintAiUsage();
+      if (id === currentAccountId()) { paintAiUsage(); paintAiModeControls(); }
       return body;
     }).catch(function () {
       delete aiUsageInflight[id];
       state.data = null;
       state.phase = 'error';
-      if (id === currentAccountId()) paintAiUsage();
+      if (id === currentAccountId()) { paintAiUsage(); paintAiModeControls(); }
       return null;
     });
     return aiUsageInflight[id];
@@ -1428,7 +1456,7 @@
     refresh.type = 'button';
     refresh.setAttribute('data-toybaco-ai-usage-refresh', '1');
     refresh.setAttribute('aria-label', 'AI応答の利用状況を更新');
-    refresh.addEventListener('click', function () { prefetchAiUsage(currentAccountId()); });
+    refresh.addEventListener('click', function () { prefetchAiUsage(currentAccountId(), true); });
     head.appendChild(refresh);
     card.appendChild(head);
     ['value', 'details', 'reset', 'status'].forEach(function (name) {
@@ -1460,10 +1488,10 @@
       force = true;
     }
     prefetchAiReadiness(id, force);
-    if (aiModeInflight[id]) return aiModeInflight[id];
+    if (aiModeInflight[id]) { prefetchAiUsage(id, force); return aiModeInflight[id]; }
     var state = aiModeState(id);
     // DOMの描画ごとにGETを繰り返さず、店舗切替・設定を開く・再確認で更新する。
-    if (!force && state.phase !== 'idle') return Promise.resolve(null);
+    if (!force && state.phase !== 'idle') { prefetchAiUsage(id); return Promise.resolve(null); }
     state.mode = null;
     state.phase = window.fetch ? 'loading' : 'error';
     state.message = recoveredMessage ? '保存結果を確認しています…' : '';
@@ -1487,6 +1515,7 @@
       if (id === currentAccountId()) paintAiModeControls();
       return null;
     });
+    prefetchAiUsage(id, force);
     return aiModeInflight[id];
   }
 
@@ -1640,6 +1669,7 @@
       else document.body.appendChild(wrapEl);
       aiPanel = wrapEl;
       paintAiModeControls();
+      paintAiUsage();
       prefetchAiUsage(currentAccountId());
       if (close.focus) close.focus();
       document.addEventListener('keydown', escCloseAiMode);
@@ -1734,7 +1764,15 @@
       var t = e.target || e.srcElement;
       var navLink = closestAttr(t, 'data-toybaco-nav-link');
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
-      if (navKind === 'inbox' || navKind === 'reports' || navKind === 'settings') {
+      if (navKind === 'reports' || navKind === 'settings') {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        closeAiModePanel();
+        closeBillingPanel();
+        closePanel();
+        // native clickが権限内の初期ページと子メニューの開閉を決める。
+        return;
+      }
+      if (navKind === 'inbox') {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();

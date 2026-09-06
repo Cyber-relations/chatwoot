@@ -228,11 +228,12 @@ function matchesSimpleSelector(node, selector) {
 }
 
 function queryNavList(root, selector) {
-  if (selector !== 'aside nav > ul' && selector !== 'aside nav ul') return null;
+  if (selector !== 'aside nav' && selector !== 'aside nav > ul' && selector !== 'aside nav ul') return null;
   const asides = [root, ...(root.children || [])].filter((node) => node && node.tagName === 'ASIDE');
   const aside = asides[0] || walkQuery(root, 'aside', true);
   if (!aside) return null;
   const nav = walkQuery(aside, 'nav', true);
+  if (selector === 'aside nav') return nav;
   return nav ? walkQuery(nav, 'ul', true) : null;
 }
 
@@ -318,7 +319,14 @@ function createDomNode(tag) {
     },
     querySelector(selector) { return queryNavList(this, selector) || walkQuery(this, selector, true); },
     querySelectorAll(selector) { return walkQuery(this, selector, false); },
-    closest() { return null; },
+    closest(selector) {
+      let current = this;
+      while (current) {
+        if (matchesSimpleSelector(current, selector)) return current;
+        current = current.parentElement;
+      }
+      return null;
+    },
     getBoundingClientRect() { return { width: 220, right: 220, left: 0, top: 0, bottom: 0 }; },
   };
   Object.defineProperties(node, {
@@ -661,7 +669,11 @@ if (fs.existsSync(brandCssPath)) {
   assert.match(brandCss, /\[title="設定"\]/);
   assert.match(brandCss, /order: 4;/);
   assert.match(brandCss, /order: 5;/);
-  assert.match(brandCss, /aside nav > ul > li ul/);
+  assert.doesNotMatch(brandCss, /aside nav > ul > li ul\s*\{\s*display:\s*none\s*!important/,
+    'native settings/report children must not be hidden by the blanket subtree rule');
+  assert.match(brandCss, /li:not\(\[data-toybaco-primary-nav="settings"\]\):not\(\[data-toybaco-primary-nav="reports"\]\) ul/);
+  assert.match(brandCss, /aside nav\s*\{\s*min-height:\s*0;/,
+    'the native scrolling nav must be able to shrink above the sidebar footer');
   assert.match(brandCss, /aside nav > ul > li\[data-toybaco-nav-duplicate="1"\]\s*\{\s*display: none !important;/);
   assert.match(brandCss, /help\.chatwoot\.com/);
   assert.match(brandCss, /data-toybaco-canned-name/);
@@ -992,12 +1004,13 @@ function fireClick(node, extraListeners = []) {
   const event = {
     target: node,
     prevented: false,
+    stopped: false,
     preventDefault() { this.prevented = true; },
-    stopPropagation() {},
-    stopImmediatePropagation() {},
+    stopPropagation() { this.stopped = true; },
+    stopImmediatePropagation() { this.stopped = true; },
   };
   extraListeners.forEach((fn) => fn(event));
-  (node.listeners.click || []).forEach((fn) => fn(event));
+  if (!event.stopped) (node.listeners.click || []).forEach((fn) => fn(event));
   return event;
 }
 
@@ -1218,6 +1231,7 @@ function fireSlashKey(api, editor, key, extra = {}) {
 }
 
 function aiModeAwareFetch(url, opts) {
+  if (String(url).includes('/ai_usage')) return Promise.resolve(usageResponse());
   const href = String(url);
   if (href.includes('/ai_readiness')) return Promise.resolve(readinessResponse());
   if (href.includes('/ai_reply_mode')) {
@@ -1389,6 +1403,107 @@ function deferred() {
 }
 
 {
+  // Match SidebarGroup's parent control + nested UL. These links are not a
+  // second global menu: the native component filters roles and owns expansion.
+  const tree = createMenuTree();
+  const settings = createStockRow('設定', 'i-lucide-bolt');
+  const reports = createStockRow('レポート', 'i-lucide-chart-spline');
+  const settingsChildren = createDomNode('ul');
+  settingsChildren.className = 'grid m-0 list-none min-w-0';
+  const reportChildren = createDomNode('ul');
+  const settingsRows = [
+    ['アカウント設定', 'general'], ['受信箱', 'inboxes/list'],
+    ['担当者', 'agents/list'], ['定型文', 'canned-response/list'],
+  ].map(([label, suffix]) => createStockRow(label, 'i-lucide-users', `/app/accounts/4/settings/${suffix}`));
+  const overview = createStockRow('概要', 'i-lucide-messages-square', '/app/accounts/4/reports/overview');
+  settingsRows.forEach((row) => settingsChildren.appendChild(row));
+  reportChildren.appendChild(overview);
+  settings.appendChild(settingsChildren); reports.appendChild(reportChildren);
+  tree.ul.appendChild(reports); tree.ul.appendChild(settings);
+  const stock = createStockRow('連絡先', 'i-lucide-contact', '/app/accounts/4/contacts');
+  tree.ul.appendChild(stock);
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/4/settings/general', { body: tree.body });
+  const visits = [];
+  let expanded = null;
+  const groups = [[settings, settingsChildren, settingsRows[0]], [reports, reportChildren, overview]];
+  function renderNativeChildren() {
+    for (const [row, children] of groups) {
+      const active = children.children.find((child) => child.querySelector('a').href === env.window.location.pathname);
+      children.style.display = expanded === row || active ? '' : 'none';
+      for (const child of children.children) child.style.display = expanded === row || child === active ? '' : 'none';
+    }
+  }
+  for (const [row, children, first] of groups) {
+    const control = row.querySelector('[role="button"]');
+    children.style.display = 'none';
+    control.addEventListener('click', () => {
+      assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'close posting before the native group handler runs');
+      assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null, 'close billing before the native group handler runs');
+      expanded = expanded === row ? null : row;
+      if (expanded === row) first.querySelector('a').click();
+      renderNativeChildren();
+    });
+    control.click = () => fireClick(control, env.docListeners.click || []);
+  }
+  for (const row of [...settingsRows, overview]) {
+    const link = row.querySelector('a');
+    link.addEventListener('click', () => { visits.push(link.href); env.window.location.pathname = link.href; env.api.afterNavChange(); });
+    link.click = () => fireClick(link, env.docListeners.click || []);
+  }
+  env.api.inject();
+  for (const row of [...settingsRows, overview]) {
+    for (const node of [row, ...row.querySelectorAll('a, span')]) {
+      assert.equal(node.getAttribute('data-toybaco-stock-hidden'), null, 'role-allowed settings/report children must stay reachable');
+      assert.notEqual(node.style.display, 'none');
+    }
+    assert.equal(row.querySelector('a').getAttribute('data-toybaco-nav-link'), null, 'child links must not become primary controls');
+  }
+  assert.equal(stock.getAttribute('data-toybaco-stock-hidden'), '1', 'unrelated global inventory stays hidden');
+  const settingsControl = settings.querySelector('[role="button"]');
+  const reportsControl = reports.querySelector('[role="button"]');
+  const primaryCount = () => tree.ul.children.filter((row) => row.getAttribute('data-toybaco-primary-nav') || row.getAttribute('data-toybaco-post-entry-wrap') || row.querySelector('[data-toybaco-billing-entry]')).length;
+  assert.equal(primaryCount(), 5, 'child expansion must preserve the five primary functions');
+  fireClick(postingEntry(env.document), env.docListeners.click || []);
+  assert.equal(fireClick(settingsControl, env.docListeners.click || []).prevented, false, 'native settings click must be allowed');
+  assert.equal(settingsChildren.style.display, '');
+  for (const row of settingsRows.slice(1)) {
+    assert.equal(fireClick(row.querySelector('a'), env.docListeners.click || []).prevented, false);
+    assert.equal(env.window.location.pathname, row.querySelector('a').href, 'each child must reach its own native destination');
+  }
+  fireClick(reportsControl, env.docListeners.click || []);
+  assert.equal(reportChildren.style.display, '');
+  fireClick(settingsControl, env.docListeners.click || []);
+  assert.equal(settingsChildren.style.display, '', 'returning from reports must reopen all settings children');
+  fireClick(settingsControl, env.docListeners.click || []);
+  assert.equal(settingsChildren.style.display, '', 'native collapse retains the active child');
+  assert.equal(settingsRows[1].style.display, 'none', 'native collapse hides inactive children');
+  const key = { key: 'Enter', preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
+  settingsControl.listeners.keydown[0].call(settingsControl, key);
+  assert.equal(settingsChildren.style.display, '', 'Enter must activate native settings expansion');
+  assert.equal(settingsRows[1].style.display, '', 'Enter exposes all permitted children');
+  settingsControl.listeners.keydown[0].call(settingsControl, { ...key, key: ' ' });
+  assert.equal(settingsRows[1].style.display, 'none', 'Space must activate native collapse');
+  settingsRows[1].remove();
+  env.api.inject();
+  assert.equal(settingsChildren.children.length, 3, 'do not recreate a child removed by role policy');
+  assert.equal(primaryCount(), 5);
+  assert.ok(visits.includes('/app/accounts/4/settings/canned-response/list'));
+}
+
+{
+  const tree = createMenuTree();
+  const settings = createStockRow('Settings', 'i-lucide-bolt', '/app/accounts/4/settings/profile');
+  tree.ul.appendChild(settings);
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/4/conversations/42', { body: tree.body });
+  env.api.inject();
+  const link = settings.querySelector('a');
+  assert.equal(link.getAttribute('href'), '/app/accounts/4/settings/profile', 'retain the native role-specific settings destination');
+  assert.equal(link.getAttribute('data-toybaco-nav-keyboard'), null, 'anchors retain native keyboard activation');
+  assert.equal(fireClick(link, env.docListeners.click || []).prevented, false);
+  assert.equal(settings.querySelector('ul'), null, 'do not manufacture a settings submenu');
+}
+
+{
   const tree = createMenuTree();
   const inboxControl = tree.inbox.querySelector('a');
   inboxControl.className = 'flex gap-2 router-link-active router-link-exact-active bg-n-alpha-2';
@@ -1415,6 +1530,9 @@ function deferred() {
       env.window.location.pathname = link.href;
       env.api.afterNavChange();
     };
+  }
+  for (const [row, first] of [[reports, overview], [settings, general]]) {
+    row.querySelector('[role="button"]').addEventListener('click', () => first.querySelector('a').click());
   }
   env.api.inject();
   for (const entry of [postingEntry(env.document), billingEntry(env.document)]) {
@@ -1707,6 +1825,105 @@ function usageResponse(overrides = {}) {
   return { ok: true, json: async () => usageBody(overrides) };
 }
 
+function createAiContractEnv(usageHandler, connection = {}) {
+  const calls = [];
+  const env = loadInjectEntry((url, opts) => {
+    if (String(url).includes('/ai_readiness')) return Promise.resolve(readinessResponse(connection));
+    if (!String(url).includes('/ai_usage')) return aiModeAwareFetch(url, opts);
+    calls.push({ url: String(url), opts });
+    return usageHandler(url, opts, calls.length);
+  });
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  env.aiBar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
+  env.contractCalls = calls;
+  return env;
+}
+
+for (const connection of [
+  { connection: 'unconnected', configured_inboxes: 0 },
+  { connection: 'configured', configured_inboxes: 1 },
+]) {
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 })), connection);
+  await flush();
+  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
+  assert.match(collectText(env.aiBar), /保存された設定：全自動（現在のご契約では適用されません）/);
+  assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
+  assert.equal(env.api.currentAiMode(), 'auto', 'contract denial must retain the saved setting');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  await env.api.saveAiMode('draft');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
+  env.api.inject(); env.api.inject();
+  assert.equal(env.contractCalls.length, 1, 'DOM updates must not poll contract usage');
+  assert.equal(env.contractCalls[0].opts.credentials, 'same-origin');
+  assert.equal(env.contractCalls[0].opts.cache, 'no-store');
+  assert.equal(env.contractCalls[0].opts.method || 'GET', 'GET');
+  env.api.openAiModePanel();
+  await flush();
+  assert.match(collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]')), /現在のご契約にはAI応答が含まれていません/);
+}
+
+{
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse()), { connection: 'unconnected', configured_inboxes: 0 });
+  await flush();
+  assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません|適用されません/);
+}
+
+for (const reason of ['unknown_contract', 'account_inactive']) {
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason, limit: 0, remaining: 0 })));
+  await flush();
+  assert.match(collectText(env.aiBar), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+}
+
+{
+  const read = deferred();
+  let recover = false;
+  const env = createAiContractEnv(() => recover ? Promise.resolve(usageResponse()) : read.promise);
+  await flush();
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'Bot + saved mode cannot enable controls before contract readback');
+  assert.match(collectText(env.aiBar), /AI応答の利用条件を確認しています/);
+  read.resolve({ ok: false, status: 503 });
+  await flush();
+  assert.match(collectText(env.aiBar), /AI応答の利用条件を取得できませんでした/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
+  assert.equal(env.api.currentAiMode(), 'auto');
+  env.api.inject();
+  assert.equal(env.contractCalls.length, 1);
+  recover = true;
+  const retry = env.aiBar.querySelector('[data-toybaco-ai-retry]');
+  fireClick(retry); fireClick(retry);
+  await flush();
+  assert.equal(env.contractCalls.length, 2, 'simultaneous explicit retries share one GET');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+}
+
+{
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ used: 500, reserved: 0, remaining: 0, reason: 'limit_reached' })));
+  await flush();
+  assert.match(collectText(env.aiBar), /利用できる残り枠がありません/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'quota exhaustion does not remove the contract or its saved-mode controls');
+}
+
+{
+  const accountA = deferred();
+  const accountB = deferred();
+  const env = createAiContractEnv(url => String(url).endsWith('=1') ? accountA.promise : accountB.promise);
+  env.window.location.pathname = '/app/accounts/2/inbox';
+  env.api.inject();
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  accountB.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 }));
+  await flush();
+  accountA.resolve(usageResponse());
+  await flush();
+  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'late enabled A must not enable disabled B');
+  assert.equal(env.contractCalls.length, 2);
+}
+
 function createAiUsageEnv(handler, options = {}) {
   const calls = [];
   const env = loadInjectEntry((url, opts) => {
@@ -1717,7 +1934,7 @@ function createAiUsageEnv(handler, options = {}) {
   const { box } = createComposer();
   env.body.appendChild(box);
   env.api.inject();
-  assert.equal(calls.length, 0, 'DOM injection must not fetch usage before its panel opens');
+  assert.equal(calls.length, 1, 'the composer must read contract rights once before enabling AI controls');
   env.api.openAiModePanel();
   env.usageCard = env.document.querySelector('[data-toybaco-ai-usage]');
   env.usageCalls = calls;
@@ -1738,6 +1955,12 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(env.usageCalls[0].url, '/toybaco/ai_usage?account_id=1');
   assert.equal(env.usageCalls[0].opts.credentials, 'same-origin');
   assert.equal(env.usageCalls[0].opts.cache, 'no-store');
+  const heading = env.usageCard.querySelector('[data-toybaco-ai-usage-heading]');
+  let headingText = heading.textContent;
+  let headingWrites = 0;
+  Object.defineProperty(heading, 'textContent', { get() { return headingText; }, set(value) { headingWrites += 1; headingText = value; } });
+  env.api.inject(); env.api.inject();
+  assert.equal(headingWrites, 0, 'an in-flight contract read must not rewrite usage text on DOM mutation and trigger another observer pass');
   await flush();
   assert.equal(env.api.currentAiMode(), 'auto', 'mode confirmation is independent of usage loading');
   read.resolve(usageResponse());
@@ -1809,6 +2032,7 @@ for (const invalid of [
   await flush();
   assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'malformed usage must not enable composer mode changes');
   assert.doesNotMatch(collectText(env.usageCard), /unexpected_code|invalid/);
 }
 
