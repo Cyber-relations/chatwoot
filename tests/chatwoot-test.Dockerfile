@@ -3,11 +3,12 @@ FROM ${CHATWOOT_IMAGE}
 
 ARG CHATWOOT_SOURCE_COMMIT=b354a9550e1fb59fa537a9c384232cb076213e72
 
-# 公式production imageにはtest/development gemが無い。固定image内の
-# Gemfile.lockをそのまま使ってtest groupだけを追加し、可変Ruby imageを増やさない。
+# 公式production imageにはtest/development gemが無い。固定sourceへoverlayを
+# 適用したGemfile/lockを先に渡し、本番と同じRails修正版でtest groupを追加する。
 ENV BUNDLE_WITHOUT="" \
     RAILS_ENV=test
 
+COPY Gemfile Gemfile.lock /app/
 RUN bundle config unset without \
     && bundle install --jobs 4 --retry 3
 

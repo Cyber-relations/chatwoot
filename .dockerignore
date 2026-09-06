@@ -4,3 +4,9 @@
 !overlay/app/**
 overlay/app/spec
 overlay/app/spec/**
+!config/
+!config/chatwoot-runtime-gems.json
+!scripts/
+!scripts/harden-chatwoot-runtime-gems.rb
+!tests/
+!tests/verify_chatwoot_runtime_gems.rb

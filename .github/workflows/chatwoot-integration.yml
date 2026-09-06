@@ -13,6 +13,8 @@ on:
       - 'bin/toybaco-chatwoot-*'
       - 'infra/terraform/ecs.tf'
       - 'overlay/app/**'
+      - 'config/chatwoot-runtime-gems.json'
+      - 'scripts/harden-chatwoot-runtime-gems.rb'
       - 'scripts/generate-chatwoot-active-ja-overrides.rb'
       - 'scripts/generate-chatwoot-ja-overrides.rb'
       - 'tests/chatwoot*'
@@ -82,6 +84,7 @@ jobs:
       CHATWOOT_SOURCE_COMMIT: b354a9550e1fb59fa537a9c384232cb076213e72
       CHATWOOT_SOURCE_TREE: 9a17426900d328a6acc2bdaecba0533e8b401120
       CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a
+      TRIVY_IMAGE: docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682
     steps:
       - name: owner review済みmain sourceを取得
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -271,6 +274,8 @@ jobs:
 
       - name: SPDX SBOMの形式と上限を確認
         shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
         run: |
           set -Eeuo pipefail
           sbom="$RUNNER_TEMP/toybaco-chatwoot.spdx.json"
@@ -279,6 +284,58 @@ jobs:
           [[ "$size" -gt 0 && "$size" -le 16777216 ]]
           jq -e '.spdxVersion == "SPDX-2.3" and (.SPDXID | type == "string") and
             ((.packages // []) | length > 0)' "$sbom" >/dev/null
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # Syft's container versionInfo can be the config digest. Its SHA256
+          # checksum is the manifest digest used by buildx and both attestations.
+          jq -e --arg image "$ECR_REPOSITORY" --arg digest "${IMAGE_DIGEST#sha256:}" '
+            . as $document |
+            [.relationships[] | select(.spdxElementId == $document.SPDXID and
+              .relationshipType == "DESCRIBES") | .relatedSpdxElement] as $roots |
+            ($roots | length == 1) and
+            ([.packages[] | select(.SPDXID == $roots[0] and .name == $image and
+              .primaryPackagePurpose == "CONTAINER") |
+              select(any(.checksums[]; .algorithm == "SHA256" and .checksumValue == $digest))] | length == 1) and
+            any(.packages[].externalRefs[]?; .referenceType == "purl" and
+              (.referenceLocator | startswith("pkg:apk/alpine/")) and
+              (.referenceLocator | split("?")[1] // "" | split("&") | index("distro=alpine-3.21.3") != null))
+          ' "$sbom" >/dev/null
+
+      - name: 固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認
+        id: trivy
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$TRIVY_IMAGE" == 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682' ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          sbom="$RUNNER_TEMP/toybaco-chatwoot.spdx.json"
+          trivy_cache="$RUNNER_TEMP/chatwoot-trivy-cache"
+          trivy_output="$RUNNER_TEMP/chatwoot-trivy-output"
+          mkdir -m 0700 "$trivy_cache" "$trivy_output"
+          docker pull "$TRIVY_IMAGE"
+          scan_status=0
+          # Only this digest-bound SBOM is mounted: no repository config,
+          # ignore list, VEX document, registry credentials, or Docker socket.
+          docker run --rm --workdir /scan \
+            --mount "type=bind,src=$sbom,dst=/scan/sbom.spdx.json,readonly" \
+            --mount "type=bind,src=$trivy_cache,dst=/root/.cache/trivy" \
+            --mount "type=bind,src=$trivy_output,dst=/output" \
+            "$TRIVY_IMAGE" --config /dev/null sbom \
+            --scanners vuln --pkg-types os,library --distro alpine/3.21.3 \
+            --severity CRITICAL,HIGH --ignore-unfixed=false --exit-code 1 \
+            --format json --output /output/report.json --no-progress /scan/sbom.spdx.json \
+            || scan_status=$?
+          report="$trivy_output/report.json"
+          [[ -f "$report" && ! -L "$report" ]]
+          jq -e '.Metadata.OS.Family == "alpine" and .Metadata.OS.Name == "3.21.3" and
+            any(.Results[]; .Class == "os-pkgs" and ((.Packages // []) | length > 0)) and
+            any(.Results[]; .Class == "lang-pkgs" and ((.Packages // []) | length > 0))' "$report" >/dev/null
+          jq --arg digest "$IMAGE_DIGEST" '{digest: $digest, findings:
+            [.Results[].Vulnerabilities[]? | {id: .VulnerabilityID, severity: .Severity,
+              package: .PkgName, version: .InstalledVersion, fixed: .FixedVersion}]}' "$report"
+          [[ "$scan_status" -eq 0 ]] || exit "$scan_status"
+          jq -e '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length == 0' "$report" >/dev/null
 
       - name: SLSA provenanceを署名してOCIへ保存
         id: provenance

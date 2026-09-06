@@ -102,6 +102,9 @@ control_file_list() {
     '.dockerignore' \
     'Dockerfile' \
     'config/toybaco-plans.json' \
+    'config/chatwoot-runtime-gems.json' \
+    'scripts/harden-chatwoot-runtime-gems.rb' \
+    'tests/verify_chatwoot_runtime_gems.rb' \
     'scripts/generate-plan-catalog.py' \
     'tests/toybaco_plan_catalog_test.rb' \
     'tests/toybaco_billing_subscription_test.rb' \
@@ -300,6 +303,11 @@ assert_control_contract() {
     'production Dockerfileが旧libexpat実体を拒否しません'
   grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileがlibexpatの実ロードを検証しません'
+  for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb; do
+    ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
+  done
+  grep -Fq 'openjpeg-2.5.4-r0' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production DockerfileのOpenJPEG修正版が固定されていません'
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
     'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
   grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -1029,6 +1037,11 @@ build_and_smoke_production_image() {
     "$PRODUCTION_IMAGE" sh -c '
       set -e
       test ! -e /app/spec
+      test ! -e /app/tests/playwright
+      test ! -e /app/node_modules
+      test ! -e /usr/local/lib/node_modules/npm
+      test ! -e /usr/local/bin/npm
+      test ! -e /usr/local/bin/npx
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
       test "$(cat /app/.git_sha)" = "$1"
@@ -1044,11 +1057,41 @@ build_and_smoke_production_image() {
       test ! -e /usr/lib/libexpat.so.1.12.3
       ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
       test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
+      test "$(apk info -v | grep "^openjpeg-")" = "openjpeg-2.5.4-r0"
+      test "$(readlink /usr/lib/libopenjp2.so.7)" = "libopenjp2.so.2.5.4"
+      test -f /usr/lib/libopenjp2.so.2.5.4
+      test ! -e /usr/lib/libopenjp2.so.2.5.2
+      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_auth_cookie.rb production /
+
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_runtime_gems.rb /contract/config/chatwoot-runtime-gems.json
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=1m \
+    "$PRODUCTION_IMAGE" bundle exec ruby -rrails -rruby-vips -ractive_storage/vips -rtmpdir -e '
+      abort unless Rails.version == %q{7.2.3.2}
+      abort unless Gem.loaded_specs.fetch(%q{ruby-vips}).version.to_s == %q{2.2.1}
+      image = Vips::Image.new_from_buffer(Vips::Image.black(2, 2).write_to_buffer(%q{.png}), %q{})
+      abort unless [image.width, image.height] == [2, 2]
+      abort unless ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}
+      Dir.mktmpdir do |directory|
+        csv = File.join(directory, %q{untrusted.csv})
+        File.write(csv, "1,2\n3,4\n")
+        begin
+          Vips::Image.csvload(csv)
+          abort %q{untrusted CSV loader was not blocked}
+        rescue Vips::Error => error
+          abort unless error.message == "csvload: operation is blocked\n"
+        end
+      end
+    '
 
   STAGE='production image boot smoke'
   # test imageで固定sourceのschema loadは既に成功済み。接続が全て閉じた後に
