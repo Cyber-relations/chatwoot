@@ -1,0 +1,86 @@
+[
+  {
+    "name": "erb",
+    "version": "4.0.4.1",
+    "previous": "4.0.4",
+    "kind": "default",
+    "sha256": "47e2a70922ba4cec8c23c2304ad7e581665c37a297cb9a22a860162c7727ee24",
+    "gem_url": "https://rubygems.org/downloads/erb-4.0.4.1.gem",
+    "metadata_url": "https://rubygems.org/api/v2/rubygems/erb/versions/4.0.4.1.json?platform=ruby",
+    "ruby_requirement": ">= 2.5.0",
+    "dependencies": {
+      "development": [],
+      "runtime": [
+        {
+          "name": "cgi",
+          "requirements": ">= 0.3.3"
+        }
+      ]
+    }
+  },
+  {
+    "name": "net-imap",
+    "version": "0.5.14",
+    "previous": "0.5.8",
+    "kind": "bundled",
+    "sha256": "1590ca018d65d4165b7324a3f046dd16fd9dd5e72deba4acf494c1becdb55a04",
+    "gem_url": "https://rubygems.org/downloads/net-imap-0.5.14.gem",
+    "metadata_url": "https://rubygems.org/api/v2/rubygems/net-imap/versions/0.5.14.json",
+    "ruby_requirement": ">= 3.1.0",
+    "dependencies": {
+      "development": [],
+      "runtime": [
+        {
+          "name": "date",
+          "requirements": ">= 0"
+        },
+        {
+          "name": "net-protocol",
+          "requirements": ">= 0"
+        }
+      ]
+    }
+  },
+  {
+    "name": "resolv",
+    "version": "0.7.2",
+    "previous": "0.6.0",
+    "kind": "default",
+    "sha256": "626d044d975ab2daac759bf898416f1b51e2cb8dcd6727c2b5b5b28b97ead2e1",
+    "gem_url": "https://rubygems.org/downloads/resolv-0.7.2.gem",
+    "metadata_url": "https://rubygems.org/api/v2/rubygems/resolv/versions/0.7.2.json",
+    "ruby_requirement": ">= 2.3.0",
+    "dependencies": {
+      "development": [],
+      "runtime": []
+    }
+  },
+  {
+    "name": "uri",
+    "version": "1.0.4",
+    "previous": "1.0.3",
+    "kind": "default",
+    "sha256": "34485d137c079f8753a0ca1d883841a7ba2e5fae556e3c30c2aab0dde616344b",
+    "gem_url": "https://rubygems.org/downloads/uri-1.0.4.gem",
+    "metadata_url": "https://rubygems.org/api/v2/rubygems/uri/versions/1.0.4.json",
+    "ruby_requirement": ">= 2.5",
+    "dependencies": {
+      "development": [],
+      "runtime": []
+    }
+  },
+  {
+    "name": "zlib",
+    "version": "3.2.3",
+    "previous": "3.2.1",
+    "kind": "default",
+    "sha256": "5bd316698b32f31a64ab910a8b6c282442ca1626a81bbd6a1674e8522e319c20",
+    "gem_url": "https://rubygems.org/downloads/zlib-3.2.3.gem",
+    "metadata_url": "https://rubygems.org/api/v2/rubygems/zlib/versions/3.2.3.json",
+    "ruby_requirement": ">= 2.5.0",
+    "dependencies": {
+      "development": [],
+      "runtime": []
+    }
+  }
+]

@@ -5,7 +5,20 @@ FROM ${CHATWOOT_IMAGE} AS overlay-normalizer
 COPY overlay/app/ /toybaco-overlay/
 RUN find /toybaco-overlay -exec touch -t 200001010000.00 {} +
 
-FROM ${CHATWOOT_IMAGE} AS localized-assets
+FROM ${CHATWOOT_IMAGE} AS bundled-gems
+COPY config/chatwoot-runtime-gems.json /opt/toybaco/runtime-gems.json
+COPY scripts/harden-chatwoot-runtime-gems.rb /opt/toybaco/harden-runtime-gems.rb
+COPY tests/verify_chatwoot_runtime_gems.rb /opt/toybaco/verify-runtime-gems.rb
+RUN apk add --no-cache --virtual .toybaco-gem-build build-base zlib-dev \
+    && ruby /opt/toybaco/harden-runtime-gems.rb /opt/toybaco/runtime-gems.json \
+    && apk del .toybaco-gem-build \
+    && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
+COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile.lock /app/
+RUN BUNDLE_FROZEN=true bundle install --jobs 4 --retry 3 \
+    && bundle clean --force \
+    && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
+
+FROM bundled-gems AS localized-assets
 ENV HUSKY=0 \
     PNPM_HOME=/usr/local/share/pnpm \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
@@ -39,6 +52,14 @@ FROM localized-assets AS runtime-hardening
 # Expat 2.8.4 fixes CVE-2026-66046 and CVE-2026-76641; Alpine v3.21 ships 2.8.4-r0.
 # https://github.com/libexpat/libexpat/blob/R_2_8_4/expat/Changes
 RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpat=2.8.4-r0' \
+    # Same-ABI official signed stable APK; v3.21/x86_64 has no fixed build.
+    # Do not switch repositories or permit untrusted APKs.
+    && ruby -ropen-uri -e 'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r0.apk") { |input| File.open("/tmp/toybaco-openjpeg.apk", "wb") { |output| IO.copy_stream(input, output) } }' \
+    && echo '4d9729d92515f36cbafe8b5e008685065ccb84cf21025ba2e472c3fce8653d2c  /tmp/toybaco-openjpeg.apk' | sha256sum -c - \
+    && apk --no-network verify /tmp/toybaco-openjpeg.apk \
+    && apk add --no-network --upgrade /tmp/toybaco-openjpeg.apk \
+    && rm /tmp/toybaco-openjpeg.apk \
+    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
     && test "$(apk info -v | grep '^musl-utils-')" = 'musl-utils-1.2.5-r11' \
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
     && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
@@ -56,14 +77,23 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpa
     && mkdir -p /toybaco-runtime-root/usr/lib \
     && cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/ \
     && cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.12.4 /toybaco-runtime-root/usr/lib/ \
+    && cp -a /usr/lib/libopenjp2.so.7 /usr/lib/libopenjp2.so.2.5.4 /toybaco-runtime-root/usr/lib/ \
     && mkdir -p /toybaco-runtime-root/app/public \
     && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \
     && find /toybaco-runtime-root -exec touch -t 200001010000.00 {} +
 
-FROM ${CHATWOOT_IMAGE}
+FROM bundled-gems
 RUN rm -rf /app/public/vite
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
-RUN rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
+    && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libopenjp2.so.2.5.2 \
+    && test ! -e /usr/local/lib/node_modules/npm \
+    && test ! -e /app/tests/playwright \
+    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
+    && test "$(readlink /usr/lib/libopenjp2.so.7)" = 'libopenjp2.so.2.5.4' \
+    && test ! -e /usr/lib/libopenjp2.so.2.5.2 \
+    && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}" \
+    && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json \
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
     && test "$(readlink /usr/lib/libz.so.1)" = 'libz.so.1.3.2' \
     && test -f /usr/lib/libz.so.1.3.2 \

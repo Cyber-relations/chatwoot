@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { resolve, join } from 'node:path';
 import vm from 'node:vm';
 
 const root = resolve(process.argv[2] || '.');
@@ -207,6 +209,9 @@ function testPostEntryNavigation() {
 }
 
 function validate(workflowSource, gateSource) {
+  for (const input of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot*']) {
+    assert.ok(workflowSource.includes(`      - '${input}'`), `runtime source push path missing: ${input}`);
+  }
   const quality = jobBlock(workflowSource, 'quality');
   const publish = jobBlock(workflowSource, 'publish');
 
@@ -329,6 +334,22 @@ function validate(workflowSource, gateSource) {
   }
   assert.doesNotMatch(publish, /start-image-scan/);
 
+  const trivyIndex = publish.indexOf('固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認');
+  assert.ok(publish.indexOf('SPDX SBOMの形式と上限を確認') < trivyIndex &&
+    trivyIndex < publish.indexOf('SLSA provenanceを署名してOCIへ保存'),
+    'exact SBOM must pass all-package security scan before either attestation');
+  for (const required of [
+    'TRIVY_IMAGE: docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682',
+    '--pkg-types os,library', '--severity CRITICAL,HIGH', '--ignore-unfixed=false',
+    '--distro alpine/3.21.3', '--exit-code 1', '--config /dev/null sbom',
+    '--workdir /scan', '"$TRIVY_IMAGE"', 'toybaco-chatwoot.spdx.json',
+    '.checksumValue == $digest', '.relationshipType == "DESCRIBES"',
+    'distro=alpine-3.21.3', '.Class == "os-pkgs"', '.Class == "lang-pkgs"',
+    '[[ "$scan_status" -eq 0 ]] || exit "$scan_status"',
+  ]) assert.ok(publish.includes(required), `strict Trivy SBOM contract missing: ${required}`);
+  assert.doesNotMatch(publish, /--ignore-unfixed=true|--ignorefile|--ignore-policy|--vex/);
+
+
   assert.ok(publish.includes(`uses: ${ACTIONS.sbom}`));
   for (const required of [
     'format: spdx-json',
@@ -362,6 +383,9 @@ function validate(workflowSource, gateSource) {
   assert.doesNotMatch(publish, /--signer-workflow|--signer-repo/);
 
   const controlFiles = functionBlock(gateSource, 'control_file_list', 'control_manifest');
+  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb']) {
+    assert.ok(controlFiles.includes(`'${required}'`), `runtime input missing from quality/export control: ${required}`);
+  }
   for (const forbidden of [
     '.github/workflows/chatwoot-integration.yml',
     '.github/workflows/deploy-managed.yml',
@@ -389,6 +413,21 @@ function validate(workflowSource, gateSource) {
     'tests/chatwoot-http-smoke.rb',
     'bundle exec sidekiq -C config/sidekiq.yml',
     'DOCKER_BUILDKIT=1 docker build --no-cache --pull --platform linux/amd64',
+    'test ! -e /app/tests/playwright',
+    'test ! -e /app/node_modules',
+    'test ! -e /usr/local/lib/node_modules/npm',
+    'test ! -e /usr/local/bin/npm',
+    'test ! -e /usr/local/bin/npx',
+    'openjpeg-2.5.4-r0',
+    'test ! -e /usr/lib/libopenjp2.so.2.5.2',
+    'Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}',
+    'ruby /contract/tests/verify_chatwoot_runtime_gems.rb /contract/config/chatwoot-runtime-gems.json',
+    'Rails.version == %q{7.2.3.2}',
+    'Gem.loaded_specs.fetch(%q{ruby-vips}).version.to_s == %q{2.2.1}',
+    '-ractive_storage/vips', 'ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}',
+    'Vips::Image.csvload(csv)', 'csvload: operation is blocked',
+
+
   ]) {
     assert.ok(gateSource.includes(required), `essential quality gate missing: ${required}`);
   }
@@ -424,6 +463,33 @@ assert.throws(
 );
 
 const mutations = [
+  [workflow.replace('--pkg-types os,library', '--pkg-types os'), gate],
+  [workflow.replace('--severity CRITICAL,HIGH', '--severity CRITICAL'), gate],
+  [workflow.replace('--ignore-unfixed=false', '--ignore-unfixed=true'), gate],
+  [workflow.replace('--exit-code 1', '--exit-code 0'), gate],
+  [workflow.replace('--config /dev/null sbom', '--config /repo/trivy.yaml sbom'), gate],
+  [workflow.replace('--distro alpine/3.21.3', '--distro alpine/3.22'), gate],
+  [workflow.replaceAll('trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682', 'trivy:latest'), gate],
+  [workflow.replace('.checksumValue == $digest', 'true'), gate],
+  [workflow.replace('.Class == "os-pkgs"', 'true'), gate],
+  [workflow.replace('.Class == "lang-pkgs"', 'true'), gate],
+  [workflow.replace('[[ "$scan_status" -eq 0 ]] || exit "$scan_status"', ':'), gate],
+  [workflow.replace('--exit-code 1', '--exit-code 1 --vex /some/vex.json'), gate],
+  [workflow.replace("      - 'config/chatwoot-runtime-gems.json'", ''), gate],
+  [workflow.replace("      - 'scripts/harden-chatwoot-runtime-gems.rb'", ''), gate],
+  [workflow, gate.replace("    'config/chatwoot-runtime-gems.json'", "    'config/missing-runtime.json'")],
+  [workflow, gate.replace("    'scripts/harden-chatwoot-runtime-gems.rb'", "    'scripts/missing-runtime.rb'")],
+  [workflow, gate.replace("    'tests/verify_chatwoot_runtime_gems.rb'", "    'tests/missing-runtime.rb'")],
+  [workflow, gate.replace('test ! -e /app/tests/playwright', ':')],
+  [workflow, gate.replace('test ! -e /app/node_modules', ':')],
+  [workflow, gate.replace('test ! -e /usr/local/lib/node_modules/npm', ':')],
+  [workflow, gate.replace('Rails.version == %q{7.2.3.2}', 'Rails.version == %q{7.2.2.2}')],
+  [workflow, gate.replace('version.to_s == %q{2.2.1}', 'version.to_s == %q{2.2.0}')],
+  [workflow, gate.replace('-ractive_storage/vips', '')],
+  [workflow, gate.replace('Vips::Image.csvload(csv)', 'Vips::Image.black(1, 1)')],
+  [workflow, gate.replace('ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}', 'true')],
+  [workflow, gate.replace('ruby /contract/tests/verify_chatwoot_runtime_gems.rb', 'ruby /contract/tests/not-run.rb')],
+  [workflow, gate.replace('Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}', 'Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.2}')],
   [workflow.replace('needs: quality', 'needs: []'), gate],
   [workflow.replace(
     `if [[ "$REQUEST_REF_TYPE" != 'branch' || "$REQUEST_REF" != 'refs/heads/main' ]]; then`,
@@ -483,3 +549,78 @@ for (const [index, [mutatedWorkflow, mutatedGate]] of mutations.entries()) {
 console.log(
   `Chatwoot managed publisher: PASS (${mutations.length} publisher + 2 post-entry negative controls)`,
 );
+
+// Execute the exact publisher shell with synthetic SPDX/reports and a Docker
+// stand-in. These are policy regressions, not a replacement for a real scan.
+function stepRun(source, name) {
+  const marker = `      - name: ${name}\n`;
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0);
+  const end = source.indexOf('\n      - name:', start + marker.length);
+  const step = source.slice(start, end < 0 ? source.length : end);
+  const runStart = step.indexOf('        run: |\n');
+  assert.ok(runStart >= 0);
+  return step.slice(runStart + '        run: |\n'.length)
+    .split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
+}
+const bindingRun = stepRun(workflow, 'SPDX SBOMの形式と上限を確認');
+const scanRun = stepRun(workflow, '固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認');
+const imageName = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
+const digest = 'sha256:' + 'a'.repeat(64);
+function sbomFixture() {
+  return { spdxVersion: 'SPDX-2.3', SPDXID: 'SPDXRef-DOCUMENT',
+    relationships: [{ spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-Image' }],
+    packages: [
+      { SPDXID: 'SPDXRef-Image', name: imageName, primaryPackagePurpose: 'CONTAINER',
+        versionInfo: 'sha256:' + 'b'.repeat(64), checksums: [{ algorithm: 'SHA256', checksumValue: 'a'.repeat(64) }] },
+      { SPDXID: 'SPDXRef-Alpine', name: 'alpine-baselayout', externalRefs: [
+        { referenceType: 'purl', referenceLocator: 'pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=x86_64&distro=alpine-3.21.3' },
+      ] },
+    ] };
+}
+function reportFixture() {
+  return { Metadata: { OS: { Family: 'alpine', Name: '3.21.3' } }, Results: [
+    { Class: 'os-pkgs', Packages: [{ Name: 'openjpeg', Version: '2.5.4-r0' }], Vulnerabilities: [] },
+    { Class: 'lang-pkgs', Packages: [{ Name: 'rails', Version: '7.2.3.2' }], Vulnerabilities: [] },
+  ] };
+}
+function executePolicy(label, change, expected) {
+  const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-sbom-policy-'));
+  try {
+    const sbom = sbomFixture(), report = reportFixture();
+    const settings = { scannerExit: 0 };
+    change(sbom, report, settings);
+    const bin = join(directory, 'bin'); mkdirSync(bin);
+    // GNU stat is used by Ubuntu; the stand-in keeps the exact shell portable.
+    writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\nset -eu\ncase "$1" in\n  pull) exit 0 ;;\n  run) cp "$TOYBACO_TEST_REPORT" "$RUNNER_TEMP/chatwoot-trivy-output/report.json"; exit "$TOYBACO_TEST_SCANNER_EXIT" ;;\n  *) exit 97 ;;\nesac\n', { mode: 0o755 });
+    writeFileSync(join(directory, 'toybaco-chatwoot.spdx.json'), JSON.stringify(sbom));
+    const reportPath = join(directory, 'scanner-report.json'); writeFileSync(reportPath, JSON.stringify(report));
+    const result = spawnSync('bash', ['-c', `${bindingRun}\n${scanRun}`], {
+      encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: directory,
+        IMAGE_DIGEST: digest, ECR_REPOSITORY: imageName,
+        TRIVY_IMAGE: 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682',
+        TOYBACO_TEST_REPORT: reportPath, TOYBACO_TEST_SCANNER_EXIT: String(settings.scannerExit) },
+    });
+    assert.equal(result.error, undefined, `${label}: ${result.error}`);
+    assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+executePolicy('exact digest; config versionInfo deliberately differs', () => {}, true);
+for (const [label, change] of [
+  ['wrong manifest checksum', sbom => { sbom.packages[0].checksums[0].checksumValue = 'c'.repeat(64); }],
+  ['versionInfo alone cannot bind manifest', sbom => { sbom.packages[0].versionInfo = digest; sbom.packages[0].checksums = []; }],
+  ['wrong repository', sbom => { sbom.packages[0].name = 'other/image'; }],
+  ['no described image', sbom => { sbom.relationships = []; }],
+  ['ambiguous described images', sbom => { sbom.relationships.push({ ...sbom.relationships[0], relatedSpdxElement: 'other' }); }],
+  ['wrong distro', sbom => { sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.22'; }],
+  ['distro prefix is not exact identity', sbom => { sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.21.30'; }],
+  ['missing OS coverage', (_sbom, report) => { report.Results.shift(); }],
+  ['missing language coverage', (_sbom, report) => { report.Results.pop(); }],
+  ['empty package scan', (_sbom, report) => { report.Results[0].Packages = []; }],
+  ['scanner failed despite empty findings', (_sbom, _report, settings) => { settings.scannerExit = 2; }],
+  ['unfixed High is still rejected', (_sbom, report) => { report.Results[1].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
+  ['Critical is rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL', FixedVersion: 'fixed' }]; }],
+]) executePolicy(label, change, false);
+console.log('Chatwoot exact SBOM/scan shell: PASS (1 positive / 13 negative controls; no external calls)');
