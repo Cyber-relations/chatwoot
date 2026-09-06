@@ -89,6 +89,7 @@ locals {
     { name = "FRONTEND_URL", value = "https://${local.app_fqdn}" },
     { name = "TOYBACO_DEPLOYMENT_ENVIRONMENT", value = var.deployment_environment },
     { name = "TOYBACO_STRIPE_MODE", value = local.is_production ? "live" : "test" },
+    { name = "TOYBACO_STRIPE_PORTAL_CONFIGURATION", value = var.stripe_portal_configuration },
     { name = "DEFAULT_LOCALE", value = "ja" },
     { name = "TZ", value = "Asia/Tokyo" },
     { name = "ENABLE_ACCOUNT_SIGNUP", value = "false" },

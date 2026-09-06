@@ -106,4 +106,69 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     expect(response).to have_http_status(:conflict)
     expect(response.parsed_body['message']).to include('未払い', 'お支払い方法・請求履歴')
   end
+
+  describe 'Toybaco専用のお支払いポータル' do
+    around do |example|
+      original = ENV.fetch('TOYBACO_STRIPE_PORTAL_CONFIGURATION', nil)
+      ENV.delete('TOYBACO_STRIPE_PORTAL_CONFIGURATION')
+      example.run
+    ensure
+      if original
+        ENV['TOYBACO_STRIPE_PORTAL_CONFIGURATION'] = original
+      else
+        ENV.delete('TOYBACO_STRIPE_PORTAL_CONFIGURATION')
+      end
+    end
+
+    it 'サーバー指定の専用configurationと契約のcustomerだけをStripeの実POST引数へ渡す' do
+      ENV['TOYBACO_STRIPE_PORTAL_CONFIGURATION'] = 'bpc_ToybacoFixture'
+      subscription = stub_request(:get, 'https://api.stripe.com/v1/subscriptions/sub_fixture')
+                     .to_return(status: 200, body: { customer: 'cus_owned' }.to_json)
+      portal = stub_request(:post, 'https://api.stripe.com/v1/billing_portal/sessions')
+               .with(body: { 'configuration' => 'bpc_ToybacoFixture', 'customer' => 'cus_owned',
+                             'return_url' => 'https://www.example.com/' })
+               .to_return(status: 200, body: { url: 'https://billing.stripe.com/p/session/fixture' }.to_json)
+      post "/toybaco/billing/portal?account_id=#{account.id}",
+           params: { configuration: 'bpc_Attacker', customer: 'cus_other' }, headers: headers, as: :json
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to eq('url' => 'https://billing.stripe.com/p/session/fixture')
+      expect(subscription).to have_been_requested.once
+      expect(portal).to have_been_requested.once
+    end
+
+    it '専用configurationが未設定・空・不正なら共有defaultへ進まずStripeを一度も呼ばない' do
+      expect(Net::HTTP).not_to receive(:start)
+      [nil, '', ' ', 'bpc_', 'cs_other', 'bpc_valid/other', "bpc_valid\n"].each do |configuration|
+        if configuration
+          ENV['TOYBACO_STRIPE_PORTAL_CONFIGURATION'] = configuration
+        else
+          ENV.delete('TOYBACO_STRIPE_PORTAL_CONFIGURATION')
+        end
+        post "/toybaco/billing/portal?account_id=#{account.id}", headers: headers, as: :json
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body).to eq('error' => 'not_available')
+      end
+    end
+
+    it '専用configurationがあっても別originや一般メンバーのポータル発行は拒否する' do
+      ENV['TOYBACO_STRIPE_PORTAL_CONFIGURATION'] = 'bpc_ToybacoFixture'
+      expect(Net::HTTP).not_to receive(:start)
+      post "/toybaco/billing/portal?account_id=#{account.id}", headers: headers.merge('Origin' => 'https://other.invalid'), as: :json
+      expect(response).to have_http_status(:forbidden)
+      user.account_users.find_by!(account: account).update!(role: :agent)
+      post "/toybaco/billing/portal?account_id=#{account.id}", headers: headers, as: :json
+      expect(response).to have_http_status(:forbidden)
+    end
+
+    it '専用configurationが未設定でも既存のプラン変更見積と期間末解約を妨げない' do
+      expect(service).to receive(:preview).with(selection, user_id: user.id).and_return(quote)
+      change('preview', selection)
+      expect(response).to have_http_status(:ok)
+      expect(service).to receive(:cancel_subscription).with(reservation_token: 'owned-reservation').and_return('status' => 'cancel_at_period_end')
+      post "/toybaco/billing/cancel?account_id=#{account.id}",
+           params: { reservation_token: 'owned-reservation' }, headers: headers, as: :json
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to eq('status' => 'cancel_at_period_end')
+    end
+  end
 end

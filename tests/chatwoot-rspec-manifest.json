@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 117,
-  "examples_sha256": "d8c46969101b67096ddfdc182d14e0f2db2e34a98a35d5c7c810a17da4ef6084",
+  "example_count": 121,
+  "examples_sha256": "1dd21a1ac00365163bb21569a96ab80c70bf8d6d21a973776cf0407d8179fb0e",
   "spec_files": [
     "spec/lib/toybaco/ai_usage_database_spec.rb",
     "spec/lib/toybaco/checkout/plan_change_lock_spec.rb",
