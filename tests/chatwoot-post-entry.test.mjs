@@ -1231,6 +1231,7 @@ function fireSlashKey(api, editor, key, extra = {}) {
 }
 
 function aiModeAwareFetch(url, opts) {
+  if (String(url).includes('/ai_usage')) return Promise.resolve(usageResponse());
   const href = String(url);
   if (href.includes('/ai_readiness')) return Promise.resolve(readinessResponse());
   if (href.includes('/ai_reply_mode')) {
@@ -1824,6 +1825,105 @@ function usageResponse(overrides = {}) {
   return { ok: true, json: async () => usageBody(overrides) };
 }
 
+function createAiContractEnv(usageHandler, connection = {}) {
+  const calls = [];
+  const env = loadInjectEntry((url, opts) => {
+    if (String(url).includes('/ai_readiness')) return Promise.resolve(readinessResponse(connection));
+    if (!String(url).includes('/ai_usage')) return aiModeAwareFetch(url, opts);
+    calls.push({ url: String(url), opts });
+    return usageHandler(url, opts, calls.length);
+  });
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  env.aiBar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
+  env.contractCalls = calls;
+  return env;
+}
+
+for (const connection of [
+  { connection: 'unconnected', configured_inboxes: 0 },
+  { connection: 'configured', configured_inboxes: 1 },
+]) {
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 })), connection);
+  await flush();
+  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
+  assert.match(collectText(env.aiBar), /保存された設定：全自動（現在のご契約では適用されません）/);
+  assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
+  assert.equal(env.api.currentAiMode(), 'auto', 'contract denial must retain the saved setting');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  await env.api.saveAiMode('draft');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
+  env.api.inject(); env.api.inject();
+  assert.equal(env.contractCalls.length, 1, 'DOM updates must not poll contract usage');
+  assert.equal(env.contractCalls[0].opts.credentials, 'same-origin');
+  assert.equal(env.contractCalls[0].opts.cache, 'no-store');
+  assert.equal(env.contractCalls[0].opts.method || 'GET', 'GET');
+  env.api.openAiModePanel();
+  await flush();
+  assert.match(collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]')), /現在のご契約にはAI応答が含まれていません/);
+}
+
+{
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse()), { connection: 'unconnected', configured_inboxes: 0 });
+  await flush();
+  assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません|適用されません/);
+}
+
+for (const reason of ['unknown_contract', 'account_inactive']) {
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason, limit: 0, remaining: 0 })));
+  await flush();
+  assert.match(collectText(env.aiBar), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+}
+
+{
+  const read = deferred();
+  let recover = false;
+  const env = createAiContractEnv(() => recover ? Promise.resolve(usageResponse()) : read.promise);
+  await flush();
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'Bot + saved mode cannot enable controls before contract readback');
+  assert.match(collectText(env.aiBar), /AI応答の利用条件を確認しています/);
+  read.resolve({ ok: false, status: 503 });
+  await flush();
+  assert.match(collectText(env.aiBar), /AI応答の利用条件を取得できませんでした/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
+  assert.equal(env.api.currentAiMode(), 'auto');
+  env.api.inject();
+  assert.equal(env.contractCalls.length, 1);
+  recover = true;
+  const retry = env.aiBar.querySelector('[data-toybaco-ai-retry]');
+  fireClick(retry); fireClick(retry);
+  await flush();
+  assert.equal(env.contractCalls.length, 2, 'simultaneous explicit retries share one GET');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+}
+
+{
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse({ used: 500, reserved: 0, remaining: 0, reason: 'limit_reached' })));
+  await flush();
+  assert.match(collectText(env.aiBar), /利用できる残り枠がありません/);
+  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'quota exhaustion does not remove the contract or its saved-mode controls');
+}
+
+{
+  const accountA = deferred();
+  const accountB = deferred();
+  const env = createAiContractEnv(url => String(url).endsWith('=1') ? accountA.promise : accountB.promise);
+  env.window.location.pathname = '/app/accounts/2/inbox';
+  env.api.inject();
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  accountB.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 }));
+  await flush();
+  accountA.resolve(usageResponse());
+  await flush();
+  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'late enabled A must not enable disabled B');
+  assert.equal(env.contractCalls.length, 2);
+}
+
 function createAiUsageEnv(handler, options = {}) {
   const calls = [];
   const env = loadInjectEntry((url, opts) => {
@@ -1834,7 +1934,7 @@ function createAiUsageEnv(handler, options = {}) {
   const { box } = createComposer();
   env.body.appendChild(box);
   env.api.inject();
-  assert.equal(calls.length, 0, 'DOM injection must not fetch usage before its panel opens');
+  assert.equal(calls.length, 1, 'the composer must read contract rights once before enabling AI controls');
   env.api.openAiModePanel();
   env.usageCard = env.document.querySelector('[data-toybaco-ai-usage]');
   env.usageCalls = calls;
@@ -1855,6 +1955,12 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(env.usageCalls[0].url, '/toybaco/ai_usage?account_id=1');
   assert.equal(env.usageCalls[0].opts.credentials, 'same-origin');
   assert.equal(env.usageCalls[0].opts.cache, 'no-store');
+  const heading = env.usageCard.querySelector('[data-toybaco-ai-usage-heading]');
+  let headingText = heading.textContent;
+  let headingWrites = 0;
+  Object.defineProperty(heading, 'textContent', { get() { return headingText; }, set(value) { headingWrites += 1; headingText = value; } });
+  env.api.inject(); env.api.inject();
+  assert.equal(headingWrites, 0, 'an in-flight contract read must not rewrite usage text on DOM mutation and trigger another observer pass');
   await flush();
   assert.equal(env.api.currentAiMode(), 'auto', 'mode confirmation is independent of usage loading');
   read.resolve(usageResponse());
@@ -1926,6 +2032,7 @@ for (const invalid of [
   await flush();
   assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'malformed usage must not enable composer mode changes');
   assert.doesNotMatch(collectText(env.usageCard), /unexpected_code|invalid/);
 }
 
