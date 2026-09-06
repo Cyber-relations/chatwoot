@@ -170,6 +170,12 @@ jobs:
             echo '::error::buildx metadata digestが不正です。'
             exit 1
           }
+          # A registry index has a different digest from its platform manifest.
+          # This single-platform publisher binds one manifest through every gate.
+          manifest_json="$(docker buildx imagetools inspect "$ECR_REPOSITORY@$digest" --raw)"
+          jq -e '.schemaVersion == 2 and .manifests == null and
+            (.config.digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.layers | type == "array" and length > 0)' <<<"$manifest_json" >/dev/null
           image_json="$(docker buildx imagetools inspect "$ECR_REPOSITORY@$digest" --format '{{json .Image}}')"
           jq -e \
             --arg base "$CHATWOOT_BASE_IMAGE" \
@@ -264,7 +270,7 @@ jobs:
           SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP: 'false'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.22.2
         with:
-          image: ${{ steps.build.outputs.image_uri }}
+          image: registry:${{ steps.build.outputs.image_uri }}
           format: spdx-json
           output-file: ${{ runner.temp }}/toybaco-chatwoot.spdx.json
           syft-version: v1.51.1
@@ -285,15 +291,16 @@ jobs:
           jq -e '.spdxVersion == "SPDX-2.3" and (.SPDXID | type == "string") and
             ((.packages // []) | length > 0)' "$sbom" >/dev/null
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          # Syft's container versionInfo can be the config digest. Its SHA256
-          # checksum is the manifest digest used by buildx and both attestations.
+          # Read the registry manifest directly. Docker daemon sources can
+          # reconstruct a different manifest from an archive of the same image.
+          # Both the requested digest and cataloged manifest must match buildx.
           jq -e --arg image "$ECR_REPOSITORY" --arg digest "${IMAGE_DIGEST#sha256:}" '
             . as $document |
             [.relationships[] | select(.spdxElementId == $document.SPDXID and
               .relationshipType == "DESCRIBES") | .relatedSpdxElement] as $roots |
             ($roots | length == 1) and
             ([.packages[] | select(.SPDXID == $roots[0] and .name == $image and
-              .primaryPackagePurpose == "CONTAINER") |
+              .primaryPackagePurpose == "CONTAINER" and .versionInfo == ("sha256:" + $digest)) |
               select(any(.checksums[]; .algorithm == "SHA256" and .checksumValue == $digest))] | length == 1) and
             any(.packages[].externalRefs[]?; .referenceType == "purl" and
               (.referenceLocator | startswith("pkg:apk/alpine/")) and
