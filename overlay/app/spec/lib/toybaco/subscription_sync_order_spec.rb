@@ -179,4 +179,69 @@ RSpec.describe Toybaco::SubscriptionSync do
     expect(accounts).to be_empty
     expect(state[:reads]).to be_empty
   end
+
+  it 'メール未開通の保存がDNS待ち中に確定した解約と利用停止を巻き戻さない' do
+    provision
+    account = accounts.first
+    account.update!(internal_attributes: account.internal_attributes.except('toybaco_inbound_email'))
+    stale_pid = Account.connection.select_value('SELECT pg_backend_pid()')
+    allow(Toybaco::InboundEmail).to receive(:resolve_mx) do
+      latest['status'] = 'canceled'
+      synchronize_with_deadline
+      expect(state[:reads].last[:pid]).not_to eq(stale_pid)
+      []
+    end
+
+    expect { Toybaco::InboundEmail.provision!(account) }.to raise_error(Toybaco::InboundEmail::NotReady)
+    saved = account.reload
+    expect(saved.status).to eq('suspended')
+    expect(saved.internal_attributes).to include('toybaco_subscription_status' => 'canceled', 'toybaco_billing_suspended' => true)
+    expect(saved.internal_attributes.dig('postiz', 'enabled')).to be(false)
+    expect(saved.internal_attributes.dig('toybaco_inbound_email', 'status')).to eq('blocked')
+    expect(saved.inboxes.count).to eq(0)
+  end
+
+  [false, true].each do |existing_inbox|
+    it "メール受信箱の#{existing_inbox ? '再開通' : '初回開通'}がDNS待ち中の契約変更と機能フラグを巻き戻さない" do
+      provision
+      account = accounts.first
+      if existing_inbox
+        allow(Toybaco::InboundEmail).to receive(:resolve_mx).and_return([Toybaco::InboundEmail::TOKYO_MX])
+        Toybaco::InboundEmail.provision!(account)
+        allow(Toybaco::InboundEmail).to receive(:resolve_mx).and_return([])
+        expect { Toybaco::InboundEmail.provision!(account) }.to raise_error(Toybaco::InboundEmail::NotReady)
+      end
+      stale_pid = Account.connection.select_value('SELECT pg_backend_pid()')
+      allow(Toybaco::InboundEmail).to receive(:resolve_mx) do
+        light = Toybaco::PlanCatalog.default.sale('light', 'month')
+        latest.fetch('items').fetch('data').first['price'] = {
+          'id' => 'price_orderlight', 'currency' => 'jpy', 'unit_amount' => light.dig('cycles', 'month', 'amount'),
+          'recurring' => { 'interval' => 'month', 'interval_count' => 1 },
+          'metadata' => { 'toybaco_plan' => 'light', 'toybaco_plan_version' => light['plan_version'] }
+        }
+        synchronize_with_deadline
+        expect(state[:reads].last[:pid]).not_to eq(stale_pid)
+        [Toybaco::InboundEmail::TOKYO_MX]
+      end
+
+      result = Toybaco::InboundEmail.provision!(account)
+      saved = account.reload
+      expect(result[:created]).to eq(!existing_inbox)
+      expect(saved.status).to eq('active')
+      expect(saved.internal_attributes).to include(
+        'toybaco_plan' => 'light', 'toybaco_subscription_status' => 'active',
+        'toybaco_contract' => include('entitlements' => include('features' => include('ai_reply' => false))),
+        'postiz' => include('enabled' => false), 'toybaco_inbound_email' => include('status' => 'ready')
+      )
+      expect(instagram: saved.feature_enabled?('channel_instagram'), inbound: saved.feature_enabled?('inbound_emails'))
+        .to eq(instagram: false, inbound: true)
+      expect(saved.inboxes.count).to eq(1)
+    end
+  end
+
+  def synchronize_with_deadline
+    worker, = start_sync
+    raise Timeout::Error, 'subscription sync did not complete before mailbox write' unless worker.join(10)
+    raise worker.value if worker.value.is_a?(Exception)
+  end
 end
