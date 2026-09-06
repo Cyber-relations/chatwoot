@@ -60,6 +60,32 @@ class ToybacoAiUsageTest < Minitest::Test
     assert_equal 0, usage.summary['remaining']
   end
 
+  def test_zero_allowance_denies_without_creating_a_reservation_or_changing_the_contract
+    @account.internal_attributes['toybaco_contract']['entitlements']['limits']['ai_replies'] = 0
+    original = Marshal.load(Marshal.dump(@account.internal_attributes))
+    summary = usage.summary
+    assert_equal [true, 0, 0, 'limit_reached'], summary.values_at('enabled', 'limit', 'remaining', 'reason')
+    assert_equal 'denied', usage.reserve(@message)['result']
+    assert_equal original, @account.internal_attributes
+    assert_equal({ 'other' => 'preserved' }, @message.content_attributes)
+  end
+
+  def test_unlimited_allowance_keeps_usage_and_deduplication_without_an_invented_cap
+    @account.internal_attributes['toybaco_contract']['entitlements']['limits']['ai_replies'] = nil
+    @account.internal_attributes['toybaco_ai_usage'] = {
+      'schema_version' => 1, 'periods' => { '2026-09' => { 'used' => 1_000_000, 'reservations' => {} } }
+    }
+    reserved = usage.reserve(@message)
+    assert_equal 'reserved', reserved['result']
+    assert_nil reserved['limit']
+    assert_nil reserved['remaining']
+    assert_equal 1, reserved['reserved']
+    assert_equal 'consumed', usage.settle(@message, token: reserved['token'], outcome: 'consumed')['result']
+    assert_equal 'duplicate', usage.reserve(@message)['result']
+    assert_equal [1_000_001, 0, nil, nil], usage.summary.values_at('used', 'reserved', 'limit', 'remaining')
+    assert_nil @account.internal_attributes.dig('toybaco_contract', 'entitlements', 'limits', 'ai_replies')
+  end
+
   def test_same_message_concurrently_is_reserved_once
     replies = Queue.new
     threads = 5.times.map { Thread.new { replies << usage.reserve(@message)['result'] } }

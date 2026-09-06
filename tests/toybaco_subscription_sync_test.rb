@@ -3,15 +3,18 @@
 require 'minitest/autorun'
 require 'monitor'
 require_relative '../overlay/app/lib/toybaco/subscription_sync'
+require_relative '../overlay/app/lib/toybaco/agent_seat_limit'
+require_relative '../overlay/app/lib/toybaco/ai_usage'
 
 class ToybacoSubscriptionSyncTest < Minitest::Test
   class Account
-    attr_accessor :internal_attributes, :status, :features
+    attr_accessor :internal_attributes, :status, :features, :account_users
     attr_reader :lock
     def initialize(contract)
       @internal_attributes = { 'toybaco_contract' => contract, 'toybaco_subscription_id' => 'sub_fixture',
                                'postiz' => { 'enabled' => true, 'organization_id' => 'keep' } }
       @features = {}
+      @account_users = []
       @status = 'active'
       @lock = Monitor.new
     end
@@ -22,13 +25,18 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     def update!(attrs) = attrs.each { |key, value| public_send("#{key}=", value) }
   end
 
+  Message = Struct.new(:content_attributes) do
+    def with_lock = yield
+    def update!(content_attributes:) = self.content_attributes = content_attributes
+  end
+
   def contract(plan = 'standard')
     terms = Toybaco::PlanCatalog.default.sale(plan, 'month')
     Toybaco::Entitlements.snapshot_for(terms, cycle: 'month')
   end
 
-  def subscription(plan: 'standard', status: 'active', price_id: 'price_standard')
-    terms = Toybaco::PlanCatalog.default.sale(plan, 'month')
+  def subscription(plan: 'standard', status: 'active', price_id: 'price_standard', catalog: Toybaco::PlanCatalog.default)
+    terms = catalog.sale(plan, 'month')
     { 'id' => 'sub_fixture', 'status' => status, 'cancel_at_period_end' => false,
       'items' => { 'data' => [{ 'id' => 'si_fixture', 'quantity' => 1, 'price' => {
         'id' => price_id, 'currency' => 'jpy', 'unit_amount' => terms.dig('cycles', 'month', 'amount'),
@@ -92,6 +100,62 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: Toybaco::PlanCatalog.new(data))
     sync
     assert_nil stored.dig('entitlements', 'limits', 'agents')
+  end
+
+  def test_future_plan_syncs_renamed_terms_and_new_feature_combination_then_keeps_purchased_limits
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    future = Marshal.load(Marshal.dump(data['plans']['pro']['versions'].values.first))
+    future['name'] = '季節店舗プラン'
+    future['entitlements']['features'] = { 'channel_instagram' => false, 'posting' => true, 'ai_reply' => true }
+    future['entitlements']['limits'].merge!('agents' => 4, 'ai_replies' => 3)
+    data['plans']['seasonal'] = { 'versions' => { 'future-v1' => future } }
+    data['current_versions']['seasonal'] = 'future-v1'
+    catalog = Toybaco::PlanCatalog.new(data)
+    @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: catalog)
+    @latest = subscription(plan: 'seasonal', price_id: 'price_seasonal', catalog: catalog)
+
+    assert_equal 'applied', sync
+    assert_equal ['seasonal', 'future-v1', '季節店舗プラン'], stored.values_at('plan_id', 'plan_version', 'name')
+    assert_equal future['entitlements']['features'], Toybaco::Entitlements.for_account(@account)['features']
+    assert_equal false, @account.features['channel_instagram']
+    assert_equal true, @account.internal_attributes.dig('postiz', 'enabled')
+    [3, 4, 5].each do |count|
+      @account.account_users = Array.new(count)
+      payload = Toybaco::AgentSeatLimit.payload(@account)
+      assert_equal [4, count, count >= 4], payload.values_at('limit', 'count', 'at_limit')
+      assert_equal count >= 4, Toybaco::AgentSeatLimit.at_limit?(@account)
+      assert_equal '利用は4名まで', payload['title']
+    end
+
+    usage = Toybaco::AiUsage.new(@account, now: Time.iso8601('2026-09-10T12:00:00+09:00'))
+    3.times do |index|
+      message = Message.new({})
+      reservation = usage.reserve(message)
+      assert_equal 'reserved', reservation['result']
+      assert_equal 2 - index, reservation['remaining']
+      assert_equal 'consumed', usage.settle(message, token: reservation['token'], outcome: 'consumed')['result']
+    end
+    assert_equal 'denied', usage.reserve(Message.new({}))['result']
+    purchased = Marshal.load(Marshal.dump(stored))
+
+    revised = Marshal.load(Marshal.dump(future))
+    revised['name'] = '改定後の店舗プラン'
+    revised['entitlements']['features'] = { 'channel_instagram' => true, 'posting' => false, 'ai_reply' => true }
+    revised['entitlements']['limits'].merge!('agents' => 1, 'ai_replies' => 1)
+    revised['cycles']['month']['amount'] += 1000
+    data['plans']['seasonal']['versions']['future-v2'] = revised
+    data['current_versions']['seasonal'] = 'future-v2'
+    catalog = Toybaco::PlanCatalog.new(data)
+    assert_equal revised['name'], catalog.sale('seasonal', 'month')['name']
+    @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: catalog)
+
+    assert_equal 'applied', sync
+    assert_equal purchased, stored
+    assert_equal 4, Toybaco::AgentSeatLimit.limit_for(@account)
+    assert_equal false, @account.features['channel_instagram']
+    assert_equal true, @account.internal_attributes.dig('postiz', 'enabled')
+    assert_equal [3, 3, 0], usage.summary.values_at('limit', 'used', 'remaining')
+    assert_equal 'denied', usage.reserve(Message.new({}))['result']
   end
 
   def test_archived_inline_price_binds_from_product_metadata_without_requiring_new_sale_fields
@@ -274,6 +338,49 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     @latest['status'] = 'canceled'
     sync
     assert_equal 'suspended', @account.status
+  end
+
+  def test_invalid_new_base_price_preserves_snapshot_manual_store_and_effective_rights
+    manual = Toybaco::Entitlements.new_addon('opt-store', quantity: 1, source: 'manual').merge('account_id' => 42)
+    @account.internal_attributes['toybaco_contract']['addons'] = [manual]
+    sync
+    purchased = Marshal.load(Marshal.dump(stored))
+    features = @account.features.dup
+    postiz = @account.internal_attributes['postiz'].dup
+    invalid = {
+      unknown_version: ->(price) { price['metadata'] = { 'toybaco_plan_version' => 'unpublished' } },
+      missing_id: ->(price) { price.delete('id') },
+      empty_id: ->(price) { price['id'] = '' },
+      wrong_amount: ->(price) { price['unit_amount'] += 1 },
+      missing_amount: ->(price) { price.delete('unit_amount') },
+      wrong_currency: ->(price) { price['currency'] = 'usd' },
+      wrong_cycle: ->(price) { price['recurring']['interval'] = 'year' },
+      multiple_intervals: ->(price) { price['recurring']['interval_count'] = 2 }
+    }
+    invalid.each do |reason, mutate|
+      @latest = subscription(plan: 'pro', price_id: 'price_newpro')
+      mutate.call(@latest.dig('items', 'data', 0, 'price'))
+      assert_equal 'needs_review', sync, reason.to_s
+      assert_equal purchased, stored, reason.to_s
+      assert_equal features, @account.features, reason.to_s
+      assert_equal postiz, @account.internal_attributes['postiz'], reason.to_s
+      assert_equal [manual], @account.internal_attributes['toybaco_contract_addons'], reason.to_s
+      assert @account.active?, reason.to_s
+      assert_equal true, @account.internal_attributes['toybaco_billing_review'], reason.to_s
+    end
+  end
+
+  def test_incomplete_item_list_does_not_apply_even_a_known_base_price
+    sync
+    original = Marshal.load(Marshal.dump(@account.internal_attributes))
+    features = @account.features.dup
+    @latest = subscription(plan: 'pro', price_id: 'price_newpro')
+    @latest['items']['has_more'] = true
+
+    assert_raises(Toybaco::SubscriptionSync::Unresolved) { sync }
+    assert_equal original, @account.internal_attributes
+    assert_equal features, @account.features
+    assert @account.active?
   end
 
   def test_unversioned_first_binding_does_not_promote_legacy_ai_terms
