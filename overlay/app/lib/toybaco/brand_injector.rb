@@ -9,7 +9,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # 標準の Rails HTML 応答経路でブランド資産と投稿入口を読み込む。
   # InstallationConfig や手動 rake に依存しないため、新環境でも起動直後から有効になる。
   class BrandInjector
-    TAG = '<link rel="stylesheet" href="/toybaco-brand.css">'
+    BRAND_ASSET_PATH = File.expand_path('../../public/toybaco-brand.css', __dir__).freeze
+    BRAND_ASSET_DIGEST = Digest::SHA256.file(BRAND_ASSET_PATH).hexdigest.freeze
+    # 再現可能buildのmtimeは固定なので、Last-Modifiedではなく内容でcacheを更新する。
+    TAG = %(<link rel="stylesheet" href="/toybaco-brand.css?v=#{BRAND_ASSET_DIGEST}">).freeze
     SUPERADMIN_TAG = '<link rel="stylesheet" href="/toybaco-superadmin.css">'
     POST_ENTRY_ASSET_PATH = File.expand_path('../../public/brand-assets/toybaco-post-entry.js', __dir__).freeze
     POST_ENTRY_ASSET_DIGEST = Digest::SHA256.file(POST_ENTRY_ASSET_PATH).hexdigest.freeze
