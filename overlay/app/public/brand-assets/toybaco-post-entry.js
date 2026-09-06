@@ -871,13 +871,24 @@
     return '';
   }
 
+  function isNativePrimaryChild(node, list) {
+    var row = node;
+    while (row && row.parentElement !== list) row = row.parentElement;
+    if (!row || row === node) return false;
+    var kind = primaryNavKind(row);
+    return kind === 'settings' || kind === 'reports';
+  }
+
   function hideLeftoverTrees() {
     try {
       var nav = document.querySelector('aside nav');
       if (!nav || !nav.querySelectorAll) return;
+      var list = primaryNavList();
       var nodes = nav.querySelectorAll('li, a, [role="button"], button, div[title], span');
       for (var i = 0; i < nodes.length; i += 1) {
         var node = nodes[i];
+        // 設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
+        if (isNativePrimaryChild(node, list)) continue;
         if (isToybacoNavRow(node)) continue;
         if (!nodeTitleOrLeaf(node)) continue;
         var row = node;
@@ -943,11 +954,11 @@
         row.setAttribute('data-toybaco-primary-nav', kind);
       }
       link.setAttribute('data-toybaco-nav-link', kind);
-      if (link.tagName === 'A') {
+      if (link.tagName === 'A' && kind === 'inbox') {
         var dest = primaryNavDestination(kind, id);
         link.setAttribute('href', dest);
         link.href = dest;
-      } else if (!link.getAttribute('data-toybaco-nav-keyboard')) {
+      } else if (link.tagName !== 'A' && !link.getAttribute('data-toybaco-nav-keyboard')) {
         link.setAttribute('tabindex', '0');
         link.setAttribute('data-toybaco-nav-keyboard', '1');
         link.addEventListener('keydown', function (event) {
@@ -955,7 +966,9 @@
           event.preventDefault();
           event.stopPropagation();
           if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-          navigatePrimaryNav(this.getAttribute('data-toybaco-nav-link'));
+          var kind = this.getAttribute('data-toybaco-nav-link');
+          if (kind === 'inbox') navigatePrimaryNav(kind);
+          else this.click();
         }, true);
       }
     }
@@ -1734,7 +1747,15 @@
       var t = e.target || e.srcElement;
       var navLink = closestAttr(t, 'data-toybaco-nav-link');
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
-      if (navKind === 'inbox' || navKind === 'reports' || navKind === 'settings') {
+      if (navKind === 'reports' || navKind === 'settings') {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        closeAiModePanel();
+        closeBillingPanel();
+        closePanel();
+        // native clickが権限内の初期ページと子メニューの開閉を決める。
+        return;
+      }
+      if (navKind === 'inbox') {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();

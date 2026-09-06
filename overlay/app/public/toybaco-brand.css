@@ -430,10 +430,14 @@ select:focus {
 
 /* 一次ナビ正本: 会話 / 投稿 / ご契約内容 / レポート / 設定。
  * 在庫グループ(連絡先/キャンペーン/ヘルプ/Captain/通話/企業)と
- * 会話データ・設定サブツリーは客面のグローバル左ナビから消す。
- * レポートと設定の親は残す。設定画面の内側一覧は設定ページ側に任せる。
+ * 会話データは客面のグローバル左ナビから消す。
+ * レポートと設定の子導線は、元の権限判定・展開状態を保って表示する。
  * グループ親は to が無く title + lucide。href は展開後の子にしか付かない。
  * `ul > li` だけだと Policy の根や入れ子 ul で外れるので aside nav を広く取る。 */
+aside nav {
+  min-height: 0;
+}
+
 aside nav ul,
 aside nav > ul {
   display: flex;
@@ -462,8 +466,8 @@ aside nav > ul > li[data-toybaco-nav-duplicate="1"] {
   display: none !important;
 }
 
-/* 展開した設定サブツリー・レポート子・会話フォルダはグローバル左ナビに出さない */
-aside nav > ul > li ul {
+/* 設定・レポート以外の子ツリーは非表示。必要な子導線の開閉は元のナビに任せる。 */
+aside nav > ul > li:not([data-toybaco-primary-nav="settings"]):not([data-toybaco-primary-nav="reports"]) ul {
   display: none !important;
 }
 
