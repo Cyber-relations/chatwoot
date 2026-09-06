@@ -582,7 +582,7 @@
       for (var i = 0; i < links.length; i += 1) {
         var link = links[i];
         var kind = link.getAttribute('data-toybaco-nav-link');
-        var on = kind === selected;
+        var on = kind === selected && !closestAttr(link, 'data-toybaco-nav-duplicate');
         link.setAttribute('data-toybaco-nav-current', on ? 'true' : 'false');
         // 注入行はVue Routerの選択classを引き継がない。
         if (kind === 'posting' || kind === 'billing') {
@@ -934,7 +934,14 @@
       if (!kind) continue;
       var link = rowInner(row);
       if (!link) continue;
-      row.setAttribute('data-toybaco-primary-nav', kind);
+      // 通知用Inboxと会話グループが共存する。子のルーターリンクは残して親だけ1件にする。
+      if (kind === 'inbox' && row !== sample.li) {
+        row.setAttribute('data-toybaco-nav-duplicate', '1');
+        row.removeAttribute('data-toybaco-primary-nav');
+      } else {
+        row.removeAttribute('data-toybaco-nav-duplicate');
+        row.setAttribute('data-toybaco-primary-nav', kind);
+      }
       link.setAttribute('data-toybaco-nav-link', kind);
       if (link.tagName === 'A') {
         var dest = primaryNavDestination(kind, id);
@@ -1017,6 +1024,7 @@
     // 再描画時に自分自身を「先頭の標準行」と誤認しない。
     // 会話行を優先する。settings/templates やご契約を手本にしない。
     var kids = ul.children || [];
+    var inboxRow = null;
     var fallback = null;
     var i;
     for (i = 0; i < kids.length; i += 1) {
@@ -1024,9 +1032,13 @@
       if (!row || isToybacoNavRow(row) || !rowInner(row)) continue;
       if (row.getAttribute && row.getAttribute('data-toybaco-stock-hidden') === '1') continue;
       if (isContractOrSettingsRow(row)) continue;
-      if (isInboxSample(row)) return row;
+      if (isInboxSample(row)) {
+        // 会話ツリーの親を通知用リンクより優先。再描画で親が消えたら残った入口へ戻す。
+        if (!inboxRow || (primaryNavKind(row) === 'inbox' && rowInner(row).tagName !== 'A')) inboxRow = row;
+      }
       if (!fallback) fallback = row;
     }
+    if (inboxRow) return inboxRow;
     if (fallback) return fallback;
     var li = null;
     try {
