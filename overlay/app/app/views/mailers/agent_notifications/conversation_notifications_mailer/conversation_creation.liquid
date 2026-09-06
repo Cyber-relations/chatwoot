@@ -1,0 +1,30 @@
+<p>{{user.available_name}} 様</p>
+
+<p>
+  {{ inbox.name }} に新しい会話（<a href="{{ action_url }}">#{{conversation.display_id}}</a>）が作成されました。
+  <strong>{{ conversation.contact_name }}</strong> 様からのメッセージです。
+</p>
+
+{% for chat_message in conversation.recent_messages %}
+  <div>
+    <h4 style="margin: 0;">
+      {% if chat_message.sender == user.available_name %}
+        あなた
+      {% else %}
+        {{chat_message.sender}}
+      {% endif %}
+    </h4>
+  </div>
+
+  <div style="padding: 10px 20px; margin: 5px 0 20px 0; background: #F2F3F7; border-radius: 10px; display: inline-block; font-family: 'Helvetica Neue',Tahoma,Arial,sans-serif; text-align: start; unicode-bidi: plaintext;">
+    {% if chat_message.content %}
+      {{chat_message.content}}
+    {% endif %}
+
+    {% if chat_message.attachments %}
+      {% for attachment in chat_message.attachments %}
+        添付ファイル [<a href="{{ attachment }}" _target="blank">表示する</a>]
+      {% endfor %}
+    {% endif %}
+  </div>
+{% endfor %}

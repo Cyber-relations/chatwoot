@@ -661,7 +661,7 @@ assert.ok(
   );
 }
 
-// Postiz control snapshot は post-entry.js だけを持ち、brand CSS は含めない。
+// Postiz control snapshot は brand CSS を含めない。
 const brandCssPath = path.join(root, 'overlay/app/public/toybaco-brand.css');
 if (fs.existsSync(brandCssPath)) {
   const brandCss = fs.readFileSync(brandCssPath, 'utf8');
@@ -2065,6 +2065,150 @@ for (const invalid of [
   stalled.resolve(usageResponse());
   await flush();
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '', 'a late timed-out response cannot restore stale usage');
+}
+
+// The stock settings header count changes only after the agents store accepts a save/delete.
+// Exercise the shipped seat script through DOM observers and native navigation events.
+const seatPath = path.join(root, 'overlay/app/public/brand-assets/toybaco-agent-seat.js');
+const seatSource = fs.readFileSync(seatPath, 'utf8');
+function loadSeatUi(fetchImpl, nativeDisabled = false) {
+  function element(tag) {
+    const node = createDomNode(tag);
+    let text = '';
+    Object.defineProperty(node, 'textContent', {
+      get() { return text; },
+      set(value) { text = String(value); node.children.forEach(child => { child.parentElement = null; }); node.children.length = 0; },
+    });
+    return node;
+  }
+  const body = element('body');
+  const main = element('main');
+  const actions = element('div');
+  const count = element('span');
+  count.textContent = '1 エージェント';
+  const add = element('button');
+  add.textContent = '担当者を追加';
+  add.disabled = nativeDisabled;
+  if (nativeDisabled) add.setAttribute('aria-disabled', 'true');
+  actions.appendChild(count);
+  actions.appendChild(add);
+  body.appendChild(actions);
+  body.appendChild(main);
+  const timers = new Set();
+  const observers = [];
+  const windowEvents = {};
+  const documentEvents = {};
+  const calls = [];
+  const window = {
+    location: { pathname: '/app/accounts/5/settings/agents' },
+    setTimeout(fn, ms) { const timer = { fn, ms }; timers.add(timer); return timer; },
+    clearTimeout(timer) { timers.delete(timer); },
+    addEventListener(type, fn) { windowEvents[type] = fn; },
+  };
+  const document = {
+    body, readyState: 'complete', hidden: false,
+    createElement: element,
+    querySelector: selector => body.querySelector(selector),
+    querySelectorAll: selector => body.querySelectorAll(selector),
+    addEventListener(type, fn) { documentEvents[type] = fn; },
+  };
+  const history = { pushState() {}, replaceState() {} };
+  vm.runInNewContext(seatSource, {
+    window, document, history, WeakMap,
+    MutationObserver: class { constructor(fn) { observers.push(fn); } observe() {} },
+    fetch(url, options) { calls.push({ url, options }); return fetchImpl(url, options); },
+  }, { filename: seatPath });
+  return {
+    window, document, history, count, add, calls,
+    mutate() { observers.forEach(fn => fn([])); },
+    runTimers(ms = 80) { [...timers].filter(t => t.ms === ms).forEach(t => { timers.delete(t); t.fn(); }); },
+    focus() { windowEvents.focus?.(); },
+    visibility() { documentEvents.visibilitychange?.(); },
+    banner() { return collectText(body.querySelector('[data-toybaco-agent-seat-banner]')); },
+  };
+}
+function seatResponse(count, capped = true) {
+  return Promise.resolve({ ok: true, json: async () => ({ capped, at_limit: capped && count >= 3, title: '利用は3名まで', message: `現在${count}名が利用しています。` }) });
+}
+{
+  let saved = 1;
+  const env = loadSeatUi(() => seatResponse(saved));
+  env.runTimers(); await flush();
+  assert.match(env.banner(), /現在1名/);
+  saved = 2; env.count.textContent = '2 エージェント'; env.mutate(); env.runTimers(); await flush();
+  assert.match(env.banner(), /現在2名/, 'same-route successful addition must refresh the seat banner');
+  saved = 3; env.count.textContent = '3 エージェント'; env.mutate(); env.runTimers(); await flush();
+  assert.equal(env.add.disabled, true);
+  saved = 2; env.count.textContent = '2 エージェント'; env.mutate(); env.runTimers(); await flush();
+  assert.match(env.banner(), /現在2名/, 'successful deletion must refresh and unlock only the overlay lock');
+  assert.equal(env.add.disabled, false);
+  assert.equal(env.add.getAttribute('aria-disabled'), null);
+  for (let i = 0; i < 100; i += 1) env.mutate();
+  env.runTimers(); await flush();
+  assert.equal(env.calls.length, 4, 'unrelated DOM/redraw/search changes must not fetch');
+  assert.ok(env.calls.every(call => call.options.method === 'GET' && call.options.credentials === 'same-origin'));
+}
+{
+  const pending = deferred();
+  const env = loadSeatUi(() => env.calls.length === 1 ? pending.promise : seatResponse(3));
+  env.runTimers();
+  env.count.textContent = '2 エージェント'; env.mutate(); env.runTimers();
+  env.count.textContent = '3 エージェント'; env.mutate(); env.runTimers();
+  assert.equal(env.calls.length, 1, 'same-account inflight reads coalesce');
+  pending.resolve(await seatResponse(1)); await flush();
+  assert.doesNotMatch(env.banner(), /現在1名/, 'an obsolete read cannot repaint the saved count');
+  env.runTimers(); await flush();
+  assert.equal(env.calls.length, 2, 'one trailing read captures the latest successful mutations');
+  assert.match(env.banner(), /現在3名/);
+}
+{
+  const accountA = deferred();
+  const env = loadSeatUi(url => url.endsWith('=5') ? accountA.promise : seatResponse(2));
+  env.runTimers();
+  env.window.location.pathname = '/app/accounts/6/settings/agents';
+  env.history.pushState(); env.runTimers(); await flush();
+  assert.match(env.banner(), /現在2名/);
+  accountA.resolve(await seatResponse(3)); await flush();
+  assert.match(env.banner(), /現在2名/, 'late previous-account reads cannot change this account');
+  assert.equal(env.add.disabled, false);
+}
+{
+  const env = loadSeatUi(() => seatResponse(1));
+  env.runTimers(); await flush();
+  env.focus(); env.visibility(); env.runTimers(); await flush();
+  assert.equal(env.calls.length, 2, 'focus/visible return share one confirmation without polling');
+  env.document.hidden = true; env.visibility(); env.focus(); env.runTimers(); await flush();
+  assert.equal(env.calls.length, 2);
+  env.window.location.pathname = '/app/accounts/5/inbox'; env.history.pushState();
+  assert.equal(env.document.querySelector('[data-toybaco-agent-seat-banner]'), null);
+  assert.equal(env.add.disabled, false);
+}
+for (const fail of [() => Promise.reject(new Error('offline')), () => Promise.resolve({ ok: false }), () => Promise.resolve({ ok: true, json: async () => ({}) })]) {
+  let broken = false;
+  const env = loadSeatUi(() => broken ? fail() : seatResponse(1));
+  env.runTimers(); await flush();
+  broken = true; env.focus(); env.runTimers(); await flush();
+  assert.match(env.banner(), /確認できませんでした/);
+  assert.doesNotMatch(env.banner(), /現在1名/);
+  assert.equal(env.add.disabled, true);
+  const count = env.calls.length; env.mutate(); env.runTimers(); await flush();
+  assert.equal(env.calls.length, count, 'errors must not start a retry loop');
+  broken = false; env.focus(); env.runTimers(); await flush();
+  assert.equal(env.add.disabled, false);
+}
+{
+  const env = loadSeatUi(() => seatResponse(1), true);
+  env.runTimers(); await flush();
+  assert.equal(env.add.disabled, true, 'native disabled must survive overlay unlock');
+  assert.equal(env.add.getAttribute('aria-disabled'), 'true');
+}
+{
+  const pending = deferred();
+  const env = loadSeatUi(() => pending.promise);
+  env.runTimers(); env.runTimers(10000); await flush();
+  assert.match(env.banner(), /確認できませんでした/);
+  pending.resolve(await seatResponse(1)); await flush();
+  assert.doesNotMatch(env.banner(), /現在1名/, 'timed-out reads cannot restore stale counts');
 }
 
 console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area posting-vs-billing=distinct slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');
