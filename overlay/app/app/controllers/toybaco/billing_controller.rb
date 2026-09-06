@@ -39,13 +39,16 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   end
 
   def portal
+    configuration = ENV.fetch('TOYBACO_STRIPE_PORTAL_CONFIGURATION', '')
     guard = portal_guard_error
+    guard ||= { error: 'not_available', status: :unprocessable_entity } unless configuration.match?(/\Abpc_[A-Za-z0-9]+\z/)
     return render(json: { error: guard[:error] }, status: guard[:status]) if guard
 
     key = ENV.fetch('TOYBACO_STRIPE_KEY', '')
     sub_id = @account.internal_attributes&.dig('toybaco_subscription_id')
     subscription = stripe_request(:get, "/v1/subscriptions/#{sub_id}", key)
     session = stripe_request(:post, '/v1/billing_portal/sessions', key,
+                             'configuration' => configuration,
                              'customer' => subscription['customer'],
                              'return_url' => "https://#{request.host}/")
     render json: { url: session['url'] }
