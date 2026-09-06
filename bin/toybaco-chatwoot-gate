@@ -171,6 +171,7 @@ integration_ruby_file_list() {
     cd "$source_root"
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
+      find overlay/app/app/mailers/agent_notifications -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
         -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o -name 'toybaco_billing.rb' -o \

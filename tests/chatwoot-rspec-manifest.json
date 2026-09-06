@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 138,
-  "examples_sha256": "25ca58d02b4e329be173ccd1b007393d43cfdab7198da99aace491fc2c8be46d",
+  "example_count": 152,
+  "examples_sha256": "63763dde640107ee51b26c5c4c44ea82707ceed461cc2fdaa465f27a243c1b24",
   "spec_files": [
     "spec/lib/toybaco/ai_usage_database_spec.rb",
     "spec/lib/toybaco/checkout/plan_change_lock_spec.rb",
@@ -37,6 +37,7 @@
     "spec/lib/toybaco/postiz_sync_spec.rb",
     "spec/lib/toybaco/subscription_sync_order_spec.rb",
     "spec/mailboxes/support_mailbox_spec.rb",
+    "spec/mailers/toybaco/agent_notifications/conversation_notifications_mailer_spec.rb",
     "spec/models/toybaco/postiz_lifecycle_spec.rb",
     "spec/requests/toybaco/agent_login_spec.rb",
     "spec/requests/toybaco/ai_readiness_spec.rb",

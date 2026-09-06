@@ -12,6 +12,11 @@
   var TITLE = 'ご契約の利用人数';
   var BODY = '利用人数の上限はご契約内容をご確認ください。';
   var lastKey = '';
+  var lastListKey = null;
+  var generation = 0;
+  var request = null;
+  var lockedButtons = new WeakMap();
+  var shouldLock = false;
 
   function currentAccountId() {
     var m = window.location.pathname.match(/\/app\/accounts\/(\d+)/);
@@ -36,19 +41,30 @@
       var text = String(el.textContent || '').replace(/\s+/g, '');
       if (text.indexOf('担当者を追加') === -1) continue;
       if (atLimit) {
-        el.setAttribute('data-toybaco-agent-seat-locked', '1');
-        el.setAttribute('aria-disabled', 'true');
-        if ('disabled' in el) el.disabled = true;
+        if (!lockedButtons.has(el)) {
+          lockedButtons.set(el, { disabled: el.disabled, ariaDisabled: el.getAttribute('aria-disabled') });
+        }
+        if (el.getAttribute('data-toybaco-agent-seat-locked') !== '1') el.setAttribute('data-toybaco-agent-seat-locked', '1');
+        if (el.getAttribute('aria-disabled') !== 'true') el.setAttribute('aria-disabled', 'true');
+        if ('disabled' in el && !el.disabled) el.disabled = true;
       } else if (el.getAttribute('data-toybaco-agent-seat-locked') === '1') {
+        var previous = lockedButtons.get(el);
         el.removeAttribute('data-toybaco-agent-seat-locked');
-        el.removeAttribute('aria-disabled');
-        if ('disabled' in el) el.disabled = false;
+        if (previous) {
+          if (el.getAttribute('aria-disabled') === 'true') {
+            if (previous.ariaDisabled === null) el.removeAttribute('aria-disabled');
+            else el.setAttribute('aria-disabled', previous.ariaDisabled);
+          }
+          if ('disabled' in el && el.disabled) el.disabled = previous.disabled;
+          lockedButtons.delete(el);
+        }
       }
     }
   }
 
   function placeBanner(payload) {
     if (!payload || !payload.capped) {
+      shouldLock = false;
       removeBanner();
       disableAddButtons(false);
       return;
@@ -79,7 +95,8 @@
       box.appendChild(line);
       lastKey = key;
     }
-    disableAddButtons(payload.at_limit === true);
+    shouldLock = payload.at_limit === true;
+    disableAddButtons(shouldLock);
   }
 
   function loadSeat() {
@@ -90,6 +107,26 @@
     }
     var id = currentAccountId();
     if (!id) return;
+    if (request && request.id === id && !request.done) {
+      request.again = true;
+      return;
+    }
+    var current = { id: id, version: generation, done: false, again: false };
+    request = current;
+    function isCurrent() {
+      return !current.done && current.version === generation && currentAccountId() === id && onAgentsPage();
+    }
+    function finish() {
+      if (current.done) return;
+      current.done = true;
+      window.clearTimeout(timeout);
+      if (request === current) request = null;
+      if (current.again && currentAccountId() === id && onAgentsPage()) schedule();
+    }
+    var timeout = window.setTimeout(function () {
+      if (isCurrent()) showChecking(true);
+      finish();
+    }, 10000);
     fetch('/toybaco/agent_seat_limit?account_id=' + encodeURIComponent(id), {
       method: 'GET',
       credentials: 'same-origin',
@@ -97,24 +134,81 @@
     })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (payload) {
-        if (!payload || typeof payload !== 'object' || currentAccountId() !== id || !onAgentsPage()) return;
+        if (!isCurrent()) return;
+        if (!payload || typeof payload.capped !== 'boolean' || typeof payload.at_limit !== 'boolean') {
+          showChecking(true);
+          return;
+        }
         placeBanner(payload);
       })
-      .catch(function () { /* 出せなくても担当者画面は壊さない */ });
+      .catch(function () { if (isCurrent()) showChecking(true); })
+      .then(finish);
+  }
+
+  function showChecking(failed) {
+    placeBanner({
+      capped: true,
+      title: TITLE,
+      message: failed ? '利用人数を確認できませんでした。この画面に戻るか、再読み込みして確認してください。' : '利用人数を確認しています。',
+      at_limit: true
+    });
+  }
+
+  function agentListKey() {
+    if (!onAgentsPage()) return null;
+    var buttons = document.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i += 1) {
+      if (String(buttons[i].textContent || '').replace(/\s+/g, '') !== '担当者を追加') continue;
+      // 固定上流の header count slot は検索後の行数ではなく、保存済み agentList.length。
+      var siblings = buttons[i].parentElement && buttons[i].parentElement.children;
+      for (var j = 0; siblings && j < siblings.length; j += 1) {
+        var node = siblings[j];
+        var text = String(node.textContent || '').trim();
+        if (node.tagName === 'SPAN' && /^\d+\s+エージェント$/.test(text)) return currentAccountId() + '|' + text;
+      }
+    }
+    return null;
+  }
+
+  function observeList() {
+    if (onAgentsPage()) disableAddButtons(shouldLock);
+    var key = agentListKey();
+    if (key === lastListKey) return;
+    lastListKey = key;
+    if (onAgentsPage()) schedule();
   }
 
   var timer = null;
   function schedule() {
+    generation += 1;
+    lastListKey = agentListKey();
     if (timer) window.clearTimeout(timer);
-    timer = window.setTimeout(loadSeat, 80);
+    if (!onAgentsPage()) {
+      shouldLock = false;
+      removeBanner();
+      disableAddButtons(false);
+      return;
+    }
+    // 以前の人数は新しい保存結果として表示せず、確認中は追加操作を一時停止する。
+    showChecking(false);
+    timer = window.setTimeout(function () { timer = null; loadSeat(); }, 80);
+  }
+
+  function start() {
+    schedule();
+    if (document.body) {
+      new MutationObserver(observeList).observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', schedule);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    schedule();
+    start();
   }
   window.addEventListener('popstate', schedule);
+  window.addEventListener('focus', function () { if (!document.hidden) schedule(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) schedule(); });
   ['pushState', 'replaceState'].forEach(function (name) {
     var orig = history[name];
     if (typeof orig !== 'function') return;
