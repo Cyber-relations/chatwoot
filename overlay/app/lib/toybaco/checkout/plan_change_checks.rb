@@ -14,7 +14,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def attrs
-        Entitlements.attributes(@account)
+        # Receipts are edited before the next row lock. Detach nested JSON so
+        # those edits cannot dirty the ActiveRecord instance before with_lock.
+        Marshal.load(Marshal.dump(Entitlements.attributes(@account)))
       end
 
       def subscription
