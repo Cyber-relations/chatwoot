@@ -1361,5 +1361,9 @@ class ToybacoInboundEmailTest < Minitest::Test
     def update!(attrs)
       @internal_attributes = attrs.fetch(:internal_attributes)
     end
+
+    def with_lock
+      yield
+    end
   end
 end

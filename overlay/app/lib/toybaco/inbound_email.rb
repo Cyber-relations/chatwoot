@@ -71,20 +71,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     def provision!(account, environment: ENV, resolver: nil, factory: nil)
       status = readiness(environment, resolver: resolver)
       unless status[:ready]
-        remember(account, 'status' => 'blocked', 'reasons' => status[:reasons])
+        account.with_lock { remember(account, 'status' => 'blocked', 'reasons' => status[:reasons]) }
         raise NotReady, status[:reasons].join(' / ')
       end
 
-      address = mailbox_address(account.id, environment)
-      created = (factory || method(:create_channel!)).call(account, address)
-      remember(
-        account,
-        'status' => 'ready',
-        'address' => address,
-        'inbox_name' => INBOX_NAME,
-        'ingress' => INGRESS_PATH
-      )
-      created.merge(address: address)
+      # DNS can outlast a concurrent contract update; reload before changing flags or attributes.
+      account.with_lock do
+        address = mailbox_address(account.id, environment)
+        created = (factory || method(:create_channel!)).call(account, address)
+        remember(
+          account,
+          'status' => 'ready',
+          'address' => address,
+          'inbox_name' => INBOX_NAME,
+          'ingress' => INGRESS_PATH
+        )
+        created.merge(address: address)
+      end
     end
 
     def remember(account, payload)

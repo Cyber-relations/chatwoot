@@ -128,6 +128,7 @@ control_file_list() {
     'tests/chatwoot-rspec-manifest.json' \
     'tests/chatwoot-test.Dockerfile' \
     'tests/chatwoot_frame_policy_test.rb' \
+    'tests/chatwoot_brand_injector_test.rb' \
     'tests/toybaco_inbound_email_test.rb' \
     'tests/chatwoot_ses_ingress_identity_test.rb' \
     'scripts/toybaco-inbound-email-sns-fixture.rb' \
@@ -833,6 +834,11 @@ verify_base_and_frame_contract() {
   printf '%s\n' "$frame_output"
   grep -Eq '5 runs, 36 assertions, 0 failures, 0 errors, 0 skips' <<< "$frame_output" || fail \
     'frame-policy contractのrun/assertion数または結果が不正です'
+
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/chatwoot_brand_injector_test.rb
 
   inbound_output="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \

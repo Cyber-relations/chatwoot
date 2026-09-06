@@ -3,6 +3,7 @@
 require_relative '../toybaco/brand_injector'
 require_relative '../toybaco/entitlements'
 require_relative '../toybaco/subscription_sync'
+require 'digest'
 
 # Independent rake task declarations share one namespace.
 namespace :toybaco do # rubocop:disable Metrics/BlockLength
@@ -10,12 +11,24 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
   task :sync_subscription, [:subscription_id] => :environment do |_t, args|
     id = args[:subscription_id].to_s
     abort 'サブスクリプションIDが不正です。' unless id.match?(/\Asub_[A-Za-z0-9]+\z/)
-    accounts = Account.where("internal_attributes ->> 'toybaco_subscription_id' = ?", id).to_a
-    abort '開通前の契約です。開通後に最新状態を照合してください。' if accounts.empty?
-    client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
-    accounts.each do |account|
-      result = Toybaco::SubscriptionSync.new(client: client).call(account, subscription_id: id)
-      puts "契約照合: account ##{account.id} / #{result}"
+    ActiveRecord::Base.transaction do
+      # 開通のStripe読取後からcommit前のイベントも、同じ契約の開通完了を待って再照合する。
+      lock_id = Digest::SHA256.digest("toybaco:provision:#{id}").unpack1('q>')
+      ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
+      accounts = Account.where("internal_attributes ->> 'toybaco_subscription_id' = ?", id).order(:id).to_a
+      if accounts.empty?
+        # 未作成なら後続provisionが最新Stripe契約を読む。ここでは権利を作らず成功とも記録しない。
+        puts '契約照合: status=DEFERRED reason=not_provisioned'
+        next
+      end
+      client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
+      accounts.each do |account|
+        # 失効前のPostiz同期と開通後の所属同期に合わせ、identity lockをAccount行より先に取る。
+        namespace = Toybaco::PostizSync::CHATWOOT_ACCOUNT_LOCK_NAMESPACE
+        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{namespace}, #{account.id})")
+        result = Toybaco::SubscriptionSync.new(client: client).call(account, subscription_id: id)
+        puts "契約照合: account ##{account.id} / #{result}"
+      end
     end
   end
 
@@ -165,6 +178,9 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
       sync = Toybaco::SubscriptionSync.new(client: client)
       if existing
+        # 再送も開通直後のPostiz同期と同じidentity→Account行の順序で照合する。
+        namespace = Toybaco::PostizSync::CHATWOOT_ACCOUNT_LOCK_NAMESPACE
+        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{namespace}, #{existing.id})")
         sync.call(existing, subscription_id: subscription_id)
         puts "既に開通済み: account ##{existing.id}(subscription #{subscription_id})"
         next

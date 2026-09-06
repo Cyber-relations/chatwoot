@@ -352,7 +352,7 @@
   }
 
   function onKeydown(e) {
-    if (e.key === 'Escape') closePanel();
+    if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !e.defaultPrevented) closePanel();
   }
 
   function removeReadyMessageHandler() {
@@ -380,6 +380,17 @@
       event.data &&
       typeof event.data === 'object' &&
       event.data.type === 'TOYBACO_POSTIZ_DENIED'
+    );
+  }
+
+  function isTrustedPostizClose(event, frameWindow) {
+    return !!(
+      event &&
+      event.origin === POST_ORIGIN &&
+      event.source === frameWindow &&
+      event.data &&
+      typeof event.data === 'object' &&
+      event.data.type === 'TOYBACO_POSTIZ_CLOSE'
     );
   }
 
@@ -492,14 +503,19 @@
 
     removeReadyMessageHandler();
     readyMessageHandler = function (event) {
+      if (!panel || panel.querySelector('iframe') !== frame) return;
       if (isTrustedPostizDenied(event, frame.contentWindow)) {
         applyPostingDenied();
+        return;
+      }
+      if (isTrustedPostizClose(event, frame.contentWindow)) {
+        closePanel();
         return;
       }
       if (!isTrustedPostizReady(event, frame.contentWindow)) return;
       if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
       if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
-      removeReadyMessageHandler();
+      // iframe内のEscapeは親documentへ伝播しないため、READY後も閉じる通知を受ける。
     };
     window.addEventListener('message', readyMessageHandler);
 
