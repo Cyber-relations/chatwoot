@@ -457,6 +457,11 @@ aside nav [data-toybaco-stock-hidden="1"] {
   display: none !important;
 }
 
+/* 通知用Inboxと会話グループの両方がある場合も、会話の一次入口は1つ。 */
+aside nav > ul > li[data-toybaco-nav-duplicate="1"] {
+  display: none !important;
+}
+
 /* 展開した設定サブツリー・レポート子・会話フォルダはグローバル左ナビに出さない */
 aside nav > ul > li ul {
   display: none !important;
