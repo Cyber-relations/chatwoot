@@ -295,6 +295,8 @@ function validate(workflowSource, gateSource) {
     'aws ecr describe-images',
     'described_digest" == "$IMAGE_DIGEST',
     'docker buildx imagetools inspect',
+    '"$ECR_REPOSITORY@$digest" --raw',
+    '.schemaVersion == 2 and .manifests == null',
     'org.opencontainers.image.base.name',
     'org.opencontainers.image.revision',
     'jp.toybaco.source.tree',
@@ -344,6 +346,8 @@ function validate(workflowSource, gateSource) {
     '--distro alpine/3.21.3', '--exit-code 1', '--config /dev/null sbom',
     '--workdir /scan', '"$TRIVY_IMAGE"', 'toybaco-chatwoot.spdx.json',
     '.checksumValue == $digest', '.relationshipType == "DESCRIBES"',
+    'image: registry:${{ steps.build.outputs.image_uri }}',
+    '.versionInfo == ("sha256:" + $digest)',
     'distro=alpine-3.21.3', '.Class == "os-pkgs"', '.Class == "lang-pkgs"',
     '[[ "$scan_status" -eq 0 ]] || exit "$scan_status"',
   ]) assert.ok(publish.includes(required), `strict Trivy SBOM contract missing: ${required}`);
@@ -471,6 +475,9 @@ const mutations = [
   [workflow.replace('--distro alpine/3.21.3', '--distro alpine/3.22'), gate],
   [workflow.replaceAll('trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682', 'trivy:latest'), gate],
   [workflow.replace('.checksumValue == $digest', 'true'), gate],
+  [workflow.replace('.manifests == null', 'true'), gate],
+  [workflow.replace('image: registry:', 'image: '), gate],
+  [workflow.replace('.versionInfo == ("sha256:" + $digest)', 'true'), gate],
   [workflow.replace('.Class == "os-pkgs"', 'true'), gate],
   [workflow.replace('.Class == "lang-pkgs"', 'true'), gate],
   [workflow.replace('[[ "$scan_status" -eq 0 ]] || exit "$scan_status"', ':'), gate],
@@ -572,7 +579,7 @@ function sbomFixture() {
     relationships: [{ spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-Image' }],
     packages: [
       { SPDXID: 'SPDXRef-Image', name: imageName, primaryPackagePurpose: 'CONTAINER',
-        versionInfo: 'sha256:' + 'b'.repeat(64), checksums: [{ algorithm: 'SHA256', checksumValue: 'a'.repeat(64) }] },
+        versionInfo: digest, checksums: [{ algorithm: 'SHA256', checksumValue: 'a'.repeat(64) }] },
       { SPDXID: 'SPDXRef-Alpine', name: 'alpine-baselayout', externalRefs: [
         { referenceType: 'purl', referenceLocator: 'pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=x86_64&distro=alpine-3.21.3' },
       ] },
@@ -607,9 +614,10 @@ function executePolicy(label, change, expected) {
     assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
-executePolicy('exact digest; config versionInfo deliberately differs', () => {}, true);
+executePolicy('registry source and cataloged manifest use the exact digest', () => {}, true);
 for (const [label, change] of [
   ['wrong manifest checksum', sbom => { sbom.packages[0].checksums[0].checksumValue = 'c'.repeat(64); }],
+  ['wrong requested digest', sbom => { sbom.packages[0].versionInfo = 'sha256:' + 'b'.repeat(64); }],
   ['versionInfo alone cannot bind manifest', sbom => { sbom.packages[0].versionInfo = digest; sbom.packages[0].checksums = []; }],
   ['wrong repository', sbom => { sbom.packages[0].name = 'other/image'; }],
   ['no described image', sbom => { sbom.relationships = []; }],
@@ -623,4 +631,4 @@ for (const [label, change] of [
   ['unfixed High is still rejected', (_sbom, report) => { report.Results[1].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
   ['Critical is rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL', FixedVersion: 'fixed' }]; }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/scan shell: PASS (1 positive / 13 negative controls; no external calls)');
+console.log('Chatwoot exact SBOM/scan shell: PASS (1 positive / 14 negative controls; no external calls)');
