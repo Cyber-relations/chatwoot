@@ -34,12 +34,35 @@ class ChatwootBrandInjectorTest < Minitest::Test
   end
 
   def test_post_entry_is_limited_to_dashboard_routes_and_injected_once
-    _status, _headers, body = response(path: '/super_admin/settings')
-    refute_includes(body.join, 'data-toybaco-post-config')
+    %w[/super_admin/settings /login /auth/sign_in /auth/password /password/reset /health /api/v1/profile /apple /v3application].each do |path|
+      _status, _headers, body = response(path: path)
+      refute_includes(body.join, 'data-toybaco-post-config', path)
+      refute_includes(body.join, 'toybaco-post-entry.js', path)
+      refute_includes(body.join, 'toybaco-agent-seat.js', path)
+    end
 
     existing = '<html><head><script data-toybaco-post-config></script></head><body></body></html>'
     _status, _headers, body = response(path: '/app', body: existing)
     assert_equal(1, body.join.scan('data-toybaco-post-config').length)
+  end
+
+  def test_root_dashboard_has_controls_before_spa_navigation_and_does_not_duplicate_them
+    source = '<html lang="en"><head></head><body><noscript>This app works best with JavaScript enabled.</noscript></body></html>'
+    %w[/ /app/login /app/password/reset /v3app/login].each do |path|
+      _status, headers, body = response(path: path, body: source)
+      html = body.join
+      %w[data-toybaco-post-config toybaco-post-entry.js toybaco-agent-seat.js].each do |marker|
+        assert_equal(1, html.scan(marker).length, path)
+        assert_operator(html.index(marker), :<, html.index('<body>'))
+      end
+      assert_includes(html, '<html lang="ja">', path)
+      assert_includes(html, 'このアプリを利用するにはJavaScriptを有効にしてください。', path)
+      assert_equal(html.bytesize.to_s, headers['Content-Length'])
+      _status, _headers, repeated = response(path: path, body: html)
+      %w[data-toybaco-post-config toybaco-post-entry.js toybaco-agent-seat.js].each do |marker|
+        assert_equal(1, repeated.join.scan(marker).length, path)
+      end
+    end
   end
 
   def test_brand_stylesheet_url_uses_the_deployed_content_digest

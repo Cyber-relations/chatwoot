@@ -110,7 +110,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     def dashboard_path?(path)
       value = path.to_s
-      DASHBOARD_PREFIXES.any? { |prefix| value == prefix || value.start_with?("#{prefix}/") }
+      value == '/' || DASHBOARD_PREFIXES.any? { |prefix| value == prefix || value.start_with?("#{prefix}/") }
     end
 
     def validated_billing_url(value)
