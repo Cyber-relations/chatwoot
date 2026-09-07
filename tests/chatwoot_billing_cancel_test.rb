@@ -9,7 +9,7 @@ require_relative '../overlay/app/lib/toybaco/billing_cancel'
 # お支払い方法・OIDC・ライト3名・メール基盤・F3 は混ぜない。
 class ChatwootBillingCancelTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
-  LP_LINE = '月払いは契約の縛りなし。解約はいつでも、管理画面から2クリック'
+  CANCEL_COPY = '解約は、管理画面から2クリックで手続きできます。'
   CONFIRM_TITLE = 'この契約を解約しますか？'
   CONFIRM_BODY = 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。'
 
@@ -47,8 +47,8 @@ class ChatwootBillingCancelTest < Minitest::Test
     refute_includes view, 'やめる'
   end
 
-  def test_confirm_copy_is_lp_words_uncut
-    assert_includes view, LP_LINE
+  def test_cancel_copy_is_cycle_independent_and_confirmation_is_unchanged
+    assert_includes view, CANCEL_COPY
     assert_includes view, CONFIRM_TITLE
     assert_includes view, CONFIRM_BODY
     refute_includes view, '管理画面から2クリックです'

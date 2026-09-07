@@ -187,6 +187,7 @@
   var poller = null;     // 画面遷移を見張るタイマー(開いている間だけ)
   var loadTimer = null;
   var readyMessageHandler = null;
+  var panelLayout = null;
 
   function isPostingHash(h) {
     return h === HASH_PREFIX || h.indexOf(HASH_PREFIX + '?') === 0;
@@ -292,20 +293,12 @@
     return entry.href;
   }
 
-  // パネルの左端 = サイドバーの右端。取れなければ 0(全面)。
+  // mobile の固定drawerは main を押し縮めない。投稿権利にも依存させない。
   function computeLeft() {
     try {
-      var entry = document.querySelector('[data-' + MARK + ']');
-      var nav = entry && entry.closest('nav');
-      var host = nav;
-      // サイドバーの入れ物(nav の親側)が幅を持っていればそちらを使う
-      while (host && host.parentElement &&
-             host.parentElement.getBoundingClientRect().width < window.innerWidth * 0.5) {
-        host = host.parentElement;
-      }
-      var r = (host || nav).getBoundingClientRect();
-      var left = Math.round(r.right);
-      if (left > 0 && left < window.innerWidth * 0.6) return left;
+      var host = findContentHost();
+      var left = host && Math.round(host.getBoundingClientRect().left);
+      if (left > 0 && left < window.innerWidth) return left;
     } catch (e) { /* fall through */ }
     return 0;
   }
@@ -512,7 +505,7 @@
     var frame = document.createElement('iframe');
     frame.src = buildSrc(path || DEFAULT_PATH);
     frame.title = '投稿';
-    frame.style.cssText = 'border:0;width:100%;height:100%;flex:1';
+    frame.style.cssText = 'border:0;width:100%;height:100%;min-height:0;flex:1';
     frame.allow = 'clipboard-write';
 
     // load はログイン画面・エラーページでも発火するため成功判定には使わない。
@@ -593,6 +586,63 @@
     } catch (e) { /* 位置を変えられなくても中に置く */ }
   }
 
+  // iframe 外の native メニューは移動せず、その可視領域だけ投稿の下に空ける。
+  // 幅変更でも iframe の再生成や認証をせず、編集中の内容を保持する。
+  function watchPostPanelLayout() {
+    var currentPanel = panel;
+    var launcher = null;
+    var observer = null;
+    var stopped = false;
+    function update() {
+      if (stopped || panel !== currentPanel) return;
+      var space = 0;
+      try {
+        var next = document.querySelector('[id="mobile-sidebar-launcher"]');
+        if (next !== launcher) {
+          if (launcher) {
+            launcher.removeEventListener('transitionend', update);
+            if (observer) observer.unobserve(launcher);
+          }
+          launcher = next;
+          if (launcher) {
+            launcher.addEventListener('transitionend', update);
+            if (observer) observer.observe(launcher);
+          }
+        }
+        var button = launcher && launcher.querySelector('button');
+        if (button && button.getClientRects().length) {
+          var style = window.getComputedStyle(button);
+          var wrapperStyle = window.getComputedStyle(launcher);
+          var rect = button.getBoundingClientRect();
+          var bounds = currentPanel.getBoundingClientRect();
+          if (style.visibility !== 'hidden' && wrapperStyle.visibility !== 'hidden' &&
+              Number(style.opacity) !== 0 && Number(wrapperStyle.opacity) !== 0 &&
+              rect.width > 0 && rect.height > 0 && rect.right > bounds.left &&
+              rect.left < bounds.right && rect.bottom > bounds.top && rect.top < bounds.bottom) {
+            space = Math.ceil(Math.min(bounds.height, bounds.bottom - Math.max(bounds.top, rect.top) + 8));
+          }
+        }
+      } catch (e) { /* native メニュー未描画なら通常の投稿領域を使う */ }
+      var padding = space + 'px';
+      if (currentPanel.style.paddingBottom !== padding) currentPanel.style.paddingBottom = padding;
+    }
+    if (window.ResizeObserver) {
+      observer = new window.ResizeObserver(update);
+      observer.observe(currentPanel);
+    }
+    window.addEventListener('resize', update);
+    panelLayout = {
+      update: update,
+      stop: function () {
+        stopped = true;
+        window.removeEventListener('resize', update);
+        if (launcher) launcher.removeEventListener('transitionend', update);
+        if (observer) observer.disconnect();
+      }
+    };
+    update();
+  }
+
   var SELECTED_CLASS = 'bg-n-alpha-2';
 
   function navigationClassName(node) {
@@ -642,7 +692,7 @@
     panel = document.createElement('div');
     panel.setAttribute('data-' + MARK + '-panel', '1');
     panel.style.cssText =
-      'position:absolute;inset:0;z-index:1;background:#fff;display:flex;flex-direction:column';
+      'position:absolute;inset:0;z-index:1;background:#fff;display:flex;flex-direction:column;box-sizing:border-box';
 
     var spinner = document.createElement('div');
     spinner.style.cssText =
@@ -659,6 +709,7 @@
 
     panel.appendChild(spinner);
     host.appendChild(panel);
+    watchPostPanelLayout();
     document.addEventListener('keydown', onKeydown, true);
     syncPostingSelection();
 
@@ -679,6 +730,7 @@
   }
 
   function closePanel() {
+    if (panelLayout) { panelLayout.stop(); panelLayout = null; }
     if (!panel) {
       removeReadyMessageHandler();
       stripHash();
@@ -1724,6 +1776,35 @@
   var billingPanel = null;
   var billingPath = null;
   var billingAccountId = null;
+  var billingLayout = null;
+
+  function watchBillingPanelLayout() {
+    var currentPanel = billingPanel;
+    var host = null;
+    var stopped = false;
+    var observer = window.ResizeObserver ? new window.ResizeObserver(update) : null;
+    function update() {
+      if (stopped || billingPanel !== currentPanel) return;
+      var next = findContentHost();
+      if (next !== host) {
+        if (observer && host) observer.unobserve(host);
+        host = next;
+        if (observer && host) observer.observe(host);
+      }
+      var left = computeLeft() + 'px';
+      if (currentPanel.style.left !== left) currentPanel.style.left = left;
+    }
+    window.addEventListener('resize', update);
+    billingLayout = {
+      update: update,
+      stop: function () {
+        stopped = true;
+        window.removeEventListener('resize', update);
+        if (observer) observer.disconnect();
+      }
+    };
+    update();
+  }
 
   // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
   // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
@@ -1754,12 +1835,14 @@
       billingPanel = wrapEl;
       billingPath = window.location.pathname;
       billingAccountId = id;
+      watchBillingPanelLayout();
       syncPostingSelection();
       document.addEventListener('keydown', escCloseBilling);
     } catch (e) { /* 開けなくても邪魔はしない */ }
   }
 
   function closeBillingPanel() {
+    if (billingLayout) { billingLayout.stop(); billingLayout = null; }
     if (!billingPanel) return;
     var accountId = billingAccountId;
     try { billingPanel.remove(); } catch (e) { /* noop */ }
@@ -2380,7 +2463,9 @@
   }
 
   function afterNavChange() {
+    if (panelLayout) panelLayout.update();
     if (billingPanel && window.location.pathname !== billingPath) closeBillingPanel();
+    else if (billingLayout) billingLayout.update();
     inject();
     ensurePostingContract();
     if (!panel && (currentHashPath() !== null || hasPendingPath())) {

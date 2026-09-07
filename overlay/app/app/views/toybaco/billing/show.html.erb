@@ -150,7 +150,7 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
 
   <% if @portal_ready && (!@billing || (!@billing[:cancel_at_period_end] && @billing[:status] != 'canceled')) %>
   <div class="card" id="cancel-box">
-    <p class="lp-line">月払いは契約の縛りなし。解約はいつでも、管理画面から2クリック</p>
+    <p class="lp-line">解約は、管理画面から2クリックで手続きできます。</p>
     <button type="button" class="btn btn-navy" id="cancel-open">解約する</button>
     <p class="err" id="cancel-err">解約できませんでした。時間をおいて再度お試しください。</p>
   </div>

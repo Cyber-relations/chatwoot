@@ -311,6 +311,9 @@ function createDomNode(tag) {
       this.listeners[type] = this.listeners[type] || [];
       this.listeners[type].push(fn);
     },
+    removeEventListener(type, fn) {
+      this.listeners[type] = (this.listeners[type] || []).filter((item) => item !== fn);
+    },
     nodeType: 1,
     get childNodes() {
       if (node.children.length) return node.children;
@@ -505,8 +508,8 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
       return id;
     },
     clearTimeout: options.clearTimeout || clearTimeout,
-    setInterval() { return 0; },
-    clearInterval() {},
+    setInterval: options.setInterval || (() => 0),
+    clearInterval: options.clearInterval || (() => {}),
     fetch: window.fetch,
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     MutationObserver: class {
@@ -1111,6 +1114,179 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   (tab.docListeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
   assert.equal(tab.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'ESC must close the posting tab');
   assert.doesNotMatch(postingEntry(tab.document).className, /bg-n-alpha-2/);
+}
+
+{
+  const intervals = new Map();
+  const tab = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', {
+    setInterval(fn, ms) { intervals.set(1, { fn, ms }); return 1; },
+    clearInterval(id) { intervals.delete(id); },
+  });
+  const rect = { left: 0, right: 390, top: 0, bottom: 844, width: 390, height: 844 };
+  const create = tab.document.createElement;
+  tab.document.createElement = (tag) => {
+    const node = create(tag);
+    node.getBoundingClientRect = () => ({ ...rect });
+    return node;
+  };
+  const launcher = create('div');
+  launcher.setAttribute('id', 'mobile-sidebar-launcher');
+  const button = create('button');
+  let buttonRect = { left: 20, right: 68, top: 776, bottom: 824, width: 48, height: 48 };
+  let rendered = true;
+  let visibility = 'visible';
+  button.getBoundingClientRect = () => ({ ...buttonRect });
+  button.getClientRects = () => rendered ? [buttonRect] : [];
+  let nativeClicks = 0;
+  button.addEventListener('click', () => { nativeClicks += 1; });
+  launcher.appendChild(button);
+  tab.body.appendChild(launcher);
+  tab.window.getComputedStyle = () => ({ visibility, opacity: '1' });
+  const resizeObservers = [];
+  tab.window.ResizeObserver = class {
+    constructor(fn) { this.fn = fn; this.targets = new Set(); resizeObservers.push(this); }
+    observe(node) { this.targets.add(node); }
+    unobserve(node) { this.targets.delete(node); }
+    disconnect() { this.targets.clear(); }
+  };
+  const resize = () => (tab.windowListeners.resize || []).forEach((fn) => fn());
+  tab.api.inject();
+  tab.api.openPanel('/launches', false);
+  const panel = tab.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  frame.draftFixture = { text: '編集中', file: {}, cursor: 3 };
+  const draft = frame.draftFixture;
+  const originalSrc = frame.src;
+  const fetchCount = tab.fetches.length;
+  assert.equal(panel.style.paddingBottom, '76px', '390px: reserve only the visible launcher plus 8px gap');
+  assert.match(panel.style.cssText, /box-sizing:border-box/, 'reserved padding must remain inside the full-height panel');
+  assert.match(frame.style.cssText, /min-height:0/, 'the same iframe must shrink into the remaining space');
+  assert.equal(rect.bottom - parseFloat(panel.style.paddingBottom), buttonRect.top - 8);
+  assert.equal(launcher.parentElement, tab.body, 'native Vue launcher must not be reparented');
+  button.listeners.click[0]();
+  assert.equal(nativeClicks, 1, 'the native menu handler stays usable');
+  assert.equal(intervals.size, 1, 'reuse only the existing route poller');
+  assert.equal(intervals.get(1).ms, 300);
+
+  for (const width of [768, 1280, 1440]) {
+    rect.width = rect.right = width;
+    rendered = false;
+    resize();
+    assert.equal(panel.style.paddingBottom, '0px', `${width}px: a hidden launcher must not leave a blank band`);
+  }
+  rect.width = rect.right = 390;
+  rendered = true;
+  resize();
+  assert.equal(panel.style.paddingBottom, '76px');
+  visibility = 'hidden';
+  resizeObservers[0].fn();
+  assert.equal(panel.style.paddingBottom, '0px', 'visibility:hidden must not reserve space');
+  visibility = 'visible';
+  buttonRect = { ...buttonRect, left: 212, right: 260 };
+  (launcher.listeners.transitionend || []).forEach((fn) => fn());
+  assert.equal(panel.style.paddingBottom, '76px', 'opening the native sidebar keeps the same small band');
+  buttonRect = { ...buttonRect, left: 410, right: 458 };
+  resize();
+  assert.equal(panel.style.paddingBottom, '0px', 'a launcher outside the posting region must not reserve space');
+  buttonRect = { ...buttonRect, left: 20, right: 68, top: 786, bottom: 834 };
+  resizeObservers[0].fn();
+  assert.equal(panel.style.paddingBottom, '66px', 'changed launcher geometry must update without a new iframe');
+
+  launcher.remove();
+  tab.api.afterNavChange();
+  assert.equal(panel.style.paddingBottom, '0px', 'removing the native launcher clears its reserved band');
+  assert.equal(resizeObservers[0].targets.has(launcher), false);
+  tab.body.appendChild(launcher);
+  tab.api.afterNavChange();
+  assert.equal(panel.style.paddingBottom, '66px', 'a remounted native launcher is observed again');
+  assert.equal(panel.querySelector('iframe'), frame);
+  assert.equal(frame.src, originalSrc);
+  assert.equal(frame.draftFixture, draft, 'layout updates retain the iframe and its draft state');
+  assert.equal(tab.fetches.length, fetchCount, 'layout changes must not fetch or reauthenticate');
+  const queuedResize = tab.windowListeners.resize[0];
+  tab.window.location.pathname = '/app/accounts/1/settings/general';
+  intervals.get(1).fn();
+  assert.equal(tab.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(intervals.size, 0);
+  assert.equal(tab.windowListeners.resize.length, 0, 'route close must remove resize listeners');
+  assert.equal(resizeObservers[0].targets.size, 0, 'route close must disconnect size observation');
+  assert.equal(launcher.listeners.transitionend.length, 0);
+  tab.api.openPanel('/launches', false);
+  const reopened = tab.document.querySelector('[data-toybaco-post-entry-panel]');
+  const savedPadding = reopened.style.paddingBottom;
+  buttonRect = { ...buttonRect, top: 700 };
+  queuedResize();
+  resizeObservers[0].fn();
+  assert.equal(reopened.style.paddingBottom, savedPadding, 'queued callbacks from the old panel cannot alter a new one');
+  tab.api.closePanel();
+}
+
+{
+  const tree = createMenuTree(true);
+  let mainLeft = 168;
+  let mainWidth = 600;
+  tree.content.getBoundingClientRect = () => ({ left: mainLeft, right: mainLeft + mainWidth, width: mainWidth });
+  tree.aside.getBoundingClientRect = () => ({ left: 0, right: 168, width: 168 });
+  tree.main.getBoundingClientRect = () => ({ left: 0, right: 768, width: 768 });
+  const tab = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { body: tree.body });
+  tab.window.innerWidth = 768;
+  const observers = [];
+  tab.window.ResizeObserver = class {
+    constructor(fn) { this.fn = fn; this.targets = new Set(); observers.push(this); }
+    observe(node) { this.targets.add(node); }
+    unobserve(node) { this.targets.delete(node); }
+    disconnect() { this.targets.clear(); }
+  };
+  tab.api.inject();
+  openBillingThroughUi(tab);
+  const billing = tab.document.querySelector('[data-toybaco-billing-panel]');
+  const billingLeft = () => billing.style.left || /left:([^;]+)/.exec(billing.style.cssText)?.[1];
+  const frame = billing.querySelector('iframe');
+  const src = frame.src;
+  frame.contractInputFixture = { selectedPlan: 'standard', selection: 2 };
+  const input = frame.contractInputFixture;
+  const requests = tab.fetches.length;
+  assert.equal(billingLeft(), '168px', 'billing starts at the actual desktop main boundary');
+  mainLeft = 0;
+  mainWidth = tab.window.innerWidth = 390;
+  (tab.windowListeners.resize || []).forEach((fn) => fn());
+  assert.equal(billingLeft(), '0px', '768→390 keeps billing readable across the full main width');
+  tree.aside.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200 });
+  observers[0].fn();
+  assert.equal(billing.style.left, '0px', 'a mobile fixed drawer must not reduce the contract to 190px');
+  const postEntry = postingEntry(tab.document);
+  postEntry.parentElement.remove();
+  observers[0].fn();
+  assert.equal(billing.style.left, '0px', 'billing layout must not depend on a posting entitlement entry');
+  mainLeft = 168;
+  mainWidth = 600;
+  tab.window.innerWidth = 768;
+  observers[0].fn();
+  assert.equal(billing.style.left, '168px', 'main resizing restores the wide-screen boundary');
+  assert.equal(billing.querySelector('iframe'), frame);
+  assert.equal(frame.src, src);
+  assert.equal(frame.contractInputFixture, input);
+  assert.equal(tab.fetches.length, requests, 'billing resizing does not fetch the contract or posting eligibility again');
+  const oldResize = tab.windowListeners.resize[0];
+  const oldObserver = observers[0];
+  closeBillingThroughUi(tab);
+  assert.equal(tab.windowListeners.resize.length, 0);
+  assert.equal(oldObserver.targets.size, 0);
+  assert.equal(tree.aside.parentElement, tree.main, 'closing billing leaves the native menu intact');
+  mainLeft = 0;
+  mainWidth = tab.window.innerWidth = 390;
+  openBillingThroughUi(tab);
+  const reopened = tab.document.querySelector('[data-toybaco-billing-panel]');
+  assert.equal(reopened.style.left, '0px', 'reopening with the native drawer open remains full width');
+  mainLeft = 150;
+  oldResize();
+  oldObserver.fn();
+  assert.equal(reopened.style.left, '0px', 'a closed billing panel cannot change the next panel');
+  tab.window.location.pathname = '/app/accounts/1/settings/general';
+  tab.api.afterNavChange();
+  assert.equal(tab.document.querySelector('[data-toybaco-billing-panel]'), null);
+  assert.equal(tab.windowListeners.resize.length, 0);
+  assert.equal(observers[1].targets.size, 0, 'route change disconnects the current billing observer');
 }
 
 {
