@@ -828,6 +828,130 @@ for (const status of [401, 403]) {
   assert.ok(postingEntry(env.document), 'next natural billing visit can retry after a timeout');
 }
 
+// The native settings router view stays mounted beneath posting/billing. Its z-20
+// header must not cover either iframe, and its expanded nav must not look current.
+{
+  const tree = createMenuTree(true);
+  const route = createDomNode('div');
+  route.setAttribute('data-toybaco-native-route', '');
+  route.style.display = 'contents';
+  const header = createDomNode('header');
+  header.className = 'z-20';
+  header.textContent = '戻る 受信トレイ';
+  const draft = createDomNode('textarea');
+  draft.value = '未保存の会話';
+  draft.files = [{ name: 'owned.txt' }];
+  route.scrollTop = 187;
+  route.appendChild(header); route.appendChild(draft); tree.content.appendChild(route);
+  const globalDialog = createDomNode('div');
+  globalDialog.setAttribute('role', 'dialog');
+  tree.content.appendChild(globalDialog);
+  const launcher = createDomNode('div');
+  launcher.setAttribute('id', 'mobile-sidebar-launcher');
+  tree.content.appendChild(launcher);
+  const settings = tree.extra.find((row) => row.name === '設定');
+  const reports = tree.extra.find((row) => row.name === 'レポート');
+  const settingsChildren = createDomNode('ul');
+  settingsChildren.style.display = ''; // Native v-show is expanded for the pathname.
+  settingsChildren.setAttribute('aria-hidden', 'false');
+  settings.appendChild(settingsChildren);
+  const reportChildren = createDomNode('ul');
+  reportChildren.style.display = 'none';
+  reportChildren.setAttribute('inert', 'inert');
+  reports.appendChild(reportChildren);
+  const timers = [];
+  const env = loadInjectEntry(async () => statusResponse(true), '/app/accounts/1/settings/inboxes/3/collaborators', {
+    body: tree.body, setInterval(fn) { timers.push(fn); return timers.length; },
+  });
+  const createElement = env.document.createElement;
+  env.document.createElement = (tag) => {
+    const node = createElement(tag);
+    node.focus = () => { env.document.activeElement = node; };
+    return node;
+  };
+  draft.focus = () => { env.document.activeElement = draft; };
+  const assertHidden = (node, kind) => {
+    assert.equal(node.getAttribute('data-toybaco-embedded-background'), kind,
+      `native ${kind} must be hidden while the embedded workspace is visible`);
+    assert.equal(node.getAttribute('aria-hidden'), 'true');
+    assert.notEqual(node.getAttribute('inert'), null);
+  };
+  const assertRestored = () => {
+    for (const node of [route, settingsChildren, reportChildren]) {
+      assert.equal(node.getAttribute('data-toybaco-embedded-background'), null);
+    }
+    assert.equal(route.getAttribute('inert'), null);
+    assert.equal(route.getAttribute('aria-hidden'), null);
+    assert.equal(settingsChildren.getAttribute('aria-hidden'), 'false');
+    assert.equal(settingsChildren.getAttribute('inert'), null);
+    assert.equal(reportChildren.getAttribute('inert'), 'inert');
+    assert.equal(reportChildren.getAttribute('aria-hidden'), null);
+    assert.equal(settingsChildren.style.display, '');
+    assert.equal(reportChildren.style.display, 'none');
+  };
+  env.api.inject(); await flush(); assertRestored();
+  draft.focus();
+  env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const iframe = panel.querySelector('iframe');
+  const originalSrc = iframe.src;
+  const files = draft.files;
+  assertHidden(route, 'route'); assertHidden(settingsChildren, 'nav'); assertHidden(reportChildren, 'nav');
+  assert.equal(env.document.activeElement, panel, 'focus cannot stay inside the hidden native route');
+  assert.equal(panel.getAttribute('tabindex'), '-1');
+  assert.equal(postingEntry(env.document).getAttribute('aria-current'), 'page');
+  assert.equal(settings.firstChild.getAttribute('aria-current'), null);
+  for (const outside of [globalDialog, launcher, tree.aside, iframe, panel]) {
+    assert.equal(outside.getAttribute('inert'), null, 'only the native route and submenu are suppressed');
+    assert.equal(outside.getAttribute('aria-hidden'), null);
+  }
+  for (let i = 0; i < 3; i += 1) env.api.inject();
+  for (const resize of env.windowListeners.resize || []) resize();
+  assert.equal(panel.querySelector('iframe'), iframe);
+  assert.equal(iframe.src, originalSrc);
+  assert.equal(draft.parentElement, route);
+  assert.equal(draft.value, '未保存の会話'); assert.equal(draft.files, files); assert.equal(route.scrollTop, 187);
+  env.api.closePanel(); assertRestored();
+  assert.equal(env.document.activeElement, draft, 'closing restores the displaced input when focus stayed in the panel');
+  assert.equal(settings.firstChild.getAttribute('aria-current'), 'page');
+
+  env.api.openPanel('/launches', false);
+  env.document.activeElement = settings.firstChild;
+  let nativeToggle = 0;
+  settings.firstChild.addEventListener('click', () => { assertRestored(); nativeToggle += 1; });
+  const nativeClick = fireClick(settings.firstChild, env.docListeners.click || []);
+  assert.equal(nativeClick.prevented, false); assert.equal(nativeToggle, 1, 'native menu handling must continue after restoration');
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(env.document.activeElement, settings.firstChild, 'native navigation must retain its newly selected focus');
+
+  env.api.openPanel('/launches', false);
+  env.window.location.hash = ''; // Browser back leaves the embedded hash; the existing watcher closes it.
+  timers.at(-1)(); assertRestored();
+
+  openBillingThroughUi(env); assertHidden(route, 'route'); assertHidden(settingsChildren, 'nav');
+  assert.equal(billingEntry(env.document).getAttribute('aria-current'), 'page');
+  env.api.openPanel('/launches', false); // billing -> posting uses one owner of saved attributes.
+  assertHidden(route, 'route');
+  openBillingThroughUi(env); // posting -> billing must not save the temporary hidden state.
+  assertHidden(route, 'route'); closeBillingThroughUi(env); assertRestored();
+
+  env.api.openPanel('/launches', false);
+  tree.content.removeChild(route);
+  const nextRoute = createDomNode('div');
+  nextRoute.setAttribute('data-toybaco-native-route', ''); tree.content.appendChild(nextRoute);
+  env.api.inject();
+  assert.equal(route.getAttribute('inert'), null, 'detached route state must be released');
+  assertHidden(nextRoute, 'route');
+  env.window.location.pathname = '/app/accounts/2/dashboard';
+  timers.at(-1)(); // Existing pathname watcher closes the old account's posting panel.
+  assert.equal(nextRoute.getAttribute('inert'), null);
+  assertRestored();
+  tree.content.removeChild(nextRoute); tree.content.appendChild(route);
+  openBillingThroughUi(env);
+  env.window.location.pathname = '/app/accounts/2/settings/general';
+  env.api.afterNavChange(); await flush(); assertRestored();
+}
+
 // Postiz control snapshot は brand CSS を含めない。
 const brandCssPath = path.join(root, 'overlay/app/public/toybaco-brand.css');
 if (fs.existsSync(brandCssPath)) {

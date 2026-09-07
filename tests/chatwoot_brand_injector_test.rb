@@ -194,6 +194,28 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_match(/^#{Regexp.escape(host)}\s*>\s*:not\(/, brand_css, 'do not lower other native dialogs and floating controls')
   end
 
+  def test_embedded_workspace_hides_only_the_mounted_route_and_expanded_submenus
+    route = bubble_rule('[data-toybaco-embedded-background="route"]')
+    assert_match(/visibility:\s*hidden\s*!important;/, route)
+    assert_includes(brand_css, '[data-toybaco-embedded-background="route"] * {',
+                    'explicitly visible settings headers must not escape the hidden route')
+    refute_match(/(?:display|position|height|overflow)\s*:/, route, 'retain input and scroll geometry')
+    assert_match(/display:\s*none\s*!important;/, bubble_rule('[data-toybaco-embedded-background="nav"]'))
+    assert_includes(brand_css,
+                    '[data-toybaco-primary-nav]:has(> [data-toybaco-embedded-background="nav"]) > ' \
+                    '[data-toybaco-nav-link] .i-lucide-chevron-up', 'temporarily collapsed menus must not show an expanded arrow')
+
+    dashboard = File.read(File.expand_path('../overlay/app/app/javascript/dashboard/routes/dashboard/Dashboard.vue', __dir__))
+    wrapper = dashboard[/<div data-toybaco-native-route style="display: contents">.*?<\/div>/m]
+    refute_nil(wrapper)
+    assert_equal('<div data-toybaco-native-route style="display: contents"> <router-view /> </div>', wrapper.gsub(/\s+/, ' '))
+    assert_equal(1, dashboard.scan('data-toybaco-native-route').length)
+    %w[CopilotLauncher MobileSidebarLauncher CopilotContainer FloatingCallWidget CommandBar AddAccountModal WootKeyShortcutModal].each do |component|
+      assert_includes(dashboard.split(wrapper, 2).last, "<#{component}", 'shared controls must stay outside the inert native route')
+    end
+    refute_match(/v-(?:if|show)|:key/, wrapper, 'opening an iframe must not remount the native router view')
+  end
+
   private
 
   def brand_css
