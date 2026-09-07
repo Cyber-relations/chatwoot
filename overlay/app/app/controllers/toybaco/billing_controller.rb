@@ -2,6 +2,7 @@
 
 require 'net/http'
 require_relative '../../../lib/toybaco/entitlements'
+require_relative '../../../lib/toybaco/store_fulfillment'
 require_relative '../../../lib/toybaco/checkout'
 require_relative '../../../lib/toybaco/billing_subscription'
 require_relative '../../../lib/toybaco/checkout/plan_change'
@@ -28,6 +29,7 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     @portal_ready = @admin && @subscription_id.present? && ENV['TOYBACO_STRIPE_KEY'].present?
     @contract = Toybaco::Entitlements.contract_for(@account)
     @plan = @contract && { name: @contract.fetch('name') }
+    @store_purchase = Toybaco::StoreFulfillment.linked_purchase?(@account)
     load_actual_billing
     @plan_changes = plan_change_service.state if @portal_ready
     render 'toybaco/billing/show', layout: false

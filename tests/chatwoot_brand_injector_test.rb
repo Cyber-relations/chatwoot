@@ -165,6 +165,23 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_match(/\.right-bubble\s+\*\s*\{[^}]*color:/, brand_css, 'do not force white onto all children or form controls')
   end
 
+  def test_dark_incoming_email_has_a_paper_surface_without_recoloring_sender_html
+    selector = '.dark .left-bubble[data-bubble-name="email"] .letter-render'
+    paper = bubble_rule(selector)
+    background = paper[/background-color:\s*#([0-9a-f]{6});/i, 1].to_s.scan(/../).map { |v| v.to_i(16) }
+    body = paper[/--slate-12:\s*([\d ]+);/, 1].to_s.split.map(&:to_f)
+    quote = paper[/--slate-11:\s*([\d ]+);/, 1].to_s.split.map(&:to_f)
+    assert_equal([255, 255, 255], background)
+    assert_match(/color:\s*rgb\(var\(--slate-12\)\);/, paper)
+    [body, quote, [34, 34, 34]].each do |color|
+      assert_equal(3, color.length)
+      assert_operator(contrast(color, background), :>=, 4.5, 'default prose, quotes and a dark sender signature need readable contrast')
+    end
+    refute_includes(paper, '!important', 'sender inline colors and backgrounds must retain their own cascade')
+    refute_match(/^#{Regexp.escape(selector)}\s+[^\{]+\{/, brand_css, 'do not recolor descendants, including light text on an explicit dark sender background')
+    assert_operator(contrast([255, 255, 255], [32, 36, 43]), :>=, 4.5, 'the unchanged explicit sender color pair stays readable')
+  end
+
   def test_posting_contains_native_stacking_without_changing_dialogs_or_layout
     host = '[data-toybaco-post-host]:has(> [data-toybaco-post-entry-panel])'
     native = "#{host} > :has(.resizable-editor-wrapper)"

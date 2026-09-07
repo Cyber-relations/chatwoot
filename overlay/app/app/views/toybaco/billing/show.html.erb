@@ -58,7 +58,10 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
   <div class="card">
     <% if @plan %>
       <div class="plan-name"><%= @plan[:name] %> プラン</div>
-      <% if @billing %>
+      <% if @store_purchase %>
+        <p class="note">購入元の追加店舗オプションで開通した店舗です。</p>
+        <p class="note">保存した契約版: <%= @contract.fetch('plan_version') %> / <%= @contract['cycle'] == 'year' ? '年払い' : '月払い' %></p>
+      <% elsif @billing %>
         <p class="note"><%= @billing[:status_label] %><%= @billing[:cancel_at_period_end] ? '・現在の契約期間末で解約予定' : '' %></p>
         <% @billing[:items].each do |item| %>
           <div class="row"><span><%= item[:name] %> × <%= item[:quantity] %></span></div>
@@ -141,6 +144,8 @@ h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
       <button class="btn btn-navy" id="portal">お支払い方法・請求履歴</button>
       <p class="note">カード情報の確認・変更は、決済代行(Stripe)の安全なページで行います。トイバコがカード番号をお預かりすることはありません。</p>
       <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、チャットでお知らせください。</p>
+    <% elsif @store_purchase %>
+      <p class="note">お支払い・変更は、購入元の契約で管理します。ご不明な点は店舗の管理者へお問い合わせください。</p>
     <% elsif !@admin %>
       <p class="note">契約情報の確認・変更は、管理者の方のみ行えます。</p>
     <% else %>

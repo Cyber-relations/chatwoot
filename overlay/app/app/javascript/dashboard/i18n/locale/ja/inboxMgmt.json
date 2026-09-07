@@ -652,9 +652,9 @@
       }
     },
     "TABS": {
-      "SETTINGS": "設定",
+      "SETTINGS": "基本設定",
       "COLLABORATORS": "共同編集者",
-      "CONFIGURATION": "設定",
+      "CONFIGURATION": "接続設定",
       "CAMPAIGN": "キャンペーン",
       "PRE_CHAT_FORM": "プレチャットフォーム",
       "BUSINESS_HOURS": "営業時間",

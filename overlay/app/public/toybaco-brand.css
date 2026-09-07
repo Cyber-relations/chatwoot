@@ -899,6 +899,17 @@ aside nav span.inline-grid.rounded-full {
   color: #d6e4f2 !important;
 }
 
+/* 受信メールの本文だけを紙面色にする。送信者の子要素色・背景は保持する。 */
+.dark .left-bubble[data-bubble-name="email"] .letter-render {
+  background-color: #ffffff;
+  color: rgb(var(--slate-12));
+  --slate-12: 30 41 59;
+  --slate-11: 71 85 105;
+  --alpha-3: 15, 23, 42, 0.05;
+  padding: 12px;
+  border-radius: 6px;
+}
+
 .dark .right-bubble {
   color: #f2f7fd !important;
 }

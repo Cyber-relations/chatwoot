@@ -3,6 +3,7 @@
 require_relative '../toybaco/brand_injector'
 require_relative '../toybaco/entitlements'
 require_relative '../toybaco/subscription_sync'
+require_relative '../toybaco/store_fulfillment'
 require 'digest'
 
 # Independent rake task declarations share one namespace.
@@ -23,10 +24,7 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       end
       client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
       accounts.each do |account|
-        # 失効前のPostiz同期と開通後の所属同期に合わせ、identity lockをAccount行より先に取る。
-        namespace = Toybaco::PostizSync::CHATWOOT_ACCOUNT_LOCK_NAMESPACE
-        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{namespace}, #{account.id})")
-        result = Toybaco::SubscriptionSync.new(client: client).call(account, subscription_id: id)
+        result = Toybaco::StoreFulfillment.synchronize(account, subscription_id: id, client: client)
         puts "契約照合: account ##{account.id} / #{result}"
       end
     end
@@ -94,27 +92,29 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
 
   desc '投稿機能を使えるようにする(rake toybaco:enable_posting[アカウント番号])'
   task :enable_posting, [:account_id] => :environment do |_t, args|
-    account = Account.find(args[:account_id])
-    attrs = account.internal_attributes || {}
-    postiz = (attrs['postiz'] || {}).merge('enabled' => true)
-    addons = Array(attrs['toybaco_contract_addons']).reject { |item| item['id'] == 'manual-posting' }
-    addons << Toybaco::Entitlements.new_addon('manual-posting', quantity: 1, source: 'manual')
-    contract = Toybaco::Entitlements.contract_for(account)
-    contract = contract.merge('addons' => addons) if contract
-    account.update!(internal_attributes: attrs.merge('postiz' => postiz, 'toybaco_contract_addons' => addons, 'toybaco_contract' => contract))
-    puts "#{account.name}(##{account.id})で投稿機能を使えるようにしました"
+    Toybaco::StoreFulfillment.with_account(args[:account_id]) do |account|
+      attrs = account.internal_attributes || {}
+      postiz = (attrs['postiz'] || {}).merge('enabled' => true)
+      addons = Array(attrs['toybaco_contract_addons']).reject { |item| item['id'] == 'manual-posting' }
+      addons << Toybaco::Entitlements.new_addon('manual-posting', quantity: 1, source: 'manual')
+      contract = Toybaco::Entitlements.contract_for(account)
+      contract = contract.merge('addons' => addons) if contract
+      account.update!(internal_attributes: attrs.merge('postiz' => postiz, 'toybaco_contract_addons' => addons, 'toybaco_contract' => contract))
+      puts "#{account.name}(##{account.id})で投稿機能を使えるようにしました"
+    end
   end
 
   desc '投稿機能を止める(rake toybaco:disable_posting[アカウント番号])'
   task :disable_posting, [:account_id] => :environment do |_t, args|
-    account = Account.find(args[:account_id])
-    attrs = account.internal_attributes || {}
-    postiz = (attrs['postiz'] || {}).merge('enabled' => false)
-    addons = Array(attrs['toybaco_contract_addons']).reject { |item| item['id'] == 'manual-posting' }
-    contract = Toybaco::Entitlements.contract_for(account)
-    contract = contract.merge('addons' => addons) if contract
-    account.update!(internal_attributes: attrs.merge('postiz' => postiz, 'toybaco_contract_addons' => addons, 'toybaco_contract' => contract))
-    puts "#{account.name}(##{account.id})の投稿機能を止めました"
+    Toybaco::StoreFulfillment.with_account(args[:account_id]) do |account|
+      attrs = account.internal_attributes || {}
+      postiz = (attrs['postiz'] || {}).merge('enabled' => false)
+      addons = Array(attrs['toybaco_contract_addons']).reject { |item| item['id'] == 'manual-posting' }
+      contract = Toybaco::Entitlements.contract_for(account)
+      contract = contract.merge('addons' => addons) if contract
+      account.update!(internal_attributes: attrs.merge('postiz' => postiz, 'toybaco_contract_addons' => addons, 'toybaco_contract' => contract))
+      puts "#{account.name}(##{account.id})の投稿機能を止めました"
+    end
   end
 
   desc '投稿機能の利用状況を一覧する'
@@ -176,12 +176,8 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
       existing = Account.where("internal_attributes ->> 'toybaco_subscription_id' = ?", subscription_id).first
       client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
-      sync = Toybaco::SubscriptionSync.new(client: client)
       if existing
-        # 再送も開通直後のPostiz同期と同じidentity→Account行の順序で照合する。
-        namespace = Toybaco::PostizSync::CHATWOOT_ACCOUNT_LOCK_NAMESPACE
-        ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(#{namespace}, #{existing.id})")
-        sync.call(existing, subscription_id: subscription_id)
+        Toybaco::StoreFulfillment.synchronize(existing, subscription_id: subscription_id, client: client)
         puts "既に開通済み: account ##{existing.id}(subscription #{subscription_id})"
         next
       end
@@ -197,13 +193,23 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       AccountUser.create!(account: account, user: user, role: :administrator)
 
       Toybaco::Entitlements.apply!(account, contract, subscription_id: subscription_id)
-      sync.call(account, subscription_id: subscription_id)
+      Toybaco::StoreFulfillment.synchronize(account, subscription_id: subscription_id, client: client)
 
       # 初回設定・再設定共通のメールから、顧客自身がパスワードを設定する。
       user.send_reset_password_instructions
       puts "開通完了: account ##{account.id} #{name} / #{email} / #{plan}" \
            "#{posting ? ' / 投稿オプション' : ''} / subscription #{subscription_id}"
     end
+  end
+
+  desc '支払済み追加店舗の明細を別Light店舗へ手動開通する。再実行は同じ店舗を返す'
+  task :fulfill_store, [:parent_account_id, :subscription_item_id, :administrator_id, :name] => :environment do |_t, args|
+    client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', nil))
+    child = Toybaco::StoreFulfillment.fulfill(
+      parent_id: Integer(args[:parent_account_id], 10), item_id: args[:subscription_item_id],
+      administrator_id: Integer(args[:administrator_id], 10), name: args[:name], client: client
+    )
+    puts "追加店舗開通: account ##{child.id} / #{child.internal_attributes.fetch('toybaco_plan')}"
   end
 
   # ライト(旧 starter)の担当者 3 名は Toybaco::AgentSeatLimit がサーバ強制する。
