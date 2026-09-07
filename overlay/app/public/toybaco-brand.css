@@ -492,6 +492,13 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   order: 3;
 }
 
+/* 投稿中だけ背景の会話ルートを z-index:1 の投稿より後ろに収める。
+   main と他の直下要素は変えず、AI・店舗作成・ショートカット等の前面性を保つ。 */
+[data-toybaco-post-host]:has(> [data-toybaco-post-entry-panel]) > :has(.resizable-editor-wrapper) {
+  isolation: isolate;
+  z-index: 0;
+}
+
 /* AI 一次応答の2モードは左ナビではなく返信欄の横 */
 [data-toybaco-ai-mode-bar] {
   display: flex;

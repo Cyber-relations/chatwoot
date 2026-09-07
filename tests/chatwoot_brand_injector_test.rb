@@ -142,6 +142,18 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_match(/\.right-bubble\s+\*\s*\{[^}]*color:/, brand_css, 'do not force white onto all children or form controls')
   end
 
+  def test_posting_contains_native_stacking_without_changing_dialogs_or_layout
+    host = '[data-toybaco-post-host]:has(> [data-toybaco-post-entry-panel])'
+    native = "#{host} > :has(.resizable-editor-wrapper)"
+    native_rule = bubble_rule(native)
+    assert_match(/isolation:\s*isolate;/, native_rule, 'nested resize handles must not escape the native layer')
+    assert_match(/z-index:\s*0;/, native_rule, 'native roots must remain below the existing posting layer')
+    refute_match(/(?:display|position|visibility|pointer-events)\s*:/, native_rule, 'keep native layout and interaction on return')
+    refute_match(/^\[data-toybaco-post-host\]\s*\{/, brand_css, 'isolation must end when the posting panel closes')
+    refute_match(/^#{Regexp.escape(host)}\s*\{/, brand_css, 'keep main dialogs above sidebar layers')
+    refute_match(/^#{Regexp.escape(host)}\s*>\s*:not\(/, brand_css, 'do not lower other native dialogs and floating controls')
+  end
+
   private
 
   def brand_css
