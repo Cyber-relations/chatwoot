@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'minitest/autorun'
+require 'digest'
 require_relative '../overlay/app/lib/toybaco/checkout/catalog'
 
 # ご契約画面に出すプラン名は LP のライト / スタンダード / プロだけ。
@@ -88,5 +89,36 @@ class ChatwootBillingPlanNamesTest < Minitest::Test
     refute_includes view, 'Hacker'
     refute_includes view, 'Enterprise'
     refute_match(/Captain|キャプテン/, view)
+  end
+
+  def test_assignment_upsell_honors_brand_policy_and_preserves_assignment_behavior
+    view = File.read(File.join(
+                       ROOT,
+                       'overlay/app/app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CollaboratorsPage.vue'
+                     ))
+    policy_import = "import { usePolicy } from 'dashboard/composables/usePolicy';\n"
+    policy_setup = "const { shouldShowPaywall } = usePolicy();\n"
+    old_prompt = <<~VUE
+                      <div class="w-full h-px bg-n-weak my-4" />
+
+                      <!-- Upgrade prompt when advanced_assignment is not enabled -->
+                      <div v-if="!hasAdvancedAssignment">
+    VUE
+    new_prompt = <<~VUE
+                      <!-- Upgrade prompt follows the existing custom-brand paywall policy. -->
+                      <div
+                        v-if="!hasAdvancedAssignment && shouldShowPaywall('advanced_assignment')"
+                      >
+                        <div class="w-full h-px bg-n-weak my-4" />
+    VUE
+    old_prompt = old_prompt.lines.map { |line| line == "\n" ? line : "                  #{line}" }.join
+    new_prompt = new_prompt.lines.map { |line| "                  #{line}" }.join
+    # Only the marketing branch changes; all assignment handlers and feature
+    # checks must stay identical to the pinned upstream component.
+    assert_equal 1, view.scan(policy_import).length
+    assert_equal 1, view.scan(policy_setup).length
+    assert_equal 1, view.scan(new_prompt).length
+    restored = view.sub(policy_import, '').sub(policy_setup, '').sub(new_prompt, old_prompt)
+    assert_equal '95aed927cda69216f3233a1894daaf052fa6fc9de63ed1ed288ca122566302ea', Digest::SHA256.hexdigest(restored)
   end
 end
