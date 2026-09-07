@@ -900,6 +900,39 @@ aside nav span.inline-grid.rounded-full {
   background-color: var(--toybaco-navy) !important;
 }
 
+/* 公開返信の prose は親 color を継承せず slate を参照する。本文内だけ補正し、
+ * 添付カード・入力欄・受信側のトークンは変えない。blue=担当者、iris=自動返信。 */
+.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris) .prose-bubble {
+  --slate-12: 255 255 255;
+  --slate-11: 214 228 242;
+  --alpha-3: 255, 255, 255, 0.12;
+}
+
+.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris) .prose-bubble a {
+  color: #d6e4f2 !important;
+}
+
+.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris) > .text-xs {
+  --slate-11: 214 228 242;
+  --slate-10: 214 228 242;
+}
+
+/* Template の送信済み値は独自の明暗 surface。親の白文字を継承させない。 */
+.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris)[data-bubble-name="text"] > .gap-3 > .bg-n-alpha-3 {
+  color: rgb(var(--slate-12)) !important;
+}
+
+/* メモも right-bubble を共有する。hover を含め上流の橙色とテーマ追従を保つ。 */
+.right-bubble.bg-n-solid-amber,
+.right-bubble.bg-n-solid-amber:hover {
+  background-color: rgb(var(--solid-amber)) !important;
+  color: rgb(var(--amber-12)) !important;
+}
+
+.right-bubble.bg-n-solid-amber > .text-xs {
+  color: rgb(var(--amber-12)) !important;
+}
+
 /* システム行はLP同様に補助色で表示し、お客様のメッセージと区別する。 */
 [data-bubble-name="activity"] {
   background-color: transparent !important;

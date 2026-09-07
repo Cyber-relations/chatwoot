@@ -103,4 +103,63 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_includes(html, '"billingUrl":')
     assert_includes(html, 'toybaco-post-entry.js')
   end
+
+  # BaseBubble shares right-bubble across public blue/iris and private amber.
+  # typography.bubble uses slate/alpha tokens rather than inheriting parent color.
+  def test_public_rich_text_and_nested_code_keep_normal_text_contrast
+    public_bubble = '.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris)'
+    prose = bubble_rule("#{public_bubble} .prose-bubble")
+    navy = brand_css[/--toybaco-navy:\s*#([0-9a-f]{6});/i, 1].scan(/../).map { |v| v.to_i(16) }
+    body = prose[/--slate-12:\s*([\d ]+);/, 1].to_s.split.map(&:to_f)
+    secondary = prose[/--slate-11:\s*([\d ]+);/, 1].to_s.split.map(&:to_f)
+    [body, secondary].each do |color|
+      assert_equal(3, color.length)
+      assert(color.all? { |v| v.between?(0, 255) })
+      assert_operator(contrast(color, navy), :>=, 4.5)
+    end
+    surface = prose[/--alpha-3:\s*([\d., ]+);/, 1].to_s.split(',').map(&:to_f)
+    assert_equal(4, surface.length, 'code/pre needs a surface scoped to the pale public text')
+    assert(surface.take(3).all? { |v| v.between?(0, 255) } && surface[3].between?(0, 1))
+    code_background = navy
+    2.times do
+      code_background = code_background.each_with_index.map { |v, i| surface[i] * surface[3] + v * (1 - surface[3]) }
+      assert_operator(contrast(secondary, code_background), :>=, 4.5, 'inline and nested pre/code must be readable')
+    end
+    assert_match(/color:\s*#d6e4f2\s*!important;/, bubble_rule("#{public_bubble} .prose-bubble a"))
+    assert_match(/--slate-11:\s*214 228 242;/, bubble_rule("#{public_bubble} > .text-xs"))
+  end
+
+  def test_private_memos_and_submitted_values_keep_their_own_theme_colors
+    private_bubble = '.right-bubble.bg-n-solid-amber'
+    [private_bubble, "#{private_bubble}:hover"].each do |selector|
+      rule = bubble_rule(selector)
+      assert_match(/background-color:\s*rgb\(var\(--solid-amber\)\)\s*!important;/, rule)
+      assert_match(/color:\s*rgb\(var\(--amber-12\)\)\s*!important;/, rule)
+    end
+    assert_match(/color:\s*rgb\(var\(--amber-12\)\)\s*!important;/, bubble_rule("#{private_bubble} > .text-xs"))
+    value = '.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris)[data-bubble-name="text"] > .gap-3 > .bg-n-alpha-3'
+    assert_match(/color:\s*rgb\(var\(--slate-12\)\)\s*!important;/, bubble_rule(value))
+    refute_match(/\.right-bubble\s+\*\s*\{[^}]*color:/, brand_css, 'do not force white onto all children or form controls')
+  end
+
+  private
+
+  def brand_css
+    File.read(File.expand_path('../overlay/app/public/toybaco-brand.css', __dir__))
+  end
+
+  def bubble_rule(selector)
+    rule = brand_css[/^#{Regexp.escape(selector)}(?:,\s*[^{}]+)?\s*\{([^}]+)\}/, 1]
+    refute_nil(rule, "missing scoped bubble rule: #{selector}")
+    rule
+  end
+
+  def contrast(first, second)
+    luminance = lambda do |rgb|
+      channels = rgb.map { |v| v / 255.0 }.map { |v| v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055)**2.4 }
+      channels.zip([0.2126, 0.7152, 0.0722]).sum { |v, weight| v * weight }
+    end
+    values = [luminance.call(first), luminance.call(second)].sort
+    (values.last + 0.05) / (values.first + 0.05)
+  end
 end
