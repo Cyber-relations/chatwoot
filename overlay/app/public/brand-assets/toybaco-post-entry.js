@@ -651,7 +651,80 @@
     }).join(' ');
   }
 
+  // router-view の状態は保ち、埋め込み表示中だけ背景と native 子メニューを隠す。
+  // Dashboard の共通ダイアログ・mobile launcher はこの所有範囲に含めない。
+  var embeddedBackground = [];
+  var embeddedReturnFocus = null;
+  var embeddedFocusOwner = null;
+  var embeddedAttributes = ['data-toybaco-embedded-background', 'inert', 'aria-hidden'];
+
+  function nodeWithin(node, ancestor) {
+    while (node) {
+      if (node === ancestor) return true;
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  function setEmbeddedAttribute(node, name, value) {
+    if (node.getAttribute(name) === value) return;
+    if (value === null) node.removeAttribute(name);
+    else node.setAttribute(name, value);
+  }
+
+  function syncEmbeddedWorkspace() {
+    var foreground = billingPanel || panel;
+    var targets = [];
+    if (foreground) {
+      var host = findContentHost();
+      var routes = host ? host.querySelectorAll('[data-toybaco-native-route]') : [];
+      for (var r = 0; r < routes.length; r += 1) targets.push({ node: routes[r], kind: 'route' });
+      var rows = document.querySelectorAll('[data-toybaco-primary-nav]');
+      for (var n = 0; n < rows.length; n += 1) {
+        var kind = rows[n].getAttribute('data-toybaco-primary-nav');
+        if (kind !== 'settings' && kind !== 'reports') continue;
+        var children = rows[n].children;
+        for (var c = 0; c < children.length; c += 1) {
+          if (children[c].tagName === 'UL') targets.push({ node: children[c], kind: 'nav' });
+        }
+      }
+    }
+    embeddedBackground = embeddedBackground.filter(function (saved) {
+      if (targets.some(function (target) { return target.node === saved.node; })) return true;
+      embeddedAttributes.forEach(function (name, index) {
+        setEmbeddedAttribute(saved.node, name, saved.values[index]);
+      });
+      return false;
+    });
+    if (!foreground && embeddedReturnFocus) {
+      var active = document.activeElement;
+      if ((!active || active === document.body || nodeWithin(active, embeddedFocusOwner)) &&
+          nodeWithin(embeddedReturnFocus, document.body) && embeddedReturnFocus.focus) {
+        embeddedReturnFocus.focus();
+      }
+      embeddedReturnFocus = null;
+      embeddedFocusOwner = null;
+    }
+    targets.forEach(function (target) {
+      if (nodeWithin(document.activeElement, target.node)) {
+        embeddedReturnFocus = document.activeElement;
+        embeddedFocusOwner = foreground;
+        setEmbeddedAttribute(foreground, 'tabindex', '-1');
+        if (foreground.focus) foreground.focus();
+      }
+      if (!embeddedBackground.some(function (saved) { return saved.node === target.node; })) {
+        embeddedBackground.push({ node: target.node, values: embeddedAttributes.map(function (name) {
+          return target.node.getAttribute(name);
+        }) });
+      }
+      [target.kind, '', 'true'].forEach(function (value, index) {
+        setEmbeddedAttribute(target.node, embeddedAttributes[index], value);
+      });
+    });
+  }
+
   function syncPostingSelection() {
+    syncEmbeddedWorkspace();
     try {
       var path = window.location.pathname;
       var selected = billingPanel ? 'billing' : panel ? 'posting' :

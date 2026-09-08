@@ -492,6 +492,18 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   order: 3;
 }
 
+/* router-view だけを隠してレイアウトと入力を保つ。子の明示 visibility も背景へ収める。 */
+[data-toybaco-embedded-background="route"],
+[data-toybaco-embedded-background="route"] * {
+  visibility: hidden !important;
+}
+
+/* native の展開状態は書き換えず、投稿・契約を閉じたら元の子メニューへ戻す。 */
+[data-toybaco-embedded-background="nav"],
+[data-toybaco-primary-nav]:has(> [data-toybaco-embedded-background="nav"]) > [data-toybaco-nav-link] .i-lucide-chevron-up {
+  display: none !important;
+}
+
 /* 投稿中だけ背景の会話ルートを z-index:1 の投稿より後ろに収める。
    main と他の直下要素は変えず、AI・店舗作成・ショートカット等の前面性を保つ。 */
 [data-toybaco-post-host]:has(> [data-toybaco-post-entry-panel]) > :has(.resizable-editor-wrapper) {
@@ -897,6 +909,17 @@ aside nav span.inline-grid.rounded-full {
 
 .dark .left-bubble {
   color: #d6e4f2 !important;
+}
+
+/* 受信メールの本文だけを紙面色にする。送信者の子要素色・背景は保持する。 */
+.dark .left-bubble[data-bubble-name="email"] .letter-render {
+  background-color: #ffffff;
+  color: rgb(var(--slate-12));
+  --slate-12: 30 41 59;
+  --slate-11: 71 85 105;
+  --alpha-3: 15, 23, 42, 0.05;
+  padding: 12px;
+  border-radius: 6px;
 }
 
 .dark .right-bubble {

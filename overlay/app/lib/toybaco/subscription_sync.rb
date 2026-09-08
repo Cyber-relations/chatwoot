@@ -25,6 +25,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         previous = previous_contract(account)
         contract, outcome = apply_contract(account, subscription, previous)
         apply_status(account, subscription, contract, outcome)
+        yield subscription, outcome if block_given?
       end
       outcome
     end
