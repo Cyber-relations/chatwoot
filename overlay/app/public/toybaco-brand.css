@@ -540,7 +540,7 @@ select:focus {
 }
 
 /* 狭い幅の開閉式パネルまで196pxに固定せず、デスクトップだけLPの密度へ寄せる。 */
-@media (min-width: 1180px) {
+@media (min-width: 1280px) {
   [data-toybaco-contact-panel] {
     width: 196px !important;
     min-width: 196px !important;

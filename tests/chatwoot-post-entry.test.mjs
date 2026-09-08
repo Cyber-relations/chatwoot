@@ -458,6 +458,9 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     removeEventListener(name, fn) {
       windowListeners[name] = (windowListeners[name] || []).filter((item) => item !== fn);
     },
+    dispatchEvent(event) {
+      [...(windowListeners[event.type] || [])].forEach(fn => fn(event));
+    },
     history: { pushState() {}, replaceState() {} },
     requestAnimationFrame(cb) { return globalThis.setTimeout(cb, 0); },
     setInterval() { return 0; },
@@ -500,6 +503,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     document,
     URL,
     URLSearchParams,
+    Event,
     Promise,
     setTimeout(fn, ms) {
       if (options.setTimeout) return options.setTimeout(fn, ms);
@@ -1506,6 +1510,97 @@ function fireClick(node, extraListeners = [], options = {}) {
   return event;
 }
 
+// Native navigation must wait for the mounted composer's existing close decision.
+for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/conversations/42', { body: tree.body });
+  env.api.inject();
+  env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  const draft = { text: 'TB-SHIP-UI-NAV-DRAFT-20260908', file: {}, cursor: 12 };
+  frame.draftFixture = draft;
+  const originalSrc = frame.src;
+  const requests = [];
+  frame.contentWindow = { postMessage(data, origin) { requests.push({ data, origin }); } };
+  const send = (data, overrides = {}) => {
+    const event = { origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides };
+    [...(env.windowListeners.message || [])].forEach(fn => fn(event));
+  };
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  const target = env.document.querySelector(`[data-toybaco-nav-link="${destination}"]`);
+  let nativeCalls = 0;
+  if (destination === 'settings' || destination === 'reports') {
+    target.addEventListener('click', () => { nativeCalls += 1; env.window.location.pathname = `/app/accounts/1/${destination}/overview`; });
+  }
+  target.click = () => fireClick(target, env.docListeners.click || []);
+  const cancelled = target.click();
+  assert.equal(cancelled.prevented, true, `${destination}: pause the native event before the iframe is removed`);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].origin, 'https://post.staging.toybaco.jp');
+  assert.equal(requests[0].data.type, 'TOYBACO_POSTIZ_REQUEST_CLOSE');
+  target.click();
+  assert.equal(requests.length, 1, 'repeated clicks must share one pending decision');
+  const result = { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].data.requestId, allowed: true };
+  for (const override of [{ origin: 'https://evil.example' }, { source: {} }, { data: { ...result, requestId: result.requestId + 1 } }, { data: { ...result, allowed: 'true' } }]) {
+    send(result, override);
+    assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel, 'untrusted or mismatched replies cannot discard the editor');
+  }
+  send({ ...result, allowed: false });
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel);
+  assert.equal(panel.querySelector('iframe'), frame);
+  assert.equal(frame.src, originalSrc);
+  assert.equal(frame.draftFixture, draft);
+  assert.equal(env.window.location.pathname, '/app/accounts/1/conversations/42');
+  assert.equal(nativeCalls, 0);
+  assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null);
+  target.click();
+  assert.equal(requests.length, 2, 'cancelled navigation can be requested again');
+  send(result);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel, 'a cancelled request cannot approve the later request');
+  send({ ...result, requestId: requests[1].data.requestId });
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, `${destination}: discard approval resumes the requested destination`);
+  if (destination === 'billing') assert.ok(env.document.querySelector('[data-toybaco-billing-panel]'));
+  else if (destination === 'inbox') assert.equal(env.window.location.pathname, '/app/accounts/1/conversations/42', 'return to the preserved conversation');
+  else assert.equal(nativeCalls, 1, 'the existing native control runs exactly once');
+  send({ ...result, requestId: requests[1].data.requestId });
+  assert.ok(nativeCalls <= 1, 'duplicate replies cannot replay navigation');
+}
+
+{
+  const timers = new Map();
+  let nextTimer = 0;
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', {
+    setTimeout(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  const requests = [];
+  frame.contentWindow = { postMessage(data) { requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  const timeout = [...timers.values()].at(-1);
+  assert.equal(timeout.ms, 5000);
+  timeout.fn();
+  assert.equal(panel.querySelector('iframe'), frame, 'missing child response keeps the mounted editor');
+  assert.match(panel.querySelector('[role="status"]').textContent, /入力は残しています/);
+  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  assert.equal(requests.length, 2, 'the next destination selection retries after no response');
+  assert.equal(panel.querySelector('[role="status"]'), null, 'retry removes the earlier notice');
+  const id = requests[1].requestId;
+  const currentTimer = [...timers.keys()].at(-1);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_PENDING', requestId: id });
+  assert.equal(timers.has(currentTimer), false, 'a shown confirmation waits for the person without timing out');
+  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  assert.equal(requests.length, 2, 'while the dialog is open another click does not create another confirmation');
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: id, allowed: false });
+  assert.equal(panel.querySelector('iframe'), frame);
+  env.api.closePanel();
+}
+
 {
   const sidebar = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/components-next/sidebar/Sidebar.vue'), 'utf8');
   const start = sidebar.indexOf('const closeMobileSidebar = () => {');
@@ -1529,6 +1624,10 @@ function fireClick(node, extraListeners = [], options = {}) {
     emit: name => { events.push(name); props.isMobileSidebarOpen = false; },
     useEventListener: (target, type, handler, options) => {
       assert.equal(target, env.window);
+      if (type === 'toybaco:posting-close-pending') {
+        target.addEventListener(type, handler);
+        return;
+      }
       assert.equal(type, 'click');
       assert.equal(options.capture, true, 'window capture must run before the posting document capture');
       captures.push(event => {
@@ -1601,6 +1700,40 @@ function fireClick(node, extraListeners = [], options = {}) {
   fireClick(leaf, captures); assert.equal(props.isMobileSidebarOpen, true);
   isMobile.value = true; props.isMobileSidebarOpen = false;
   fireClick(leaf, captures); assert.equal(events.length, 0);
+
+  // Settings/reports retain their native group behavior, then close the drawer
+  // only when the current iframe confirms that its discard dialog is shown.
+  for (const kind of ['settings', 'reports']) {
+    isMobile.value = true; props.isMobileSidebarOpen = true; events.length = 0;
+    env.api.openPanel('/launches', false);
+    const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+    const frame = panel.querySelector('iframe');
+    frame.draftFixture = { text: 'モバイル編集中' };
+    const requests = [];
+    frame.contentWindow = { postMessage(data) { requests.push(data); } };
+    const send = (data, overrides = {}) => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides }));
+    send({ type: 'TOYBACO_POSTIZ_READY' });
+    const group = control({ 'data-toybaco-nav-link': kind }, 'div');
+    fireClick(group, [...captures, ...env.docListeners.click]);
+    assert.equal(props.isMobileSidebarOpen, true, 'native group selection waits for an actual child confirmation');
+    const pending = { type: 'TOYBACO_POSTIZ_CLOSE_PENDING', requestId: requests[0].requestId };
+    for (const overrides of [{ origin: 'https://evil.example' }, { source: {} }, { data: { ...pending, requestId: pending.requestId + 1 } }]) {
+      send(pending, overrides);
+      assert.equal(props.isMobileSidebarOpen, true, 'untrusted acknowledgement cannot close the native drawer');
+    }
+    isMobile.value = false;
+    send(pending);
+    assert.equal(props.isMobileSidebarOpen, true, 'desktop sidebar state is unaffected');
+    isMobile.value = true;
+    send(pending);
+    assert.equal(props.isMobileSidebarOpen, false, `${kind}: the existing native close path exposes the full iframe dialog on mobile`);
+    assert.deepEqual(events, ['closeMobileSidebar']);
+    send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: pending.requestId, allowed: false });
+    assert.equal(panel.querySelector('iframe'), frame);
+    assert.equal(frame.draftFixture.text, 'モバイル編集中');
+    assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel, 'cancelling keeps the editor mounted with the drawer out of its way');
+    env.api.closePanel();
+  }
 }
 
 {
