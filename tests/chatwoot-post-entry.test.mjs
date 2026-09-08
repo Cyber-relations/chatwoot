@@ -954,8 +954,34 @@ for (const status of [401, 403]) {
 
 // Postiz control snapshot は brand CSS を含めない。
 const brandCssPath = path.join(root, 'overlay/app/public/toybaco-brand.css');
+const launcherSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/components-next/sidebar/MobileSidebarLauncher.vue'), 'utf8');
+assert.match(launcherSource, /v-show="!isConversationRoute"\s+id="mobile-sidebar-launcher"/,
+  'keep the actual native launcher mounted on conversation detail so posting can reveal it');
+assert.doesNotMatch(launcherSource, /v-if=|v-else/,
+  'conversation-route rendering must not remove the only mobile navigation control');
+assert.match(launcherSource, /block md:hidden/, 'the native launcher remains hidden from 768px');
+const launcherScript = launcherSource.slice(launcherSource.indexOf('const emit ='), launcherSource.indexOf('</script>'));
+const launcherRoute = { name: 'inbox_conversation' };
+const launcherEvents = [];
+const nativeLauncher = vm.runInNewContext(`(() => { ${launcherScript}; return { isConversationRoute, toggleSidebar }; })()`, {
+  defineEmits: () => event => launcherEvents.push(event),
+  useRoute: () => launcherRoute,
+  computed: fn => ({ get value() { return fn(); } }),
+});
+for (const name of ['inbox_conversation', 'conversation_through_inbox', 'inbox_view_conversation']) {
+  launcherRoute.name = name;
+  assert.equal(nativeLauncher.isConversationRoute.value, true, 'closing posting restores native detail-route hiding');
+}
+for (const name of ['home', 'settings_general', 'account_overview_reports']) {
+  launcherRoute.name = name;
+  assert.equal(nativeLauncher.isConversationRoute.value, false, 'list/settings/report route navigation retains the native launcher');
+}
+nativeLauncher.toggleSidebar();
+assert.deepEqual(launcherEvents, ['toggle'], 'use the existing Dashboard menu handler');
 if (fs.existsSync(brandCssPath)) {
   const brandCss = fs.readFileSync(brandCssPath, 'utf8');
+  assert.match(brandCss, /@media \(max-width: 767px\)\s*\{\s*\[data-toybaco-post-host\]:has\(> \[data-toybaco-post-entry-panel\]\) > #mobile-sidebar-launcher\s*\{\s*display: block !important;\s*\}\s*\}/,
+    'only a real posting panel below md may override the native conversation-route hiding');
   assert.match(brandCss, /\[title="レポート"\]/);
   assert.match(brandCss, /\[title="設定"\]/);
   assert.match(brandCss, /order: 4;/);
