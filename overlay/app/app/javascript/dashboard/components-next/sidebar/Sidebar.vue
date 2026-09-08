@@ -385,6 +385,10 @@ const onMobileNavClick = event => {
 
 // Run before Posting stops document propagation; leave the click untouched.
 useEventListener(window, 'click', onMobileNavClick, { capture: true });
+// The trusted embedded confirmation must remain visible outside the mobile drawer.
+useEventListener(window, 'toybaco:posting-close-pending', () => {
+  if (isMobile.value) closeMobileSidebar();
+});
 
 const newReportRoutes = () => [
   {

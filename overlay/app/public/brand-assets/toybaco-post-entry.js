@@ -188,6 +188,11 @@
   var loadTimer = null;
   var readyMessageHandler = null;
   var panelLayout = null;
+  var postFrameReady = false;
+  var postCloseRequest = null;
+  var postCloseNotice = null;
+  var postCloseSequence = 0;
+  var postCloseApproved = false;
 
   function isPostingHash(h) {
     return h === HASH_PREFIX || h.indexOf(HASH_PREFIX + '?') === 0;
@@ -347,7 +352,9 @@
   }
 
   function onKeydown(e) {
-    if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !e.defaultPrevented) closePanel();
+    if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !e.defaultPrevented) {
+      if (!requestPanelClose(closePanel)) closePanel();
+    }
   }
 
   function removeReadyMessageHandler() {
@@ -387,6 +394,38 @@
       typeof event.data === 'object' &&
       event.data.type === 'TOYBACO_POSTIZ_CLOSE'
     );
+  }
+
+  // 同じiframeの既存composer確認が返るまで、native操作と本文を保持する。
+  function requestPanelClose(proceed) {
+    if (!panel || !postFrameReady || postCloseApproved) return false;
+    if (postCloseRequest) return true;
+    var frame = panel.querySelector('iframe');
+    if (!frame || !frame.contentWindow) return false;
+    clearPostCloseRequest();
+    var request = { id: ++postCloseSequence, proceed: proceed, timer: null };
+    postCloseRequest = request;
+    // 応答のない旧画面や通信断では本文を残し、次の操作で再試行できるようにする。
+    // 子が確認を表示した後は、人が決めるまで期限を設けない。
+    request.timer = setTimeout(function () {
+      if (postCloseRequest !== request || !panel) return;
+      clearPostCloseRequest();
+      postCloseNotice = document.createElement('div');
+      postCloseNotice.setAttribute('role', 'status');
+      postCloseNotice.textContent = '投稿画面の確認ができませんでした。入力は残しています。もう一度、移動先を選んでください。';
+      postCloseNotice.style.cssText = 'flex-shrink:0;padding:10px 16px;background:#FFF4DF;color:#714F0F;font-size:14px';
+      panel.appendChild(postCloseNotice);
+    }, 5000);
+    try {
+      frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_REQUEST_CLOSE', requestId: request.id }, POST_ORIGIN);
+    } catch (e) { /* 応答待ちの期限で再試行の案内を出す */ }
+    return true;
+  }
+
+  function clearPostCloseRequest() {
+    if (postCloseRequest && postCloseRequest.timer) clearTimeout(postCloseRequest.timer);
+    postCloseRequest = null;
+    if (postCloseNotice) { postCloseNotice.remove(); postCloseNotice = null; }
   }
 
   function postingDeniedFor(accountId) {
@@ -472,6 +511,7 @@
 
   function showContractMissing() {
     if (!panel) return;
+    clearPostCloseRequest();
     if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
     removeReadyMessageHandler();
     try {
@@ -535,7 +575,25 @@
         closePanel();
         return;
       }
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && typeof event.data === 'object' &&
+          (event.data.type === 'TOYBACO_POSTIZ_CLOSE_PENDING' || event.data.type === 'TOYBACO_POSTIZ_CLOSE_RESULT')) {
+        var request = postCloseRequest;
+        if (!request || event.data.requestId !== request.id) return;
+        if (event.data.type === 'TOYBACO_POSTIZ_CLOSE_PENDING') {
+          window.dispatchEvent(new Event('toybaco:posting-close-pending'));
+          if (request.timer) { clearTimeout(request.timer); request.timer = null; }
+          return;
+        }
+        if (typeof event.data.allowed !== 'boolean') return;
+        clearPostCloseRequest();
+        if (!event.data.allowed) return;
+        postCloseApproved = true;
+        try { request.proceed(); } finally { postCloseApproved = false; }
+        return;
+      }
       if (!isTrustedPostizReady(event, frame.contentWindow)) return;
+      postFrameReady = true;
       if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
       if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
       // iframe内のEscapeは親documentへ伝播しないため、READY後も閉じる通知を受ける。
@@ -803,6 +861,8 @@
   }
 
   function closePanel() {
+    clearPostCloseRequest();
+    postFrameReady = false;
     if (panelLayout) { panelLayout.stop(); panelLayout = null; }
     if (!panel) {
       removeReadyMessageHandler();
@@ -1130,6 +1190,7 @@
   }
 
   function navigatePrimaryNav(kind) {
+    if (requestPanelClose(function () { navigatePrimaryNav(kind); })) return;
     var id = currentAccountId();
     if (!id) return;
     var returnToConversation = kind === 'inbox' && (panel || billingPanel) &&
@@ -1882,6 +1943,7 @@
   // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
   // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
   function openBillingPanel() {
+    if (requestPanelClose(openBillingPanel)) return;
     try {
       if (billingPanel) { closeBillingPanel(); return; }
       var id = currentAccountId();
@@ -1975,6 +2037,12 @@
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
       if (navKind === 'reports' || navKind === 'settings') {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (requestPanelClose(function () { navLink.click(); })) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopPropagation) e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          return;
+        }
         var preserveExpanded = returnsToExpandedNativeGroup(navLink, navKind);
         closeAiModePanel();
         closeBillingPanel();
