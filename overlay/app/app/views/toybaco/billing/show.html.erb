@@ -5,49 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ご契約内容 | トイバコ</title>
 <style>
-:root{--navy:#1F3A5F;--navy-deep:#163049;--coral:#FF6B5B;--surface:#FCFBF8;--paper:#FFFDF9;--ink:#24303F;--muted:#6B7684;--line:#E5E3DB;--green:#2FA35C}
+:root{--navy:#1F3A5F;--navy-deep:#163049;--coral:#FF6B5B;--focus:#C84435;--control-border:#82878F;--surface:#FCFBF8;--paper:#FFFDF9;--ink:#24303F;--muted:#596675;--line:#E5E3DB;--green:#0B7A35}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--surface);color:var(--ink);line-height:1.8;font-size:15px;padding:32px 24px}
+body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--surface);color:var(--ink);line-height:1.6;font-size:13px;padding:24px 20px}
 .wrap{max-width:640px;margin:0 auto}
-h1{font-size:1.3rem;color:var(--navy);margin-bottom:4px}
-.lead{color:var(--muted);font-size:.85rem;margin-bottom:22px}
-.card{background:var(--paper);border:1.5px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:14px}
-.plan-name{font-size:1.15rem;font-weight:700;color:var(--navy)}
-.plan-price{margin:6px 0 2px;font-size:1.6rem;font-weight:700;color:var(--navy)}
-.plan-price span{font-size:.8rem;color:var(--muted);font-weight:400}
-.plan-total{font-size:.82rem;color:var(--muted)}
-.row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:.9rem}
+h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
+.lead{color:var(--muted);font-size:12px;margin-bottom:16px}
+.card{background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.plan-name{font-size:15px;font-weight:600;color:var(--navy)}
+.plan-price{margin:6px 0 2px;font-size:22px;font-weight:600;color:var(--navy)}
+.plan-price span{font-size:12px;color:var(--muted);font-weight:400}
+.plan-total{font-size:12px;color:var(--muted)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
 .row:first-of-type{border-top:none}
-.badge{font-size:.75rem;font-weight:700;border-radius:999px;padding:3px 12px}
+.badge{font-size:12px;font-weight:600;border-radius:999px;padding:2px 8px}
 .badge.on{background:#E8F5EC;color:var(--green)}
 .badge.off{background:#F0EFEA;color:var(--muted)}
-.btn{display:inline-block;border:none;cursor:pointer;font-family:inherit;font-size:.92rem;font-weight:700;border-radius:999px;padding:12px 26px;transition:opacity .15s}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;border:none;cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;font-weight:600;border-radius:9px;padding:5px 14px;transition:opacity .15s}
 .btn:hover{opacity:.88}
 .btn-navy{background:var(--navy);color:#fff}
 .btn-back{background:transparent;color:var(--navy-deep);border:1.5px solid var(--line)}
-.note{font-size:.78rem;color:var(--muted);margin-top:10px}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
 .note a{color:var(--navy)}
-.err{display:none;color:#C0392B;font-size:.82rem;margin-top:8px}
-.lp-line{color:var(--navy-deep);font-size:.9rem;margin-bottom:16px}
+.err{display:none;color:#C0392B;font-size:12px;margin-top:8px}
+.lp-line{color:var(--navy-deep);font-size:13px;margin-bottom:12px}
 .dlg-back{position:fixed;inset:0;background:rgba(22,48,73,.42);display:flex;align-items:center;justify-content:center;padding:24px;z-index:20}
 .dlg-back[hidden]{display:none}
-.dlg{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:22px 24px;max-width:420px;width:100%}
-.dlg-title{font-size:1.05rem;font-weight:700;color:var(--navy);margin-bottom:8px}
-.dlg-body{color:var(--navy-deep);font-size:.9rem;margin-bottom:18px}
-.dlg-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.dlg{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:16px;max-width:420px;width:100%}
+.dlg-title{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:8px}
+.dlg-body{color:var(--navy-deep);font-size:13px;margin-bottom:14px}
+.dlg-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .btn:disabled{opacity:.55;cursor:wait}
-.btn:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
-.change-title{font-size:1.05rem;color:var(--navy)}
-.change-controls{display:grid;gap:12px;margin-top:14px}
-.change-controls label{font-size:.85rem;font-weight:700}
-.change-controls select{width:100%;font:inherit;color:var(--ink);background:var(--paper);border:1.5px solid var(--line);border-radius:10px;padding:10px}
+.btn:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.change-title{font-size:15px;font-weight:600;color:var(--navy)}
+.change-controls{display:grid;gap:10px;margin-top:12px}
+.change-controls label{font-size:12px;font-weight:500}
+.change-controls select{width:100%;min-height:32px;font:inherit;line-height:18px;color:var(--ink);background:var(--paper);border:1.5px solid var(--control-border);border-radius:9px;padding:5px 10px}
 .change-controls .btn{justify-self:start}
-.change-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-.change-error{color:#C0392B;font-size:.85rem;margin-top:10px}
-.change-detail{white-space:pre-line;font-size:.9rem;margin:14px 0;color:var(--navy-deep)}
+.change-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.change-error{color:#C0392B;font-size:12px;margin-top:8px}
+.change-detail{white-space:pre-line;font-size:13px;margin:12px 0;color:var(--navy-deep)}
 #plan-change-dialog .dlg{max-height:calc(100dvh - 48px);overflow:auto}
 [hidden]{display:none!important}
-@media(max-width:520px){body{padding:22px 14px}.card{padding:18px}.dlg-back{padding:16px}.dlg{padding:20px}.change-actions .btn{width:100%;text-align:center}}
+@media(max-width:767px){.btn,.change-controls select{min-height:40px;padding-block:9px}}
+@media(max-width:520px){body{padding:16px 12px}.dlg-back{padding:16px}.change-actions .btn{width:100%;text-align:center}}
 </style>
 </head>
 <body>

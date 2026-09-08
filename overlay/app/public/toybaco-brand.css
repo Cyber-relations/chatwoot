@@ -8,9 +8,11 @@
   --toybaco-navy: #1f3a5f;
   --toybaco-navy-deep: #163049;
   --toybaco-coral: #ff6b5b;
+  --toybaco-focus: #c84435;
+  --toybaco-control-border: #82878f;
   --toybaco-offwhite: #faf7f2;
   --toybaco-ink: #24303f;
-  --toybaco-muted: #6b7684;
+  --toybaco-muted: #596675;
 
   /* blue スケール(ライト): Chatwoot 既定の空色をネイビー基調に置換 */
   --blue-1: 250 251 253;
@@ -36,6 +38,8 @@
 /* blue スケール(ダーク): ネイビーの世界観のまま明度だけ持ち上げる。
  * dark クラスはログイン後は body、未ログインページは html に付くので .dark で受ける */
 .dark {
+  --toybaco-focus: #ff6b5b;
+  --toybaco-control-border: #627892;
   --blue-1: 15 21 30;
   --blue-2: 18 26 38;
   --blue-3: 26 39 56;
@@ -55,6 +59,136 @@ body,
 #app {
   font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
     "Yu Gothic Medium", "Yu Gothic", Inter, sans-serif !important;
+}
+
+/* LP の製品デモの13pxを基準に、ログイン後の操作部を揃える。
+ * rem の基準・画面倍率・認証画面・受信メールのHTMLは変更しない。 */
+[data-toybaco-dashboard] {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+[data-toybaco-dashboard] :where(.text-body-main, .text-body-para, .text-label, .text-button, .text-sm, .text-base):where(:not(.letter-render, .letter-render *)) {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-toybaco-dashboard] :where(.text-caption, .text-xs):where(:not(.letter-render, .letter-render *)) {
+  font-size: 11px;
+  line-height: 16px;
+}
+
+[data-toybaco-dashboard] :where(.text-heading-1, .text-lg):where(:not(.letter-render, .letter-render *)) {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+[data-toybaco-dashboard] :where(.text-heading-2):where(:not(.letter-render, .letter-render *)) {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+[data-toybaco-dashboard] :where(.text-heading-3):where(:not(.letter-render, .letter-render *)) {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+[data-toybaco-dashboard] :where(.text-xl):where(:not(.letter-render, .letter-render *)) {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+[data-toybaco-dashboard] :where(.text-2xl):where(:not(.letter-render, .letter-render *)) {
+  font-size: 18px;
+  line-height: 26px;
+}
+
+[data-toybaco-dashboard] [data-test-id="reportMetricValue"] {
+  font-size: 22px;
+  line-height: 28px;
+}
+
+/* 共通Buttonの認証画面用defaultを保ち、ダッシュボードの既存sizeだけ調整。 */
+[data-toybaco-dashboard] button.h-8:not(.letter-render *) { height: 28px; }
+[data-toybaco-dashboard] button.h-8.w-8:not(.letter-render *) { width: 28px; }
+[data-toybaco-dashboard] button.h-9:not(.letter-render *) { height: 30px; }
+[data-toybaco-dashboard] button.h-9.w-9:not(.letter-render *) { width: 30px; }
+[data-toybaco-dashboard] button.h-10:not(.letter-render *) { height: 32px; }
+[data-toybaco-dashboard] button.h-10.w-10:not(.letter-render *) { width: 32px; }
+[data-toybaco-dashboard] button.h-12:not(.letter-render *) { height: 36px; }
+[data-toybaco-dashboard] button.h-12.w-12:not(.letter-render *) { width: 36px; }
+
+[data-toybaco-dashboard] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select:not([multiple], [size])):not(.letter-render, .letter-render *) {
+  min-height: 32px;
+  height: 32px !important;
+  padding-block: 5px !important;
+  font-size: 13px !important;
+  line-height: 20px;
+}
+
+[data-toybaco-dashboard] textarea:not(.letter-render, .letter-render *) {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-toybaco-dashboard] :where(.text-n-slate-10, .text-n-slate-11):where(:not(.letter-render, .letter-render *, .right-bubble, .right-bubble *)) {
+  color: var(--toybaco-muted);
+}
+
+[data-toybaco-dashboard] :where(input, textarea, select).border-n-weak:where(:not(.letter-render, .letter-render *, .error, .error *, [aria-invalid="true"], [class*="ruby"], [class*="red-"], [class*="amber"])) {
+  border-color: var(--toybaco-control-border);
+}
+
+[data-toybaco-dashboard] :where(input, textarea, select).outline-n-weak:where(:not(.letter-render, .letter-render *, .error, .error *, [aria-invalid="true"], [class*="ruby"], [class*="red-"], [class*="amber"])):not(:focus) {
+  outline-color: var(--toybaco-control-border);
+}
+
+[data-toybaco-dashboard] input:where(:not(.reset-base, .letter-render, .letter-render *, [class*="outline-none"], [class*="outline-none"] *, .error, .error *, [aria-invalid="true"], [class*="ruby"], [class*="red-"], [class*="amber"], [type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"])):not(:focus) {
+  outline-color: var(--toybaco-control-border) !important;
+}
+
+[data-toybaco-dashboard] input.error:where(:not(.letter-render, .letter-render *, [class*="outline-none"], [class*="outline-none"] *)) {
+  outline-color: rgb(var(--ruby-9)) !important;
+}
+
+[data-toybaco-dashboard] select.outline-n-red-9:where(:not(.letter-render, .letter-render *)) {
+  outline-color: rgb(var(--ruby-9));
+}
+
+[data-toybaco-dashboard] textarea.border:is(.border-n-weak, .border-n-ruby-9):where(:not(.letter-render, .letter-render *)) {
+  border-style: solid;
+}
+
+[data-toybaco-dashboard] input.error + p.text-label-small.text-n-ruby-9:where(:not(.letter-render, .letter-render *)),
+[data-toybaco-dashboard] label:has(> textarea.border-n-ruby-9) > .text-n-ruby-9:where(:not(.letter-render, .letter-render *)),
+[data-toybaco-dashboard] .error:has(input, textarea, select) > .message:where(:not(.letter-render, .letter-render *)),
+[data-toybaco-dashboard] .formkit-outer[data-invalid="true"] .formkit-message:where(:not(.letter-render, .letter-render *)) {
+  color: rgb(var(--ruby-11));
+}
+
+[data-toybaco-dashboard] input + p.text-label-small.text-n-teal-10:where(:not(.letter-render, .letter-render *)) {
+  color: rgb(var(--teal-12));
+}
+
+[data-toybaco-dashboard] :where(input, textarea):where(:not(.letter-render, .letter-render *))::placeholder {
+  color: var(--toybaco-muted) !important;
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  [data-toybaco-dashboard] button.h-8:not(.letter-render *) { height: 32px; }
+  [data-toybaco-dashboard] button.h-8.w-8:not(.letter-render *) { width: 32px; }
+  [data-toybaco-dashboard] button.h-10:not(.letter-render *) { height: 36px; }
+  [data-toybaco-dashboard] button.h-10.w-10:not(.letter-render *) { width: 36px; }
+  [data-toybaco-dashboard] button.h-12:not(.letter-render *) { height: 40px; }
+  [data-toybaco-dashboard] button.h-12.w-12:not(.letter-render *) { width: 40px; }
+  [data-toybaco-dashboard] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select:not([multiple], [size])):not(.letter-render, .letter-render *) {
+    min-height: 36px;
+    height: 36px !important;
+  }
 }
 
 /* n-brand 系(リテラル #2781F6)を blue トークン参照に変えてライト/ダーク追従させる。
@@ -329,8 +463,8 @@ a.bg-woot-500:hover {
 input:focus,
 textarea:focus,
 select:focus {
-  --tw-ring-color: var(--toybaco-coral) !important;
-  outline-color: var(--toybaco-coral);
+  --tw-ring-color: var(--toybaco-focus) !important;
+  outline-color: var(--toybaco-focus);
 }
 
 /* ログイン前(オンボーディング/サインイン)用 */
@@ -358,7 +492,7 @@ select:focus {
 }
 
 /* ===== 受信箱シェル(ログイン後)を LP .pack-mock / .app に寄せる =====
- * 対象は Chatwoot Community の既存クラスだけ。Vue は触らない。
+ * 対象はダッシュボードの識別子と Chatwoot Community の既存クラス。
  * クロム(幅・半径・選択)は生 LP の .pack-mock。トークン正本は docs/brand.md。
  * --toybaco-navy-deep は #163049 のまま(LP :root の #16273E は持ち込まない)。 */
 :root {
@@ -367,7 +501,7 @@ select:focus {
   --toybaco-hairline: #e7e4dc;
   --toybaco-line: #0b7a35;
   --toybaco-line-wash: #e7f6ec;
-  --toybaco-resolve: #2e9e63;
+  --toybaco-resolve: #187a43;
 }
 
 .dark {
@@ -379,7 +513,7 @@ select:focus {
   --toybaco-hairline: #22304a;
   --toybaco-line: #7ed8a2;
   --toybaco-line-wash: #173226;
-  --toybaco-resolve: #2e9e63;
+  --toybaco-resolve: #187a43;
 }
 
 /* 4ペイン密度: ナビ ~168px | 会話リスト ~226px | chat 1fr | 連絡先 ~196px。
@@ -417,36 +551,36 @@ select:focus {
 [data-toybaco-contact-panel] {
   border-left: 1px solid var(--toybaco-hairline);
   background-color: var(--toybaco-surface) !important;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 [data-toybaco-contact-panel] .drag-handle h5 {
-  font-size: 12px !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.06em;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.025em;
   color: var(--toybaco-muted) !important;
 }
 
 /* アコーディオンの見出しと、選択中の担当者・チーム名は別の文字階層。 */
 [data-toybaco-contact-panel] .conversation--actions button h4 {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: normal;
 }
 
 @media (min-width: 1280px) {
   [data-toybaco-contact-panel] .list-group > .flex {
-    gap: 8px;
+    gap: 6px;
   }
 
   [data-toybaco-contact-panel] .drag-handle + .outline:not(.p-0) {
-    padding: 8px;
+    padding: 7px;
   }
 
   [data-toybaco-contact-panel] .conversation--actions button:has(> div > h4) {
-    min-height: 36px;
+    min-height: 30px;
     height: auto;
-    padding-block: 5px;
+    padding-block: 4px;
   }
 }
 
@@ -520,6 +654,13 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   visibility: hidden !important;
 }
 
+/* 会話詳細の戻るを隠す投稿中も、同じ native メニューから他画面へ戻れる。 */
+@media (max-width: 767px) {
+  [data-toybaco-post-host]:has(> [data-toybaco-post-entry-panel]) > #mobile-sidebar-launcher {
+    display: block !important;
+  }
+}
+
 /* native の展開状態は書き換えず、投稿・契約を閉じたら元の子メニューへ戻す。 */
 [data-toybaco-embedded-background="nav"],
 [data-toybaco-primary-nav]:has(> [data-toybaco-embedded-background="nav"]) > [data-toybaco-nav-link] .i-lucide-chevron-up {
@@ -538,14 +679,14 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 6px;
   margin: 0 8px 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   background: #fcfbf8;
   color: #24303f;
   border: 1px solid #e7e4dc;
-  border-radius: 11px;
-  box-shadow: 0 2px 6px rgba(31, 58, 95, 0.05);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 [data-toybaco-ai-mode-h] {
@@ -554,9 +695,9 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   padding: 0;
   font-family: inherit;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--toybaco-navy);
-  margin-right: 4px;
+  margin-right: 2px;
   cursor: pointer;
 }
 
@@ -566,9 +707,10 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   color: #24303f;
   border-radius: 999px;
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 800;
-  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 3px 10px;
   cursor: pointer;
 }
 
@@ -586,18 +728,21 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 [data-toybaco-ai-scope],
 [data-toybaco-ai-readiness],
 [data-toybaco-ai-status] {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--toybaco-muted);
-  line-height: 1.6;
+  line-height: 16px;
 }
 
 [data-toybaco-ai-readiness] {
   display: block;
 }
 
-[data-toybaco-ai-mode-bar] [data-toybaco-ai-status],
 [data-toybaco-ai-mode-bar] [data-toybaco-ai-readiness] {
   flex-basis: 100%;
+}
+
+[data-toybaco-ai-mode-bar] [data-toybaco-ai-status] {
+  margin-left: auto;
 }
 
 [data-toybaco-ai-state="error"] [data-toybaco-ai-status] {
@@ -634,7 +779,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 [data-toybaco-ai-retry]:focus-visible,
 [data-toybaco-ai-usage-refresh]:focus-visible,
 [data-toybaco-ai-mode-head] button:focus-visible {
-  outline: 2px solid var(--toybaco-coral);
+  outline: 2px solid var(--toybaco-focus);
   outline-offset: 3px;
 }
 
@@ -700,7 +845,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 [data-toybaco-ai-mode-head] button {
   border: none;
   background: none;
-  color: #6B7684;
+  color: var(--toybaco-muted);
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
@@ -709,7 +854,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 
 [data-toybaco-ai-mode-panel] p {
   font-size: 12px;
-  color: #6B7684;
+  color: var(--toybaco-muted);
   font-weight: 600;
   margin: 0 0 10px;
 }
@@ -753,8 +898,8 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
 [data-toybaco-ai-usage-heading] { color: #1f3a5f; font-size: 12px; }
 [data-toybaco-ai-usage-value] { display: block; font-size: 22px; font-weight: 800; }
 [data-toybaco-ai-usage-details] { font-weight: 700; }
-[data-toybaco-ai-usage-reset] { margin-top: 3px; color: #6b7684; font-size: 11px; }
-[data-toybaco-ai-usage-status] { margin-top: 8px; color: #6b7684; font-size: 11px; }
+[data-toybaco-ai-usage-reset] { margin-top: 3px; color: var(--toybaco-muted); font-size: 11px; }
+[data-toybaco-ai-usage-status] { margin-top: 8px; color: var(--toybaco-muted); font-size: 11px; }
 [data-toybaco-ai-usage-state="limited"] [data-toybaco-ai-usage-status] { color: #926b22; }
 [data-toybaco-ai-usage-state="error"] [data-toybaco-ai-usage-status] { color: #b42318; }
 
@@ -797,7 +942,7 @@ aside nav > ul > *:has([title="設定"]) {
   order: 5;
 }
 
-/* 一次ナビ: 選択は wash + ネイビー + 半径9 + 800。バッジはネイビピル */
+/* 一次ナビ: 選択は wash + ネイビー。小さい文字を極端な太字にしない。 */
 aside nav a,
 aside nav [role="button"] {
   border-radius: 9px !important;
@@ -809,7 +954,7 @@ aside nav [role="button"].bg-n-alpha-2:not([data-toybaco-nav-current="false"]),
 aside nav [data-toybaco-nav-current="true"] {
   background-color: var(--toybaco-wash) !important;
   color: var(--toybaco-navy) !important;
-  font-weight: 800 !important;
+  font-weight: 600 !important;
 }
 
 aside nav a.router-link-active:not([data-toybaco-nav-current="false"]) span,
@@ -817,7 +962,7 @@ aside nav a.bg-n-alpha-2:not([data-toybaco-nav-current="false"]) span,
 aside nav [role="button"].bg-n-alpha-2:not([data-toybaco-nav-current="false"]) span,
 aside nav [data-toybaco-nav-current="true"] span {
   color: var(--toybaco-navy) !important;
-  font-weight: 800 !important;
+  font-weight: 600 !important;
 }
 
 .dark aside nav a.router-link-active:not([data-toybaco-nav-current="false"]),
@@ -836,15 +981,23 @@ aside nav [data-toybaco-nav-current="true"] span {
 aside nav [data-toybaco-nav-current="false"] {
   background-color: transparent !important;
   color: var(--toybaco-muted) !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
 }
 
 aside nav [data-toybaco-nav-link] {
-  min-height: 36px;
+  min-height: 32px;
+  font-size: 12.5px;
+  line-height: 18px;
+  padding-block: 6px;
+}
+
+aside nav [data-toybaco-nav-link] > span {
+  font-size: inherit;
+  line-height: inherit;
 }
 
 aside nav [data-toybaco-nav-link]:focus-visible {
-  outline: 2px solid var(--toybaco-coral);
+  outline: 2px solid var(--toybaco-focus);
   outline-offset: 2px;
 }
 
@@ -871,6 +1024,7 @@ aside nav span.inline-grid.rounded-full {
 .conversations-list-wrap .tabs-title > a,
 .conversations-list-wrap li > a.text-button {
   border-radius: 7px !important;
+  padding-block: 6px !important;
   padding-left: 9px !important;
   padding-right: 9px !important;
 }
@@ -879,7 +1033,18 @@ aside nav span.inline-grid.rounded-full {
 .conversations-list-wrap li > a.after\:bg-n-brand {
   background-color: var(--toybaco-wash) !important;
   color: var(--toybaco-navy) !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
+}
+
+.dark .conversations-list-wrap li > a.text-n-blue-11,
+.dark .conversations-list-wrap li > a.after\:bg-n-brand {
+  color: #d6e4f2 !important;
+}
+
+@media (max-width: 767px) {
+  .conversations-list-wrap li > a.text-button {
+    min-height: 44px;
+  }
 }
 
 .conversations-list-wrap li > a.text-button::after {
@@ -891,30 +1056,40 @@ aside nav span.inline-grid.rounded-full {
   color: #fff !important;
 }
 
-/* 本文は14pxのまま、チャンネル・担当者・優先度を含む行の余白を縮める。
+/* 名前13px、要約12px、補助11pxの階層で会話リストを読み分ける。
  * 行全体の高さは固定せず、ラベルとSLAの追加行は自然に伸ばす。 */
 .conversations-list [data-toybaco-conversation-card] {
-  --toybaco-conversation-content-offset: 10px;
+  --toybaco-conversation-content-offset: 8px;
 }
 
 .conversations-list [data-toybaco-conversation-card][data-has-meta="true"] {
-  --toybaco-conversation-content-offset: 26px;
+  --toybaco-conversation-content-offset: 22px;
 }
 
 .conversations-list [data-toybaco-conversation-content] {
-  padding-block: 8px;
+  padding-block: 6px;
 }
 
 .conversations-list [data-toybaco-conversation-inbox],
 .conversations-list [data-toybaco-conversation-inbox] > span {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 11px;
+  line-height: 14px;
 }
 
 .conversations-list [data-toybaco-conversation-preview] {
-  font-size: 14px;
-  line-height: 20px;
-  height: 20px;
+  font-size: 12px;
+  line-height: 18px;
+  height: 18px;
+}
+
+.conversations-list [data-toybaco-conversation-content] h4 {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.conversations-list [data-toybaco-conversation-activity] .text-n-slate-10 {
+  color: var(--toybaco-muted);
 }
 
 .conversations-list [data-toybaco-conversation-avatar] {
@@ -944,8 +1119,8 @@ aside nav span.inline-grid.rounded-full {
 /* 吹き出し: 受信=surface+罫線 / 送信=ネイビー塗り */
 .left-bubble,
 .right-bubble {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .left-bubble {
@@ -1003,6 +1178,10 @@ aside nav span.inline-grid.rounded-full {
   --slate-10: 214 228 242;
 }
 
+.right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris)[data-bubble-name="email"] > section.text-n-slate-11 {
+  color: #d6e4f2;
+}
+
 /* Template の送信済み値は独自の明暗 surface。親の白文字を継承させない。 */
 .right-bubble:is(.bg-n-solid-blue, .bg-n-solid-iris)[data-bubble-name="text"] > .gap-3 > .bg-n-alpha-3 {
   color: rgb(var(--slate-12)) !important;
@@ -1024,7 +1203,9 @@ aside nav span.inline-grid.rounded-full {
   background-color: transparent !important;
   color: var(--toybaco-muted) !important;
   border: none;
-  font-weight: 600;
+  font-size: 11.5px;
+  line-height: 18px;
+  font-weight: 400;
 }
 
 /* LINE チャネルチップ: 緑ピル(ヘッダの InboxName) */
@@ -1044,7 +1225,7 @@ aside nav span.inline-grid.rounded-full {
   font-weight: 800;
 }
 
-/* 解決ボタン: #2E9E63・半径8・白文字 */
+/* 解決ボタン: 白文字が読める緑・半径8 */
 .resolve-actions > div:first-child,
 .resolve-actions .flex-shrink-0 {
   border-radius: 8px !important;
@@ -1055,16 +1236,54 @@ aside nav span.inline-grid.rounded-full {
   background-color: var(--toybaco-resolve) !important;
   color: #fff !important;
   border-radius: 8px 0 0 8px !important;
-  font-weight: 800 !important;
+  font-weight: 600 !important;
 }
 
-/* 作曲欄: surface カード・半径11。送信はネイビー・半径8 */
+/* 返信欄: surface カード・半径9。送信はネイビー・半径8 */
 .reply-box {
   margin-inline: 8px !important;
   margin-bottom: 12px !important;
   background-color: var(--toybaco-surface) !important;
   border: 1px solid var(--toybaco-hairline) !important;
-  border-radius: 11px !important;
+  border-radius: 9px !important;
+}
+
+.reply-box > .flex:first-child {
+  height: 36px;
+  gap: 6px;
+}
+
+.reply-box > .flex:last-child {
+  padding: 8px 10px;
+}
+
+.reply-box .reply-box__top {
+  padding-inline: 10px;
+}
+
+.reply-box .ProseMirror-woot-style {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-toybaco-dashboard] .reply-box .input-group input {
+  height: 28px !important;
+  min-height: 28px;
+  padding-block: 3px !important;
+  font-size: 12px !important;
+  line-height: 20px;
+}
+
+.reply-box .input-group.small {
+  margin-bottom: 2px;
+}
+
+.reply-box .input-group:not(.error) {
+  border-color: var(--toybaco-control-border);
+}
+
+.reply-box .ProseMirror p.empty-node:first-child::before {
+  color: var(--toybaco-muted);
 }
 
 @media (min-width: 768px) {

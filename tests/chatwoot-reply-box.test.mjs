@@ -143,6 +143,8 @@ function sidebarFixture({ width = 1024, visible = true, hasCloseButton = true, o
   }
   return {
     native, updates, document, trigger, panel, closeButton, outsideInput, body, focusCalls,
+    element, flushTicks,
+    dispatchPanelKey: event => listeners.get('keydown')(event),
     childOverlay(selector, { teleported = false, shown = true } = {}) {
       const child = element(selector, teleported ? body : panel, [selector]);
       child.visible = shown;
@@ -229,13 +231,13 @@ for (const event of [{ key: 'Enter' }, { defaultPrevented: true }, { isComposing
   fixture.unmount();
 }
 
-for (const [name, selector] of [['assignee', '.dropdown-wrap'], ['label', '.label-wrap > .absolute']]) {
+for (const [name, selector] of [['label', '.label-wrap > .absolute']]) {
   const fixture = sidebarFixture();
   fixture.mount();
   const dropdown = fixture.childOverlay(selector);
   dropdown.input.focus();
-  // MultiselectDropdown and LabelBox bind @keyup.esc. The parent's document
-  // keydown must leave that child mounted long enough to handle its keyup.
+  // The parent's document keydown must leave the native label child mounted
+  // long enough for its own Escape listener to close it.
   assert.deepEqual(fixture.key(), { prevented: 0, stopped: 0 }, `${name} receives its first Escape`);
   assert.equal(fixture.native.activeTab.value, 0, `${name} keydown must not unmount the inspector before child keyup`);
   assert.equal(fixture.updates.length, 0);
@@ -244,6 +246,121 @@ for (const [name, selector] of [['assignee', '.dropdown-wrap'], ['label', '.labe
   assert.deepEqual(fixture.key(), { prevented: 1, stopped: 1 }, `the next Escape closes the inspector after ${name} is hidden`);
   fixture.unmount();
   assert.equal(fixture.document.activeElement, fixture.trigger, `keyboard dismissal after ${name} must restore its original trigger`);
+}
+
+const multiselect = fs.readFileSync(path.join(overlayRoot, 'app/javascript/shared/components/ui/MultiselectDropdown.vue'), 'utf8');
+const multiselectScript = multiselect.slice(multiselect.indexOf('const emit ='), multiselect.indexOf('const hasValue ='));
+assert.ok(multiselectScript.startsWith('const emit ='), 'load the actual dropdown setup and handlers');
+const escapeBinding = multiselect.match(/@(keydown|keyup)\.esc="([^"]+)"/);
+assert.ok(escapeBinding, 'exercise the Escape handler bound by the actual template');
+assert.match(multiselect, /<Button\s+ref="dropdownTrigger"/, 'focus restoration must target the native trigger button');
+
+function multiselectFixture({ width = 1279, binding = escapeBinding[1], parentFirst = false } = {}) {
+  const fixture = sidebarFixture({ width });
+  fixture.mount();
+  const wrapper = fixture.element('multiselect', fixture.panel);
+  const trigger = fixture.element('dropdown trigger', wrapper);
+  const child = fixture.element('dropdown items', wrapper, ['.dropdown-wrap']);
+  const input = fixture.element('dropdown search', child);
+  input.tagName = 'INPUT';
+  input.blur = () => { fixture.document.activeElement = fixture.body; };
+  const selected = [];
+  const pending = [];
+  const visible = { value: true };
+  const native = vm.runInNewContext(`(() => { ${multiselectScript}; return { showSearchDropdown, dropdownTrigger, onCloseDropdown, onClickSelectItem, ${escapeBinding[2]} }; })()`, {
+    defineEmits: () => (...args) => selected.push(args),
+    ref: value => ({ value }),
+    useToggle: () => [visible, value => {
+      visible.value = value === undefined ? !visible.value : value;
+      pending.push(() => {
+        child.visible = visible.value;
+        if (!child.visible && child.contains(fixture.document.activeElement)) input.blur();
+      });
+    }],
+    nextTick: callback => pending.push(callback),
+  });
+  native.dropdownTrigger.value = { $el: trigger };
+  input.focus();
+  function press(key = 'Escape', overrides = {}) {
+    const events = [];
+    for (const type of ['keydown', 'keyup']) {
+      const event = {
+        type, key, target: fixture.document.activeElement,
+        defaultPrevented: false, propagationStopped: false, isComposing: false,
+        preventDefault() { this.defaultPrevented = true; },
+        stopPropagation() { this.propagationStopped = true; },
+        ...overrides,
+      };
+      for (let node = event.target; node; node = node.parent) {
+        if (node === wrapper && type === binding && key === 'Escape') native[escapeBinding[2]](event);
+        if (event.propagationStopped) break;
+      }
+      if (type === 'keydown' && !event.propagationStopped) {
+        // Match the existing document shortcut boundary: useKeyboardEvents
+        // blurs a typeable Escape target even when its own popup is closed.
+        const documentShortcut = () => {
+          if (event.key === 'Escape' && event.target.tagName === 'INPUT') event.target.blur();
+        };
+        if (parentFirst) fixture.dispatchPanelKey(event);
+        documentShortcut();
+        if (!parentFirst) fixture.dispatchPanelKey(event);
+      }
+      while (pending.length) pending.shift()();
+      fixture.flushTicks();
+      events.push(event);
+    }
+    return events;
+  }
+  return { ...fixture, dropdown: native, dropdownTrigger: trigger, child, input, selected, press };
+}
+
+// A real key cycle targets keyup at the element focused after keydown. This
+// negative control reproduces the old blur-to-BODY failure without manually
+// closing the child, then the same cycle exercises the production fix.
+{
+  const legacy = multiselectFixture({ binding: 'keyup' });
+  const events = legacy.press();
+  assert.equal(events[1].target, legacy.body);
+  assert.equal(legacy.dropdown.showSearchDropdown.value, true, 'keyup-only Escape loses the child after document blur');
+  assert.equal(legacy.native.activeTab.value, 0);
+  legacy.unmount();
+}
+for (const width of [390, 1279, 1440]) {
+  for (const parentFirst of [false, true]) {
+    const fixture = multiselectFixture({ width, parentFirst });
+    const events = fixture.press();
+    assert.equal(events[0].defaultPrevented, true, 'the open child owns Escape before document shortcuts');
+    assert.equal(events[0].propagationStopped, true);
+    assert.equal(fixture.dropdown.showSearchDropdown.value, false, 'the actual child handler closes the dropdown');
+    assert.equal(fixture.child.getClientRects().length, 0);
+    assert.equal(events[1].target, fixture.dropdownTrigger, 'keyup reaches the restored trigger rather than BODY');
+    assert.equal(fixture.document.activeElement, fixture.dropdownTrigger);
+    assert.equal(fixture.native.activeTab.value, 0, 'the first Escape preserves the contact panel');
+    assert.equal(fixture.selected.length, 0, 'keyboard dismissal must never select or mutate an assignee');
+    fixture.press();
+    assert.equal(fixture.native.activeTab.value, width < 1280 ? null : 0, 'closed dropdown Escape reaches the parent breakpoint behavior');
+    fixture.unmount();
+    if (width < 1280) assert.equal(fixture.document.activeElement, fixture.trigger);
+  }
+}
+for (const overrides of [{ isComposing: true }, { isComposing: false, keyCode: 229 }]) {
+  const fixture = multiselectFixture();
+  const [keydown] = fixture.press('Escape', overrides);
+  assert.equal(keydown.defaultPrevented, false, 'IME cancellation remains unconsumed by the dropdown');
+  assert.equal(keydown.propagationStopped, false);
+  assert.equal(fixture.dropdown.showSearchDropdown.value, true);
+  fixture.unmount();
+}
+{
+  const fixture = multiselectFixture();
+  const [keydown] = fixture.press('Enter');
+  assert.equal(keydown.defaultPrevented, false, 'ordinary keys retain native input behavior');
+  assert.equal(fixture.dropdown.showSearchDropdown.value, true);
+  const selected = { id: 7, name: 'Agent' };
+  fixture.dropdown.onClickSelectItem(selected);
+  assert.equal(fixture.dropdown.showSearchDropdown.value, false);
+  assert.deepEqual(fixture.selected, [['select', selected]], 'ordinary selection retains its existing event and closes');
+  fixture.unmount();
 }
 
 for (const childFirst of [false, true]) {
@@ -372,4 +489,4 @@ assert.match(actionsHeader, /data-sidebar-close\s+:aria-label="\$t\('GENERAL.CLO
 const sidepanelSwitch = fs.readFileSync(path.join(overlayRoot, 'app/javascript/dashboard/components-next/Conversation/SidepanelSwitch.vue'), 'utf8');
 assert.match(sidepanelSwitch, /:aria-label="\$t\('CONVERSATION.SIDEBAR.CONTACT'\)"\s+:aria-expanded="isContactSidebarOpen"/);
 
-console.log('TOYBACO_CHATWOOT_REPLY_BOX=PASS ime=guarded enter-and-command-enter=preserved contact-panel=overlay-below-xl contact-keyboard=escape-and-focus-restoration');
+console.log('TOYBACO_CHATWOOT_REPLY_BOX=PASS ime=guarded enter-and-command-enter=preserved contact-panel=overlay-below-xl contact-keyboard=escape-and-focus-restoration dropdown-keyboard=keydown-close-and-trigger-focus');
