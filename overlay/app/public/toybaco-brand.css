@@ -407,25 +407,47 @@ select:focus {
 
 /* 狭い幅の開閉式パネルまで196pxに固定せず、デスクトップだけLPの密度へ寄せる。 */
 @media (min-width: 1180px) {
-  [class*="md:w-[320px]"][class*="2xl:w-[360px]"] {
+  [data-toybaco-contact-panel] {
     width: 196px !important;
     min-width: 196px !important;
     max-width: 196px !important;
   }
 }
 
-[class*="md:w-[320px]"][class*="2xl:w-[360px]"] {
+[data-toybaco-contact-panel] {
   border-left: 1px solid var(--toybaco-hairline);
   background-color: var(--toybaco-surface) !important;
   font-size: 14px;
 }
 
-[class*="md:w-[320px]"][class*="2xl:w-[360px]"] h3,
-[class*="md:w-[320px]"][class*="2xl:w-[360px]"] h4 {
+[data-toybaco-contact-panel] .drag-handle h5 {
   font-size: 12px !important;
   font-weight: 800 !important;
   letter-spacing: 0.06em;
   color: var(--toybaco-muted) !important;
+}
+
+/* アコーディオンの見出しと、選択中の担当者・チーム名は別の文字階層。 */
+[data-toybaco-contact-panel] .conversation--actions button h4 {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+@media (min-width: 1280px) {
+  [data-toybaco-contact-panel] .list-group > .flex {
+    gap: 8px;
+  }
+
+  [data-toybaco-contact-panel] .drag-handle + .outline:not(.p-0) {
+    padding: 8px;
+  }
+
+  [data-toybaco-contact-panel] .conversation--actions button:has(> div > h4) {
+    min-height: 36px;
+    height: auto;
+    padding-block: 5px;
+  }
 }
 
 /* 一次ナビ正本: 会話 / 投稿 / ご契約内容 / レポート / 設定。
@@ -517,7 +539,7 @@ aside nav > ul > *:has([data-toybaco-billing-entry]) {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 0 0 8px;
+  margin: 0 8px 8px;
   padding: 8px 10px;
   background: #fcfbf8;
   color: #24303f;
@@ -869,6 +891,40 @@ aside nav span.inline-grid.rounded-full {
   color: #fff !important;
 }
 
+/* 本文は14pxのまま、チャンネル・担当者・優先度を含む行の余白を縮める。
+ * 行全体の高さは固定せず、ラベルとSLAの追加行は自然に伸ばす。 */
+.conversations-list [data-toybaco-conversation-card] {
+  --toybaco-conversation-content-offset: 10px;
+}
+
+.conversations-list [data-toybaco-conversation-card][data-has-meta="true"] {
+  --toybaco-conversation-content-offset: 26px;
+}
+
+.conversations-list [data-toybaco-conversation-content] {
+  padding-block: 8px;
+}
+
+.conversations-list [data-toybaco-conversation-inbox],
+.conversations-list [data-toybaco-conversation-inbox] > span {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.conversations-list [data-toybaco-conversation-preview] {
+  font-size: 14px;
+  line-height: 20px;
+  height: 20px;
+}
+
+.conversations-list [data-toybaco-conversation-avatar] {
+  margin-top: var(--toybaco-conversation-content-offset);
+}
+
+.conversations-list [data-toybaco-conversation-activity] {
+  top: var(--toybaco-conversation-content-offset);
+}
+
 .conversations-list .conversation {
   border-radius: 9px;
 }
@@ -1004,9 +1060,18 @@ aside nav span.inline-grid.rounded-full {
 
 /* 作曲欄: surface カード・半径11。送信はネイビー・半径8 */
 .reply-box {
+  margin-inline: 8px !important;
+  margin-bottom: 12px !important;
   background-color: var(--toybaco-surface) !important;
   border: 1px solid var(--toybaco-hairline) !important;
   border-radius: 11px !important;
+}
+
+@media (min-width: 768px) {
+  .reply-box,
+  [data-toybaco-ai-mode-bar] {
+    margin-inline: 14px !important;
+  }
 }
 
 .reply-box.is-private {
