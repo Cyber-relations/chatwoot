@@ -565,7 +565,7 @@ assert.doesNotMatch(
   'posting_status must not use the feature_access alias'
 );
 assert.ok(
-  original.includes('この会社の契約には投稿が含まれていません'),
+  original.includes('この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。'),
   'denied panel must show a Japanese contract message'
 );
 assert.ok(
@@ -656,7 +656,7 @@ assert.ok(
   assert.equal(panelDenied.document.querySelector('iframe'), null, 'enabled:false must unload the Postiz iframe');
   assert.match(
     collectText(panelDenied.document.body),
-    /この会社の契約には投稿が含まれていません/
+    /この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。/
   );
   assert.ok(
     panelDenied.document.querySelector('[data-toybaco-post-entry-panel]'),
@@ -1464,11 +1464,13 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   );
 }
 
-function fireClick(node, extraListeners = []) {
+function fireClick(node, extraListeners = [], options = {}) {
   const event = {
     target: node,
+    button: 0,
     prevented: false,
     stopped: false,
+    ...options,
     preventDefault() { this.prevented = true; },
     stopPropagation() { this.stopped = true; },
     stopImmediatePropagation() { this.stopped = true; },
@@ -1476,6 +1478,103 @@ function fireClick(node, extraListeners = []) {
   extraListeners.forEach((fn) => fn(event));
   if (!event.stopped) (node.listeners.click || []).forEach((fn) => fn(event));
   return event;
+}
+
+{
+  const sidebar = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/components-next/sidebar/Sidebar.vue'), 'utf8');
+  const start = sidebar.indexOf('const closeMobileSidebar = () => {');
+  const end = sidebar.indexOf('const newReportRoutes =', start);
+  assert.ok(start >= 0 && end > start, 'load the native mobile close and capture handlers');
+  const tree = createMenuTree();
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/settings/general', { body: tree.body });
+  env.api.inject();
+  const nav = tree.body.querySelector('nav');
+  nav.contains = target => {
+    for (let node = target; node; node = node.parentElement) if (node === nav) return true;
+    return false;
+  };
+  const props = { isMobileSidebarOpen: true };
+  const isMobile = { value: true };
+  const captures = [];
+  const events = [];
+  const native = vm.runInNewContext(`(() => { ${sidebar.slice(start, end)}; return typeof sidebarNav === 'undefined' ? {} : { sidebarNav }; })()`, {
+    props, isMobile, accountId: { value: 1 }, window: env.window, URL,
+    ref: value => ({ value }),
+    emit: name => { events.push(name); props.isMobileSidebarOpen = false; },
+    useEventListener: (target, type, handler, options) => {
+      assert.equal(target, env.window);
+      assert.equal(type, 'click');
+      assert.equal(options.capture, true, 'window capture must run before the posting document capture');
+      captures.push(event => {
+        handler(event);
+        assert.equal(event.prevented, false, 'closing the drawer must not prevent navigation');
+        assert.equal(event.stopped, false, 'closing the drawer must not stop propagation');
+      });
+    },
+  });
+  if (native.sidebarNav) native.sidebarNav.value = nav;
+  for (const entry of [postingEntry(env.document), billingEntry(env.document)]) {
+    props.isMobileSidebarOpen = true; events.length = 0;
+    fireClick(entry.children[0], [...captures, ...env.docListeners.click]);
+    assert.equal(props.isMobileSidebarOpen, false, 'selecting an embedded destination must close the open mobile drawer');
+    assert.deepEqual(events, ['closeMobileSidebar']);
+    const marker = entry === postingEntry(env.document) ? '[data-toybaco-post-entry-panel]' : '[data-toybaco-billing-panel]';
+    assert.ok(env.document.querySelector(marker), 'the existing document handler must still open the requested workspace');
+  }
+  props.isMobileSidebarOpen = true; events.length = 0;
+  fireClick(tree.inbox.querySelector('a'), [...captures, ...env.docListeners.click]);
+  assert.equal(props.isMobileSidebarOpen, false);
+  assert.match(env.window.location.href, /\/app\/accounts\/1\/dashboard$/, 'the decorated conversation entry remains a destination, not a native group toggle');
+  assert.deepEqual(events, ['closeMobileSidebar']);
+  // The real Location normalizes relative assignments; the VM uses plain data.
+  env.window.location.href = new URL(env.window.location.href, env.window.location.origin).href;
+  assert.match(sidebar, /<nav\s+ref="sidebarNav"/);
+  function control(attrs = {}, tag = 'a', parent = nav) {
+    const el = createDomNode(tag);
+    for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
+    parent.appendChild(el); return el;
+  }
+  const terminals = [
+    control({ href: '/app/accounts/1/settings/agents/list' }),
+    control({ href: '/app/accounts/1/reports/overview' }),
+    control({ href: '/app/accounts/1/settings/general', target: '_self' }),
+    control({ 'data-toybaco-nav-link': 'inbox' }, 'div'),
+  ];
+  for (const entry of terminals) {
+    props.isMobileSidebarOpen = true; events.length = 0;
+    const event = fireClick(entry, captures);
+    assert.equal(props.isMobileSidebarOpen, false, 'native leaves and the existing conversation destination must close the drawer');
+    assert.equal(event.prevented || event.stopped, false);
+    assert.deepEqual(events, ['closeMobileSidebar']);
+  }
+  const leaf = terminals[0];
+  for (const options of [{ button: 1 }, { button: 2 }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { defaultPrevented: true }]) {
+    props.isMobileSidebarOpen = true; events.length = 0;
+    fireClick(leaf, captures, options);
+    assert.equal(props.isMobileSidebarOpen, true);
+    assert.equal(events.length, 0);
+  }
+  for (const entry of [
+    control({ 'data-toybaco-nav-link': 'settings' }, 'div'),
+    control({ 'data-toybaco-nav-link': 'reports' }, 'div'),
+    control({}, 'div'), // An undecorated native conversation group expands.
+    control({ href: 'https://outside.example/app/accounts/1/settings/general' }),
+    control({ href: 'https://outside.example/', 'data-toybaco-nav-link': 'posting' }),
+    control({ href: '/app/accounts/1/settings/general', target: '_blank' }),
+    control({ href: '/app/accounts/1/settings/general', download: '' }),
+    control({ href: '#' }),
+    control({ href: '/app/accounts/2/settings/general' }),
+    control({ href: '/app/accounts/1/settings/general' }, 'a', tree.body),
+  ]) {
+    props.isMobileSidebarOpen = true; events.length = 0;
+    fireClick(entry, captures);
+    assert.equal(props.isMobileSidebarOpen, true, 'non-terminal, external, and other-scope controls keep the drawer state');
+    assert.equal(events.length, 0);
+  }
+  isMobile.value = false; props.isMobileSidebarOpen = true; events.length = 0;
+  fireClick(leaf, captures); assert.equal(props.isMobileSidebarOpen, true);
+  isMobile.value = true; props.isMobileSidebarOpen = false;
+  fireClick(leaf, captures); assert.equal(events.length, 0);
 }
 
 {
@@ -1890,15 +1989,23 @@ function deferred() {
   const visits = [];
   let expanded = null;
   const groups = [[settings, settingsChildren, settingsRows[0]], [reports, reportChildren, overview]];
+  const nativeChevrons = new Map();
   function renderNativeChildren() {
     for (const [row, children] of groups) {
       const active = children.children.find((child) => child.querySelector('a').href === env.window.location.pathname);
+      nativeChevrons.get(row).style.display = expanded === row ? '' : 'none';
       children.style.display = expanded === row || active ? '' : 'none';
       for (const child of children.children) child.style.display = expanded === row || child === active ? '' : 'none';
     }
   }
   for (const [row, children, first] of groups) {
     const control = row.querySelector('[role="button"]');
+    // SidebarGroupHeader uses v-show="isExpanded" on this native indicator.
+    const chevron = createDomNode('span');
+    chevron.className = 'i-lucide-chevron-up size-3';
+    chevron.style.display = 'none';
+    control.appendChild(chevron);
+    nativeChevrons.set(row, chevron);
     children.style.display = 'none';
     control.addEventListener('click', () => {
       assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'close posting before the native group handler runs');
@@ -1930,12 +2037,32 @@ function deferred() {
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(fireClick(settingsControl, env.docListeners.click || []).prevented, false, 'native settings click must be allowed');
   assert.equal(settingsChildren.style.display, '');
+  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || []), () => openBillingThroughUi(env)]) {
+    const nativePath = env.window.location.pathname;
+    open();
+    assert.equal(settingsChildren.getAttribute('data-toybaco-embedded-background'), 'nav');
+    fireClick(settingsControl, env.docListeners.click || []);
+    assert.equal(expanded, settings, 'returning from an embedded workspace must not collapse the already-expanded native settings group');
+    assert.equal(env.window.location.pathname, nativePath, 'return to the preserved native page without another route transition');
+    assert.equal(settingsChildren.getAttribute('data-toybaco-embedded-background'), null);
+    assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+    assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null);
+    for (const child of settingsRows) assert.equal(child.style.display, '', 'all permitted settings children remain exposed');
+  }
   for (const row of settingsRows.slice(1)) {
     assert.equal(fireClick(row.querySelector('a'), env.docListeners.click || []).prevented, false);
     assert.equal(env.window.location.pathname, row.querySelector('a').href, 'each child must reach its own native destination');
   }
   fireClick(reportsControl, env.docListeners.click || []);
   assert.equal(reportChildren.style.display, '');
+  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || []), () => openBillingThroughUi(env)]) {
+    const nativePath = env.window.location.pathname;
+    open();
+    fireClick(reportsControl, env.docListeners.click || []);
+    assert.equal(expanded, reports, 'returning from an embedded workspace must not collapse the already-expanded native reports group');
+    assert.equal(env.window.location.pathname, nativePath);
+    assert.equal(reportChildren.getAttribute('data-toybaco-embedded-background'), null);
+  }
   fireClick(settingsControl, env.docListeners.click || []);
   assert.equal(settingsChildren.style.display, '', 'returning from reports must reopen all settings children');
   fireClick(settingsControl, env.docListeners.click || []);
