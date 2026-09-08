@@ -479,7 +479,7 @@
       if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
     } catch (e) { /* noop */ }
     if (panelSpinner) {
-      panelSpinner.innerHTML = '<span>この会社の契約には投稿が含まれていません。</span>';
+      panelSpinner.innerHTML = '<span>この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。</span>';
     }
   }
 
@@ -1952,6 +1952,22 @@
     onNavClickCapture(e);
   }
 
+  function returnsToExpandedNativeGroup(link, kind) {
+    if (!panel && !billingPanel) return false;
+    if (!new RegExp('/' + kind + '(?:/|$)').test(window.location.pathname)) return false;
+    var row = closestAttr(link, 'data-toybaco-primary-nav');
+    if (!row || row.getAttribute('data-toybaco-primary-nav') !== kind) return false;
+    var expanded = false;
+    walkOwnRow(row, function (node) {
+      // Native SidebarGroupHeader owns this v-show state. Embedded CSS only
+      // hides the indicator visually; its inline display still tracks expansion.
+      if (/\bi-lucide-chevron-up\b/.test(classNameOf(node)) && node.style && node.style.display !== 'none') {
+        expanded = true;
+      }
+    });
+    return expanded;
+  }
+
   function onNavClickCapture(e) {
     try {
       var t = e.target || e.srcElement;
@@ -1959,9 +1975,15 @@
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
       if (navKind === 'reports' || navKind === 'settings') {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var preserveExpanded = returnsToExpandedNativeGroup(navLink, navKind);
         closeAiModePanel();
         closeBillingPanel();
         closePanel();
+        if (preserveExpanded) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopPropagation) e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
         // native clickが権限内の初期ページと子メニューの開閉を決める。
         return;
       }
