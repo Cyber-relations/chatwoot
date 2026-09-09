@@ -101,8 +101,8 @@ RSpec.describe Toybaco::SubscriptionSync do
     expect(state[:reads].first[:pid]).not_to eq(before_pid)
     expect(accounts.count).to eq(1)
     attrs = accounts.first.internal_attributes
-    expect(attrs).to include('toybaco_subscription_status' => 'active', 'toybaco_billing_review' => false)
-    expect(attrs['toybaco_billing_owner_user_id']).to eq(user.id)
+    expect(attrs).to include('toybaco_subscription_status' => 'active', 'toybaco_billing_review' => false,
+                             'toybaco_billing_owner_user_id' => user.id)
     expect(attrs.dig('toybaco_contract', 'plan_id')).to eq('pro')
     expect(attrs.dig('toybaco_contract', 'entitlements', 'limits', 'ai_replies')).to eq(500)
   end

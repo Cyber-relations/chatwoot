@@ -9,9 +9,14 @@ module Toybaco::BillingAccess
 
   def permissions(account, user, membership: nil)
     membership ||= account.account_users.find_by(user_id: user.id) if user
-    allowed = membership && user && membership.account_id == account.id &&
-              membership.user_id == user.id && owner?(account, user)
-    { can_view_billing: !!allowed, can_manage_billing: !!(allowed && membership.administrator?) }
+    allowed = matching_membership?(membership, account, user) && owner?(account, user)
+    { can_view_billing: allowed, can_manage_billing: allowed && membership.administrator? }
+  end
+
+  def matching_membership?(membership, account, user)
+    return false unless membership && user
+
+    membership.account_id == account.id && membership.user_id == user.id
   end
 
   def can_view?(account, user)
@@ -24,6 +29,10 @@ module Toybaco::BillingAccess
     attrs = Toybaco::Entitlements.attributes(account)
     return valid_owner_id(attrs[OWNER_KEY]) == user.id unless attrs.key?(Toybaco::StoreFulfillment::PURCHASE)
 
+    purchase_owner?(account, attrs, user)
+  end
+
+  def purchase_owner?(account, attrs, user)
     parent = purchase_parent(account, attrs[Toybaco::StoreFulfillment::PURCHASE])
     return false unless parent
 
@@ -39,8 +48,7 @@ module Toybaco::BillingAccess
   end
 
   def purchase_parent(account, binding)
-    return unless binding.is_a?(Hash) && binding['child_account_id'] == account.id
-    return unless valid_owner_id(binding['parent_account_id']) && binding['parent_account_id'] != account.id
+    return unless valid_purchase_binding?(account, binding)
 
     parent = Account.find_by(id: binding['parent_account_id'])
     return unless parent && !Toybaco::Entitlements.attributes(parent).key?(Toybaco::StoreFulfillment::PURCHASE)
@@ -50,6 +58,13 @@ module Toybaco::BillingAccess
     parent
   rescue Toybaco::StoreFulfillment::Unavailable, Toybaco::PlanCatalog::Invalid, KeyError
     nil
+  end
+
+  def valid_purchase_binding?(account, binding)
+    return false unless binding.is_a?(Hash) && binding['child_account_id'] == account.id
+    return false unless valid_owner_id(binding['parent_account_id'])
+
+    binding['parent_account_id'] != account.id
   end
 end
 

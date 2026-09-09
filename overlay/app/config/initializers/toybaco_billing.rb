@@ -14,7 +14,7 @@ end
 
 Rails.application.config.to_prepare do
   if ChatwootApp.enterprise?
-    controller = ::Enterprise::Api::V1::AccountsController
+    controller = Enterprise::Api::V1::AccountsController
     guard = Toybaco::BillingAccess::EnterpriseControllerGuard
     controller.prepend(guard) unless controller < guard
   end

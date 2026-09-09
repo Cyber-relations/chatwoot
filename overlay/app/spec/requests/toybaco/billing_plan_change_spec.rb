@@ -117,7 +117,7 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     client = instance_double(Toybaco::Checkout::Client, retrieve_subscription: {})
     allow(Toybaco::Checkout::Client).to receive(:new).and_return(client)
     allow(Toybaco::BillingSubscription).to receive(:summarize).and_return(status_label: '有効', cancel_at_period_end: false, items: [],
-                                                                       invoice: { total: 1234, amount_paid: 1234 })
+                                                                          invoice: { total: 1234, amount_paid: 1234 })
     get '/toybaco/billing', params: { account_id: account.id }
     expect(response).to have_http_status(:ok)
     expect(response.body).to include('直近の請求額（税込）', '1,234', '契約の変更には管理者権限が必要です。')
@@ -132,8 +132,8 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     other_owner = create(:user).id
     account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => other_owner))
     patch "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token,
-                                          params: { internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id },
-                                                    custom_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id } }, as: :json
+                                            params: { internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id },
+                                                      custom_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id } }, as: :json
     expect(response).to have_http_status(:ok)
     expect(account.reload.internal_attributes[Toybaco::BillingAccess::OWNER_KEY]).to eq(other_owner)
     expect(account.custom_attributes).not_to have_key(Toybaco::BillingAccess::OWNER_KEY)
@@ -150,7 +150,7 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     expect(Enterprise::Billing::TopupCheckoutService).not_to receive(:new)
     %w[checkout subscription select_billing_currency toggle_deletion topup_checkout].each do |action|
       post "/enterprise/api/v1/accounts/#{account.id}/#{action}", headers: user.create_new_auth_token,
-                                                                params: { credits: 10, currency: 'usd', action_type: 'delete' }, as: :json
+                                                                  params: { credits: 10, currency: 'usd', action_type: 'delete' }, as: :json
       expect(response).to have_http_status(:forbidden)
     end
     get "/enterprise/api/v1/accounts/#{account.id}/topup_options", headers: user.create_new_auth_token

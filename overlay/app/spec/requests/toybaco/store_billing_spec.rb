@@ -35,7 +35,7 @@ RSpec.describe 'Toybaco purchased store billing', type: :request do
     expect(response).to have_http_status(:forbidden)
     %w[portal cancel change_preview change_confirm change_refresh change_cancel].each do |action|
       post "/toybaco/billing/#{action}?account_id=#{account.id}", params: {},
-                                                               headers: { 'Origin' => 'http://www.example.com' }, as: :json
+                                                                  headers: { 'Origin' => 'http://www.example.com' }, as: :json
       expect(response).to have_http_status(:forbidden)
     end
     get "/toybaco/billing/access?account_id=#{account.id}"
