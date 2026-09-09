@@ -1,5 +1,5 @@
 <script>
-import { defineAsyncComponent, useTemplateRef } from 'vue';
+import { defineAsyncComponent, useId, useTemplateRef } from 'vue';
 import { mapGetters } from 'vuex';
 import { useAlert } from 'dashboard/composables';
 import { useUISettings } from 'dashboard/composables/useUISettings';
@@ -99,6 +99,7 @@ export default {
 
     const replyEditor = useTemplateRef('replyEditor');
     const messageEditor = useTemplateRef('messageEditor');
+    const emailRecipientsId = useId();
     const copilot = useCopilotReply();
     const macroExecution = useMacroExecution();
     const shortcutKey = useKbd(['$mod', '+', 'enter']);
@@ -111,6 +112,7 @@ export default {
       fetchQuotedReplyFlagFromUISettings,
       replyEditor,
       messageEditor,
+      emailRecipientsId,
       copilot,
       shortcutKey,
       macroExecution,
@@ -132,6 +134,7 @@ export default {
       bccEmails: '',
       ccEmails: '',
       toEmails: '',
+      emailRecipientsExpanded: false,
       doAutoSaveDraft: () => {},
       showWhatsAppTemplatesModal: false,
       showContentTemplatesModal: false,
@@ -391,6 +394,15 @@ export default {
     showReplyHead() {
       return !this.isOnPrivateNote && this.isAnEmailChannel;
     },
+    emailRecipientSummary() {
+      return (this.toEmails || '').trim() || '宛先未入力';
+    },
+    emailCopySummary() {
+      const copies = [];
+      if ((this.ccEmails || '').trim()) copies.push('CC');
+      if ((this.bccEmails || '').trim()) copies.push('BCC');
+      return copies.length ? `${copies.join('・')}あり` : '';
+    },
     enableMultipleFileUpload() {
       return (
         this.isAnEmailChannel ||
@@ -498,6 +510,7 @@ export default {
   watch: {
     currentChat(conversation, oldConversation) {
       if (oldConversation && oldConversation.id !== conversation.id) {
+        this.emailRecipientsExpanded = false;
         // Only update email fields when switching to a completely different conversation (by ID)
         // This prevents overwriting user input (e.g., CC/BCC fields) when performing actions
         // like self-assign or other updates that do not actually change the conversation context
@@ -607,6 +620,9 @@ export default {
     emitter.off(CMD_AI_ASSIST, this.executeCopilotAction);
   },
   methods: {
+    toggleEmailRecipients() {
+      this.emailRecipientsExpanded = !this.emailRecipientsExpanded;
+    },
     getDraftKey(
       conversationId = this.conversationIdByRoute,
       replyType = this.effectiveReplyMode
@@ -1389,12 +1405,40 @@ export default {
           }"
           @select="addIntoEditor($event.value)"
         />
-        <ReplyEmailHead
+        <div
           v-if="showReplyHead && isDefaultEditorMode"
-          v-model:cc-emails="ccEmails"
-          v-model:bcc-emails="bccEmails"
-          v-model:to-emails="toEmails"
-        />
+          class="toybaco-reply-email"
+          :class="{ 'is-expanded': emailRecipientsExpanded }"
+        >
+          <button
+            type="button"
+            class="toybaco-reply-email__toggle"
+            :aria-expanded="emailRecipientsExpanded"
+            :aria-controls="emailRecipientsId"
+            @click="toggleEmailRecipients"
+          >
+            <span class="toybaco-reply-email__label">宛先</span>
+            <span
+              class="toybaco-reply-email__recipient"
+              :title="emailRecipientSummary"
+            >
+              {{ emailRecipientSummary }}
+            </span>
+            <span v-if="emailCopySummary" class="toybaco-reply-email__copies">
+              {{ emailCopySummary }}
+            </span>
+            <span class="toybaco-reply-email__action">
+              {{ emailRecipientsExpanded ? '閉じる' : '詳細' }}
+            </span>
+          </button>
+          <div :id="emailRecipientsId" class="toybaco-reply-email__details">
+            <ReplyEmailHead
+              v-model:cc-emails="ccEmails"
+              v-model:bcc-emails="bccEmails"
+              v-model:to-emails="toEmails"
+            />
+          </div>
+        </div>
         <AudioRecorder
           v-if="showAudioRecorderEditor"
           ref="audioRecorderInput"

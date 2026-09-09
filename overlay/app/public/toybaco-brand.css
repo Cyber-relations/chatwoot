@@ -179,15 +179,40 @@ body,
 }
 
 @media (max-width: 767px) {
-  [data-toybaco-dashboard] button.h-8:not(.letter-render *) { height: 32px; }
-  [data-toybaco-dashboard] button.h-8.w-8:not(.letter-render *) { width: 32px; }
-  [data-toybaco-dashboard] button.h-10:not(.letter-render *) { height: 36px; }
-  [data-toybaco-dashboard] button.h-10.w-10:not(.letter-render *) { width: 36px; }
-  [data-toybaco-dashboard] button.h-12:not(.letter-render *) { height: 40px; }
-  [data-toybaco-dashboard] button.h-12.w-12:not(.letter-render *) { width: 40px; }
+  /* PC用の密度を縮小せず、端末上で読める文字とタップ領域を確保する。 */
+  [data-toybaco-dashboard] {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  [data-toybaco-dashboard] :where(.text-body-main, .text-body-para, .text-label, .text-button, .text-sm, .text-base):where(:not(.letter-render, .letter-render *)) {
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  [data-toybaco-dashboard] :where(.text-caption, .text-xs):where(:not(.letter-render, .letter-render *)) {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  [data-toybaco-dashboard] button:is(.h-8, .h-9, .h-10, .h-12):not(.letter-render *) {
+    min-height: 40px;
+    height: 40px;
+  }
+
+  [data-toybaco-dashboard] button:is(.h-8.w-8, .h-9.w-9, .h-10.w-10, .h-12.w-12):not(.letter-render *) {
+    width: 40px;
+  }
+
   [data-toybaco-dashboard] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"], [type="color"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select:not([multiple], [size])):not(.letter-render, .letter-render *) {
-    min-height: 36px;
-    height: 36px !important;
+    min-height: 44px;
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  [data-toybaco-dashboard] textarea:not(.letter-render, .letter-render *) {
+    font-size: 16px;
+    line-height: 24px;
   }
 }
 
@@ -1466,4 +1491,188 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
 [data-toybaco-agent-seat-locked] {
   opacity: 0.45 !important;
   pointer-events: none !important;
+}
+
+/* モバイルでは会話と返信を主面にし、AI設定とメール宛先の詳細を開閉する。 */
+[data-toybaco-ai-compact],
+.toybaco-reply-email__toggle {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  aside nav [data-toybaco-nav-link] {
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .conversations-list [data-toybaco-conversation-card] {
+    --toybaco-conversation-content-offset: 12px;
+  }
+
+  .conversations-list [data-toybaco-conversation-card][data-has-meta="true"] {
+    --toybaco-conversation-content-offset: 30px;
+  }
+
+  .conversations-list [data-toybaco-conversation-content] {
+    padding-block: 10px;
+  }
+
+  .conversations-list [data-toybaco-conversation-content] h4 {
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 600;
+  }
+
+  .conversations-list [data-toybaco-conversation-preview] {
+    font-size: 14px;
+    line-height: 22px;
+    height: 22px;
+  }
+
+  .conversations-list [data-toybaco-conversation-inbox],
+  .conversations-list [data-toybaco-conversation-inbox] > span {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .left-bubble,
+  .right-bubble,
+  :is(.left-bubble, .right-bubble) .prose-bubble:not(.letter-render) {
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .reply-box {
+    margin-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .reply-box > .flex:first-child {
+    min-height: 48px;
+    height: auto;
+  }
+
+  .reply-box > .flex:last-child {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .reply-box .left-wrap { gap: 2px; }
+  .reply-box .right-wrap { margin-left: auto; }
+
+  [data-toybaco-dashboard] .reply-box .right-wrap > button {
+    min-height: 44px;
+    height: 44px;
+    padding-inline: 12px;
+    font-size: 14px;
+  }
+
+  .reply-box .ProseMirror-woot-style {
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  [data-toybaco-dashboard] .reply-box .input-group input {
+    min-height: 44px;
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .toybaco-reply-email__toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 0;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--toybaco-hairline);
+    color: var(--toybaco-ink);
+    text-align: left;
+    font-size: 14px;
+    line-height: 20px;
+    cursor: pointer;
+  }
+
+  .toybaco-reply-email__recipient {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .toybaco-reply-email__label,
+  .toybaco-reply-email__copies,
+  .toybaco-reply-email__action {
+    flex-shrink: 0;
+    color: var(--toybaco-muted);
+  }
+
+  .toybaco-reply-email__copies { font-size: 12px; }
+  .toybaco-reply-email__action { font-weight: 600; }
+  .toybaco-reply-email:not(.is-expanded) .toybaco-reply-email__details { display: none; }
+  .toybaco-reply-email.is-expanded .toybaco-reply-email__details { padding-top: 8px; }
+
+  [data-toybaco-ai-mode-bar] {
+    margin-bottom: 4px;
+    padding: 0 10px;
+  }
+
+  [data-toybaco-ai-mode-bar] > :not([data-toybaco-ai-compact]) { display: none; }
+
+  [data-toybaco-ai-compact] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    color: var(--toybaco-ink);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  [data-toybaco-ai-compact-settings] {
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 6px;
+    border: 0;
+    background: transparent;
+    color: var(--toybaco-ink);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .toybaco-reply-email__toggle:focus-visible,
+  [data-toybaco-ai-compact-settings]:focus-visible {
+    outline: 2px solid var(--toybaco-focus);
+    outline-offset: 2px;
+  }
+
+  [data-toybaco-ai-mode-panel] {
+    inset: 12px 12px auto;
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - 24px);
+  }
+
+  [data-toybaco-ai-mode-head] button,
+  [data-toybaco-ai-mode-panel] [data-toybaco-ai-mode] {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  [data-toybaco-ai-mode-panel] :is(p, [data-toybaco-ai-readiness], [data-toybaco-ai-status]) {
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  [data-toybaco-ai-mode][data-toybaco-ai-kind="card"] small {
+    font-size: 13px;
+    line-height: 20px;
+  }
 }
