@@ -51,6 +51,14 @@ const toggleSidebar = () => {
     >
       <Button
         icon="i-lucide-menu"
+        :aria-label="
+          $t(
+            isMobileSidebarOpen
+              ? 'HELP_CENTER.EDIT_HEADER.CLOSE_SIDEBAR'
+              : 'HELP_CENTER.EDIT_HEADER.OPEN_SIDEBAR'
+          )
+        "
+        :aria-expanded="isMobileSidebarOpen"
         no-animation
         class="!rounded-full !bg-n-solid-3 dark:!bg-n-alpha-2 !text-n-slate-12 text-xl transition-all duration-200 ease-out hover:brightness-110"
         lg

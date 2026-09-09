@@ -652,17 +652,17 @@ aside nav > ul > li:not([data-toybaco-primary-nav="inbox"]):not([data-toybaco-pr
   display: none !important;
 }
 
-aside nav ul > li:has(a[href*="/inbox"]),
-aside nav ul > li:has(a[href*="inbox-view"]),
-aside nav ul > li:has(a[href*="/conversations"]),
+aside nav > ul > li:has(a[href*="/inbox"]),
+aside nav > ul > li:has(a[href*="inbox-view"]),
+aside nav > ul > li:has(a[href*="/conversations"]),
 aside nav > ul > *:has(.i-lucide-inbox),
 aside nav > ul > *:has(.i-lucide-message-circle),
 aside nav > ul > *:has([title="会話"]) {
   order: 1;
 }
 
-aside nav ul > li:has([data-toybaco-post-entry]),
-aside nav ul > li[data-toybaco-post-entry-wrap],
+aside nav > ul > li:has([data-toybaco-post-entry]),
+aside nav > ul > li[data-toybaco-post-entry-wrap],
 aside nav > ul > *:has([data-toybaco-post-entry]),
 aside nav > ul > *[data-toybaco-post-entry-wrap] {
   order: 2;
@@ -950,13 +950,13 @@ aside nav > ul > *[data-toybaco-post-entry-wrap] {
 .dark [data-toybaco-ai-usage-state="limited"] [data-toybaco-ai-usage-status] { color: #e6c58d; }
 .dark [data-toybaco-ai-usage-state="error"] [data-toybaco-ai-usage-status] { color: #ffb4a8; }
 
-aside nav ul > li:has(a[href*="/reports"]),
+aside nav > ul > li:has(a[href*="/reports"]),
 aside nav > ul > *:has(.i-lucide-chart-spline),
 aside nav > ul > *:has([title="レポート"]) {
   order: 4;
 }
 
-aside nav ul > li:has(a[href*="/settings"]),
+aside nav > ul > li:has(a[href*="/settings"]),
 aside nav > ul > *:has(.i-lucide-bolt),
 aside nav > ul > *:has([title="設定"]) {
   order: 5;

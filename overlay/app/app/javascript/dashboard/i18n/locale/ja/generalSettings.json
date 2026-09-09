@@ -170,7 +170,7 @@
       "SNOOZE_NOTIFICATION": "通知をスヌーズ"
     },
     "COMMANDS": {
-      "GO_TO_MY_INBOX": "マイインボックスに移動",
+      "GO_TO_MY_INBOX": "通知に移動",
       "GO_TO_CONVERSATION_DASHBOARD": "会話ダッシュボードに移動",
       "GO_TO_CONTACTS_DASHBOARD": "連絡先ダッシュボードに移動",
       "GO_TO_CAPTAIN": "AI へ",
