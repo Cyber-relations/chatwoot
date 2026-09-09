@@ -1444,6 +1444,31 @@
     return next;
   }
 
+  function aiModeCompactStatus(state, readiness, usage) {
+    var access = usage.phase === 'ready' ? usage.data : null;
+    var connection = readiness.phase === 'ready' ? readiness.data.connection : null;
+    // 保存済みのモードより、現在わかっている利用不可・未確認を優先する。
+    if (access && !access.enabled) {
+      if (access.reason === 'disabled') return { state: 'unavailable', text: 'AI：契約対象外' };
+      if (access.reason === 'account_inactive') return { state: 'unavailable', text: 'AI：利用停止中' };
+      return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
+    }
+    if (connection === 'unconnected') return { state: 'unconnected', text: 'AI：未接続' };
+    if (access && access.remaining === 0) return { state: 'limited', text: 'AI：残り枠なし' };
+    if (usage.phase === 'error') return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
+    if (readiness.phase === 'error' || connection === 'unknown') {
+      return { state: 'unconfirmed', text: 'AI：接続を確認' };
+    }
+    if (state.phase === 'error' || (state.phase === 'ready' && !normalizeAiMode(state.mode))) {
+      return { state: 'unconfirmed', text: 'AI：設定を確認' };
+    }
+    if (state.phase === 'saving') return { state: 'saving', text: 'AI：変更中' };
+    if (state.phase !== 'ready' || readiness.phase !== 'ready' || usage.phase !== 'ready') {
+      return { state: 'checking', text: 'AI：確認中' };
+    }
+    return { state: 'configured', text: 'AI：' + aiModeLabel(state.mode) };
+  }
+
   function paintAiModeControls() {
     var state = aiModeState();
     var readiness = aiReadinessState();
@@ -1470,6 +1495,7 @@
     else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
     else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
+    var compactStatus = aiModeCompactStatus(state, readiness, usage);
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
       var i;
@@ -1498,6 +1524,13 @@
       var connections = document.querySelectorAll('[data-toybaco-ai-readiness]');
       for (i = 0; i < connections.length; i += 1) {
         if (connections[i].textContent !== connectionText) connections[i].textContent = connectionText;
+      }
+      var summaries = document.querySelectorAll('[data-toybaco-ai-compact-status]');
+      for (i = 0; i < summaries.length; i += 1) {
+        if (summaries[i].textContent !== compactStatus.text) summaries[i].textContent = compactStatus.text;
+        if (summaries[i].getAttribute('data-toybaco-ai-compact-state') !== compactStatus.state) {
+          summaries[i].setAttribute('data-toybaco-ai-compact-state', compactStatus.state);
+        }
       }
       var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
       for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error' &&
@@ -1835,6 +1868,22 @@
         bar.appendChild(buildAiModeButton(AI_MODE_AUTO, 'chip'));
         bar.appendChild(buildAiModeButton(AI_MODE_DRAFT, 'chip'));
         appendAiModeStatus(bar);
+        var compact = document.createElement('div');
+        compact.setAttribute('data-toybaco-ai-compact', '1');
+        var summary = document.createElement('span');
+        summary.setAttribute('data-toybaco-ai-compact-status', '1');
+        summary.setAttribute('role', 'status');
+        summary.setAttribute('aria-live', 'polite');
+        compact.appendChild(summary);
+        var settings = document.createElement('button');
+        settings.type = 'button';
+        settings.setAttribute('data-toybaco-ai-compact-settings', '1');
+        settings.setAttribute('data-' + AI_MARK, '1');
+        settings.setAttribute('aria-haspopup', 'dialog');
+        settings.setAttribute('aria-label', '店舗全体のAI応答設定を開く');
+        settings.textContent = '設定';
+        compact.appendChild(settings);
+        bar.appendChild(compact);
         box.parentElement.insertBefore(bar, box);
       }
       paintAiModeControls();
