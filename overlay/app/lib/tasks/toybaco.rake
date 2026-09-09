@@ -189,7 +189,9 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
         user.save!
       end
 
-      account = Account.create!(name: name, locale: 'ja')
+      account = Account.create!(
+        name: name, locale: 'ja', internal_attributes: { 'toybaco_billing_owner_user_id' => user.id }
+      )
       AccountUser.create!(account: account, user: user, role: :administrator)
 
       Toybaco::Entitlements.apply!(account, contract, subscription_id: subscription_id)
@@ -199,6 +201,36 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       user.send_reset_password_instructions
       puts "開通完了: account ##{account.id} #{name} / #{email} / #{plan}" \
            "#{posting ? ' / 投稿オプション' : ''} / subscription #{subscription_id}"
+    end
+  end
+
+  desc '監査済みの契約・既存ユーザー対応を契約者未設定の親店舗へ明示適用する'
+  task :assign_billing_owner, [:account_id, :user_id, :expected_subscription_id] => :environment do |_t, args| # rubocop:disable Metrics/BlockLength
+    account_id, user_id = %i[account_id user_id].map do |key|
+      value = args[key].to_s
+      abort '店舗IDとユーザーIDは正の整数で指定してください。' unless value.match?(/\A[1-9]\d*\z/)
+
+      Integer(value, 10)
+    end
+    subscription_id = args[:expected_subscription_id].to_s
+    abort 'サブスクリプションIDが不正です。' unless subscription_id.match?(/\Asub_[A-Za-z0-9]+\z/)
+
+    Account.transaction do
+      account = Account.lock.find(account_id)
+      attrs = Toybaco::Entitlements.attributes(account)
+      abort '対象店舗と指定した契約が一致しません。' unless attrs['toybaco_subscription_id'] == subscription_id
+      abort '追加店舗へ契約者を直接設定することはできません。' if attrs.key?(Toybaco::StoreFulfillment::PURCHASE)
+
+      membership = account.account_users.lock.find_by(user_id: user_id)
+      abort '対象店舗に所属する既存ユーザーを指定してください。' unless membership && User.exists?(id: user_id)
+
+      owner_key = 'toybaco_billing_owner_user_id'
+      owner_id = attrs[owner_key]
+      unless owner_id.nil? || (owner_id.is_a?(Integer) && owner_id.positive? && owner_id == user_id)
+        abort '契約者は別のユーザーに設定済みか、保存値が不正です。上書きは行いません。'
+      end
+      account.update!(internal_attributes: attrs.merge(owner_key => user_id)) if owner_id.nil?
+      puts owner_id.nil? ? '契約者を設定しました。' : '同じ契約者が設定済みです。'
     end
   end
 

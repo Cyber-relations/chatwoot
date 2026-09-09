@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../../lib/toybaco/agent_seat_limit'
+require_relative '../../../lib/toybaco/billing_access'
 
 # ライトの担当者人数。設定画面の客面表示と 402 文言の正本は AgentSeatLimit。
 class Toybaco::AgentSeatLimitController < ActionController::Base # rubocop:disable Rails/ApplicationController
@@ -9,7 +10,7 @@ class Toybaco::AgentSeatLimitController < ActionController::Base # rubocop:disab
   before_action :load_user_and_account
 
   def show
-    render json: Toybaco::AgentSeatLimit.payload(@account)
+    render json: Toybaco::AgentSeatLimit.payload(@account, can_view_billing: @can_view_billing)
   end
 
   private
@@ -25,6 +26,7 @@ class Toybaco::AgentSeatLimitController < ActionController::Base # rubocop:disab
     return head :forbidden unless @account_user
 
     @account = @account_user.account
+    @can_view_billing = Toybaco::BillingAccess.permissions(@account, user, membership: @account_user).fetch(:can_view_billing)
   end
 
   def set_no_cache

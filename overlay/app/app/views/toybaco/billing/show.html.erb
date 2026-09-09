@@ -76,8 +76,6 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
           <% unless invoice[:tax].nil? %><div class="row"><span>税額</span><span>¥<%= number_with_delimiter(invoice[:tax]) %></span></div><% end %>
           <% if invoice[:url] %><p class="note"><a href="<%= invoice[:url] %>" target="_blank" rel="noopener">直近の請求内容を確認する</a></p><% end %>
         <% end %>
-      <% elsif !@admin %>
-        <p class="note">請求情報は管理者の方が確認できます。</p>
       <% elsif @subscription_id %>
         <p class="note" role="status">現在の請求情報を取得できません。時間をおいて再度お試しください。お支払い方法・請求履歴からも確認できます。</p>
       <% else %>
@@ -148,7 +146,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <% elsif @store_purchase %>
       <p class="note">お支払い・変更は、購入元の契約で管理します。ご不明な点は店舗の管理者へお問い合わせください。</p>
     <% elsif !@admin %>
-      <p class="note">契約情報の確認・変更は、管理者の方のみ行えます。</p>
+      <p class="note">契約の変更には管理者権限が必要です。</p>
     <% else %>
       <p class="note">このご契約は請求書払い(または個別契約)です。お支払い方法やプランの変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へご連絡ください。</p>
     <% end %>

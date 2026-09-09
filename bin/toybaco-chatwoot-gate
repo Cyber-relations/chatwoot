@@ -182,7 +182,7 @@ integration_ruby_file_list() {
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
         \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o \
         -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' -o \
-        -name 'billing_cancel.rb' -o -name 'billing_subscription.rb' -o -name 'agent_seat_limit.rb' -o \
+        -name 'billing_cancel.rb' -o -name 'billing_subscription.rb' -o -name 'billing_access.rb' -o -name 'agent_seat_limit.rb' -o \
         -name 'agent_login.rb' -o -name 'postgres_health.rb' -o \
         -name 'plan_catalog.rb' -o -name 'entitlements.rb' -o -name 'contract_addons.rb' -o -name 'subscription_sync.rb' -o -name 'store_fulfillment.rb' -o -name 'ai_usage.rb' -o -name 'ai_readiness.rb' \) -print
       find overlay/app/lib/toybaco/store_fulfillment -type f -name '*.rb' -print

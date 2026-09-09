@@ -17,7 +17,7 @@
     "FILTER_ALL": "すべて",
     "ASSIGNEE_TYPE_TABS": {
       "me": "自分",
-      "unassigned": "未対応",
+      "unassigned": "未割り当て",
       "all": "すべて"
     },
     "CHAT_STATUS_FILTER_ITEMS": {

@@ -1,10 +1,16 @@
 <script setup>
-import { h, ref, computed, onMounted, watch } from 'vue';
+import { h, ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import {
+  isNavigationFailure,
+  NavigationFailureType,
+  useRouter,
+} from 'vue-router';
 import { provideSidebarContext, useSidebarResize } from './provider';
 import { useAccount } from 'dashboard/composables/useAccount';
 import { useConfig } from 'dashboard/composables/useConfig';
 import { useKbd } from 'dashboard/composables/utils/useKbd';
 import { useMapGetter } from 'dashboard/composables/store';
+import { useToybacoBillingAccess } from 'dashboard/composables/useToybacoBillingAccess';
 import { useStore } from 'vuex';
 import { useI18n } from 'vue-i18n';
 import { useSidebarKeyboardShortcuts } from './useSidebarKeyboardShortcuts';
@@ -46,6 +52,32 @@ const emit = defineEmits([
 const { accountScopedRoute, isOnChatwootCloud } = useAccount();
 const { isEnterprise } = useConfig();
 const store = useStore();
+const { canViewBilling } = useToybacoBillingAccess();
+const router = useRouter();
+
+// Native leaves also navigate from the collapsed popover. Let the existing
+// posting editor confirm unsaved input before any of those route changes.
+const confirmPostingRouteChange = to => {
+  const event = new CustomEvent('toybaco:before-route-change', {
+    cancelable: true,
+    detail: { proceed: () => router.push(to.fullPath) },
+  });
+  window.dispatchEvent(event);
+  return !event.defaultPrevented;
+};
+const removePostingGuard = router.beforeEach((to, from) => {
+  if (to.fullPath === from.fullPath) return true;
+  return confirmPostingRouteChange(to);
+});
+// Posting adds its hash without changing the current Vue route. Selecting that
+// same route in a popover skips beforeEach, but still needs the close prompt.
+const removePostingDuplicateGuard = router.afterEach((to, from, failure) => {
+  if (isNavigationFailure(failure, NavigationFailureType.duplicated)) {
+    confirmPostingRouteChange(to);
+  }
+});
+onBeforeUnmount(removePostingGuard);
+onBeforeUnmount(removePostingDuplicateGuard);
 
 // Calls run on the enterprise-only API (cloud runs enterprise); hide the entry
 // on community so it doesn't lead to a dashboard/CTA the backend can't serve.
@@ -211,6 +243,7 @@ useEventListener(document, 'touchmove', onResizeMove, { passive: false });
 useEventListener(document, 'touchend', onResizeEnd);
 
 const inboxes = useMapGetter('inboxes/getInboxes');
+const notificationUnreadCount = useMapGetter('notifications/getUnreadCount');
 const labels = useMapGetter('labels/getLabelsOnSidebar');
 const allUnreadCount = useMapGetter(
   'conversationUnreadCounts/getAllUnreadCount'
@@ -349,7 +382,13 @@ const onMobileNavClick = event => {
   const control = event.target?.closest?.('a, [data-toybaco-nav-link]');
   if (!control || !sidebarNav.value?.contains(control)) return;
   const kind = control.getAttribute('data-toybaco-nav-link');
-  if (kind === 'settings' || kind === 'reports') return;
+  if (
+    kind === 'settings' ||
+    kind === 'reports' ||
+    (kind === 'inbox' && control.tagName !== 'A')
+  ) {
+    return;
+  }
   const target = (control.getAttribute('target') || '').trim().toLowerCase();
   if (
     (target && target !== '_self') ||
@@ -359,7 +398,7 @@ const onMobileNavClick = event => {
   }
 
   // These entries already navigate in post-entry's document capture handler.
-  const workspaceEntry = ['posting', 'billing', 'inbox'].includes(kind);
+  const workspaceEntry = ['posting', 'inbox'].includes(kind);
   if (control.tagName === 'A') {
     const href = (control.getAttribute('href') || control.href || '').trim();
     if (!href || (!workspaceEntry && href.startsWith('#'))) return;
@@ -421,16 +460,6 @@ const reportRoutes = computed(() => newReportRoutes());
 const menuItems = computed(() => {
   return [
     {
-      name: 'Inbox',
-      label: t('SIDEBAR.INBOX'),
-      icon: 'i-lucide-inbox',
-      to: accountScopedRoute('inbox_view'),
-      activeOn: ['inbox_view', 'inbox_view_conversation'],
-      getterKeys: {
-        count: 'notifications/getUnreadCount',
-      },
-    },
-    {
       name: 'Conversation',
       label: t('SIDEBAR.CONVERSATIONS'),
       icon: 'i-lucide-message-circle',
@@ -442,6 +471,14 @@ const menuItems = computed(() => {
           badgeCount: allUnreadCount.value,
           activeOn: ['inbox_conversation'],
           to: accountScopedRoute('home'),
+        },
+        {
+          name: 'Inbox',
+          label: t('SIDEBAR.NOTIFICATIONS'),
+          icon: 'i-lucide-bell',
+          to: accountScopedRoute('inbox_view'),
+          activeOn: ['inbox_view', 'inbox_view_conversation'],
+          badgeCount: notificationUnreadCount.value,
         },
         {
           name: 'Mentions',
@@ -990,12 +1027,16 @@ const menuItems = computed(() => {
           icon: 'i-lucide-shield',
           to: accountScopedRoute('security_settings_index'),
         },
-        {
-          name: 'Settings Billing',
-          label: t('SIDEBAR.BILLING'),
-          icon: 'i-lucide-credit-card',
-          to: accountScopedRoute('billing_settings_index'),
-        },
+        ...(canViewBilling.value
+          ? [
+              {
+                name: 'Settings Billing',
+                label: t('SIDEBAR.BILLING'),
+                icon: 'i-lucide-credit-card',
+                to: accountScopedRoute('toybaco_billing_settings_index'),
+              },
+            ]
+          : []),
       ],
     },
   ];

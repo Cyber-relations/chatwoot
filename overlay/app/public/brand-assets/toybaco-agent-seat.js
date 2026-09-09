@@ -9,8 +9,8 @@
   window.__TOYBACO_AGENT_SEAT_LOADED__ = true;
 
   var MARK = 'toybaco-agent-seat-banner';
-  var TITLE = 'ご契約の利用人数';
-  var BODY = '利用人数の上限はご契約内容をご確認ください。';
+  var TITLE = '利用人数';
+  var BODY = '利用人数の変更が必要な場合は、契約者にご確認ください。';
   var lastKey = '';
   var lastListKey = null;
   var generation = 0;

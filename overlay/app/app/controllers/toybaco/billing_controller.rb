@@ -5,6 +5,7 @@ require_relative '../../../lib/toybaco/entitlements'
 require_relative '../../../lib/toybaco/store_fulfillment'
 require_relative '../../../lib/toybaco/checkout'
 require_relative '../../../lib/toybaco/billing_subscription'
+require_relative '../../../lib/toybaco/billing_access'
 require_relative '../../../lib/toybaco/checkout/plan_change'
 
 # トイバコ内の「ご契約内容」画面。
@@ -16,9 +17,14 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   skip_forgery_protection
   before_action :set_no_cache
   before_action :load_user_and_account
+  before_action :require_billing_owner, except: :access
   before_action :guard_plan_change, only: %i[change_preview change_confirm change_refresh change_cancel]
   rescue_from Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid, ActiveRecord::ActiveRecordError, with: :plan_change_unavailable
   rescue_from Toybaco::Checkout::PlanChangeError, with: :plan_change_error
+
+  def access
+    render json: @billing_access
+  end
 
   def show
     attrs = @account.internal_attributes || {}
@@ -117,7 +123,7 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   end
 
   def load_actual_billing
-    return unless @admin && @subscription_id && ENV['TOYBACO_STRIPE_KEY'].present?
+    return unless @subscription_id && ENV['TOYBACO_STRIPE_KEY'].present?
 
     client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY'))
     @billing = Toybaco::BillingSubscription.summarize(client.retrieve_subscription(@subscription_id), expected_id: @subscription_id)
@@ -152,6 +158,11 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     return head :forbidden unless @account_user
 
     @account = @account_user.account
+    @billing_access = Toybaco::BillingAccess.permissions(@account, user, membership: @account_user)
+  end
+
+  def require_billing_owner
+    head :forbidden unless @billing_access.fetch(:can_view_billing)
   end
 
   def stripe_request(method, path, key, params = nil)

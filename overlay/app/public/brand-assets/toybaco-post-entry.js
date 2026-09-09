@@ -15,7 +15,7 @@
  *   - 受信箱の返信欄で「/」を打った最初のキーで、既存の定型文一覧をすぐ出す
  *     (設定画面へ行かせない。LP の「返信はたった3秒」と同じ操作)
  *   - AI 一次応答は返信欄の横で「全自動」「下書き」だけを選ぶ
- *     (左ナビは会話/投稿/ご契約内容/レポート/設定の正本5項目。Captain は開かない)
+ *     (左ナビは会話/投稿/レポート/設定。ご契約内容は設定配下。Captain は開かない)
  *   - 何かあっても受信箱を壊さない(失敗したら黙って何もしない)
  *   - 戻るボタン/ESC で閉じられる。サイドバーで別画面へ移ったら自動で閉じる
  */
@@ -59,7 +59,6 @@
   // 読み込みの一番早い段階で控えておき、画面が落ち着いてから使う。
   var PENDING_KEY = 'toybaco_pending_posting';
 
-  var BILLING_MARK = 'toybaco-billing-entry';
   var AI_MARK = 'toybaco-ai-mode-entry';
   var AI_MODE_AUTO = 'auto';
   var AI_MODE_DRAFT = 'draft';
@@ -298,16 +297,6 @@
     return entry.href;
   }
 
-  // mobile の固定drawerは main を押し縮めない。投稿権利にも依存させない。
-  function computeLeft() {
-    try {
-      var host = findContentHost();
-      var left = host && Math.round(host.getBoundingClientRect().left);
-      if (left > 0 && left < window.innerWidth) return left;
-    } catch (e) { /* fall through */ }
-    return 0;
-  }
-
   // 退避があるかを見るだけ(消さない)
   function hasPendingPath() {
     try { return !!sessionStorage.getItem(PENDING_KEY); } catch (e) { return false; }
@@ -519,7 +508,7 @@
       if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
     } catch (e) { /* noop */ }
     if (panelSpinner) {
-      panelSpinner.innerHTML = '<span>この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。</span>';
+      panelSpinner.innerHTML = '<span>この店舗では投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。</span>';
     }
   }
 
@@ -731,7 +720,7 @@
   }
 
   function syncEmbeddedWorkspace() {
-    var foreground = billingPanel || panel;
+    var foreground = panel;
     var targets = [];
     if (foreground) {
       var host = findContentHost();
@@ -740,7 +729,7 @@
       var rows = document.querySelectorAll('[data-toybaco-primary-nav]');
       for (var n = 0; n < rows.length; n += 1) {
         var kind = rows[n].getAttribute('data-toybaco-primary-nav');
-        if (kind !== 'settings' && kind !== 'reports') continue;
+        if (kind !== 'settings' && kind !== 'reports' && kind !== 'inbox') continue;
         var children = rows[n].children;
         for (var c = 0; c < children.length; c += 1) {
           if (children[c].tagName === 'UL') targets.push({ node: children[c], kind: 'nav' });
@@ -785,7 +774,7 @@
     syncEmbeddedWorkspace();
     try {
       var path = window.location.pathname;
-      var selected = billingPanel ? 'billing' : panel ? 'posting' :
+      var selected = panel ? 'posting' :
         /\/reports(?:\/|$)/.test(path) ? 'reports' :
         /\/settings(?:\/|$)/.test(path) ? 'settings' :
         /\/(dashboard|inbox|inbox-view|conversations)(?:\/|$)/.test(path) ? 'inbox' : '';
@@ -796,7 +785,7 @@
         var on = kind === selected && !closestAttr(link, 'data-toybaco-nav-duplicate');
         link.setAttribute('data-toybaco-nav-current', on ? 'true' : 'false');
         // 注入行はVue Routerの選択classを引き継がない。
-        if (kind === 'posting' || kind === 'billing') {
+        if (kind === 'posting') {
           link.className = navigationClassName(link) + (on ? ' ' + SELECTED_CLASS : '');
         }
         if (on) link.setAttribute('aria-current', 'page');
@@ -808,7 +797,6 @@
   function openPanel(path, fromHash) {
     if (panel) return;
     closeAiModePanel();
-    closeBillingPanel();
     // 開けない場面(ログイン前など)で hash だけ残ると、以後ずっと
     // 「開いているつもり」の状態になる。消してから戻る。
     if (!isLoggedInView()) { stripHash(); return; }
@@ -926,8 +914,8 @@
     }
   }
 
-  // Chatwoot v4 一次ナビの在庫グループ。正本は 会話/投稿/ご契約/レポート/設定。
-  // レポート・設定の親は残す。設定サブツリーと Captain 在庫は客面から消す。
+  // 会話・レポート・設定の子導線は native の権限と展開状態に任せる。
+  // トイバコで提供しない独立した在庫グループだけを一次ナビから外す。
   var STOCK_TITLES = {
     '連絡先': 1,
     'キャンペーン': 1,
@@ -982,11 +970,10 @@
     try {
       if (row.getAttribute && (
         row.getAttribute('data-' + MARK + '-wrap') === '1' ||
-        row.getAttribute('data-' + MARK) ||
-        row.getAttribute('data-' + BILLING_MARK)
+        row.getAttribute('data-' + MARK)
       )) return true;
       return !!(row.querySelector && row.querySelector(
-        '[data-' + MARK + '], [data-' + MARK + '-wrap], [data-' + BILLING_MARK + ']'
+        '[data-' + MARK + '], [data-' + MARK + '-wrap]'
       ));
     } catch (e) { return false; }
   }
@@ -1091,7 +1078,7 @@
     while (row && row.parentElement !== list) row = row.parentElement;
     if (!row || row === node) return false;
     var kind = primaryNavKind(row);
-    return kind === 'settings' || kind === 'reports';
+    return kind === 'settings' || kind === 'reports' || kind === 'inbox';
   }
 
   function hideLeftoverTrees() {
@@ -1102,7 +1089,7 @@
       var nodes = nav.querySelectorAll('li, a, [role="button"], button, div[title], span');
       for (var i = 0; i < nodes.length; i += 1) {
         var node = nodes[i];
-        // 設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
+        // 会話・設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
         if (isNativePrimaryChild(node, list)) continue;
         if (isToybacoNavRow(node)) continue;
         if (!nodeTitleOrLeaf(node)) continue;
@@ -1120,7 +1107,7 @@
     if (!row) return null;
     try {
       if (row.querySelector) {
-        var inner = row.querySelector('a, [role="button"]');
+        var inner = row.querySelector('a, [role="button"], button');
         if (inner) return inner;
       }
       if (row.getAttribute && row.getAttribute('role') === 'button') return row;
@@ -1181,9 +1168,7 @@
           event.preventDefault();
           event.stopPropagation();
           if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-          var kind = this.getAttribute('data-toybaco-nav-link');
-          if (kind === 'inbox') navigatePrimaryNav(kind);
-          else this.click();
+          this.click();
         }, true);
       }
     }
@@ -1193,10 +1178,9 @@
     if (requestPanelClose(function () { navigatePrimaryNav(kind); })) return;
     var id = currentAccountId();
     if (!id) return;
-    var returnToConversation = kind === 'inbox' && (panel || billingPanel) &&
+    var returnToConversation = kind === 'inbox' && panel &&
       /\/(dashboard|inbox|conversations)(?:\/|$)/.test(window.location.pathname);
     closeAiModePanel();
-    closeBillingPanel();
     closePanel();
     if (returnToConversation) return;
     var dest = primaryNavDestination(kind, id);
@@ -1232,12 +1216,10 @@
     if (!row) return false;
     try {
       if (row.getAttribute && (
-        row.getAttribute('data-' + BILLING_MARK) ||
-        row.getAttribute('data-' + BILLING_MARK) === '' ||
         row.getAttribute('data-' + AI_MARK) ||
         row.getAttribute('data-' + AI_MARK) === ''
       )) return true;
-      if (row.querySelector && row.querySelector('[data-' + BILLING_MARK + '], [data-' + AI_MARK + ']')) return true;
+      if (row.querySelector && row.querySelector('[data-' + AI_MARK + ']')) return true;
       var hit = false;
       walkNavNodes(row, function (node) {
         if (hit) return;
@@ -1320,42 +1302,6 @@
   function removePostEntry() {
     var el = document.querySelector('[data-' + MARK + ']');
     if (el && el.parentElement) el.parentElement.remove();
-  }
-
-  // 「ご契約内容」: プラン変更・カード変更・解約ができるページへの入口。
-  // 契約の管理は全員に見えてよいので会社を問わず出す
-  function injectBilling(sample) {
-    try {
-      if (document.querySelector('[data-' + BILLING_MARK + ']')) return;
-      var li = document.createElement('li');
-      li.className = sample.li.className;
-      var a = document.createElement('a');
-      a.href = '#';
-      a.className = navigationClassName(sample.inner);
-      a.title = 'ご契約内容';
-      a.setAttribute('data-' + BILLING_MARK, '1');
-      a.setAttribute('data-toybaco-nav-link', 'billing');
-      var iconWrap = document.createElement('div');
-      iconWrap.className = 'relative flex items-center gap-2';
-      var icon = document.createElement('span');
-      icon.className = 'i-lucide-credit-card size-4';
-      iconWrap.appendChild(icon);
-      a.appendChild(iconWrap);
-      var textWrap = document.createElement('div');
-      textWrap.className = 'flex items-center min-w-0 flex-grow';
-      var text = document.createElement('span');
-      text.className = 'truncate';
-      text.textContent = 'ご契約内容';
-      textWrap.appendChild(text);
-      a.appendChild(textWrap);
-      a.addEventListener('click', function (e) {
-        if (e.preventDefault) e.preventDefault();
-        if (e.stopPropagation) e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-      }, true);
-      li.appendChild(a);
-      sample.ul.appendChild(li);
-    } catch (e) { /* 出せなくても邪魔はしない */ }
   }
 
   function normalizeAiMode(value) {
@@ -1449,7 +1395,7 @@
     var connection = readiness.phase === 'ready' ? readiness.data.connection : null;
     // 保存済みのモードより、現在わかっている利用不可・未確認を優先する。
     if (access && !access.enabled) {
-      if (access.reason === 'disabled') return { state: 'unavailable', text: 'AI：契約対象外' };
+      if (access.reason === 'disabled') return { state: 'unavailable', text: 'AI：利用できません' };
       if (access.reason === 'account_inactive') return { state: 'unavailable', text: 'AI：利用停止中' };
       return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
     }
@@ -1483,14 +1429,14 @@
       else if (state.phase !== 'ready') text = '店舗全体の設定を確認しています…';
       else text = '保存された設定：' + aiModeLabel(selected);
       if (state.phase === 'ready' && usage.phase === 'ready' && usage.data.reason === 'disabled') {
-        text += '（現在のご契約では適用されません）';
+        text += '（この店舗では利用できません）';
       }
     }
     var connectionText = 'AI応答の接続状態を確認できません。再確認してください。';
     if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI応答の接続設定を確認しています…';
     else if (connection === 'unconnected') connectionText = 'AI応答は未接続です。担当者が返信してください。';
     else if (connection === 'configured') connectionText = '接続設定あり（受信箱 ' + readiness.data.configured_inboxes +
-      ' / ' + readiness.data.total_inboxes + ' 件）。外部への応答動作は未確認です。利用可否・残り枠はご契約の利用状況をご確認ください。';
+      ' / ' + readiness.data.total_inboxes + ' 件）。外部への応答動作は未確認です。利用可否・残り枠は「AI応答」の設定で確認できます。';
     if (usage.phase === 'loading' || usage.phase === 'idle') connectionText = 'AI応答の利用条件を確認しています…';
     else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
@@ -1606,9 +1552,9 @@
   }
 
   function aiUsageAccessMessage(data) {
-    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。ご契約内容をご確認ください。';
-    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。ご契約内容をご確認ください。';
-    if (data.reason === 'disabled') return '現在のご契約にはAI応答が含まれていません。ご契約内容をご確認ください。';
+    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。契約者またはトイバコサポートにご確認ください。';
+    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。契約者またはトイバコサポートにご確認ください。';
+    if (data.reason === 'disabled') return 'この店舗ではAI応答をご利用いただけません。契約者またはトイバコサポートにご確認ください。';
     if (data.remaining === 0) return '現在、利用できる残り枠がありません。';
     return '';
   }
@@ -1896,7 +1842,6 @@
   function openAiModePanel() {
     try {
       if (aiPanel) { closeAiModePanel(); return; }
-      closeBillingPanel();
       prefetchAiMode(currentAccountId(), true);
       aiPanelReturnFocus = document.activeElement;
       var wrapEl = document.createElement('div');
@@ -1956,94 +1901,6 @@
     if (e.key === 'Escape') closeAiModePanel();
   }
 
-  var billingPanel = null;
-  var billingPath = null;
-  var billingAccountId = null;
-  var billingLayout = null;
-
-  function watchBillingPanelLayout() {
-    var currentPanel = billingPanel;
-    var host = null;
-    var stopped = false;
-    var observer = window.ResizeObserver ? new window.ResizeObserver(update) : null;
-    function update() {
-      if (stopped || billingPanel !== currentPanel) return;
-      var next = findContentHost();
-      if (next !== host) {
-        if (observer && host) observer.unobserve(host);
-        host = next;
-        if (observer && host) observer.observe(host);
-      }
-      var left = computeLeft() + 'px';
-      if (currentPanel.style.left !== left) currentPanel.style.left = left;
-    }
-    window.addEventListener('resize', update);
-    billingLayout = {
-      update: update,
-      stop: function () {
-        stopped = true;
-        window.removeEventListener('resize', update);
-        if (observer) observer.disconnect();
-      }
-    };
-    update();
-  }
-
-  // ご契約内容: 同じアプリの中の画面(/toybaco/billing)をパネルで開く。
-  // 決済情報に触れる操作だけ、その画面の中から Stripe の安全なページを新しいタブで開く
-  function openBillingPanel() {
-    if (requestPanelClose(openBillingPanel)) return;
-    try {
-      if (billingPanel) { closeBillingPanel(); return; }
-      var id = currentAccountId();
-      if (!id) return;
-      closePanel();
-      var wrapEl = document.createElement('div');
-      wrapEl.setAttribute('data-toybaco-billing-panel', '1');
-      wrapEl.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:' + computeLeft() +
-        'px;z-index:9998;background:#FAF7F2;box-shadow:-8px 0 24px rgba(0,0,0,.12);display:flex;flex-direction:column;';
-      var bar = document.createElement('div');
-      bar.style.cssText = 'display:flex;justify-content:flex-end;padding:8px 12px;';
-      var close = document.createElement('button');
-      close.textContent = '× 閉じる';
-      close.style.cssText = 'border:none;background:none;cursor:pointer;font-size:14px;color:#6B7684;padding:6px 10px;';
-      close.addEventListener('click', closeBillingPanel);
-      bar.appendChild(close);
-      var frame = document.createElement('iframe');
-      frame.src = '/toybaco/billing?account_id=' + encodeURIComponent(id);
-      frame.title = 'ご契約内容';
-      frame.style.cssText = 'flex:1;border:none;width:100%;';
-      wrapEl.appendChild(bar);
-      wrapEl.appendChild(frame);
-      document.body.appendChild(wrapEl);
-      billingPanel = wrapEl;
-      billingPath = window.location.pathname;
-      billingAccountId = id;
-      watchBillingPanelLayout();
-      syncPostingSelection();
-      document.addEventListener('keydown', escCloseBilling);
-    } catch (e) { /* 開けなくても邪魔はしない */ }
-  }
-
-  function closeBillingPanel() {
-    if (billingLayout) { billingLayout.stop(); billingLayout = null; }
-    if (!billingPanel) return;
-    var accountId = billingAccountId;
-    try { billingPanel.remove(); } catch (e) { /* noop */ }
-    billingPanel = null;
-    billingPath = null;
-    billingAccountId = null;
-    document.removeEventListener('keydown', escCloseBilling);
-    syncPostingSelection();
-    if (accountId && currentAccountId() === accountId && isLoggedInView()) {
-      reconcilePostingAccess(accountId, true);
-    }
-  }
-
-  function escCloseBilling(e) {
-    if (e.key === 'Escape') closeBillingPanel();
-  }
-
   function closestMarked(node, mark) {
     var cur = node;
     while (cur) {
@@ -2064,8 +1921,11 @@
   }
 
   function returnsToExpandedNativeGroup(link, kind) {
-    if (!panel && !billingPanel) return false;
-    if (!new RegExp('/' + kind + '(?:/|$)').test(window.location.pathname)) return false;
+    if (!panel) return false;
+    var matchingRoute = kind === 'inbox'
+      ? /\/(dashboard|inbox|inbox-view|conversations)(?:\/|$)/.test(window.location.pathname)
+      : new RegExp('/' + kind + '(?:/|$)').test(window.location.pathname);
+    if (!matchingRoute) return false;
     var row = closestAttr(link, 'data-toybaco-primary-nav');
     if (!row || row.getAttribute('data-toybaco-primary-nav') !== kind) return false;
     var expanded = false;
@@ -2084,7 +1944,7 @@
       var t = e.target || e.srcElement;
       var navLink = closestAttr(t, 'data-toybaco-nav-link');
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
-      if (navKind === 'reports' || navKind === 'settings') {
+      if (navKind === 'reports' || navKind === 'settings' || (navKind === 'inbox' && navLink.tagName !== 'A')) {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (requestPanelClose(function () { navLink.click(); })) {
           if (e.preventDefault) e.preventDefault();
@@ -2094,7 +1954,6 @@
         }
         var preserveExpanded = returnsToExpandedNativeGroup(navLink, navKind);
         closeAiModePanel();
-        closeBillingPanel();
         closePanel();
         if (preserveExpanded) {
           if (e.preventDefault) e.preventDefault();
@@ -2117,14 +1976,6 @@
         if (e.stopPropagation) e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         openPanel(DEFAULT_PATH, false);
-        return;
-      }
-      if (closestMarked(t, BILLING_MARK)) {
-        if (e.preventDefault) e.preventDefault();
-        if (e.stopPropagation) e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        closeAiModePanel();
-        openBillingPanel();
         return;
       }
       if (closestMarked(t, AI_MARK)) {
@@ -2152,9 +2003,6 @@
       if ((entry.getAttribute && entry.getAttribute('href')) !== want) {
         if (entry.setAttribute) entry.setAttribute('href', want);
         entry.href = want;
-      }
-      if (entry.getAttribute && entry.getAttribute('data-' + BILLING_MARK)) {
-        if (entry.removeAttribute) entry.removeAttribute('data-' + BILLING_MARK);
       }
     } catch (e) { /* href を直せなくても click キャプチャでカレンダーへ */ }
   }
@@ -2618,7 +2466,6 @@
       var sample = findMenu();
       if (!sample) return;
       ensurePrimaryNavigation(sample);
-      injectBilling(sample);
       syncPostingSelection();
 
       var id = currentAccountId();
@@ -2674,10 +2521,16 @@
     } catch (e) { /* 差し替えられなくても開いたままにする */ }
   }
 
+  var previousBillingAccount = null;
+
   function afterNavChange() {
     if (panelLayout) panelLayout.update();
-    if (billingPanel && window.location.pathname !== billingPath) closeBillingPanel();
-    else if (billingLayout) billingLayout.update();
+    var billingAccount = /\/settings\/contract\/?$/.test(window.location.pathname) ? currentAccountId() : null;
+    var leavingBillingAccount = previousBillingAccount;
+    previousBillingAccount = billingAccount;
+    if (leavingBillingAccount && leavingBillingAccount !== billingAccount && currentAccountId() === leavingBillingAccount) {
+      reconcilePostingAccess(leavingBillingAccount, true);
+    }
     inject();
     ensurePostingContract();
     if (!panel && (currentHashPath() !== null || hasPendingPath())) {
@@ -2704,6 +2557,7 @@
   }
 
   function start() {
+    previousBillingAccount = /\/settings\/contract\/?$/.test(window.location.pathname) ? currentAccountId() : null;
     inject();
     ensurePostingContract();
     hookHistory();
@@ -2747,6 +2601,14 @@
     document.addEventListener('keydown', onComposeSlashKeydown, true);
     document.addEventListener('input', onComposeSlashInput, true);
     document.addEventListener('click', onDocumentClickCapture, true);
+    window.addEventListener('toybaco:before-route-change', function (event) {
+      if (!event.detail || typeof event.detail.proceed !== 'function') return;
+      if (requestPanelClose(function () { closePanel(); event.detail.proceed(); })) {
+        event.preventDefault();
+      } else if (panel) {
+        closePanel();
+      }
+    });
   } catch (e) { /* start 後の再試行で入口は出す */ }
 
   if (document.readyState === 'loading') {

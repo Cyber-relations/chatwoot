@@ -85,13 +85,24 @@ class ChatwootAgentSeatLimitTest < Minitest::Test
     assert_equal({ agents: 100_000, inboxes: 100_000 }, standard.usage_limits)
   end
 
+  def test_seat_limit_guidance_matches_billing_visibility_and_keeps_operational_counts
+    member = LIMIT.payload(account('light', 3))
+    owner = LIMIT.payload(account('light', 3), can_view_billing: true)
+    assert_equal member.reject { |key, _value| key == 'message' }, owner.reject { |key, _value| key == 'message' }
+    assert_includes member['message'], 'ご契約者にご確認ください'
+    refute_includes member['message'], '設定の「ご契約内容」'
+    assert_includes owner['message'], '設定の「ご契約内容」'
+    refute_includes LIMIT.payload(account('light', 2))['message'], 'ご契約内容'
+    refute_includes LIMIT.payload(account('standard', 3))['message'], 'ご契約内容'
+  end
+
   def test_controller_and_initializer_do_not_rebuild_billing_or_oidc
     controller = File.read(File.join(ROOT, 'overlay/app/app/controllers/toybaco/agent_seat_limit_controller.rb'))
     initializer = File.read(File.join(ROOT, 'overlay/app/config/initializers/toybaco_agent_seat_limit.rb'))
     oidc = File.read(File.join(ROOT, 'overlay/app/config/initializers/toybaco_oidc.rb'))
     billing = File.read(File.join(ROOT, 'overlay/app/app/controllers/toybaco/billing_controller.rb'))
 
-    assert_includes controller, 'Toybaco::AgentSeatLimit.payload(@account)'
+    assert_includes controller, 'Toybaco::AgentSeatLimit.payload(@account, can_view_billing: @can_view_billing)'
     assert_includes initializer, "get '/toybaco/agent_seat_limit'"
     assert_includes initializer, 'Toybaco::AgentSeatLimit.install!'
     assert_includes File.read(File.join(ROOT, 'overlay/app/lib/toybaco/agent_seat_limit.rb')),
