@@ -10,7 +10,7 @@ RSpec.describe Toybaco::SubscriptionSync do
   let(:subscription_id) { "sub_order#{SecureRandom.hex(8)}" }
   let!(:user) { create(:user, email: "order-#{SecureRandom.hex(8)}@example.invalid") }
   let(:client) { instance_double(Toybaco::Checkout::Client) }
-  let(:state) { { reads: [], workers: [], after_read: nil } }
+  let(:state) { { reads: [], workers: [], new_users: [], after_read: nil } }
   let(:terms) { Toybaco::PlanCatalog.default.sale('pro', 'month') }
   let(:latest) do
     { 'id' => subscription_id, 'status' => 'active', 'cancel_at_period_end' => false,
@@ -38,6 +38,7 @@ RSpec.describe Toybaco::SubscriptionSync do
       worker.join
     end
     accounts.find_each(&:destroy!)
+    state[:new_users].each(&:destroy!)
     user.destroy!
   end
 
@@ -51,8 +52,8 @@ RSpec.describe Toybaco::SubscriptionSync do
     raise "sync task exited with status #{e.status}"
   end
 
-  def provision
-    payload = { email: user.email, name: 'Order fixture', plan: 'pro', plan_version: terms['plan_version'],
+  def provision(email: user.email)
+    payload = { email: email, name: 'Order fixture', plan: 'pro', plan_version: terms['plan_version'],
                 cycle: 'month', subscription_id: subscription_id }
     encoded = Base64.strict_encode64(payload.to_json)
     Rake::Task['toybaco:provision'].execute(Rake::TaskArguments.new([:payload], [encoded]))
@@ -100,9 +101,22 @@ RSpec.describe Toybaco::SubscriptionSync do
     expect(state[:reads].first[:pid]).not_to eq(before_pid)
     expect(accounts.count).to eq(1)
     attrs = accounts.first.internal_attributes
-    expect(attrs).to include('toybaco_subscription_status' => 'active', 'toybaco_billing_review' => false)
+    expect(attrs).to include('toybaco_subscription_status' => 'active', 'toybaco_billing_review' => false,
+                             'toybaco_billing_owner_user_id' => user.id)
     expect(attrs.dig('toybaco_contract', 'plan_id')).to eq('pro')
     expect(attrs.dig('toybaco_contract', 'entitlements', 'limits', 'ai_replies')).to eq(500)
+  end
+
+  it '新規メールの決済開通は今回作成したユーザーIDを契約者として保存する' do
+    email = "new-order-#{SecureRandom.hex(8)}@example.invalid"
+    expect { provision(email: email) }.to change(User, :count).by(1)
+    created_user = User.from_email(email)
+    state[:new_users] << created_user
+    attrs = accounts.first.internal_attributes
+    expect(created_user.id).to be_a(Integer)
+    expect(created_user.id).to be_positive
+    expect(attrs['toybaco_billing_owner_user_id']).to eq(created_user.id)
+    expect(accounts.first.account_users.pluck(:user_id)).to eq([created_user.id])
   end
 
   it '開通のStripe読取後からcommit前の同期は別接続で待ち、直後の最新状態を適用する' do
@@ -129,6 +143,7 @@ RSpec.describe Toybaco::SubscriptionSync do
     on_other_connection { synchronize }
     attrs = accounts.first.internal_attributes
     expect(attrs['toybaco_contract']).to eq(saved)
+    expect(attrs['toybaco_billing_owner_user_id']).to eq(user.id)
     expect(attrs['toybaco_cancel_at_period_end']).to be(true)
     expect(state[:reads].map { |read| read[:pid] }.uniq.length).to eq(2)
   end
@@ -145,8 +160,116 @@ RSpec.describe Toybaco::SubscriptionSync do
     end
     expect(accounts.pluck(:id)).to eq([first.id])
     expect(first.reload.internal_attributes['toybaco_contract']).to eq(saved)
+    expect(first.internal_attributes['toybaco_billing_owner_user_id']).to eq(user.id)
     expect(first.account_users.pluck(:user_id)).to eq([user.id])
     expect(state[:reads].length).to eq(5)
+  end
+
+  it '開通済み契約へ別メールを再送しても契約者と所属を上書きしない' do
+    provision
+    first = accounts.first
+    other_user = create(:user, email: "replay-order-#{SecureRandom.hex(8)}@example.invalid")
+    state[:new_users] << other_user
+    expect { on_other_connection { provision(email: other_user.email) } }.not_to change(User, :count)
+    expect(accounts.pluck(:id)).to eq([first.id])
+    expect(first.reload.internal_attributes['toybaco_billing_owner_user_id']).to eq(user.id)
+    expect(first.account_users.pluck(:user_id)).to eq([user.id])
+  end
+
+  it '契約者が未設定の既存契約へ開通を再送または同期しても契約者を推定しない' do
+    provision
+    first = accounts.first
+    first.update!(internal_attributes: first.internal_attributes.except('toybaco_billing_owner_user_id'))
+    on_other_connection { provision }
+    expect(first.reload.internal_attributes).not_to have_key('toybaco_billing_owner_user_id')
+    on_other_connection { synchronize }
+    expect(first.reload.internal_attributes).not_to have_key('toybaco_billing_owner_user_id')
+    expect(accounts.pluck(:id)).to eq([first.id])
+    expect(first.account_users.pluck(:user_id)).to eq([user.id])
+  end
+
+  describe '監査済み対応表からの契約者明示設定' do
+    let(:account) { accounts.first }
+    let(:owner_key) { 'toybaco_billing_owner_user_id' }
+
+    before do
+      provision
+      account.update!(internal_attributes: account.internal_attributes.except(owner_key))
+    end
+
+    def assign_billing_owner(account_id: account.id, user_id: user.id, expected_subscription_id: subscription_id)
+      names = %i[account_id user_id expected_subscription_id]
+      values = [account_id, user_id, expected_subscription_id]
+      Rake::Task['toybaco:assign_billing_owner'].execute(Rake::TaskArguments.new(names, values))
+    end
+
+    it '未設定の親契約へ一度だけ設定し同じユーザーの再実行でも所属と役割を変えない' do
+      account.account_users.find_by!(user_id: user.id).update!(role: :agent)
+      memberships = account.account_users.pluck(:id, :user_id, :role)
+      saved = account.internal_attributes
+      expect { 2.times { assign_billing_owner } }.not_to change(AccountUser, :count)
+      expect(account.reload.internal_attributes).to eq(saved.merge(owner_key => user.id))
+      expect(account.account_users.pluck(:id, :user_id, :role)).to eq(memberships)
+    end
+
+    it '明示的なnilだけは未設定として既存メンバーへ設定できる' do
+      account.update!(internal_attributes: account.internal_attributes.merge(owner_key => nil))
+      assign_billing_owner
+      expect(account.reload.internal_attributes[owner_key]).to eq(user.id)
+    end
+
+    it '不正なIDと存在しない店舗またはユーザーを拒否する' do
+      ['', '0', '-1', '01', '1x', ' 1'].each do |invalid_id|
+        expect { assign_billing_owner(account_id: invalid_id) }.to raise_error(SystemExit)
+        expect { assign_billing_owner(user_id: invalid_id) }.to raise_error(SystemExit)
+      end
+      expect { assign_billing_owner(account_id: Account.maximum(:id).to_i + 1) }.to raise_error(ActiveRecord::RecordNotFound)
+      expect { assign_billing_owner(user_id: User.maximum(:id).to_i + 1) }.to raise_error(SystemExit)
+      expect(account.reload.internal_attributes).not_to have_key(owner_key)
+    end
+
+    it '別の契約IDと不正形式の契約IDを拒否する' do
+      ['', 'sub_', 'sub_bad-name', 'sub_other', 'sub_invalid],other_task['].each do |invalid_subscription|
+        expect { assign_billing_owner(expected_subscription_id: invalid_subscription) }.to raise_error(SystemExit)
+      end
+      expect(account.reload.internal_attributes).not_to have_key(owner_key)
+    end
+
+    it '所属しない既存ユーザーを拒否し所属を追加しない' do
+      other_user = create(:user, email: "owner-outsider-#{SecureRandom.hex(8)}@example.invalid")
+      state[:new_users] << other_user
+      memberships = account.account_users.pluck(:id, :user_id, :role)
+      expect { assign_billing_owner(user_id: other_user.id) }.to raise_error(SystemExit)
+      expect(account.reload.internal_attributes).not_to have_key(owner_key)
+      expect(account.account_users.pluck(:id, :user_id, :role)).to eq(memberships)
+    end
+
+    it '契約IDを持っていても追加店舗の印があるアカウントへは設定しない' do
+      [nil, {}].each do |purchase|
+        account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::StoreFulfillment::PURCHASE => purchase))
+        expect { assign_billing_owner }.to raise_error(SystemExit)
+        expect(account.reload.internal_attributes).not_to have_key(owner_key)
+      end
+    end
+
+    it '別の所属ユーザーへの契約者上書きを拒否し所属と役割も変えない' do
+      account.update!(internal_attributes: account.internal_attributes.merge(owner_key => user.id))
+      other_user = create(:user, email: "owner-other-#{SecureRandom.hex(8)}@example.invalid")
+      state[:new_users] << other_user
+      create(:account_user, account: account, user: other_user, role: :agent)
+      memberships = account.account_users.pluck(:id, :user_id, :role)
+      expect { assign_billing_owner(user_id: other_user.id) }.to raise_error(SystemExit)
+      expect(account.reload.internal_attributes[owner_key]).to eq(user.id)
+      expect(account.account_users.pluck(:id, :user_id, :role)).to eq(memberships)
+    end
+
+    it '不正型や無効値の契約者を空とみなして置き換えない' do
+      [0, -1, '', user.id.to_s, user.id.to_f, false, [], {}].each do |invalid_owner|
+        account.update!(internal_attributes: account.internal_attributes.merge(owner_key => invalid_owner))
+        expect { assign_billing_owner }.to raise_error(SystemExit)
+        expect(account.reload.internal_attributes[owner_key]).to eq(invalid_owner)
+      end
+    end
   end
 
   it '開通直後のPostiz所属同期中に開通を再送しても行ロックとidentity lockが逆転しない' do

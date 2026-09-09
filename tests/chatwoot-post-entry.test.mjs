@@ -143,7 +143,7 @@ const conversations = makeRow('conversations');
 const primaryList = makeList([postingFirst, inbox, conversations]);
 const inboxInner = {};
 inbox.querySelector = (selector) => {
-  assert.equal(selector, 'a, [role="button"]');
+  assert.equal(selector, 'a, [role="button"], button');
   return inboxInner;
 };
 primaryList.querySelector = (selector) => {
@@ -569,7 +569,7 @@ assert.doesNotMatch(
   'posting_status must not use the feature_access alias'
 );
 assert.ok(
-  original.includes('この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。'),
+  original.includes('この店舗では投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。'),
   'denied panel must show a Japanese contract message'
 );
 assert.ok(
@@ -581,7 +581,7 @@ assert.ok(
   const pending = loadInjectEntry(() => new Promise(() => {}));
   pending.api.inject();
   assert.ok(postingEntry(pending.document), 'posting entry must appear before posting_status resolves');
-  assert.ok(billingEntry(pending.document), 'billing entry must remain while posting_status is pending');
+  assert.equal(billingEntry(pending.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.equal(postingStatusFetches(pending).length, 1);
   assert.match(postingStatusFetches(pending)[0].url, /\/toybaco\/posting_status\?account_id=1$/);
   assert.equal(postingStatusFetches(pending)[0].opts.credentials, 'same-origin');
@@ -596,7 +596,7 @@ assert.ok(
   assert.ok(postingEntry(denied.document), 'posting entry must appear synchronously even when the company is not contracted');
   await flush();
   assert.equal(postingEntry(denied.document), null, 'enabled:false must remove the posting entry');
-  assert.ok(billingEntry(denied.document), 'billing entry must remain after posting is hidden');
+  assert.equal(billingEntry(denied.document), null, 'the posting script must not inject an unguarded contract entry');
   denied.api.inject();
   assert.equal(postingEntry(denied.document), null, 'cached enabled:false must not re-inject the posting entry');
   assert.equal(postingStatusFetches(denied).length, 1, 'the same account_id must not refetch posting_status');
@@ -608,7 +608,7 @@ assert.ok(
   assert.ok(postingEntry(failed.document), 'posting entry must appear before a failed posting_status');
   await flush();
   assert.ok(postingEntry(failed.document), 'fetch failure must keep the posting entry');
-  assert.ok(billingEntry(failed.document), 'billing entry must remain after a failed posting_status');
+  assert.equal(billingEntry(failed.document), null, 'the posting script must not inject an unguarded contract entry');
 }
 
 {
@@ -660,7 +660,7 @@ assert.ok(
   assert.equal(panelDenied.document.querySelector('iframe'), null, 'enabled:false must unload the Postiz iframe');
   assert.match(
     collectText(panelDenied.document.body),
-    /この店舗のご契約には投稿機能が含まれていません。ご契約内容をご確認ください。/
+    /この店舗では投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。/
   );
   assert.ok(
     panelDenied.document.querySelector('[data-toybaco-post-entry-panel]'),
@@ -669,15 +669,28 @@ assert.ok(
 }
 
 // A paid contract must update this tab's cached navigation without reloading its workspace.
-function openBillingThroughUi(env) {
-  fireClick(billingEntry(env.document), env.docListeners.click || []);
-  assert.ok(env.document.querySelector('[data-toybaco-billing-panel]'));
+function requestNativeRoute(env, destination) {
+  const proceed = () => {
+    env.window.location.pathname = destination;
+    env.api.afterNavChange();
+  };
+  const event = {
+    type: 'toybaco:before-route-change',
+    detail: { proceed },
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+  };
+  env.window.dispatchEvent(event);
+  if (!event.defaultPrevented) proceed();
+  return event;
 }
-function closeBillingThroughUi(env) {
-  const panel = env.document.querySelector('[data-toybaco-billing-panel]');
-  assert.ok(panel);
-  fireClick(panel.querySelector('button'), env.docListeners.click || []);
-  assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null);
+function enterNativeBillingRoute(env) {
+  env.billingReturnPath = env.window.location.pathname;
+  const id = /\/accounts\/(\d+)/.exec(env.window.location.pathname)[1];
+  return requestNativeRoute(env, `/app/accounts/${id}/settings/contract`);
+}
+function leaveNativeBillingRoute(env) {
+  return requestNativeRoute(env, env.billingReturnPath);
 }
 function statusResponse(enabled) { return { ok: true, status: 200, json: async () => ({ enabled }) }; }
 {
@@ -690,9 +703,9 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
   unsaved.files = [{ name: 'owned.jpg', size: 71926 }];
   env.body.appendChild(unsaved);
   const selectedFiles = unsaved.files;
-  openBillingThroughUi(env);
+  enterNativeBillingRoute(env);
   allowed = true;
-  closeBillingThroughUi(env);
+  leaveNativeBillingRoute(env);
   assert.equal(postingStatusFetches(env).length, 2, 'closing billing after payment must GET current eligibility once');
   assert.equal(postingEntry(env.document), null, 'previous denial stays while the paid eligibility GET is pending');
   await flush();
@@ -708,7 +721,7 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
 {
   let allowed = true;
   const env = loadInjectEntry(async () => statusResponse(allowed));
-  env.api.inject(); await flush(); openBillingThroughUi(env);
+  env.api.inject(); await flush(); enterNativeBillingRoute(env);
   allowed = false;
   env.window.location.pathname = '/app/accounts/1/settings/agents';
   env.api.afterNavChange(); await flush();
@@ -720,7 +733,7 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
   const env = loadInjectEntry((url) => String(url).includes('/toybaco/posting_status')
     ? new Promise((resolve) => pending.push(resolve))
     : Promise.resolve({ ok: true, json: async () => ({}) }));
-  env.api.inject(); openBillingThroughUi(env); closeBillingThroughUi(env);
+  env.api.inject(); enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   assert.equal(pending.length, 2, 'billing close must supersede a pre-payment in-flight lookup');
   pending[1](statusResponse(true)); await flush();
   pending[0](statusResponse(false)); await flush();
@@ -732,8 +745,8 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
     ? new Promise((resolve) => pending.push(resolve))
     : Promise.resolve({ ok: true, json: async () => ({}) }));
   env.api.inject(); pending[0](statusResponse(false)); await flush();
-  openBillingThroughUi(env); closeBillingThroughUi(env);
-  openBillingThroughUi(env); closeBillingThroughUi(env);
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   assert.equal(pending.length, 3, 'each completed billing visit has one bounded new lookup');
   pending[2](statusResponse(true)); await flush();
   pending[1](statusResponse(false)); await flush();
@@ -745,7 +758,7 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
     ? new Promise((resolve) => pending.push({ url: String(url), resolve }))
     : Promise.resolve({ ok: true, json: async () => ({}) }));
   env.api.inject(); pending[0].resolve(statusResponse(false)); await flush();
-  openBillingThroughUi(env);
+  enterNativeBillingRoute(env);
   env.window.location.pathname = '/app/accounts/2/inbox';
   env.api.afterNavChange();
   assert.equal(pending.length, 2, 'closing during a tenant switch must not refetch the previous tenant');
@@ -759,7 +772,7 @@ function statusResponse(enabled) { return { ok: true, status: 200, json: async (
     ? new Promise((resolve) => pending.push(resolve))
     : Promise.resolve({ ok: true, json: async () => ({}) }));
   env.api.inject(); pending[0](statusResponse(false)); await flush();
-  openBillingThroughUi(env); closeBillingThroughUi(env);
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   env.window.location.pathname = '/app/logout'; env.api.afterNavChange();
   pending[1](statusResponse(true)); await flush();
   assert.equal(postingEntry(env.document), null, 'late success after logout cannot restore navigation');
@@ -780,18 +793,18 @@ for (const failure of [
   let next = async () => statusResponse(false);
   const env = loadInjectEntry(() => next());
   env.api.inject(); await flush(); next = failure;
-  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env); await flush();
   assert.equal(postingEntry(env.document), null, 'unverified billing refresh must not promote a known denial');
   env.api.inject(); assert.equal(postingStatusFetches(env).length, 2, 'failure must not trigger automatic retry');
   next = async () => statusResponse(true);
-  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env); await flush();
   assert.ok(postingEntry(env.document), 'a later deliberate billing visit may confirm eligibility');
 }
 for (const status of [401, 403]) {
   let next = async () => statusResponse(true);
   const env = loadInjectEntry(() => next());
   env.api.inject(); await flush(); next = async () => ({ ok: false, status });
-  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env); await flush();
   assert.equal(postingEntry(env.document), null, 'session/membership rejection cannot preserve an old allowed entry');
 }
 
@@ -801,12 +814,12 @@ for (const status of [401, 403]) {
     ? new Promise((resolve) => pending.push(resolve))
     : Promise.resolve({ ok: true, json: async () => ({}) }));
   env.api.inject(); pending[0](statusResponse(false)); await flush();
-  openBillingThroughUi(env); closeBillingThroughUi(env);
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   env.window.location.pathname = '/app/accounts/2/inbox'; env.api.afterNavChange();
   env.window.location.pathname = '/app/accounts/1/inbox'; env.api.afterNavChange();
   pending[1](statusResponse(true)); pending[2](statusResponse(true)); await flush();
   assert.equal(postingEntry(env.document), null, 'A→B→A must not revive an older request from either view');
-  openBillingThroughUi(env); closeBillingThroughUi(env);
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   pending[3](statusResponse(true)); await flush();
   assert.ok(postingEntry(env.document), 'only a current A lookup may restore the A entry');
 }
@@ -820,7 +833,7 @@ for (const status of [401, 403]) {
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
-  env.api.inject(); await flush(); openBillingThroughUi(env); closeBillingThroughUi(env);
+  env.api.inject(); await flush(); enterNativeBillingRoute(env); leaveNativeBillingRoute(env);
   const timeout = [...timers.values()].filter((t) => t.ms === 5000);
   assert.equal(timeout.length, 1);
   timeout[0].fn(); await flush();
@@ -828,12 +841,12 @@ for (const status of [401, 403]) {
   resolveLate(statusResponse(true)); await flush();
   assert.equal(postingEntry(env.document), null, 'success after the deadline cannot overwrite timeout state');
   env.api.inject(); assert.equal(count, 2, 'timeout does not cause background polling');
-  openBillingThroughUi(env); closeBillingThroughUi(env); await flush();
+  enterNativeBillingRoute(env); leaveNativeBillingRoute(env); await flush();
   assert.ok(postingEntry(env.document), 'next natural billing visit can retry after a timeout');
 }
 
-// The native settings router view stays mounted beneath posting/billing. Its z-20
-// header must not cover either iframe, and its expanded nav must not look current.
+// The native settings router view stays mounted beneath posting. Its z-20
+// header must not cover the iframe, and its expanded nav must not look current.
 {
   const tree = createMenuTree(true);
   const route = createDomNode('div');
@@ -932,13 +945,6 @@ for (const status of [401, 403]) {
   env.window.location.hash = ''; // Browser back leaves the embedded hash; the existing watcher closes it.
   timers.at(-1)(); assertRestored();
 
-  openBillingThroughUi(env); assertHidden(route, 'route'); assertHidden(settingsChildren, 'nav');
-  assert.equal(billingEntry(env.document).getAttribute('aria-current'), 'page');
-  env.api.openPanel('/launches', false); // billing -> posting uses one owner of saved attributes.
-  assertHidden(route, 'route');
-  openBillingThroughUi(env); // posting -> billing must not save the temporary hidden state.
-  assertHidden(route, 'route'); closeBillingThroughUi(env); assertRestored();
-
   env.api.openPanel('/launches', false);
   tree.content.removeChild(route);
   const nextRoute = createDomNode('div');
@@ -951,7 +957,7 @@ for (const status of [401, 403]) {
   assert.equal(nextRoute.getAttribute('inert'), null);
   assertRestored();
   tree.content.removeChild(nextRoute); tree.content.appendChild(route);
-  openBillingThroughUi(env);
+  enterNativeBillingRoute(env);
   env.window.location.pathname = '/app/accounts/2/settings/general';
   env.api.afterNavChange(); await flush(); assertRestored();
 }
@@ -972,7 +978,7 @@ const nativeLauncher = vm.runInNewContext(`(() => { ${launcherScript}; return { 
   useRoute: () => launcherRoute,
   computed: fn => ({ get value() { return fn(); } }),
 });
-for (const name of ['inbox_conversation', 'conversation_through_inbox', 'inbox_view_conversation']) {
+for (const name of ['inbox_conversation', 'conversation_through_inbox', 'inbox_view_conversation', 'conversations_through_team']) {
   launcherRoute.name = name;
   assert.equal(nativeLauncher.isConversationRoute.value, true, 'closing posting restores native detail-route hiding');
 }
@@ -992,7 +998,7 @@ if (fs.existsSync(brandCssPath)) {
   assert.match(brandCss, /order: 5;/);
   assert.doesNotMatch(brandCss, /aside nav > ul > li ul\s*\{\s*display:\s*none\s*!important/,
     'native settings/report children must not be hidden by the blanket subtree rule');
-  assert.match(brandCss, /li:not\(\[data-toybaco-primary-nav="settings"\]\):not\(\[data-toybaco-primary-nav="reports"\]\) ul/);
+  assert.match(brandCss, /li:not\(\[data-toybaco-primary-nav="inbox"\]\):not\(\[data-toybaco-primary-nav="settings"\]\):not\(\[data-toybaco-primary-nav="reports"\]\) ul/);
   assert.match(brandCss, /aside nav\s*\{\s*min-height:\s*0;/,
     'the native scrolling nav must be able to shrink above the sidebar footer');
   assert.match(brandCss, /aside nav > ul > li\[data-toybaco-nav-duplicate="1"\]\s*\{\s*display: none !important;/);
@@ -1118,7 +1124,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   const stocked = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { withStock: true });
   stocked.api.inject();
   assert.ok(postingEntry(stocked.document), '投稿 must inject beside stock Chatwoot rows');
-  assert.ok(billingEntry(stocked.document), 'ご契約内容 must inject beside stock Chatwoot rows');
+  assert.equal(billingEntry(stocked.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.equal(aiModeEntry(stocked.document), null, 'AI応答 must not add a sixth left-nav item');
   const hidden = [...stocked.body.querySelectorAll('li')].filter(
     (row) => row.getAttribute('data-toybaco-stock-hidden') === '1'
@@ -1154,7 +1160,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   assert.ok(hidden.includes('会話データ'), 'settings landing must hide 会話データ');
   assert.ok(hidden.includes('担当者'), 'settings landing must hide settings inventory from the global rail');
   assert.ok(postingEntry(settingsLanding.document), '投稿 must stay on settings landings');
-  assert.ok(billingEntry(settingsLanding.document), 'ご契約内容 must stay on settings landings');
+  assert.equal(billingEntry(settingsLanding.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.ok(
     [...settingsLanding.body.querySelectorAll('li')].some(
       (row) => row.name === '設定' && row.getAttribute('data-toybaco-stock-hidden') !== '1'
@@ -1167,14 +1173,13 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   const remount = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { withStock: true });
   remount.api.inject();
   const posting = postingEntry(remount.document);
-  const billing = billingEntry(remount.document);
-  assert.ok(posting && billing);
+  assert.ok(posting);
+  assert.equal(billingEntry(remount.document), null);
   posting.parentElement.remove();
-  billing.parentElement.remove();
   assert.equal(postingEntry(remount.document), null);
   remount.api.afterNavChange();
   assert.ok(postingEntry(remount.document), 'Vue wipe must be repaired without waiting for F5');
-  assert.ok(billingEntry(remount.document), 'billing entry must return after Vue remount');
+  assert.equal(billingEntry(remount.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.equal(aiModeEntry(remount.document), null, 'AI応答 must stay off the left nav after remount');
 }
 
@@ -1187,7 +1192,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   empty.appendChild(aside);
   late.api.afterNavChange();
   assert.ok(postingEntry(late.document), '投稿 must appear on first paint after Vue mounts the nav');
-  assert.ok(billingEntry(late.document), 'ご契約内容 must appear on first paint after Vue mounts the nav');
+  assert.equal(billingEntry(late.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.equal(aiModeEntry(late.document), null, 'AI応答 must not join the left nav on first paint');
   const hidden = [...late.body.querySelectorAll('li')].filter(
     (row) => row.getAttribute('data-toybaco-stock-hidden') === '1'
@@ -1219,7 +1224,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   empty.appendChild(aside);
   late.observers[0].fire();
   assert.ok(postingEntry(late.document), 'observer must inject when nav appears after an empty first inject');
-  assert.ok(billingEntry(late.document), 'billing must appear with posting after a late nav mount');
+  assert.equal(billingEntry(late.document), null, 'the posting script must not inject an unguarded contract entry');
   assert.equal(aiModeEntry(late.document), null, 'AI応答 must not join the left nav after a late mount');
 }
 
@@ -1375,73 +1380,6 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   tab.api.closePanel();
 }
 
-{
-  const tree = createMenuTree(true);
-  let mainLeft = 168;
-  let mainWidth = 600;
-  tree.content.getBoundingClientRect = () => ({ left: mainLeft, right: mainLeft + mainWidth, width: mainWidth });
-  tree.aside.getBoundingClientRect = () => ({ left: 0, right: 168, width: 168 });
-  tree.main.getBoundingClientRect = () => ({ left: 0, right: 768, width: 768 });
-  const tab = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { body: tree.body });
-  tab.window.innerWidth = 768;
-  const observers = [];
-  tab.window.ResizeObserver = class {
-    constructor(fn) { this.fn = fn; this.targets = new Set(); observers.push(this); }
-    observe(node) { this.targets.add(node); }
-    unobserve(node) { this.targets.delete(node); }
-    disconnect() { this.targets.clear(); }
-  };
-  tab.api.inject();
-  openBillingThroughUi(tab);
-  const billing = tab.document.querySelector('[data-toybaco-billing-panel]');
-  const billingLeft = () => billing.style.left || /left:([^;]+)/.exec(billing.style.cssText)?.[1];
-  const frame = billing.querySelector('iframe');
-  const src = frame.src;
-  frame.contractInputFixture = { selectedPlan: 'standard', selection: 2 };
-  const input = frame.contractInputFixture;
-  const requests = tab.fetches.length;
-  assert.equal(billingLeft(), '168px', 'billing starts at the actual desktop main boundary');
-  mainLeft = 0;
-  mainWidth = tab.window.innerWidth = 390;
-  (tab.windowListeners.resize || []).forEach((fn) => fn());
-  assert.equal(billingLeft(), '0px', '768→390 keeps billing readable across the full main width');
-  tree.aside.getBoundingClientRect = () => ({ left: 0, right: 200, width: 200 });
-  observers[0].fn();
-  assert.equal(billing.style.left, '0px', 'a mobile fixed drawer must not reduce the contract to 190px');
-  const postEntry = postingEntry(tab.document);
-  postEntry.parentElement.remove();
-  observers[0].fn();
-  assert.equal(billing.style.left, '0px', 'billing layout must not depend on a posting entitlement entry');
-  mainLeft = 168;
-  mainWidth = 600;
-  tab.window.innerWidth = 768;
-  observers[0].fn();
-  assert.equal(billing.style.left, '168px', 'main resizing restores the wide-screen boundary');
-  assert.equal(billing.querySelector('iframe'), frame);
-  assert.equal(frame.src, src);
-  assert.equal(frame.contractInputFixture, input);
-  assert.equal(tab.fetches.length, requests, 'billing resizing does not fetch the contract or posting eligibility again');
-  const oldResize = tab.windowListeners.resize[0];
-  const oldObserver = observers[0];
-  closeBillingThroughUi(tab);
-  assert.equal(tab.windowListeners.resize.length, 0);
-  assert.equal(oldObserver.targets.size, 0);
-  assert.equal(tree.aside.parentElement, tree.main, 'closing billing leaves the native menu intact');
-  mainLeft = 0;
-  mainWidth = tab.window.innerWidth = 390;
-  openBillingThroughUi(tab);
-  const reopened = tab.document.querySelector('[data-toybaco-billing-panel]');
-  assert.equal(reopened.style.left, '0px', 'reopening with the native drawer open remains full width');
-  mainLeft = 150;
-  oldResize();
-  oldObserver.fn();
-  assert.equal(reopened.style.left, '0px', 'a closed billing panel cannot change the next panel');
-  tab.window.location.pathname = '/app/accounts/1/settings/general';
-  tab.api.afterNavChange();
-  assert.equal(tab.document.querySelector('[data-toybaco-billing-panel]'), null);
-  assert.equal(tab.windowListeners.resize.length, 0);
-  assert.equal(observers[1].targets.size, 0, 'route change disconnects the current billing observer');
-}
 
 {
   const tab = loadInjectEntry(() => new Promise(() => {}));
@@ -1511,7 +1449,7 @@ function fireClick(node, extraListeners = [], options = {}) {
 }
 
 // Native navigation must wait for the mounted composer's existing close decision.
-for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
+for (const destination of ['settings', 'reports', 'inbox']) {
   const tree = createMenuTree(true);
   const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/conversations/42', { body: tree.body });
   env.api.inject();
@@ -1560,8 +1498,7 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel, 'a cancelled request cannot approve the later request');
   send({ ...result, requestId: requests[1].data.requestId });
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, `${destination}: discard approval resumes the requested destination`);
-  if (destination === 'billing') assert.ok(env.document.querySelector('[data-toybaco-billing-panel]'));
-  else if (destination === 'inbox') assert.equal(env.window.location.pathname, '/app/accounts/1/conversations/42', 'return to the preserved conversation');
+  if (destination === 'inbox') assert.equal(env.window.location.pathname, '/app/accounts/1/conversations/42', 'return to the preserved conversation');
   else assert.equal(nativeCalls, 1, 'the existing native control runs exactly once');
   send({ ...result, requestId: requests[1].data.requestId });
   assert.ok(nativeCalls <= 1, 'duplicate replies cannot replay navigation');
@@ -1581,20 +1518,20 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
   frame.contentWindow = { postMessage(data) { requests.push(data); } };
   const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
   send({ type: 'TOYBACO_POSTIZ_READY' });
-  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  requestNativeRoute(env, '/app/accounts/1/settings/contract');
   const timeout = [...timers.values()].at(-1);
   assert.equal(timeout.ms, 5000);
   timeout.fn();
   assert.equal(panel.querySelector('iframe'), frame, 'missing child response keeps the mounted editor');
   assert.match(panel.querySelector('[role="status"]').textContent, /入力は残しています/);
-  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  requestNativeRoute(env, '/app/accounts/1/settings/contract');
   assert.equal(requests.length, 2, 'the next destination selection retries after no response');
   assert.equal(panel.querySelector('[role="status"]'), null, 'retry removes the earlier notice');
   const id = requests[1].requestId;
   const currentTimer = [...timers.keys()].at(-1);
   send({ type: 'TOYBACO_POSTIZ_CLOSE_PENDING', requestId: id });
   assert.equal(timers.has(currentTimer), false, 'a shown confirmation waits for the person without timing out');
-  fireClick(billingEntry(env.document), env.docListeners.click || []);
+  requestNativeRoute(env, '/app/accounts/1/settings/contract');
   assert.equal(requests.length, 2, 'while the dialog is open another click does not create another confirmation');
   send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: id, allowed: false });
   assert.equal(panel.querySelector('iframe'), frame);
@@ -1638,12 +1575,12 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
     },
   });
   if (native.sidebarNav) native.sidebarNav.value = nav;
-  for (const entry of [postingEntry(env.document), billingEntry(env.document)]) {
+  for (const entry of [postingEntry(env.document)]) {
     props.isMobileSidebarOpen = true; events.length = 0;
     fireClick(entry.children[0], [...captures, ...env.docListeners.click]);
     assert.equal(props.isMobileSidebarOpen, false, 'selecting an embedded destination must close the open mobile drawer');
     assert.deepEqual(events, ['closeMobileSidebar']);
-    const marker = entry === postingEntry(env.document) ? '[data-toybaco-post-entry-panel]' : '[data-toybaco-billing-panel]';
+    const marker = '[data-toybaco-post-entry-panel]';
     assert.ok(env.document.querySelector(marker), 'the existing document handler must still open the requested workspace');
   }
   props.isMobileSidebarOpen = true; events.length = 0;
@@ -1663,7 +1600,6 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
     control({ href: '/app/accounts/1/settings/agents/list' }),
     control({ href: '/app/accounts/1/reports/overview' }),
     control({ href: '/app/accounts/1/settings/general', target: '_self' }),
-    control({ 'data-toybaco-nav-link': 'inbox' }, 'div'),
   ];
   for (const entry of terminals) {
     props.isMobileSidebarOpen = true; events.length = 0;
@@ -1682,6 +1618,7 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
   for (const entry of [
     control({ 'data-toybaco-nav-link': 'settings' }, 'div'),
     control({ 'data-toybaco-nav-link': 'reports' }, 'div'),
+    control({ 'data-toybaco-nav-link': 'inbox' }, 'div'),
     control({}, 'div'), // An undecorated native conversation group expands.
     control({ href: 'https://outside.example/app/accounts/1/settings/general' }),
     control({ href: 'https://outside.example/', 'data-toybaco-nav-link': 'posting' }),
@@ -1740,8 +1677,8 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
   const mix = loadInjectEntry(() => new Promise(() => {}));
   mix.api.start();
   const entry = postingEntry(mix.document);
-  const billing = billingEntry(mix.document);
-  assert.ok(entry && billing, '投稿 and ご契約内容 must both exist');
+  assert.ok(entry);
+  assert.equal(billingEntry(mix.document), null, 'contract navigation belongs to permission-gated native settings');
   assert.match(entry.getAttribute('href') || entry.href, /#\/toybaco\/posting\?path=%2Flaunches/);
   fireClick(entry, mix.docListeners.click || []);
   const panel = mix.document.querySelector('[data-toybaco-post-entry-panel]');
@@ -1755,8 +1692,9 @@ for (const destination of ['settings', 'reports', 'inbox', 'billing']) {
 {
   const billed = loadInjectEntry(() => new Promise(() => {}));
   billed.api.start();
-  fireClick(billingEntry(billed.document), billed.docListeners.click || []);
-  assert.ok(billed.document.querySelector('[data-toybaco-billing-panel]'), 'ご契約内容 must stay on the billing entry');
+  enterNativeBillingRoute(billed);
+  assert.equal(billed.window.location.pathname, '/app/accounts/1/settings/contract');
+  assert.equal(billingEntry(billed.document), null);
   assert.equal(billed.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'ご契約内容 must not open the calendar');
 }
 
@@ -2034,6 +1972,13 @@ function readinessResponse(overrides = {}) {
   const modes = [...bar.querySelectorAll('[data-toybaco-ai-mode]')].map((btn) => btn.textContent);
   assert.deepEqual(modes, ['全自動', '下書き']);
   assert.doesNotMatch(collectText(bar), /Captain|Copilot|Auto|Draft/);
+  const compact = bar.querySelector('[data-toybaco-ai-compact]');
+  assert.ok(compact, 'mobile AI controls must have a separate compact presentation');
+  assert.equal(compact.children.length, 2, 'compact controls contain only the status and settings entry');
+  assert.equal(compact.querySelector('[data-toybaco-ai-mode]'), null, 'mode choices stay outside the compact presentation');
+  assert.equal(compact.querySelector('[data-toybaco-ai-readiness]'), null, 'long connection details stay outside the compact presentation');
+  env.api.ensureComposerAiBar();
+  assert.equal(bar.querySelectorAll('[data-toybaco-ai-compact]').length, 1, 'repainting must not duplicate mobile AI controls');
 }
 
 function deferred() {
@@ -2066,7 +2011,18 @@ function deferred() {
   tree.aside.appendChild(storeSwitch);
   const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/4/dashboard', { body: tree.body });
   const visited = [];
-  all.querySelector('a').click = () => { visited.push('all'); };
+  all.querySelector('a').click = () => { visited.push('all'); env.window.location.pathname = '/app/accounts/4/dashboard'; };
+  let conversationExpanded = false;
+  const conversationChevron = createDomNode('span');
+  conversationChevron.className = 'i-lucide-chevron-up size-3';
+  conversationChevron.style.display = 'none';
+  conversationControl.appendChild(conversationChevron);
+  conversationControl.addEventListener('click', () => {
+    if (!conversationExpanded && !/\/(dashboard|conversations)(?:\/|$)/.test(env.window.location.pathname)) all.querySelector('a').click();
+    conversationExpanded = !conversationExpanded;
+    conversationChevron.style.display = conversationExpanded ? '' : 'none';
+  });
+  conversationControl.click = () => fireClick(conversationControl, env.docListeners.click || []);
   channel.querySelector('a').click = () => { visited.push('channel'); };
   const primaryConversations = () => tree.ul.children.filter((row) => row.getAttribute('data-toybaco-primary-nav') === 'inbox');
 
@@ -2090,16 +2046,21 @@ function deferred() {
   env.window.location.pathname = '/app/accounts/4/settings/general';
   env.api.afterNavChange();
   fireClick(conversationControl, env.docListeners.click || []);
-  assert.deepEqual(visited, ['channel', 'all'], '会話 must use the native All route, not the rewritten notifications anchor');
+  assert.deepEqual(visited, ['channel', 'all'], 'native first-child navigation opens all conversations when entering the group');
+  assert.equal(conversationExpanded, true);
   for (const key of ['Enter', ' ']) {
     const event = { key, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
     for (const listener of conversationControl.listeners.keydown) listener.call(conversationControl, event);
   }
-  assert.deepEqual(visited, ['channel', 'all', 'all', 'all'], 'the retained button must remain keyboard navigable');
+  assert.deepEqual(visited, ['channel', 'all'], 'keyboard expansion must retain the native current conversation');
+  assert.equal(conversationExpanded, true, 'Enter and Space toggle the actual group');
   env.window.location.pathname = '/app/accounts/4/conversations/42';
   env.api.afterNavChange();
   fireClick(postingEntry(env.document), env.docListeners.click || []);
+  assert.equal(children.getAttribute('inert'), '', 'the conversation tree is background while posting');
   fireClick(conversationControl, env.docListeners.click || []);
+  assert.equal(conversationExpanded, true, 'return from posting preserves the expanded conversation tree');
+  assert.equal(children.getAttribute('inert'), null);
   assert.equal(env.window.location.pathname, '/app/accounts/4/conversations/42');
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
 
@@ -2192,11 +2153,11 @@ function deferred() {
   const settingsControl = settings.querySelector('[role="button"]');
   const reportsControl = reports.querySelector('[role="button"]');
   const primaryCount = () => tree.ul.children.filter((row) => row.getAttribute('data-toybaco-primary-nav') || row.getAttribute('data-toybaco-post-entry-wrap') || row.querySelector('[data-toybaco-billing-entry]')).length;
-  assert.equal(primaryCount(), 5, 'child expansion must preserve the five primary functions');
+  assert.equal(primaryCount(), 4, 'contract details belong inside settings, leaving four primary functions');
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(fireClick(settingsControl, env.docListeners.click || []).prevented, false, 'native settings click must be allowed');
   assert.equal(settingsChildren.style.display, '');
-  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || []), () => openBillingThroughUi(env)]) {
+  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || [])]) {
     const nativePath = env.window.location.pathname;
     open();
     assert.equal(settingsChildren.getAttribute('data-toybaco-embedded-background'), 'nav');
@@ -2214,7 +2175,7 @@ function deferred() {
   }
   fireClick(reportsControl, env.docListeners.click || []);
   assert.equal(reportChildren.style.display, '');
-  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || []), () => openBillingThroughUi(env)]) {
+  for (const open of [() => fireClick(postingEntry(env.document), env.docListeners.click || [])]) {
     const nativePath = env.window.location.pathname;
     open();
     fireClick(reportsControl, env.docListeners.click || []);
@@ -2236,7 +2197,7 @@ function deferred() {
   settingsRows[1].remove();
   env.api.inject();
   assert.equal(settingsChildren.children.length, 3, 'do not recreate a child removed by role policy');
-  assert.equal(primaryCount(), 5);
+  assert.equal(primaryCount(), 4);
   assert.ok(visits.includes('/app/accounts/4/settings/canned-response/list'));
 }
 
@@ -2285,7 +2246,7 @@ function deferred() {
     row.querySelector('[role="button"]').addEventListener('click', () => first.querySelector('a').click());
   }
   env.api.inject();
-  for (const entry of [postingEntry(env.document), billingEntry(env.document)]) {
+  for (const entry of [postingEntry(env.document)]) {
     assert.doesNotMatch(entry.className, /router-link-active|router-link-exact-active|bg-n-alpha-2/, 'new entries cannot inherit the active inbox classes');
     assert.equal(entry.getAttribute('data-toybaco-nav-current'), 'false');
   }
@@ -2305,9 +2266,9 @@ function deferred() {
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(settingsControl.getAttribute('data-toybaco-nav-current'), 'false');
   assert.equal(postingEntry(env.document).getAttribute('data-toybaco-nav-current'), 'true');
-  fireClick(billingEntry(env.document), env.docListeners.click || []);
-  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'billing and posting must not stack two work surfaces');
-  assert.equal(billingEntry(env.document).getAttribute('data-toybaco-nav-current'), 'true');
+  requestNativeRoute(env, '/app/accounts/1/settings/contract');
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'entering the native contract route closes the posting surface');
+  assert.equal(settingsControl.getAttribute('data-toybaco-nav-current'), 'true', 'native contract navigation selects settings');
   assert.equal(postingEntry(env.document).getAttribute('data-toybaco-nav-current'), 'false');
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(env.document.querySelector('[data-toybaco-billing-panel]'), null, 'posting must replace the billing surface');
@@ -2333,17 +2294,28 @@ function modeResponse(mode) {
     node.focus = () => { env.document.activeElement = node; };
     return node;
   };
-  const opener = env.document.createElement('button');
-  env.body.appendChild(opener);
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  const opener = env.document.querySelector('[data-toybaco-ai-compact-settings]');
+  assert.equal(opener.textContent, '設定');
+  assert.equal(opener.getAttribute('aria-label'), '店舗全体のAI応答設定を開く');
+  assert.equal(opener.getAttribute('aria-haspopup'), 'dialog');
   opener.focus();
-  env.api.openAiModePanel();
+  fireClick(opener, env.docListeners.click || []);
   const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   assert.equal(panel.getAttribute('role'), 'dialog');
   assert.equal(panel.getAttribute('aria-label'), '店舗全体のAI応答設定');
   assert.equal(env.document.activeElement.textContent, '閉じる', 'opening AI settings must place keyboard focus inside');
+  await flush();
+  assert.match(collectText(panel), /この店舗全体で使う/);
+  assert.match(collectText(panel), /保存された設定：全自動/);
+  assert.match(collectText(panel), /外部への応答動作は未確認/);
+  assert.ok(panel.querySelector('[data-toybaco-ai-usage]'), 'mobile settings must retain the existing contract and usage details');
+  assert.ok(panel.querySelector('[data-toybaco-ai-retry]'), 'mobile settings must retain the existing retry control');
   for (const listener of env.docListeners.keydown) listener({ key: 'Escape' });
   assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null);
   assert.equal(env.document.activeElement, opener, 'closing AI settings must return focus to its entry');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0, 'opening and closing mobile settings must not change the saved mode');
 }
 
 function createAiModeEnv(handler, options = {}) {
@@ -2361,6 +2333,13 @@ function createAiModeEnv(handler, options = {}) {
   return env;
 }
 
+function assertAiCompact(env, text, state) {
+  const summary = env.document.querySelector('[data-toybaco-ai-compact-status]');
+  assert.ok(summary, 'compact AI status must remain available alongside the reply box');
+  assert.equal(summary.textContent, text);
+  assert.equal(summary.getAttribute('data-toybaco-ai-compact-state'), state);
+}
+
 {
   const read = deferred();
   const write = deferred();
@@ -2371,10 +2350,12 @@ function createAiModeEnv(handler, options = {}) {
   assert.equal(auto.getAttribute('aria-pressed'), 'false');
   assert.equal(draft.getAttribute('aria-pressed'), 'false');
   assert.equal(draft.disabled, true);
+  assertAiCompact(env, 'AI：確認中', 'checking');
   env.api.saveAiMode('draft');
   assert.equal(env.aiCalls.length, 1, 'no write before the current setting is known');
   read.resolve(modeResponse('auto'));
   await flush();
+  assertAiCompact(env, 'AI：全自動', 'configured');
   const saving = env.api.saveAiMode('draft');
   env.api.saveAiMode('auto');
   env.api.saveAiMode('draft');
@@ -2383,11 +2364,13 @@ function createAiModeEnv(handler, options = {}) {
   assert.equal(draft.getAttribute('aria-pressed'), 'false');
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'saving');
   assert.equal(env.aiBar.getAttribute('aria-busy'), 'true');
+  assertAiCompact(env, 'AI：変更中', 'saving');
   write.resolve(modeResponse('draft'));
   await saving;
   assert.equal(env.api.currentAiMode(), 'draft');
   assert.equal(draft.disabled, false);
   assert.equal(draft.getAttribute('aria-pressed'), 'true');
+  assertAiCompact(env, 'AI：下書き', 'configured');
   env.api.inject();
   assert.equal(env.aiCalls.length, 2, 'DOM repaint must not refetch and overwrite a confirmed save');
   assert.match(collectText(env.aiBar), /店舗全体/);
@@ -2399,6 +2382,7 @@ for (const invalid of [null, '', 'unexpected']) {
   assert.equal(env.api.currentAiMode(), null, 'malformed responses must not turn into 全自動');
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
+  assertAiCompact(env, 'AI：設定を確認', 'unconfirmed');
 }
 
 for (const savedOnServer of [false, true]) {
@@ -2414,6 +2398,7 @@ for (const savedOnServer of [false, true]) {
   assert.deepEqual(env.aiCalls.map((item) => item.method), ['GET', 'PUT', 'GET']);
   assert.equal(env.api.currentAiMode(), savedOnServer ? 'draft' : 'auto', 'read-back, not optimism or blind rollback, determines the displayed mode');
   assert.match(collectText(env.aiBar), /変更の応答を確認できませんでした。現在の設定/);
+  assertAiCompact(env, savedOnServer ? 'AI：下書き' : 'AI：全自動', 'configured');
 }
 
 {
@@ -2430,6 +2415,7 @@ for (const savedOnServer of [false, true]) {
   assert.equal(env.api.currentAiMode(), null, 'failed read-back must leave both settings unconfirmed');
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
   assert.match(collectText(env.aiBar), /保存結果を確認できませんでした/);
+  assertAiCompact(env, 'AI：設定を確認', 'unconfirmed');
   env.api.inject();
   assert.equal(env.aiCalls.length, 3, 'failed requests must not loop on DOM mutations');
   failRead = false;
@@ -2450,6 +2436,7 @@ for (const savedOnServer of [false, true]) {
   await flush();
   assert.equal(env.api.currentAiMode(), 'draft');
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-current'), 'draft', 'a late read from A must not repaint B');
+  assertAiCompact(env, 'AI：下書き', 'configured');
 }
 
 {
@@ -2465,6 +2452,7 @@ for (const savedOnServer of [false, true]) {
   assert.equal(env.api.currentAiMode('1'), 'draft');
   assert.equal(env.api.currentAiMode(), 'auto');
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-current'), 'auto', 'a late save from A must not repaint B');
+  assertAiCompact(env, 'AI：全自動', 'configured');
 }
 
 {
@@ -2506,6 +2494,7 @@ function createAiReadinessEnv(handler) {
   assert.match(collectText(env.aiBar), /保存された設定：全自動/);
   assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
   assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
+  assertAiCompact(env, 'AI：未接続', 'unconnected');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   await env.api.saveAiMode('draft');
   assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 0);
@@ -2521,9 +2510,10 @@ function createAiReadinessEnv(handler) {
   await flush();
   assert.match(collectText(env.aiBar), /接続設定あり（受信箱 1 \/ 3 件）/);
   assert.match(collectText(env.aiBar), /外部への応答動作は未確認/);
-  assert.match(collectText(env.aiBar), /ご契約の利用状況/);
+  assert.match(collectText(env.aiBar), /「AI応答」の設定/);
   assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assertAiCompact(env, 'AI：全自動', 'configured');
 }
 
 for (const result of [
@@ -2539,6 +2529,7 @@ for (const result of [
   assert.equal(env.api.currentAiMode(), 'auto');
   assert.match(collectText(env.aiBar), /接続状態を確認できません/);
   assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
+  assertAiCompact(env, 'AI：接続を確認', 'unconfirmed');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   env.api.inject();
   assert.equal(env.connectionCalls.length, 1, 'connection errors must wait for explicit retry');
@@ -2547,6 +2538,7 @@ for (const result of [
   await flush();
   assert.equal(env.connectionCalls.length, 2);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assertAiCompact(env, 'AI：全自動', 'configured');
 }
 
 {
@@ -2564,6 +2556,7 @@ for (const result of [
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-connection'), 'unconnected');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true,
     'late connection response from A must not enable B');
+  assertAiCompact(env, 'AI：未接続', 'unconnected');
 }
 
 function usageBody(overrides = {}) {
@@ -2596,11 +2589,12 @@ for (const connection of [
 ]) {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 })), connection);
   await flush();
-  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
-  assert.match(collectText(env.aiBar), /保存された設定：全自動（現在のご契約では適用されません）/);
+  assert.match(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
+  assert.match(collectText(env.aiBar), /保存された設定：全自動（この店舗では利用できません）/);
   assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
   assert.equal(env.api.currentAiMode(), 'auto', 'contract denial must retain the saved setting');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assertAiCompact(env, 'AI：利用できません', 'unavailable');
   await env.api.saveAiMode('draft');
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
   env.api.inject(); env.api.inject();
@@ -2610,22 +2604,32 @@ for (const connection of [
   assert.equal(env.contractCalls[0].opts.method || 'GET', 'GET');
   env.api.openAiModePanel();
   await flush();
-  assert.match(collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]')), /現在のご契約にはAI応答が含まれていません/);
+  assert.match(collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]')), /この店舗ではAI応答をご利用いただけません/);
 }
 
 {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse()), { connection: 'unconnected', configured_inboxes: 0 });
   await flush();
   assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
-  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません|適用されません/);
+  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません|適用されません/);
 }
 
 for (const reason of ['unknown_contract', 'account_inactive']) {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason, limit: 0, remaining: 0 })));
   await flush();
   assert.match(collectText(env.aiBar), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
-  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assertAiCompact(env, reason === 'unknown_contract' ? 'AI：利用条件を確認' : 'AI：利用停止中',
+    reason === 'unknown_contract' ? 'unconfirmed' : 'unavailable');
+  fireClick(env.aiBar.querySelector('[data-toybaco-ai-compact-settings]'), env.docListeners.click || []);
+  await flush();
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  assert.match(collectText(panel), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
+  if (reason === 'unknown_contract') {
+    assert.equal(panel.querySelector('[data-toybaco-ai-retry]').hidden, false, 'unknown contract retry must be available from mobile settings');
+  }
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
 }
 
 {
@@ -2635,10 +2639,12 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   await flush();
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'Bot + saved mode cannot enable controls before contract readback');
   assert.match(collectText(env.aiBar), /AI応答の利用条件を確認しています/);
+  assertAiCompact(env, 'AI：確認中', 'checking');
   read.resolve({ ok: false, status: 503 });
   await flush();
   assert.match(collectText(env.aiBar), /AI応答の利用条件を取得できませんでした/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
+  assertAiCompact(env, 'AI：利用条件を確認', 'unconfirmed');
   assert.equal(env.api.currentAiMode(), 'auto');
   env.api.inject();
   assert.equal(env.contractCalls.length, 1);
@@ -2648,14 +2654,16 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   await flush();
   assert.equal(env.contractCalls.length, 2, 'simultaneous explicit retries share one GET');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assertAiCompact(env, 'AI：全自動', 'configured');
 }
 
 {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ used: 500, reserved: 0, remaining: 0, reason: 'limit_reached' })));
   await flush();
   assert.match(collectText(env.aiBar), /利用できる残り枠がありません/);
-  assert.doesNotMatch(collectText(env.aiBar), /ご契約にはAI応答が含まれていません/);
+  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'quota exhaustion does not remove the contract or its saved-mode controls');
+  assertAiCompact(env, 'AI：残り枠なし', 'limited');
 }
 
 {
@@ -2669,9 +2677,10 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   await flush();
   accountA.resolve(usageResponse());
   await flush();
-  assert.match(collectText(env.aiBar), /現在のご契約にはAI応答が含まれていません/);
+  assert.match(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'late enabled A must not enable disabled B');
   assert.equal(env.contractCalls.length, 2);
+  assertAiCompact(env, 'AI：利用できません', 'unavailable');
 }
 
 function createAiUsageEnv(handler, options = {}) {
@@ -2735,7 +2744,7 @@ function createAiUsageEnv(handler, options = {}) {
 }
 
 for (const [reason, expected] of [
-  ['disabled', /現在のご契約にはAI応答が含まれていません/],
+  ['disabled', /この店舗ではAI応答をご利用いただけません/],
   ['unknown_contract', /AI応答の利用条件を確認できません/],
   ['account_inactive', /現在、この店舗のAI応答はご利用いただけません/],
 ]) {
@@ -2961,4 +2970,262 @@ for (const fail of [() => Promise.reject(new Error('offline')), () => Promise.re
   assert.doesNotMatch(env.banner(), /現在1名/, 'timed-out reads cannot restore stale counts');
 }
 
-console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area posting-vs-billing=distinct slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');
+// Exercise the actual native menu definition: all former conversation views
+// remain children, and a role alone never creates the contract link.
+const sidebarSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/components-next/sidebar/Sidebar.vue'), 'utf8');
+function nativeMenu(canViewBilling) {
+  const source = sidebarSource.slice(sidebarSource.indexOf('const menuItems ='), sidebarSource.indexOf('</script>'));
+  const values = {};
+  for (const name of source.matchAll(/(\w+)\.value/g)) values[name[1]] = { value: false };
+  for (const name of ['getFolderUnreadCount', 'getInboxUnreadCount', 'getLabelUnreadCount', 'getTeamUnreadCount']) values[name].value = () => 2;
+  for (const name of ['contactCustomViews', 'reportRoutes', 'labels']) values[name].value = [];
+  values.sortedFolders.value = [{ id: 11, name: '要確認' }];
+  values.sortedTeams.value = [{ id: 7, name: '営業チーム' }];
+  values.sortedInboxes.value = [{ id: 5, name: 'LINE窓口' }];
+  values.sortedLabels.value = [{ id: 8, title: '新規', color: '#f00' }];
+  values.notificationUnreadCount.value = 3;
+  values.canViewBilling.value = canViewBilling;
+  return vm.runInNewContext(`(() => { ${source}; return menuItems.value; })()`, {
+    ...values,
+    computed: fn => ({ get value() { return fn(); } }),
+    t: key => key,
+    accountScopedRoute: (name, params = {}, query = {}) => ({ name, params: { accountId: 4, ...params }, query }),
+    buildSortConfig: () => ({}), SIDEBAR_SORT_SECTIONS: {}, h: () => null, ChannelIcon: {}, ChannelLeaf: {},
+  });
+}
+for (const allowed of [false, true]) {
+  const menu = nativeMenu(allowed);
+  assert.equal(menu.some(item => item.name === 'Inbox'), false, 'notifications must not duplicate the primary conversation entry');
+  const conversation = menu.find(item => item.name === 'Conversation');
+  assert.deepEqual(Array.from(conversation.children, child => child.name), ['All', 'Inbox', 'Mentions', 'Participating', 'Unattended', 'Folders', 'Teams', 'Channels', 'Labels']);
+  assert.equal(conversation.children[0].to.name, 'home', 'opening the parent defaults to all conversations');
+  const notifications = conversation.children.find(child => child.name === 'Inbox');
+  assert.equal(notifications.to.name, 'inbox_view');
+  assert.equal(notifications.label, 'SIDEBAR.NOTIFICATIONS');
+  assert.equal(notifications.badgeCount, 3, 'the existing notification getter still provides the unread count');
+  for (const [group, route, parameter, value] of [
+    ['Teams', 'team_conversations', 'teamId', 7],
+    ['Channels', 'inbox_dashboard', 'inbox_id', 5],
+    ['Labels', 'label_conversations', 'label', '新規'],
+    ['Folders', 'folder_conversations', 'id', 11],
+  ]) {
+    const child = conversation.children.find(item => item.name === group).children[0];
+    assert.equal(child.to.name, route);
+    assert.equal(child.to.params[parameter], value);
+  }
+  const billing = menu.find(item => item.name === 'Settings').children.find(item => item.name === 'Settings Billing');
+  assert.equal(Boolean(billing), allowed, 'the server access boolean controls the native settings child');
+  if (allowed) assert.equal(billing.to.name, 'toybaco_billing_settings_index');
+}
+assert.match(sidebarSource, /useMapGetter\('teams\/getMyTeams'\)/, 'team navigation preserves membership-scoped data');
+assert.match(sidebarSource, /useMapGetter\('notifications\/getUnreadCount'\)/);
+const locale = JSON.parse(fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/i18n/locale/ja/chatlist.json'), 'utf8'));
+assert.equal(locale.CHAT_LIST.ASSIGNEE_TYPE_TABS.unassigned, '未割り当て');
+assert.equal(locale.CHAT_LIST.UNATTENDED_HEADING, '未対応');
+
+{
+  const tree = createMenuTree();
+  tree.inbox.remove();
+  const conversation = createStockRow('会話', 'i-lucide-message-circle');
+  const children = createDomNode('ul');
+  const expected = [
+    ['すべての会話', 'i-lucide-inbox', 'dashboard'],
+    ['通知', 'i-lucide-bell', 'inbox-view'],
+    ['メンション', 'i-lucide-at-sign', 'mentions'],
+    ['参加中', 'i-lucide-user-round-check', 'participating'],
+    ['未対応', 'i-lucide-clock-alert', 'unattended'],
+    ['保存済みフィルター', 'i-lucide-folder', 'folders/11'],
+    ['チーム', 'i-lucide-users', 'teams/7/conversations'],
+    ['チャンネル', 'i-lucide-mailbox', 'inbox/5'],
+    ['ラベル', 'i-lucide-tag', 'labels/new'],
+  ];
+  for (const [label, icon, suffix] of expected) children.appendChild(createStockRow(label, icon, `/app/accounts/1/${suffix}`));
+  conversation.appendChild(children);
+  tree.ul.appendChild(conversation);
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/dashboard', { body: tree.body });
+  env.api.inject();
+  for (const node of children.querySelectorAll('li, a, span')) {
+    assert.equal(node.getAttribute('data-toybaco-stock-hidden'), null, 'supported native conversation children must not be hidden as inventory');
+  }
+  assert.equal(conversation.getAttribute('data-toybaco-primary-nav'), 'inbox');
+  assert.equal(children.getAttribute('inert'), null);
+  env.api.openPanel('/launches', false);
+  assert.equal(children.getAttribute('inert'), '');
+  env.api.closePanel();
+  assert.equal(children.getAttribute('inert'), null);
+}
+
+// Run the access composable with deterministic promises and reactive scope
+// inputs. No contract values are returned or requested on the denied path.
+const billingAccessSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/composables/useToybacoBillingAccess.js'), 'utf8');
+function billingAccessHarness() {
+  const account = { value: 1 }; const user = { value: 9 };
+  const watchers = []; const calls = []; const timers = new Map(); let timerId = 0;
+  const source = billingAccessSource.replace(/^import .*;\n/gm, '').replace('export function ', 'function ');
+  const create = vm.runInNewContext(`(() => { ${source}; return useToybacoBillingAccess; })()`, {
+    ref: value => ({ value }),
+    computed: fn => ({ get value() { return fn(); } }),
+    useMapGetter: name => name === 'getCurrentAccountId' ? account : user,
+    watch: (scope, cb, opts) => { watchers.push({ scope, cb, previous: scope.value }); if (opts.immediate) cb(); },
+    AbortController,
+    setTimeout: fn => { const id = ++timerId; timers.set(id, fn); return id; },
+    clearTimeout: id => timers.delete(id),
+    fetch: (url, options) => new Promise((resolve, reject) => {
+      calls.push({ url, options, resolve, reject });
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    }),
+  });
+  function runWatches() {
+    for (const item of watchers) {
+      if (item.scope.value === item.previous) continue;
+      item.previous = item.scope.value; item.cb();
+    }
+  }
+  return { create, account, user, calls, timers, runWatches };
+}
+const accessResponse = canView => ({ ok: true, json: async () => ({ can_view_billing: canView, can_manage_billing: canView }) });
+{
+  const env = billingAccessHarness();
+  const sidebar = env.create(); const page = env.create();
+  assert.equal(env.calls.length, 1, 'sidebar and route share the current in-flight access request');
+  assert.equal(sidebar.canViewBilling.value, false);
+  assert.equal(page.canViewBilling.value, false);
+  assert.equal(env.calls[0].url, '/toybaco/billing/access?account_id=1');
+  assert.equal(env.calls[0].options.credentials, 'same-origin');
+  assert.equal(env.calls[0].options.cache, 'no-store');
+  env.calls[0].resolve(accessResponse(true)); await flush();
+  assert.equal(sidebar.canViewBilling.value, true);
+  assert.equal(page.canViewBilling.value, true);
+  page.refresh();
+  assert.equal(page.canViewBilling.value, false, 'entering the contract route reconfirms the grant before setting iframe src');
+  env.calls[1].resolve(accessResponse(false)); await flush();
+  assert.equal(page.phase.value, 'ready');
+  assert.equal(sidebar.canViewBilling.value, false);
+}
+{
+  const env = billingAccessHarness(); const access = env.create();
+  env.calls[0].resolve(accessResponse(true)); await flush();
+  env.account.value = 2;
+  assert.equal(access.canViewBilling.value, false, 'the old account grant is hidden even before watchers flush');
+  env.runWatches();
+  env.account.value = 1; env.runWatches();
+  assert.equal(env.calls.length, 3, 'A to B to A makes a fresh access request, without caching old grants');
+  env.calls[1].resolve(accessResponse(true)); await flush();
+  assert.equal(access.canViewBilling.value, false, 'late B permission cannot expose A contract');
+  env.calls[2].resolve(accessResponse(true)); await flush();
+  assert.equal(access.canViewBilling.value, true);
+  env.user.value = 10;
+  assert.equal(access.canViewBilling.value, false, 'login changes immediately invalidate the old user grant');
+  env.runWatches();
+  env.user.value = null; env.runWatches();
+  env.calls[3].resolve(accessResponse(true)); await flush();
+  assert.equal(access.canViewBilling.value, false, 'a late response after logout cannot restore the entry');
+  env.user.value = 9; env.runWatches();
+  assert.equal(env.calls.length, 5);
+}
+for (const result of [
+  { ok: false, status: 401 },
+  { ok: false, status: 403 },
+  { ok: false, status: 500 },
+  { ok: true, json: async () => ({ can_view_billing: 'true' }) },
+  { ok: true, json: async () => ({ can_manage_billing: true }) },
+]) {
+  const env = billingAccessHarness(); const access = env.create();
+  env.calls[0].resolve(result); await flush();
+  assert.equal(access.canViewBilling.value, false);
+  assert.equal(access.phase.value, 'error');
+  env.create(); assert.equal(env.calls.length, 1, 'errors do not start an automatic retry loop');
+  access.refresh(); env.calls[1].resolve(accessResponse(true)); await flush();
+  assert.equal(access.canViewBilling.value, true, 'an explicit retry can recover');
+}
+{
+  const env = billingAccessHarness(); const access = env.create();
+  [...env.timers.values()][0](); await flush();
+  assert.equal(access.phase.value, 'error');
+  assert.equal(access.canViewBilling.value, false);
+  env.calls[0].resolve(accessResponse(true)); await flush();
+  assert.equal(access.canViewBilling.value, false, 'success arriving after an aborted request cannot grant access');
+}
+{
+  const env = billingAccessHarness(); const access = env.create(); const body = deferred();
+  env.calls[0].resolve({ ok: true, json: () => body.promise }); await flush();
+  [...env.timers.values()][0](); await flush();
+  assert.equal(access.phase.value, 'error', 'a stalled response body also leaves the UI closed after the deadline');
+  body.resolve({ can_view_billing: true }); await flush();
+  assert.equal(access.canViewBilling.value, false);
+}
+
+const billingPageSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/dashboard/settings/billing/ToybacoBilling.vue'), 'utf8');
+assert.match(billingPageSource, /<iframe\s+v-if="canViewBilling"\s+:src="billingUrl"/);
+assert.match(billingPageSource, /契約者ご本人のみ確認できます/);
+assert.doesNotMatch(billingPageSource, /position:fixed|z-index:9998/, 'the contract uses the native route layout at every width');
+{
+  let checks = 0;
+  const access = { accountId: { value: 1 }, phase: { value: 'ready' }, canViewBilling: { value: true }, refresh() { checks += 1; this.canViewBilling.value = false; } };
+  access.refresh = access.refresh.bind(access);
+  const script = billingPageSource.slice(billingPageSource.indexOf('<script setup>') + 14, billingPageSource.indexOf('</script>')).replace(/^import .*;\n/gm, '');
+  const url = vm.runInNewContext(`(() => { ${script}; return billingUrl; })()`, {
+    computed: fn => ({ get value() { return fn(); } }), useToybacoBillingAccess: () => access,
+  });
+  assert.equal(checks, 1, 'the route starts a fresh check before its first render');
+  assert.equal(url.value, null, 'loading/denied states never attach a billing URL');
+  access.canViewBilling.value = true;
+  assert.equal(url.value, '/toybaco/billing?account_id=1');
+  access.accountId.value = 2; access.canViewBilling.value = false;
+  assert.equal(url.value, null);
+}
+
+// Native routing also covers keyboard and collapsed-popover routes. Vue Router
+// reports same-route selections only to afterEach as a duplicated navigation.
+for (const sameRoute of [false, true]) {
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe'); const requests = []; const navigations = [];
+  frame.contentWindow = { postMessage(data) { requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  let guard; let afterNavigation;
+  const start = sidebarSource.indexOf('const confirmPostingRouteChange =');
+  const end = sidebarSource.indexOf('onBeforeUnmount(removePostingDuplicateGuard);', start) + 'onBeforeUnmount(removePostingDuplicateGuard);'.length;
+  const cleanup = [];
+  vm.runInNewContext(sidebarSource.slice(start, end), {
+    router: {
+      beforeEach(fn) { guard = fn; return () => cleanup.push('beforeEach removed'); },
+      afterEach(fn) { afterNavigation = fn; return () => cleanup.push('afterEach removed'); },
+      push(route) { navigations.push(route); },
+    },
+    NavigationFailureType: { duplicated: 16 },
+    isNavigationFailure: (failure, type) => Boolean(failure && (failure.type & type)),
+    window: env.window,
+    CustomEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); this.defaultPrevented = false; } preventDefault() { this.defaultPrevented = true; } },
+    onBeforeUnmount: fn => cleanup.push(fn),
+  });
+  const from = { fullPath: '/app/accounts/1/dashboard' };
+  const to = sameRoute ? from : { fullPath: '/app/accounts/1/settings/contract' };
+  const requestNavigation = () => {
+    if (sameRoute) afterNavigation(to, from, { type: 16 });
+    else assert.equal(guard(to, from), false);
+  };
+  for (const failure of [undefined, { type: 4 }, { type: 8 }]) {
+    afterNavigation(to, from, failure);
+  }
+  assert.equal(requests.length, 0, 'successful, aborted and cancelled navigations do not request a second confirmation');
+  requestNavigation();
+  assert.equal(requests.length, 1);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].requestId, allowed: false });
+  assert.equal(navigations.length, 0);
+  assert.equal(panel.querySelector('iframe'), frame);
+  requestNavigation();
+  assert.equal(requests.length, 2);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[1].requestId, allowed: true });
+  assert.deepEqual(navigations, [to.fullPath]);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  afterNavigation(from, from, { type: 16 });
+  assert.equal(requests.length, 2, 'the approved same-route retry cannot open another confirmation after the panel closes');
+  assert.equal(guard(to, from), true);
+  cleanup[0](); cleanup[1]();
+  assert.deepEqual(cleanup.slice(2), ['beforeEach removed', 'afterEach removed'], 'unmount unregisters both native routing hooks');
+}
+
+console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area native-navigation=preserved billing-owner=server-gated slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');

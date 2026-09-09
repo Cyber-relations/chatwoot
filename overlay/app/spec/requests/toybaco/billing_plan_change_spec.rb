@@ -27,11 +27,134 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     reader = instance_double(Toybaco::Oidc::SessionReader, user: user)
     allow(Toybaco::Oidc::SessionReader).to receive(:new).and_return(reader)
     user.account_users.find_by!(account: account).update!(role: :administrator)
+    account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => user.id))
     allow(Toybaco::Checkout::PlanChange).to receive(:new).and_return(service)
   end
 
   def change(action, params = {}, account_id: account.id, origin_headers: headers)
     post "/toybaco/billing/change_#{action}?account_id=#{account_id}", params: params, headers: origin_headers, as: :json
+  end
+
+  def billing_access
+    get '/toybaco/billing/access', params: { account_id: account.id }
+    expect(response).to have_http_status(:ok)
+    expect(response.headers['Cache-Control']).to eq('no-store')
+    response.parsed_body
+  end
+
+  def expect_all_billing_denied
+    expect(Toybaco::Checkout::Client).not_to receive(:new)
+    expect(Net::HTTP).not_to receive(:start)
+    get '/toybaco/billing', params: { account_id: account.id }
+    expect(response).to have_http_status(:forbidden)
+    %w[portal cancel change_preview change_confirm change_refresh change_cancel].each do |action|
+      post "/toybaco/billing/#{action}?account_id=#{account.id}", params: {}, headers: headers, as: :json
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
+
+  it '契約本人にだけ閲覧と管理のbooleanを返し、課金情報を返さない' do
+    expect(billing_access).to eq('can_view_billing' => true, 'can_manage_billing' => true)
+    user.account_users.find_by!(account: account).update!(role: :agent)
+    expect(billing_access).to eq('can_view_billing' => true, 'can_manage_billing' => false)
+  end
+
+  it '別の管理者と担当者は直接URLでも契約表示と全操作を利用できない' do
+    account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => create(:user).id))
+    %i[administrator agent].each do |role|
+      user.account_users.find_by!(account: account).update!(role: role)
+      expect(billing_access).to eq('can_view_billing' => false, 'can_manage_billing' => false)
+      expect_all_billing_denied
+    end
+  end
+
+  it '契約本人の記録が未設定または不正でも現在の管理者へ自動付与しない' do
+    [nil, 0, -1, user.id.to_s, [user.id], { 'user_id' => user.id }].each do |owner|
+      account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => owner))
+      expect(billing_access).to eq('can_view_billing' => false, 'can_manage_billing' => false)
+      expect_all_billing_denied
+    end
+    account.update!(internal_attributes: account.internal_attributes.except(Toybaco::BillingAccess::OWNER_KEY))
+    expect(billing_access).to eq('can_view_billing' => false, 'can_manage_billing' => false)
+    expect_all_billing_denied
+    expect(account.reload.internal_attributes).not_to have_key(Toybaco::BillingAccess::OWNER_KEY)
+  end
+
+  it 'accessも未ログインと別店舗の参照を拒否する' do
+    other = create(:account, internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id })
+    get '/toybaco/billing/access', params: { account_id: other.id }
+    expect(response).to have_http_status(:forbidden)
+    get '/toybaco/billing/access', params: { account_id: 'invalid' }
+    expect(response).to have_http_status(:bad_request)
+    allow(Toybaco::Oidc::SessionReader).to receive(:new).and_return(instance_double(Toybaco::Oidc::SessionReader, user: nil))
+    get '/toybaco/billing/access', params: { account_id: account.id }
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  it 'アカウントAPIの課金属性も契約本人に限り通常業務の設定と機能は保持する' do
+    account.update!(custom_attributes: { 'plan_name' => 'Private billing plan', 'subscribed_quantity' => 9,
+                                         'subscription_status' => 'active', 'subscription_ends_on' => '2099-01-01',
+                                         'website' => 'https://example.invalid' })
+    billing_keys = %w[plan_name subscribed_quantity subscription_status subscription_ends_on billing_currency]
+    get "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body.dig('custom_attributes', 'plan_name')).to eq('Private billing plan')
+    [create(:user).id, nil].each do |owner|
+      account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => owner))
+      get "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token
+      expect(response).to have_http_status(:ok)
+      attrs = response.parsed_body.fetch('custom_attributes')
+      expect(attrs.keys & billing_keys).to be_empty
+      expect(attrs.fetch('website')).to eq('https://example.invalid')
+      expect(response.parsed_body).to include('features', 'settings', 'status')
+      expect(response.parsed_body).not_to have_key('internal_attributes')
+    end
+  end
+
+  it '契約本人は担当者権限でも請求を閲覧できるが支払変更と契約変更はできない' do
+    Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('light', 'month'), cycle: 'month'))
+    user.account_users.find_by!(account: account).update!(role: :agent)
+    client = instance_double(Toybaco::Checkout::Client, retrieve_subscription: {})
+    allow(Toybaco::Checkout::Client).to receive(:new).and_return(client)
+    allow(Toybaco::BillingSubscription).to receive(:summarize).and_return(status_label: '有効', cancel_at_period_end: false, items: [],
+                                                                          invoice: { total: 1234, amount_paid: 1234 })
+    get '/toybaco/billing', params: { account_id: account.id }
+    expect(response).to have_http_status(:ok)
+    expect(response.body).to include('直近の請求額（税込）', '1,234', '契約の変更には管理者権限が必要です。')
+    expect(response.body).not_to include('id="portal"', 'id="cancel-box"', 'id="plan-change-panel"')
+    %w[portal cancel change_preview change_confirm change_refresh change_cancel].each do |action|
+      post "/toybaco/billing/#{action}?account_id=#{account.id}", params: {}, headers: headers, as: :json
+      expect(response).to have_http_status(:forbidden)
+    end
+  end
+
+  it '通常のaccount更新とprofile取得から契約者を変更したり契約値を取得できない' do
+    other_owner = create(:user).id
+    account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => other_owner))
+    patch "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token,
+                                            params: { internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id },
+                                                      custom_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id } }, as: :json
+    expect(response).to have_http_status(:ok)
+    expect(account.reload.internal_attributes[Toybaco::BillingAccess::OWNER_KEY]).to eq(other_owner)
+    expect(account.custom_attributes).not_to have_key(Toybaco::BillingAccess::OWNER_KEY)
+    get '/api/v1/profile', headers: user.create_new_auth_token
+    expect(response).to have_http_status(:ok)
+    expect(response.body).not_to include(Toybaco::BillingAccess::OWNER_KEY, 'sub_fixture', 'toybaco_contract', 'internal_attributes')
+  end
+
+  it '旧Enterprise課金APIも別管理者による迂回を拒否する' do
+    account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => create(:user).id))
+    allow(ChatwootApp).to receive(:chatwoot_cloud?).and_return(true)
+    expect(Enterprise::CreateStripeCustomerJob).not_to receive(:perform_later)
+    expect(Enterprise::Billing::CreateSessionService).not_to receive(:new)
+    expect(Enterprise::Billing::TopupCheckoutService).not_to receive(:new)
+    %w[checkout subscription select_billing_currency toggle_deletion topup_checkout].each do |action|
+      post "/enterprise/api/v1/accounts/#{account.id}/#{action}", headers: user.create_new_auth_token,
+                                                                  params: { credits: 10, currency: 'usd', action_type: 'delete' }, as: :json
+      expect(response).to have_http_status(:forbidden)
+    end
+    get "/enterprise/api/v1/accounts/#{account.id}/topup_options", headers: user.create_new_auth_token
+    expect(response).to have_http_status(:forbidden)
   end
 
   it '管理者に見積の表示項目と期限付き確認票だけを返し、保存済み契約を変えない' do

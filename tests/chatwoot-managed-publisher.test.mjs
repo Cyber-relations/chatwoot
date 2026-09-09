@@ -158,41 +158,62 @@ function makeList(rows) {
 
 function testPostEntryNavigation() {
   const fixture = loadPostEntryNavigation();
-  const postingFirst = makeRow('posting');
-  const inbox = makeRow('inbox');
-  const conversations = makeRow('conversations');
-  const primaryList = makeList([postingFirst, inbox, conversations]);
-  const inboxInner = {};
-  inbox.querySelector = (selector) => {
-    assert.equal(selector, 'a, [role="button"]');
-    return inboxInner;
-  };
-  primaryList.querySelector = (selector) => {
-    assert.equal(selector, ':scope > li:not([data-toybaco-post-entry-wrap])');
-    return inbox;
-  };
-  const nav = {
-    querySelector(selector) {
-      assert.equal(selector, 'ul');
-      return primaryList;
-    },
-  };
-  fixture.document.querySelectorAll = (selector) => {
-    assert.equal(selector, 'nav');
-    return [nav];
-  };
+  // The native group uses a role=button div when expanded and a button when
+  // collapsed. Without that group, the remaining inbox link is the fallback.
+  for (const conversationTag of [null, 'DIV', 'BUTTON']) {
+    const postingFirst = makeRow('posting');
+    postingFirst.getAttribute = (name) =>
+      name === 'data-toybaco-post-entry-wrap' ? '1' : null;
+    const inbox = makeRow('inbox');
+    const conversations = makeRow('conversations');
+    const primaryList = makeList([postingFirst, inbox, conversations]);
+    const inboxInner = {
+      tagName: 'A',
+      getAttribute: (name) => ({
+        title: '通知', href: '/app/accounts/1/inbox-view',
+      })[name] ?? null,
+    };
+    const conversationInner = conversationTag && {
+      tagName: conversationTag,
+      getAttribute: (name) => ({
+        title: '会話', role: conversationTag === 'DIV' ? 'button' : null,
+      })[name] ?? null,
+    };
+    for (const [row, inner] of [[inbox, inboxInner], [conversations, conversationInner]]) {
+      row.children = inner ? [inner] : [];
+      row.querySelector = (selector) => inner && selector.split(',').some((part) =>
+        part.trim() === inner.tagName.toLowerCase() ||
+        (part.trim() === '[role="button"]' && inner.getAttribute('role') === 'button'))
+        ? inner : null;
+    }
+    primaryList.querySelector = (selector) => {
+      assert.equal(selector, ':scope > li:not([data-toybaco-post-entry-wrap])');
+      return inbox;
+    };
+    const nav = {
+      querySelector(selector) {
+        assert.equal(selector, 'ul');
+        return primaryList;
+      },
+    };
+    fixture.document.querySelectorAll = (selector) => {
+      assert.equal(selector, 'nav');
+      return [nav];
+    };
 
-  const menu = fixture.api.findMenu();
-  assert.equal(menu.li, inbox, 'posting row must not become the native navigation sample');
-  fixture.api.placeEntry(menu, postingFirst);
-  assert.deepEqual(primaryList.children.map((row) => row.name), [
-    'inbox',
-    'posting',
-    'conversations',
-  ]);
-  assert.equal(primaryList.insertCalls, 1, 'posting-first drift must be repaired once');
-  fixture.api.placeEntry(menu, postingFirst);
-  assert.equal(primaryList.insertCalls, 1, 'correct repeated placement must not mutate the DOM');
+    const menu = fixture.api.findMenu();
+    assert.ok(menu, 'native conversation controls must yield a navigation sample');
+    assert.equal(menu.li, conversationTag ? conversations : inbox,
+      'the conversation parent must outrank the notification link and injected posting row');
+    assert.equal(menu.inner, conversationInner || inboxInner);
+    fixture.api.placeEntry(menu, postingFirst);
+    assert.deepEqual(primaryList.children.map((row) => row.name), conversationTag
+      ? ['inbox', 'conversations', 'posting']
+      : ['inbox', 'posting', 'conversations']);
+    assert.equal(primaryList.insertCalls, 1, 'posting-first drift must be repaired once');
+    fixture.api.placeEntry(menu, postingFirst);
+    assert.equal(primaryList.insertCalls, 1, 'correct repeated placement must not mutate the DOM');
+  }
 
   const stalePosting = makeRow('posting');
   const staleList = makeList([stalePosting]);

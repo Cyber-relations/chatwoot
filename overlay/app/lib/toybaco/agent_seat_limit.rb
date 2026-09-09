@@ -6,7 +6,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # ライト(旧 starter)の担当者は LP どおり 3 名まで。
   # 判定は既存の internal_attributes['toybaco_plan'] だけを見る。課金は触らない。
   module AgentSeatLimit
-    MESSAGE = 'このご契約の利用人数上限に達しています。ご契約内容をご確認ください。'
+    MESSAGE = 'この店舗の利用人数上限に達しています。利用人数の変更は、ご契約者の方が設定の「ご契約内容」で確認できます。'
 
     module_function
 
@@ -43,7 +43,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       current_count(account) >= cap
     end
 
-    def payload(account)
+    def payload(account, can_view_billing: false)
       cap = limit_for(account)
       count = current_count(account)
       {
@@ -52,12 +52,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         'count' => count,
         'at_limit' => !cap.nil? && count >= cap,
         'title' => cap.nil? ? '利用人数の上限なし' : "利用は#{cap}名まで",
-        'message' => if cap.nil?
-                       'このご契約に利用人数の上限はありません。'
-                     else
-                       "ご契約の利用人数は#{cap}名までです。現在#{count}名が利用しています。"
-                     end
+        'message' => seat_message(cap, count, can_view_billing)
       }
+    end
+
+    def seat_message(cap, count, can_view_billing)
+      return 'この店舗の利用人数に上限はありません。' if cap.nil?
+
+      message = "この店舗は#{cap}名まで利用できます。現在#{count}名が利用しています。"
+      return message if count < cap
+
+      message + (can_view_billing ? '設定の「ご契約内容」をご確認ください。' : '利用人数の変更は、ご契約者にご確認ください。')
     end
 
     def install!

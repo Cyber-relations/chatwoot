@@ -67,7 +67,7 @@ class ChatwootBillingPlanNamesTest < Minitest::Test
     assert_includes controller, 'Toybaco::Entitlements.contract_for(@account)'
     assert_includes controller, 'Toybaco::BillingSubscription.summarize'
     refute_includes controller, 'Catalog.billing_info(@plan_key)'
-    assert_includes controller, 'return unless @admin && @subscription_id'
+    assert_includes controller, 'return unless @subscription_id'
     refute_includes controller, 'PLAN_INFO'
     refute_includes controller, 'ビジネス'
     refute_includes controller, 'スターター'
