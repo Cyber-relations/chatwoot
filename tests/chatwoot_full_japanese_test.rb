@@ -23,6 +23,11 @@ TECHNICAL_TERMS = %w[
   TikTok TLS Twilio Twitter URI URL WebSocket WhatsApp YouTube
 ].freeze
 
+# 媒体の正式名称は確認済みのpathと値の完全一致だけを許可し、通常文言へ広げない。
+REVIEWED_PROVIDER_NAMES = {
+  'dashboard/inboxMgmt.json:INBOX_MGMT.ADD.SMS.PROVIDERS.BANDWIDTH' => 'Bandwidth'
+}.freeze
+
 # これはUI文言ではなく、利用者が入力欄へ貼るliteral例。pathを狭く固定し、通常文言を
 # 例外へ逃がさない。
 TECHNICAL_EXAMPLE_PATHS = %w[
@@ -183,7 +188,8 @@ sets.each do |set_name, english, japanese|
       violations << "#{path}: unreviewed embedded English phrase #{japanese_value.inspect}"
     end
 
-    next if TECHNICAL_EXAMPLE_PATHS.include?(path) || technical_literal?(japanese_value)
+    next if TECHNICAL_EXAMPLE_PATHS.include?(path) || technical_literal?(japanese_value) ||
+            REVIEWED_PROVIDER_NAMES[path] == japanese_value
 
     if japanese_value == english_value && english_value.match?(/[A-Za-z]{2}/)
       violations << "#{path}: untranslated English fallback #{english_value.inspect}"

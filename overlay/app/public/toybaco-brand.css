@@ -1351,12 +1351,8 @@ aside nav span.inline-grid.rounded-full {
   border-radius: 7px !important;
 }
 
-/* テンプレート空状態の他社ヘルプリンクは客面に出さない */
-a[href*="developers.facebook.com"],
-a[href*="business.facebook.com"],
-a[href*="facebook.com/business"],
-a[href*="business.whatsapp.com"],
-a[href*="twilio.com/docs"],
+/* 基盤製品のヘルプだけを非表示にする。
+ * 連携先の公式管理画面・設定資料は、初期設定と再接続に必要なため残す。 */
 a[href*="help.chatwoot.com"],
 a[href*="www.chatwoot.com/hc"] {
   display: none !important;
@@ -1672,4 +1668,52 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
     font-size: 13px;
     line-height: 20px;
   }
+}
+/* 投稿の既存4画面を統合アプリ内で行き来する補助ナビ。 */
+[data-toybaco-post-subnav] {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 8px 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--toybaco-hairline);
+  background: var(--toybaco-surface);
+}
+
+[data-toybaco-post-subnav] button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--toybaco-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+[data-toybaco-post-subnav] button:hover,
+[data-toybaco-post-subnav] button[aria-current="page"] {
+  background: var(--toybaco-wash);
+  color: var(--toybaco-navy);
+}
+
+[data-toybaco-post-subnav] button[aria-current="page"] {
+  font-weight: 800;
+}
+
+[data-toybaco-post-subnav] button:focus-visible {
+  outline: 2px solid var(--toybaco-navy);
+  outline-offset: -2px;
+}
+
+@media (max-width: 767px) {
+  [data-toybaco-post-subnav] { padding: 4px 8px; gap: 2px; }
+  [data-toybaco-post-subnav] button { min-height: 44px; padding-inline: 10px; }
 }

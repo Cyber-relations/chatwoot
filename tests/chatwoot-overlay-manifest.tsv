@@ -76,7 +76,7 @@ a9179b35309ccb12afb19f19525ab6873131e675972317d521b4611ffcba3118	0644	file	overl
 ffd1ea0686a0aa5f50fc0efa68a5d59c119a31370b8eaa06fdeea9a63346bc7c	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/generalSettings.json
 008baf8a75e46e788c3b70edec7e77b1f220df74ac31434cfa792e5039c854e6	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/helpCenter.json
 221beb22f1883193d518bc84948cb1dc11ed432cac48255b0af32324c6e6c217	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inbox.json
-835acc31720fd9b985319f6b2eb9610234d442619beac57e36052c11b71e3fab	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inboxMgmt.json
+378dbcbcc8994a16104c7c893f60defaa9944d7b82c28fe34ed55c9d0e8c2561	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inboxMgmt.json
 3d2d63e581322c93cf01cbbe7bcef94e5ff145e15876ef964cbb91dbe6832616	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/index.js
 872aabb9d188b82ac5688b2be756e7ef1c0bc17261777ab488dd658a6793bc59	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/integrationApps.json
 0ce3441b7164e22e44cec3147ceda01162fab898a7b49935c01d03ac85ae4409	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/integrations.json
@@ -85,7 +85,7 @@ e423b2485730cef1bac1c24132be32c02aacce6c5973a65f9b7742c21e473ff8	0644	file	overl
 29b4a49d30d9e5ffcc77cf6fcf088769e958c4f63114550be61f406ee89e946d	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/macros.json
 dad1d38a899bab7a72ce7429b9b273661c5e7d6875f262b86855f9cd75e3ecfb	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/mfa.json
 782d69d70a3d80ddd3ac826f3fd0a2f5ee8571588d7c5b25727b1f224d4e699f	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/onboarding.json
-9cef0c8a5d88c6a46674a7ed77dedce57e0f810f6bcd0aed747fee01af5bd3a1	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/report.json
+edefbb0bf2086ac8f2e20c405fe10c1ea17eae71b01d8947835168e087212687	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/report.json
 105344b2a09752c5ca8322bc4a6af54d4892f1669ebcc3e90996de393f195500	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/resetPassword.json
 2015d30813e477cfda6fcd57ef0983e406c8d2d6b2ae8bc12225beb5a31e2482	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/search.json
 60c34fe92eaabe9932265b28731b77ea07719d50441e193665ef9cdc147ce348	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/sessionLimit.json
@@ -305,7 +305,7 @@ afca877b202b4541acbba41e3489b1d3aaaa6f2d0fd0716a543c4321d29e9311	0644	file	overl
 292931e4c3485d134c316d4546f788d08a7c2d618a2bf4d03028d57637e32032	0644	file	overlay/app/public/brand-assets/toybaco-mark-c4.png
 eb5543c9167bfe812a17c7318196f1046cf064364bb4e53d051dc54de95638b6	0644	file	overlay/app/public/brand-assets/toybaco-mark-simple.png
 1e09e21b00c4f9b82324b04e16df1944bb32475075c924e7725be1b296cb1b34	0644	file	overlay/app/public/brand-assets/toybaco-plan-change.js
-812f98b8d24b847f5891f575cbe6378cbe3791376cbbf78fbcdee4d09d38f571	0644	file	overlay/app/public/brand-assets/toybaco-post-entry.js
+608f86bd4ed4cdbdaa256d57fdc74ae96bd08ca176fb81c1400b9ce21e65a86a	0644	file	overlay/app/public/brand-assets/toybaco-post-entry.js
 8ffa5b4fd03aca49811c79480ec61de38f6fb2e30d39c1afe09e6a2594ff1f56	0644	file	overlay/app/public/browserconfig.xml
 afb71415bd5cf74f276b5e419723f18205454c4c17d9d9880a32e918f8df59cb	0644	file	overlay/app/public/favicon-16x16.png
 4aecd16fae64766ad17ff970f974d9085f2b9370196c00635dc7dc049c48ec51	0644	file	overlay/app/public/favicon-32x32.png
@@ -320,7 +320,7 @@ a64dfb5138c525e527e0e1e2987799cfb9199a782a7f8660d500695a87fdfac6	0644	file	overl
 1ed521e8f58e5cdd43ef41da6bc32ab33a60091a9b02577665dffff0b5602df1	0644	file	overlay/app/public/ms-icon-150x150.png
 78542aa59d82eb33f392f99cf81d5b54de9c270ab0a6c8a2e87f7fa007d89fc1	0644	file	overlay/app/public/ms-icon-310x310.png
 0453ddfb91b601eff1a5bbb1159584fe9aba18ec3c19e851bb8bceeed7c6449e	0644	file	overlay/app/public/ms-icon-70x70.png
-d43b440cb84b7b44d8be4126c6e7a9ad3073a0992dbf0d658856739e537b4f27	0644	file	overlay/app/public/toybaco-brand.css
+ab783381e5286224a4f0173fb98fff6949bf1ae61b1e027da52e13fa38ac454d	0644	file	overlay/app/public/toybaco-brand.css
 a05b1f0c5601239cf8234afd31fdd6ffcac44e2b7713f05b524e1c86473f4528	0644	file	overlay/app/public/toybaco-superadmin.css
 197b1954ad50820018dce191f5ff1dca8dece00b0f61497532ab73e538edffb3	0644	file	overlay/app/spec/lib/toybaco/ai_usage_database_spec.rb
 c07d1390613f5c34e2c56e2f8434cd270afb41ab2068fe6f075bd038f3f279b7	0644	file	overlay/app/spec/lib/toybaco/checkout/plan_change_lock_spec.rb
