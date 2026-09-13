@@ -305,11 +305,10 @@
     try { return !!sessionStorage.getItem(PENDING_KEY); } catch (e) { return false; }
   }
 
-  // 退避しておいた行き先を1回だけ取り出す
-  function takePendingPath() {
+  // 実際に表示できるまでは退避先を保持する。
+  function readPendingPath() {
     try {
       var v = sessionStorage.getItem(PENDING_KEY);
-      if (v) sessionStorage.removeItem(PENDING_KEY);
       return v ? validatePath(v) : null;
     } catch (e) { return null; }
   }
@@ -962,6 +961,8 @@
     panel.appendChild(spinner);
     syncPostSections();
     host.appendChild(panel);
+    // reloadでhashが残った場合も、表示済みの退避先を再び開かない。
+    try { sessionStorage.removeItem(PENDING_KEY); } catch (e) { /* storage不可でも表示を続ける */ }
     watchPostPanelLayout();
     document.addEventListener('keydown', onKeydown, true);
     syncPostingSelection();
@@ -2648,10 +2649,9 @@
     if (panel && hasPostingRouteGuard()) return;
     var p = currentHashPath();
     // hash が受信箱のルーターに捨てられていても、退避してあれば開く。
-    // 画面がまだログイン後の状態になっていないうちに取り出すと、
-    // 開けないまま退避だけ消えてしまうので、開ける状態か先に見る。
+    // ログイン前やメイン領域未準備の間は保持し、openPanelのmount成功で消費する。
     if (p === null && !panel && hasPendingPath() && isLoggedInView()) {
-      var pending = takePendingPath();
+      var pending = readPendingPath();
       if (pending !== null) { openPanel(pending, false); return; }
     }
     if (p === null) {
