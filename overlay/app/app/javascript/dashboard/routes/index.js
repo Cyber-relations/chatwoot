@@ -14,6 +14,76 @@ const routes = [...dashboard.routes];
 const onboardingPath = step =>
   step === 'inbox_setup' ? 'onboarding/inbox-setup' : 'onboarding';
 
+// Older posting entries can contain custom state without RouterHistory metadata.
+// Keep each current entry in the same position coordinate system as the router.
+const repairInitialHistoryState = positionSeed => {
+  if (typeof window === 'undefined') return;
+  const { history, location } = window;
+  const state = history.state;
+  const previous = state && typeof state === 'object' && !Array.isArray(state)
+    ? state : {};
+  const current = location.pathname + location.search + location.hash;
+  const position = positionSeed ?? (Number.isInteger(previous.position)
+    ? previous.position : history.length - 1);
+  const hasLocation = value => value === null || typeof value === 'string';
+  if (
+    previous.current === current && previous.position === position &&
+    hasLocation(previous.back) && hasLocation(previous.forward) &&
+    typeof previous.replaced === 'boolean' &&
+    Object.prototype.hasOwnProperty.call(previous, 'scroll')
+  ) return;
+
+  history.replaceState({
+    ...previous,
+    back: hasLocation(previous.back) ? previous.back : null,
+    current,
+    forward: hasLocation(previous.forward) ? previous.forward : null,
+    // Match Vue Router's initial seed; unknown neighbouring entries stay unknown.
+    position,
+    replaced: typeof previous.replaced === 'boolean' ? previous.replaced : true,
+    scroll: Object.prototype.hasOwnProperty.call(previous, 'scroll')
+      ? previous.scroll : null,
+  }, '', current);
+};
+repairInitialHistoryState();
+
+// Some browsers capture popstate.state before a current-entry repair. Repair a
+// native legacy traversal before Router's listener, then replay its corrected
+// state once; normal native events and Router-owned push/replace stay untouched.
+if (typeof window !== 'undefined') {
+  const navigation = window.navigation;
+  const initialIndex = navigation?.currentEntry?.index;
+  if (Number.isInteger(initialIndex) && initialIndex >= 0) {
+    const positionOffset = window.history.state.position - initialIndex;
+    let replayingPopState = false;
+    window.addEventListener('popstate', event => {
+      if (replayingPopState || !event.isTrusted) return;
+      const index = navigation.currentEntry?.index;
+      if (!Number.isInteger(index) || index < 0) return;
+      repairInitialHistoryState(index + positionOffset);
+      const state = window.history.state;
+      const incoming = event.state;
+      const metadataMatches = incoming &&
+        ['back', 'current', 'forward', 'position', 'replaced'].every(
+          key => incoming[key] === state[key]
+        ) && Object.prototype.hasOwnProperty.call(incoming, 'scroll');
+      if (metadataMatches) return;
+
+      const corrected = new PopStateEvent('popstate', {
+        state,
+        hasUAVisualTransition: event.hasUAVisualTransition,
+      });
+      event.stopImmediatePropagation();
+      replayingPopState = true;
+      try {
+        window.dispatchEvent(corrected);
+      } finally {
+        replayingPopState = false;
+      }
+    }, true);
+  }
+}
+
 export const router = createRouter({ history: createWebHistory(), routes });
 
 // The posting overlay owns its hash without changing the underlying Vue route.

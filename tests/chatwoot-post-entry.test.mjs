@@ -440,12 +440,12 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     TOYBACO_POST_URL: 'https://post.staging.toybaco.jp',
     globalConfig: {},
     location: {
-      hash: '',
+      hash: options.hash || '',
       pathname,
       search: '',
       protocol: 'https:',
       origin: 'https://app.staging.toybaco.jp',
-      href: `https://app.staging.toybaco.jp${pathname}`,
+      href: `https://app.staging.toybaco.jp${pathname}${options.hash || ''}`,
       replace(url) {
         this.replaced = String(url);
         this.pathname = String(url);
@@ -519,7 +519,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     clearInterval: options.clearInterval || (() => {}),
     history: window.history,
     fetch: window.fetch,
-    sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+    sessionStorage: options.sessionStorage || { getItem() { return null; }, setItem() {}, removeItem() {} },
     MutationObserver: class {
       constructor(cb) {
         this.cb = cb;
@@ -3403,6 +3403,196 @@ for (const teardown of ['denied', 'trusted-close', 'close-panel']) {
   assert.equal(env.document.querySelector('iframe'), null);
 }
 
+// A reload can retain a truthy legacy state that Vue Router will not initialize.
+// Execute the production bootstrap before the stub caches state, as createWebHistory does.
+{
+  const routerSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/index.js'), 'utf8');
+  const start = routerSource.indexOf('const repairInitialHistoryState = positionSeed =>');
+  const end = routerSource.indexOf('// The posting overlay owns', start);
+  assert.ok(start >= 0 && end > start);
+  const bootstrap = routerSource.slice(start, end).replace('export const router =', 'const router =');
+  const current = '/app/accounts/1/inbox?view=all#/toybaco/posting?path=%2Fanalytics';
+  const normal = {
+    back: '/app/accounts/1/dashboard', current, forward: '/app/accounts/1/settings',
+    position: 3, replaced: false, scroll: { left: 0, top: 36 },
+    callerData: { retained: true }, toybacoPosting: true,
+  };
+  for (const initial of [null, undefined, {}, { toybacoPosting: true, callerData: { retained: true } },
+    { ...normal, position: NaN }, { ...normal, current: '/stale' }, normal]) {
+    let state = structuredClone(initial);
+    const writes = [];
+    const history = {
+      length: 8,
+      get state() { return state; },
+      replaceState(next, _title, url) {
+        state = structuredClone(next);
+        writes.push({ state, url });
+      },
+      pushState() { assert.fail('bootstrap must not add a history entry'); },
+      go() { assert.fail('bootstrap cannot infer traversal direction'); },
+    };
+    let cached;
+    vm.runInNewContext(bootstrap, {
+      window: { history, location: {
+        pathname: '/app/accounts/1/inbox', search: '?view=all',
+        hash: '#/toybaco/posting?path=%2Fanalytics',
+      } },
+      routes: [],
+      createWebHistory() { cached = structuredClone(state); return {}; },
+      createRouter(options) { return { options }; },
+    });
+    assert.equal(cached.current, current, 'RouterHistory must cache the real current URL');
+    assert.ok(Number.isInteger(cached.position), 'legacy state must not produce undefined/NaN positions');
+    assert.equal(cached.position, Number.isInteger(initial?.position) ? initial.position : 7);
+    assert.equal(cached.back, initial?.back ?? null, 'do not invent an unknown back entry');
+    assert.equal(cached.forward, initial?.forward ?? null, 'do not invent an unknown forward entry');
+    assert.equal(cached.replaced, initial?.replaced ?? true);
+    assert.deepEqual(cached.scroll, initial?.scroll ?? null);
+    assert.deepEqual(cached.callerData, initial?.callerData);
+    assert.equal(cached.toybacoPosting, initial?.toybacoPosting);
+    if (initial === normal) {
+      assert.equal(writes.length, 0, 'valid metadata and custom state must remain untouched');
+      assert.deepEqual(cached, normal);
+    } else {
+      assert.equal(writes.length, 1, 'repair only the incomplete current entry');
+      assert.equal(writes[0].url, current, 'repair must retain the current path, query and posting hash');
+    }
+    const repaired = structuredClone(state);
+    vm.runInNewContext(bootstrap, {
+      window: { history, location: { pathname: '/app/accounts/1/inbox', search: '?view=all', hash: '#/toybaco/posting?path=%2Fanalytics' } },
+      routes: [], createWebHistory() { return {}; }, createRouter() { return {}; },
+    });
+    assert.deepEqual(state, repaired, 'a second bootstrap must preserve the repaired state');
+    assert.equal(writes.length, initial === normal ? 0 : 1, 'bootstrap is idempotent');
+  }
+}
+
+// Reproduce browsers that capture immutable popstate.state before a repair.
+// Only malformed native events are replaced, before Router caches their state.
+{
+  const routerSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/index.js'), 'utf8');
+  const start = routerSource.indexOf('const repairInitialHistoryState = positionSeed =>');
+  const end = routerSource.indexOf('// The posting overlay owns', start);
+  const bootstrap = routerSource.slice(start, end).replace('export const router =', 'const router =');
+  const current = '/app/accounts/1/inbox';
+  const normal = position => ({ back: '/known-back', current, forward: '/known-forward',
+    position, replaced: false, scroll: { top: 9, left: 0 }, custom: { value: position } });
+  const load = (initialEntries, initialIndex, length, navigationAvailable = true) => {
+    const entries = structuredClone(initialEntries);
+    let index = initialIndex; let writes = 0;
+    const callbacks = []; const received = []; const later = [];
+    class TestPopStateEvent {
+      constructor(type, init = {}, trusted = false) {
+        this.type = type;
+        Object.defineProperty(this, 'state', { value: init.state, writable: false });
+        Object.defineProperty(this, 'isTrusted', { value: trusted, writable: false });
+        this.hasUAVisualTransition = init.hasUAVisualTransition;
+        this.stopped = false;
+      }
+      stopImmediatePropagation() { this.stopped = true; }
+    }
+    const navigation = { get currentEntry() { return { index }; } };
+    const location = { pathname: current, search: '', hash: '' };
+    const history = {
+      length,
+      get state() { return entries[index]; },
+      replaceState(state, _title, url) {
+        assert.equal(url, current, 'recovery replaces metadata at the same URL');
+        entries[index] = structuredClone(state); writes += 1;
+      },
+      pushState() { assert.fail('recovery must not create an entry'); },
+      go() { assert.fail('recovery must not infer or perform a traversal'); },
+    };
+    const window = {
+      history, location, navigation: navigationAvailable ? navigation : undefined,
+      addEventListener(type, callback, capture = false) {
+        assert.equal(type, 'popstate'); callbacks.push({ callback, capture });
+      },
+      dispatchEvent(event) {
+        for (const entry of [...callbacks].sort((a, b) => Number(b.capture) - Number(a.capture))) {
+          entry.callback(event);
+          if (event.stopped) break;
+        }
+      },
+    };
+    let cached;
+    vm.runInNewContext(bootstrap, {
+      window, PopStateEvent: TestPopStateEvent, routes: [],
+      createWebHistory() {
+        assert.equal(callbacks.length, navigationAvailable ? 1 : 0, 'capture registers before Router');
+        cached = structuredClone(history.state);
+        window.addEventListener('popstate', event => {
+          const from = cached;
+          cached = structuredClone(event.state);
+          received.push({ event, state: cached, delta: cached.position - from.position });
+        });
+        return {};
+      }, createRouter() { return {}; },
+    });
+    window.addEventListener('popstate', event => later.push(event));
+    return {
+      entries, received, later, get writes() { return writes; },
+      get cached() { return cached; },
+      traverse(target, trusted = true) {
+        index = target;
+        const state = structuredClone(entries[index]);
+        const before = structuredClone(state);
+        const event = new TestPopStateEvent('popstate', { state, hasUAVisualTransition: true }, trusted);
+        window.dispatchEvent(event);
+        assert.deepEqual(event.state, before, 'original event state is never modified');
+        return event;
+      },
+      invalidIndex() { index = -1; window.dispatchEvent(new TestPopStateEvent('popstate', { state: normal(30) }, true)); },
+    };
+  };
+  const env = load([normal(26), { toybacoPosting: true }, {}, null, normal(30)], 4, 9);
+  assert.equal(env.writes, 0, 'healthy startup state is unchanged despite a nonzero offset');
+  let from = 4;
+  for (const index of [3, 1, 4, 2, 0, 2, 4, 1, 4, 1, 4]) {
+    const before = env.received.length;
+    const event = env.traverse(index);
+    assert.equal(env.received.length, before + 1, 'Router receives one event per traversal');
+    assert.equal(env.later.length, before + 1, 'a later listener also receives only one event');
+    assert.equal(env.cached.position, index + 26);
+    assert.equal(env.received.at(-1).delta, index - from, 'back/cancel return/retry/forward retain signed distance');
+    assert.equal(env.received.at(-1).event.hasUAVisualTransition, true);
+    assert.equal(env.received.at(-1).event.isTrusted, !event.stopped, 'only corrected events become synthetic');
+    assert.deepEqual(env.cached, env.entries[index], 'Router cache and browser state agree');
+    from = index;
+  }
+  assert.equal(env.writes, 3, 'three incomplete entries are repaired once each');
+  assert.deepEqual(env.entries[0], normal(26)); assert.deepEqual(env.entries[4], normal(30));
+  assert.equal(env.entries[1].toybacoPosting, true);
+  assert.equal(env.entries[1].back, null); assert.equal(env.entries[1].forward, null);
+
+  // Legacy startup in the middle leaves old complete forward/back entries with
+  // a different seed. Only their position changes; every other field survives.
+  const mixed = load([normal(10), { toybacoPosting: true }, normal(12), normal(13)], 1, 6);
+  assert.equal(mixed.cached.position, 5);
+  from = 1;
+  for (const index of [2, 0, 3, 1, 2, 1]) {
+    mixed.traverse(index);
+    assert.equal(mixed.received.at(-1).delta, index - from);
+    assert.equal(mixed.cached.position, index + 4);
+    if (index !== 1) assert.deepEqual(mixed.cached, { ...normal(index + 10), position: index + 4 });
+    from = index;
+  }
+  assert.equal(mixed.writes, 4);
+  // Non-native notifications are never replaced or used to guess a traversal.
+  const synthetic = load([normal(30), { toybacoPosting: true }], 0, 4);
+  const event = synthetic.traverse(1, false);
+  assert.equal(synthetic.writes, 0); assert.equal(event.stopped, false);
+  assert.equal(synthetic.received.length, 1);
+  // Without Navigation API no traversal adapter is installed; healthy history
+  // stays native. Legacy arbitrary traversal recovery is outside this fallback.
+  const unsupported = load([normal(30), normal(31)], 0, 4, false);
+  assert.equal(unsupported.traverse(1).stopped, false);
+  assert.equal(unsupported.writes, 0);
+  assert.equal(unsupported.received[0].delta, 1);
+  const noIndex = load([normal(30)], 0, 1);
+  noIndex.invalidIndex(); assert.equal(noIndex.writes, 0);
+}
+
 // Exercise the actual router-module bridge, not a test-only event handler.
 // Calling RouterHistory (not raw History or semantic router.push) is what also
 // updates Vue Router's private location/position cache before the next popstate.
@@ -3610,6 +3800,76 @@ function installEntryHistory(env, initialState) {
   assert.equal(closed.replaced, true);
   assert.equal(closed.toybacoPosting, undefined);
   assert.deepEqual(closed.callerData, { retained: true });
+}
+
+// Reload stashes the hash before Router starts. A successful mount consumes it,
+// so exiting to the base entry cannot reopen posting and truncate forward history.
+{
+  const makeStorage = () => {
+    const values = new Map();
+    return { getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  };
+  const key = 'toybaco_pending_posting';
+  const hash = '#/toybaco/posting?path=%2Fanalytics';
+  const storage = makeStorage();
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { hash, sessionStorage: storage });
+  assert.equal(storage.getItem(key), '/analytics', 'actual reload stash runs before panel mounting');
+  const base = '/app/accounts/1/inbox';
+  Object.assign(env.window.location, { hash: '', href: `https://app.staging.toybaco.jp${base}` });
+  const state = (current, position) => ({ current, position, back: null, forward: null, replaced: false, scroll: null });
+  const browser = installEntryHistory(env, state(base, 0));
+  env.window.history.pushState(state(base + hash, 1), '', base + hash);
+  const forward = base + '#/toybaco/posting?path=%2Fmedia';
+  env.window.history.pushState(state(forward, 2), '', forward);
+  browser.go(-1);
+  assert.ok(env.document.querySelector('[data-toybaco-post-entry-panel]'));
+  assert.equal(storage.getItem(key), null, 'mounting the retained hash consumes the saved destination');
+  const pushes = browser.pushes.length;
+  browser.go(-1);
+  env.api.afterNavChange(); env.api.afterNavChange();
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null,
+    'leaving the reloaded panel must not resurrect a stale pending destination');
+  assert.equal(env.window.location.hash, '');
+  assert.equal(browser.pushes.length, pushes, 'exit does not create a new posting history entry');
+  assert.equal(browser.entries.length, 3, 'forward history remains intact');
+  assert.equal(browser.entries[2].url, `https://app.staging.toybaco.jp${forward}`);
+  browser.go(1);
+  assert.equal(env.window.location.hash, hash, 'forward returns to the existing analytics entry');
+  assert.equal(browser.entries.length, 3);
+
+  for (const keepHash of [true, false]) {
+    const pendingStorage = makeStorage();
+    const body = createDomNode('body');
+    const unready = loadInjectEntry(() => new Promise(() => {}), base,
+      { hash, body, sessionStorage: pendingStorage });
+    if (!keepHash) unready.window.location.hash = '';
+    unready.api.onHashMaybeChanged();
+    assert.equal(unready.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+    assert.equal(pendingStorage.getItem(key), '/analytics', 'an unready host cannot consume pending navigation');
+    body.appendChild(createMenuTree().main);
+    unready.api.onHashMaybeChanged();
+    assert.ok(unready.document.querySelector('[data-toybaco-post-entry-panel]'));
+    assert.equal(pendingStorage.getItem(key), null, 'host readiness completes pending navigation once');
+  }
+  const loginStorage = makeStorage();
+  const login = loadInjectEntry(() => new Promise(() => {}), '/app/login', { hash, sessionStorage: loginStorage });
+  login.api.onHashMaybeChanged();
+  assert.equal(login.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(loginStorage.getItem(key), '/analytics', 'login handoff retains pending navigation');
+
+  const deniedStorage = makeStorage();
+  const denied = loadInjectEntry(async () => ({ ok: true, json: async () => ({ enabled: false }) }),
+    base, { hash, sessionStorage: deniedStorage });
+  const deniedBrowser = installEntryHistory(denied, state(base + hash, 1));
+  denied.api.inject(); await flush();
+  denied.api.onHashMaybeChanged();
+  assert.ok(denied.document.querySelector('[data-toybaco-post-entry-panel]'));
+  assert.equal(denied.document.querySelector('iframe'), null);
+  assert.equal(deniedStorage.getItem(key), null, 'mounted denial notice also consumes the handled intent');
+  denied.api.closePanel(); denied.api.afterNavChange(); denied.api.afterNavChange();
+  assert.equal(denied.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(deniedBrowser.pushes.length, 0, 'denied panel exit cannot reopen a stale pending route');
 }
 
 // Direct links can open before Vue Router has seeded its first entry.

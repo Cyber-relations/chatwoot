@@ -38,8 +38,24 @@ function authModule(search = '', pathname = '/app/login') {
 async function runGuard(to, getters = { isLoggedIn: false }) {
   const assigned = [];
   const next = [];
+  const location = {
+    href: 'https://app.example.test/app/', pathname: '/app/', search: '', hash: '',
+    assign: value => assigned.push(value),
+  };
+  const history = {
+    state: null,
+    length: 1,
+    replaceState(state, _title, url) {
+      this.state = structuredClone(state);
+      const resolved = new URL(url, location.href);
+      Object.assign(location, {
+        href: resolved.href, pathname: resolved.pathname,
+        search: resolved.search, hash: resolved.hash,
+      });
+    },
+  };
   const context = vm.createContext({
-    window: { location: { assign: value => assigned.push(value) } },
+    window: { location, history },
     store: { getters }, frontendURL,
     getNotificationLoginURL: authModule().getNotificationLoginURL,
     createRouter: () => ({}), createWebHistory: () => ({}), dashboard: { routes: [] },
