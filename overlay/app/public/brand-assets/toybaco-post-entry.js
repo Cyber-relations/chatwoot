@@ -1009,6 +1009,12 @@
     if (preserveHistory !== true) stripHash();
   }
 
+  // Returning to the underlying page is a destination, so Back retains posting.
+  function closePanelToBase() {
+    if (isPostingHash(window.location.hash || '')) writePostingHistory('', false);
+    closePanel(true);
+  }
+
   // 既存メニューの1行を手本にして、同じ見た目の行を作る
   function buildEntry(sampleRow, accountId) {
     var li = document.createElement('li');
@@ -2089,6 +2095,9 @@
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
       if (navKind === 'reports' || navKind === 'settings' || (navKind === 'inbox' && navLink.tagName !== 'A')) {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        // The native group classifies navigation versus a toggle. Its route
+        // guard or explicit base return owns confirmation and history once.
+        if (hasPostingRouteGuard()) { closeAiModePanel(); return; }
         if (requestPanelClose(function () { navLink.click(); })) {
           if (e.preventDefault) e.preventDefault();
           if (e.stopPropagation) e.stopPropagation();
@@ -2745,6 +2754,21 @@
     document.addEventListener('keydown', onComposeSlashKeydown, true);
     document.addEventListener('input', onComposeSlashInput, true);
     document.addEventListener('click', onDocumentClickCapture, true);
+    window.addEventListener('toybaco:posting-group-toggle', function (event) {
+      var detail = event.detail;
+      if (!panel || !hasPostingRouteGuard() || !detail ||
+          typeof detail.proceed !== 'function' || typeof detail.navigates !== 'boolean') return;
+      detail.handled = true;
+      if (postCloseRequest) return;
+      if (detail.navigates) { detail.proceed(); return; }
+      var sequence = ++postRouteSequence;
+      function proceed() {
+        if (sequence !== postRouteSequence) return;
+        closePanelToBase();
+        if (!detail.preserveExpanded) detail.proceed();
+      }
+      if (!requestPanelClose(proceed)) proceed();
+    });
     window.addEventListener('toybaco:before-route-change', function (event) {
       if (!event.detail || typeof event.detail.proceed !== 'function') return;
       if (!panel) return;
@@ -2771,6 +2795,7 @@
       function proceed() {
         if (sequence !== postRouteSequence) { cancel(); return; }
         if (destination !== null) navigatePostPath(destination, true);
+        else if (detail.pushBaseHistory === true) closePanelToBase();
         else closePanel(detail.preserveHistory === true);
         detail.proceed();
       }
