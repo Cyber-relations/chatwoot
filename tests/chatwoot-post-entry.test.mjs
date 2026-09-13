@@ -9,7 +9,7 @@ const entryPath = path.join(root, 'overlay/app/public/brand-assets/toybaco-post-
 const original = fs.readFileSync(entryPath, 'utf8');
 const instrumented = original.replace(
   /\n\}\)\(\);\s*$/,
-  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, readSessionHeaders: readSessionHeaders, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode };\n})();\n'
+  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, onHashMaybeChanged: onHashMaybeChanged, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, readSessionHeaders: readSessionHeaders, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode };\n})();\n'
 );
 assert.notEqual(instrumented, original, 'test instrumentation anchor was not found');
 
@@ -514,6 +514,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     clearTimeout: options.clearTimeout || clearTimeout,
     setInterval: options.setInterval || (() => 0),
     clearInterval: options.clearInterval || (() => {}),
+    history: window.history,
     fetch: window.fetch,
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     MutationObserver: class {
@@ -2309,7 +2310,8 @@ function modeResponse(mode) {
   await flush();
   assert.match(collectText(panel), /この店舗全体で使う/);
   assert.match(collectText(panel), /保存された設定：全自動/);
-  assert.match(collectText(panel), /外部への応答動作は未確認/);
+  assert.match(collectText(panel), /接続設定あり/);
+  assert.doesNotMatch(collectText(panel), /外部への応答動作は未確認/);
   assert.ok(panel.querySelector('[data-toybaco-ai-usage]'), 'mobile settings must retain the existing contract and usage details');
   assert.ok(panel.querySelector('[data-toybaco-ai-retry]'), 'mobile settings must retain the existing retry control');
   for (const listener of env.docListeners.keydown) listener({ key: 'Escape' });
@@ -2383,6 +2385,10 @@ for (const invalid of [null, '', 'unexpected']) {
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
   assertAiCompact(env, 'AI：設定を確認', 'unconfirmed');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  await env.api.saveAiMode('draft');
+  assert.equal(env.aiCalls.filter(call => call.method === 'PUT').length, 0,
+    'a safe preference still requires the current account setting to be confirmed');
 }
 
 for (const savedOnServer of [false, true]) {
@@ -2495,9 +2501,14 @@ function createAiReadinessEnv(handler) {
   assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
   assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
   assertAiCompact(env, 'AI：未接続', 'unconnected');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   await env.api.saveAiMode('draft');
-  assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 0);
+  assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 1);
+  assert.equal(env.api.currentAiMode(), 'draft');
+  assertAiCompact(env, 'AI：未接続', 'unconnected');
+  await env.api.saveAiMode('auto');
+  assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 1, 'saving a draft preference must not allow automatic replies before connection');
   env.api.inject();
   env.api.inject();
   assert.equal(env.connectionCalls.length, 1, 'missing Bot must not trigger a polling loop');
@@ -2509,7 +2520,7 @@ function createAiReadinessEnv(handler) {
   const env = createAiReadinessEnv(() => Promise.resolve(readinessResponse({ configured_inboxes: 1, total_inboxes: 3 })));
   await flush();
   assert.match(collectText(env.aiBar), /接続設定あり（受信箱 1 \/ 3 件）/);
-  assert.match(collectText(env.aiBar), /外部への応答動作は未確認/);
+  assert.doesNotMatch(collectText(env.aiBar), /外部への応答動作は未確認/);
   assert.match(collectText(env.aiBar), /「AI応答」の設定/);
   assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
   assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
@@ -2530,7 +2541,8 @@ for (const result of [
   assert.match(collectText(env.aiBar), /接続状態を確認できません/);
   assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
   assertAiCompact(env, 'AI：接続を確認', 'unconfirmed');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   env.api.inject();
   assert.equal(env.connectionCalls.length, 1, 'connection errors must wait for explicit retry');
   recover = true;
@@ -2554,8 +2566,9 @@ for (const result of [
   accountA.resolve(readinessResponse());
   await flush();
   assert.equal(env.aiBar.getAttribute('data-toybaco-ai-connection'), 'unconnected');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true,
-    'late connection response from A must not enable B');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true,
+    'late connection response from A must not enable automatic replies in B');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assertAiCompact(env, 'AI：未接続', 'unconnected');
 }
 
@@ -2593,10 +2606,15 @@ for (const connection of [
   assert.match(collectText(env.aiBar), /保存された設定：全自動（この店舗では利用できません）/);
   assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
   assert.equal(env.api.currentAiMode(), 'auto', 'contract denial must retain the saved setting');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assertAiCompact(env, 'AI：利用できません', 'unavailable');
   await env.api.saveAiMode('draft');
-  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 1);
+  assert.equal(env.api.currentAiMode(), 'draft');
+  assertAiCompact(env, 'AI：利用できません', 'unavailable');
+  await env.api.saveAiMode('auto');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 1, 'a stored draft preference must not grant automatic replies');
   env.api.inject(); env.api.inject();
   assert.equal(env.contractCalls.length, 1, 'DOM updates must not poll contract usage');
   assert.equal(env.contractCalls[0].opts.credentials, 'same-origin');
@@ -2619,7 +2637,8 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   await flush();
   assert.match(collectText(env.aiBar), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
   assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assertAiCompact(env, reason === 'unknown_contract' ? 'AI：利用条件を確認' : 'AI：利用停止中',
     reason === 'unknown_contract' ? 'unconfirmed' : 'unavailable');
   fireClick(env.aiBar.querySelector('[data-toybaco-ai-compact-settings]'), env.docListeners.click || []);
@@ -2632,12 +2651,68 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
 }
 
+for (const connection of [
+  { connection: 'configured', configured_inboxes: 1 },
+  { connection: 'unconnected', configured_inboxes: 0 },
+]) {
+  let serverMode = 'auto';
+  const write = deferred();
+  const usage = { enabled: false, reason: 'unknown_contract', limit: 0, remaining: 0 };
+  const env = loadInjectEntry((url, opts) => {
+    if (String(url).includes('/ai_readiness')) return Promise.resolve(readinessResponse(connection));
+    if (String(url).includes('/ai_usage')) return Promise.resolve(usageResponse(usage));
+    if (String(url).includes('/ai_reply_mode')) {
+      if (opts?.method === 'PUT') return write.promise;
+      return Promise.resolve(modeResponse(serverMode));
+    }
+    return cannedAwareFetch(url, opts);
+  }, '/app/accounts/4/inbox');
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  env.api.openAiModePanel();
+  await flush();
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  const draft = panel.querySelector('[data-toybaco-ai-mode="draft"]');
+  const auto = panel.querySelector('[data-toybaco-ai-mode="auto"]');
+  assert.equal(auto.disabled, true);
+  assert.equal(draft.disabled, false, 'confirmed mode may be made safer before generation rights are known');
+  assert.match(collectText(panel), /未接続でも下書き設定を保存できます/);
+  assert.match(collectText(panel), /利用条件を確認できません/);
+  fireClick(draft, env.docListeners.click || []);
+  fireClick(draft, env.docListeners.click || []);
+  assert.equal(draft.disabled, true, 'saving must still block rapid repeated requests');
+  assert.equal(auto.disabled, true);
+  assert.equal(env.api.currentAiMode(), 'auto', 'the stored mode changes only after confirmation');
+  const writes = env.fetches.filter(call => call.opts?.method === 'PUT');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].url, '/toybaco/ai_reply_mode?account_id=4');
+  assert.deepEqual(JSON.parse(writes[0].opts.body), { mode: 'draft' });
+  serverMode = 'draft';
+  write.resolve(modeResponse(serverMode));
+  await flush();
+  assert.equal(env.api.currentAiMode(), 'draft');
+  assert.match(collectText(panel), /保存された設定：下書き/);
+  assert.match(collectText(panel), /利用条件を確認できません/);
+  assertAiCompact(env, 'AI：利用条件を確認', 'unconfirmed');
+  env.api.closeAiModePanel();
+  env.api.openAiModePanel();
+  await flush();
+  const reopened = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  assert.equal(env.api.currentAiMode(), 'draft', 'reopening must read the persisted mode');
+  assert.equal(reopened.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  await env.api.saveAiMode('auto');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 1);
+  assert.equal(env.fetches.filter(call => call.opts?.method && call.opts.method !== 'GET').length, 1,
+    'saving a preference must not reserve quota, generate a reply, or send a message');
+}
+
 {
   const read = deferred();
   let recover = false;
   const env = createAiContractEnv(() => recover ? Promise.resolve(usageResponse()) : read.promise);
   await flush();
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'Bot + saved mode cannot enable controls before contract readback');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'Bot + saved mode cannot enable automatic replies before contract readback');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'draft preference does not require generation access');
   assert.match(collectText(env.aiBar), /AI応答の利用条件を確認しています/);
   assertAiCompact(env, 'AI：確認中', 'checking');
   read.resolve({ ok: false, status: 503 });
@@ -2678,7 +2753,8 @@ for (const reason of ['unknown_contract', 'account_inactive']) {
   accountA.resolve(usageResponse());
   await flush();
   assert.match(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'late enabled A must not enable disabled B');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'late enabled A must not enable automatic replies in disabled B');
+  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assert.equal(env.contractCalls.length, 2);
   assertAiCompact(env, 'AI：利用できません', 'unavailable');
 }
@@ -2791,7 +2867,8 @@ for (const invalid of [
   await flush();
   assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '');
-  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, true, 'malformed usage must not enable composer mode changes');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'malformed usage must not enable automatic replies');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assert.doesNotMatch(collectText(env.usageCard), /unexpected_code|invalid/);
 }
 
@@ -3228,4 +3305,79 @@ for (const sameRoute of [false, true]) {
   assert.deepEqual(cleanup.slice(2), ['beforeEach removed', 'afterEach removed'], 'unmount unregisters both native routing hooks');
 }
 
-console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area native-navigation=preserved billing-owner=server-gated slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');
+// All offered posting pages need a visible route after the upstream rail is hidden.
+{
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  const history = [];
+  env.window.history.pushState = (_state, _title, hash) => { history.push(hash); env.window.location.hash = hash; };
+  env.window.history.replaceState = (_state, _title, hash) => { env.window.location.hash = hash; };
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const nav = panel.querySelector('[data-toybaco-post-subnav]');
+  assert.equal(nav.getAttribute('aria-label'), '投稿メニュー');
+  assert.deepEqual(nav.children.map(button => button.textContent), ['カレンダー', '分析', 'メディア', '投稿設定']);
+  assert.equal(nav.children[0].getAttribute('aria-current'), 'page');
+  const requests = [];
+  const send = (frame, data) => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  const ready = frame => {
+    frame.contentWindow = { postMessage(data, origin) { requests.push({ data, origin }); } };
+    send(frame, { type: 'TOYBACO_POSTIZ_READY' });
+  };
+  const original = panel.querySelector('iframe');
+  original.draftFixture = { text: 'unsaved text', attachment: {}, selection: 4 };
+  ready(original);
+  fireClick(nav.children[1]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].origin, 'https://post.staging.toybaco.jp');
+  assert.equal(panel.querySelector('iframe'), original, 'the mounted editor and attachment stay intact while asking');
+  assert.equal(history.length, 1, 'asking does not change the browser route');
+  send(original, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].data.requestId, allowed: false });
+  assert.equal(panel.querySelector('iframe'), original);
+  assert.equal(nav.children[0].getAttribute('aria-current'), 'page');
+  assert.equal(history.length, 1);
+  fireClick(nav.children[1]);
+  send(original, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[1].data.requestId, allowed: true });
+  const analytics = panel.querySelector('iframe');
+  assert.notEqual(analytics, original);
+  assert.equal(new URL(analytics.src).searchParams.get('return'), '/analytics?tb_embed=1');
+  assert.equal(nav.children[1].getAttribute('aria-current'), 'page');
+  assert.equal(nav.children[0].getAttribute('aria-current'), null);
+  assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 1);
+  send(original, { type: 'TOYBACO_POSTIZ_READY' });
+  assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 1, 'an old iframe cannot finish loading the new page');
+  ready(analytics);
+  assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 0);
+  fireClick(nav.children[1]);
+  assert.equal(requests.length, 2, 'selecting the current page never reloads it');
+  for (const [index, path] of [[2, '/media'], [3, '/settings'], [0, '/launches']]) {
+    const frame = panel.querySelector('iframe');
+    fireClick(nav.children[index]);
+    send(frame, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).data.requestId, allowed: true });
+    const next = panel.querySelector('iframe');
+    assert.equal(new URL(next.src).searchParams.get('return'), `${path}?tb_embed=1`);
+    assert.equal(nav.children[index].getAttribute('aria-current'), 'page');
+    ready(next);
+  }
+  const calendar = panel.querySelector('iframe');
+  env.window.location.hash = '#/toybaco/posting?path=%2Fsettings';
+  env.api.onHashMaybeChanged();
+  send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).data.requestId, allowed: false });
+  assert.equal(env.window.location.hash, '#/toybaco/posting?path=%2Flaunches', 'cancelled browser history restores the current URL');
+  assert.equal(panel.querySelector('iframe'), calendar);
+  env.window.location.hash = '#/toybaco/posting?path=%2Fmedia';
+  env.api.onHashMaybeChanged();
+  send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).data.requestId, allowed: true });
+  assert.equal(new URL(panel.querySelector('iframe').src).searchParams.get('return'), '/media?tb_embed=1');
+  assert.equal(nav.children[2].getAttribute('aria-current'), 'page');
+  const loadingFrame = panel.querySelector('iframe');
+  fireClick(nav.children[3]);
+  assert.notEqual(panel.querySelector('iframe'), loadingFrame);
+  assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 1, 'changing a still-loading page does not accumulate overlays');
+  const deniedFrame = panel.querySelector('iframe');
+  ready(deniedFrame);
+  send(deniedFrame, { type: 'TOYBACO_POSTIZ_DENIED' });
+  assert.equal(panel.querySelector('[data-toybaco-post-subnav]'), null, 'a denied store cannot keep offering posting routes');
+  assert.equal(panel.querySelector('iframe'), null);
+}
+
+console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area native-navigation=preserved posting-sections=guarded billing-owner=server-gated slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');

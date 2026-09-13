@@ -183,6 +183,7 @@
   installLogoutBridge();
 
   var panel = null;      // 開いているパネルの DOM
+  var panelPath = null;
   var poller = null;     // 画面遷移を見張るタイマー(開いている間だけ)
   var loadTimer = null;
   var readyMessageHandler = null;
@@ -386,19 +387,20 @@
   }
 
   // 同じiframeの既存composer確認が返るまで、native操作と本文を保持する。
-  function requestPanelClose(proceed) {
+  function requestPanelClose(proceed, cancel) {
     if (!panel || !postFrameReady || postCloseApproved) return false;
     if (postCloseRequest) return true;
     var frame = panel.querySelector('iframe');
     if (!frame || !frame.contentWindow) return false;
     clearPostCloseRequest();
-    var request = { id: ++postCloseSequence, proceed: proceed, timer: null };
+    var request = { id: ++postCloseSequence, proceed: proceed, cancel: cancel, timer: null };
     postCloseRequest = request;
     // 応答のない旧画面や通信断では本文を残し、次の操作で再試行できるようにする。
     // 子が確認を表示した後は、人が決めるまで期限を設けない。
     request.timer = setTimeout(function () {
       if (postCloseRequest !== request || !panel) return;
       clearPostCloseRequest();
+      if (request.cancel) request.cancel();
       postCloseNotice = document.createElement('div');
       postCloseNotice.setAttribute('role', 'status');
       postCloseNotice.textContent = '投稿画面の確認ができませんでした。入力は残しています。もう一度、移動先を選んでください。';
@@ -506,9 +508,12 @@
     try {
       var frame = panel.querySelector('iframe');
       if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+      var nav = panel.querySelector('[data-toybaco-post-subnav]');
+      if (nav) nav.remove();
     } catch (e) { /* noop */ }
     if (panelSpinner) {
       panelSpinner.innerHTML = '<span>この店舗では投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。</span>';
+      if (!panelSpinner.parentNode) panel.appendChild(panelSpinner);
     }
   }
 
@@ -576,7 +581,10 @@
         }
         if (typeof event.data.allowed !== 'boolean') return;
         clearPostCloseRequest();
-        if (!event.data.allowed) return;
+        if (!event.data.allowed) {
+          if (request.cancel) request.cancel();
+          return;
+        }
         postCloseApproved = true;
         try { request.proceed(); } finally { postCloseApproved = false; }
         return;
@@ -603,8 +611,83 @@
       });
     }, LOAD_TIMEOUT_MS);
 
-    if (panel.firstChild) panel.insertBefore(frame, panel.firstChild);
-    else panel.appendChild(frame);
+    panel.appendChild(frame);
+  }
+
+  var POST_SECTIONS = [
+    { path: '/launches', label: 'カレンダー' },
+    { path: '/analytics', label: '分析' },
+    { path: '/media', label: 'メディア' },
+    { path: '/settings', label: '投稿設定' }
+  ];
+
+  function syncPostSections() {
+    if (!panel) return;
+    var pathname = (panelPath || DEFAULT_PATH).split('?', 1)[0];
+    var buttons = panel.querySelectorAll('[data-toybaco-post-path]');
+    for (var i = 0; i < buttons.length; i += 1) {
+      var path = buttons[i].getAttribute('data-toybaco-post-path');
+      if (pathname === path || pathname.indexOf(path + '/') === 0) {
+        buttons[i].setAttribute('aria-current', 'page');
+      } else {
+        buttons[i].removeAttribute('aria-current');
+      }
+    }
+  }
+
+  function buildPostSections() {
+    var nav = document.createElement('nav');
+    nav.setAttribute('data-toybaco-post-subnav', '1');
+    nav.setAttribute('aria-label', '投稿メニュー');
+    POST_SECTIONS.forEach(function (section) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = section.label;
+      button.setAttribute('data-toybaco-post-path', section.path);
+      button.addEventListener('click', function () { navigatePostPath(section.path, false); });
+      nav.appendChild(button);
+    });
+    return nav;
+  }
+
+  // 投稿内の移動も既存composerの保存確認を通す。許可されるまでiframeと入力を残す。
+  function navigatePostPath(path, fromHistory) {
+    var destination = validatePath(path);
+    if (!panel || destination === panelPath || postingDeniedFor(currentAccountId())) return;
+    var current = panel;
+    function restoreHash() {
+      if (!fromHistory || panel !== current) return;
+      try { history.replaceState({ toybacoPosting: true }, '', postingHash(panelPath)); } catch (e) { /* noop */ }
+    }
+    if (requestPanelClose(function () { navigatePostPath(destination, fromHistory); }, restoreHash)) return;
+    var frame = panel.querySelector('iframe');
+    if (frame) frame.remove();
+    if (panelSpinner && panelSpinner.parentNode) panelSpinner.remove();
+    if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+    postFrameReady = false;
+    panelPath = destination;
+    if (!fromHistory) setHash(destination);
+    panelSpinner = createPostSpinner();
+    panel.appendChild(panelSpinner);
+    syncPostSections();
+    // 新しい画面も現在店舗の認証入口を通り、旧画面のREADYは受け取らない。
+    mountPostFrame(destination, panelSpinner);
+  }
+
+  function createPostSpinner() {
+    var spinner = document.createElement('div');
+    spinner.setAttribute('data-toybaco-post-loading', '1');
+    spinner.style.cssText =
+      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'flex-direction:column;gap:12px;background:#fff;color:#6b7684;font-size:14px';
+    spinner.innerHTML =
+      '<span style="width:28px;height:28px;border:3px solid #e8e2d8;border-top-color:#1f3a5f;' +
+      'border-radius:50%;display:inline-block;animation:toybaco-spin 1s linear infinite"></span>' +
+      '<span>投稿画面を開いています…</span>';
+    var style = document.createElement('style');
+    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}';
+    spinner.appendChild(style);
+    return spinner;
   }
 
   function isPostPanelNode(node) {
@@ -809,24 +892,17 @@
     mountPanelHost(host);
 
     panel = document.createElement('div');
+    panelPath = validatePath(path || DEFAULT_PATH);
     panel.setAttribute('data-' + MARK + '-panel', '1');
     panel.style.cssText =
       'position:absolute;inset:0;z-index:1;background:#fff;display:flex;flex-direction:column;box-sizing:border-box';
 
-    var spinner = document.createElement('div');
-    spinner.style.cssText =
-      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'flex-direction:column;gap:12px;background:#fff;color:#6b7684;font-size:14px';
-    spinner.innerHTML =
-      '<span style="width:28px;height:28px;border:3px solid #e8e2d8;border-top-color:#1f3a5f;' +
-      'border-radius:50%;display:inline-block;animation:toybaco-spin 1s linear infinite"></span>' +
-      '<span>投稿画面を開いています…</span>';
-    var style = document.createElement('style');
-    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}';
-    spinner.appendChild(style);
+    var spinner = createPostSpinner();
     panelSpinner = spinner;
 
+    panel.appendChild(buildPostSections());
     panel.appendChild(spinner);
+    syncPostSections();
     host.appendChild(panel);
     watchPostPanelLayout();
     document.addEventListener('keydown', onKeydown, true);
@@ -865,6 +941,7 @@
       if (panel.parentNode) panel.parentNode.removeChild(panel);
     } catch (e) { /* noop */ }
     panel = null;
+    panelPath = null;
     panelSpinner = null;
     syncPostingSelection();
     stripHash();
@@ -1331,10 +1408,14 @@
     return aiReadinessStates[id];
   }
 
-  function aiModeCanEdit() {
+  function aiModeCanEdit(mode) {
+    if (aiModeState().phase !== 'ready') return false;
+    // 下書きは送信を人に戻す保存設定。生成権限や接続の確認とは分ける。
+    if (normalizeAiMode(mode) === AI_MODE_DRAFT) return true;
+    if (normalizeAiMode(mode) !== AI_MODE_AUTO) return false;
     var readiness = aiReadinessState();
     var usage = aiUsageState();
-    return aiModeState().phase === 'ready' && readiness.phase === 'ready' &&
+    return readiness.phase === 'ready' &&
       readiness.data.connection === 'configured' && usage.phase === 'ready' && usage.data.enabled;
   }
 
@@ -1436,7 +1517,7 @@
     if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI応答の接続設定を確認しています…';
     else if (connection === 'unconnected') connectionText = 'AI応答は未接続です。担当者が返信してください。';
     else if (connection === 'configured') connectionText = '接続設定あり（受信箱 ' + readiness.data.configured_inboxes +
-      ' / ' + readiness.data.total_inboxes + ' 件）。外部への応答動作は未確認です。利用可否・残り枠は「AI応答」の設定で確認できます。';
+      ' / ' + readiness.data.total_inboxes + ' 件）。利用可否・残り枠は「AI応答」の設定で確認できます。';
     if (usage.phase === 'loading' || usage.phase === 'idle') connectionText = 'AI応答の利用条件を確認しています…';
     else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
@@ -1451,8 +1532,8 @@
         if (btn.setAttribute) {
           btn.setAttribute('aria-pressed', value === selected ? 'true' : 'false');
           btn.setAttribute('data-toybaco-ai-on', value === selected ? '1' : '0');
-          btn.setAttribute('aria-disabled', aiModeCanEdit() ? 'false' : 'true');
-          btn.disabled = !aiModeCanEdit();
+          btn.setAttribute('aria-disabled', aiModeCanEdit(value) ? 'false' : 'true');
+          btn.disabled = !aiModeCanEdit(value);
         }
       }
       var groups = document.querySelectorAll('[data-toybaco-ai-mode-bar], [data-toybaco-ai-mode-panel]');
@@ -1722,7 +1803,7 @@
     if (!url || !next || !window.fetch) return Promise.resolve(null);
     if (aiModeAccount !== id) return prefetchAiMode(id, true);
     // 取得中・保存中の連打や、古い店舗のボタン操作から二重PUTを作らない。
-    if (!aiModeCanEdit() || next === state.mode) return aiModeInflight[id] || Promise.resolve(null);
+    if (!aiModeCanEdit(next) || next === state.mode) return aiModeInflight[id] || Promise.resolve(null);
     state.phase = 'saving';
     state.message = aiModeLabel(next) + 'へ変更しています…';
     paintAiModeControls();
@@ -1860,7 +1941,7 @@
       head.appendChild(close);
       wrapEl.appendChild(head);
       var lead = document.createElement('p');
-      lead.textContent = 'この店舗全体で使う、AI応答の送り方の保存設定です。接続設定と利用条件は別に確認します。';
+      lead.textContent = 'この店舗全体で使う、AI応答の送り方の保存設定です。未接続でも下書き設定を保存できます。AIの生成には接続設定と利用条件の確認が必要です。';
       wrapEl.appendChild(lead);
       var autoBtn = buildAiModeButton(AI_MODE_AUTO, 'card');
       var autoHelp = document.createElement('small');
@@ -2513,12 +2594,8 @@
     }
     if (p === null) { if (panel) closePanel(); return; }
     if (!panel) { openPanel(p, true); return; }
-    // 開いたまま行き先だけ変わった場合(戻る/進む)は中身を差し替える
-    try {
-      var frame = panel.querySelector('iframe');
-      var want = buildSrc(p);
-      if (frame && frame.src !== want) frame.src = want;
-    } catch (e) { /* 差し替えられなくても開いたままにする */ }
+    // 戻る/進むも補助ナビと同じ保存確認・読み込み・選択表示を使う。
+    navigatePostPath(p, true);
   }
 
   var previousBillingAccount = null;

@@ -565,7 +565,7 @@
       "DOWNLOAD_REPORT": "レポートをダウンロード"
     },
     "RESOLUTION_HEATMAP": {
-      "HEADER": "決議",
+      "HEADER": "解決した会話",
       "NO_CONVERSATIONS": "会話がありません",
       "CONVERSATION": "{count}件の会話",
       "CONVERSATIONS": "{count}件の会話",
@@ -589,7 +589,7 @@
       "NO_TEAMS": "利用できるデータはありません",
       "TABLE_HEADER": {
         "TEAM": "チーム",
-        "OPEN": "再開する",
+        "OPEN": "未解決",
         "UNATTENDED": "未対応",
         "STATUS": "状況"
       }

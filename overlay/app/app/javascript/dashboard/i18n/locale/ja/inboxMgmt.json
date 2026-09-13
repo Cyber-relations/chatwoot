@@ -27,7 +27,7 @@
         "BODY": "作成した受信トレイに担当者を追加します。"
       },
       "FINISH": {
-        "TITLE": "出来上がり！",
+        "TITLE": "設定完了",
         "BODY": "すべての準備が完了しました！"
       }
     },
@@ -197,7 +197,7 @@
         "PROVIDERS": {
           "LABEL": "APIプロバイダー",
           "TWILIO": "Twilio",
-          "BANDWIDTH": "帯域幅"
+          "BANDWIDTH": "Bandwidth"
         },
         "API": {
           "ERROR_MESSAGE": "SMSチャンネルを保存できませんでした"
@@ -471,7 +471,7 @@
         "TITLE": "チャンネルを選択",
         "DESC": "トイバコは、ライブチャットウィジェット、Facebook Messenger、Twitterプロフィール、WhatsApp、Eメールなどのチャンネルをサポートしています。カスタムチャンネルを作成したい場合は、APIチャンネルを使用して作成できます。開始するには、以下のチャンネルのいずれかを選択してください。",
         "TITLE_NEXT": "セットアップを完了する",
-        "TITLE_FINISH": "出来上がり！",
+        "TITLE_FINISH": "設定完了",
         "CHANNEL": {
           "WEBSITE": {
             "TITLE": "ウェブサイト",
@@ -495,7 +495,7 @@
           },
           "SMS": {
             "TITLE": "SMS",
-            "DESCRIPTION": "SMSチャネルをTwilioまたは帯域幅と統合します"
+            "DESCRIPTION": "TwilioまたはBandwidthでSMSを送受信します"
           },
           "API": {
             "TITLE": "API",
