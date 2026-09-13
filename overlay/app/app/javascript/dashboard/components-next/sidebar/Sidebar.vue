@@ -65,6 +65,7 @@ const confirmPostingRouteChange = (to, duplicated = false) => {
     detail: {
       to: to.fullPath,
       preserveHistory: !duplicated,
+      pushBaseHistory: duplicated,
       proceed: () => resolveResult(true),
       cancel: () => resolveResult(false),
     },

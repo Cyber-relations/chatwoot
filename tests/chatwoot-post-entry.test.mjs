@@ -3317,7 +3317,7 @@ for (const sameRoute of [false, true]) {
   if (!sameRoute) assert.equal(await decision, true);
   assert.deepEqual(navigations, [], 'allowing a pending navigation or closing a duplicate route never replays router.push');
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
-  assert.equal(historyWrites, sameRoute ? 1 : 0, 'only a duplicate-route explicit close strips the current hash; native navigation keeps its previous posting entry');
+  assert.equal(historyWrites, sameRoute ? 2 : 0, 'a duplicate-route return updates the previous forward pointer then pushes BASE; native navigation leaves source history untouched');
   afterNavigation(from, from, { type: 16 });
   assert.equal(requests.length, 2, 'the approved same-route retry cannot open another confirmation after the panel closes');
   assert.equal(guard(to, from), true);
@@ -3690,6 +3690,195 @@ function installEntryHistory(env, initialState) {
     },
   };
 }
+
+// Use the actual primary capture AND pinned SidebarGroup handlers. A bare
+// router.push fixture skips the capture path that used to erase the source hash.
+function primaryGroupFixture({ base = '/app/accounts/1/dashboard', kind = 'settings', expanded = false,
+  active = false, withPanel = true, firstPath, navigationFailure = false, redirectOutsideGroup = false } = {}) {
+  const tree = createMenuTree();
+  const destination = firstPath || `/app/accounts/1/${kind}/${kind === 'settings' ? 'general' : 'overview'}`;
+  const row = createStockRow(kind === 'settings' ? '設定' : 'レポート', 'i-lucide-bolt');
+  const children = createDomNode('ul');
+  children.appendChild(createStockRow('Allowed first child', 'i-lucide-users', destination));
+  row.appendChild(children); tree.ul.appendChild(row);
+  const env = loadInjectEntry(() => new Promise(() => {}), base, { body: tree.body });
+  const browser = installEntryHistory(env, { back: null, current: base, forward: null,
+    position: 0, replaced: true, scroll: null });
+  const guards = installPostingRouteGuards(env);
+  const history = env.window.history;
+  const bridgeHistory = {
+    push(target, data = {}) {
+      const previous = history.state;
+      history.replaceState({ ...previous, forward: target }, '', previous.current);
+      history.pushState({ ...previous, ...data, back: previous.current, current: target,
+        forward: null, position: previous.position + 1, replaced: false, scroll: null }, '', target);
+    },
+    replace(target, data = {}) {
+      history.replaceState({ ...history.state, ...data, current: target, replaced: true }, '', target);
+    },
+  };
+  const routes = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/index.js'), 'utf8');
+  vm.runInNewContext(routes.slice(routes.indexOf('const writePostingHistory = event =>'),
+    routes.indexOf('export const validateAuthenticateRoutePermission')), {
+    window: env.window, router: { options: { history: bridgeHistory } },
+  });
+  const state = { expanded, active, routerPushes: [], toggles: 0 };
+  let semanticPath = base;
+  const router = { async push(to) {
+    state.routerPushes.push(to);
+    if (to === semanticPath) {
+      const failure = { type: 16 };
+      guards.afterNavigation({ fullPath: to }, { fullPath: semanticPath }, failure);
+      return failure;
+    }
+    if (await guards.guard({ fullPath: to }) === false) return { type: 4 };
+    if (navigationFailure) return { type: 8 };
+    const acceptedPath = redirectOutsideGroup ? '/app/accounts/1/inbox' : to;
+    bridgeHistory.push(acceptedPath); semanticPath = acceptedPath;
+    // The real active-child watcher can expand before router.push resolves.
+    state.active = !redirectOutsideGroup;
+    if (state.active) state.expanded = true;
+    env.api.afterNavChange();
+    return undefined;
+  } };
+  const group = fs.readFileSync(path.join(root,
+    'overlay/app/app/javascript/dashboard/components-next/sidebar/SidebarGroup.vue'), 'utf8');
+  const handlers = vm.runInNewContext(`(() => { ${group.slice(group.indexOf('const handleCollapsedClick ='),
+    group.indexOf('onMounted(async'))} return { toggleTrigger, handleCollapsedClick }; })()`, {
+    props: { name: kind, to: null }, hasChildren: { value: true }, hasAccessibleChildren: { value: true },
+    isExpanded: { get value() { return state.expanded; } },
+    hasActiveChild: { get value() { return state.active; } },
+    accessibleItems: { value: [{ to: destination }] }, router, window: env.window,
+    setExpandedItem() { state.expanded = !state.expanded; state.toggles += 1; },
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+  });
+  env.api.inject();
+  const control = row.querySelector('[data-toybaco-nav-link]');
+  assert.ok(control, 'the actual parent annotates the native primary header');
+  let collapsed = false;
+  control.addEventListener('click', () => collapsed ? handlers.handleCollapsedClick() : handlers.toggleTrigger());
+  control.click = () => fireClick(control, env.docListeners.click || []);
+  const requests = [];
+  let frame;
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({
+    origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data,
+  }));
+  if (withPanel) {
+    env.api.openPanel('/analytics', false);
+    frame = env.document.querySelector('[data-toybaco-post-entry-panel]').querySelector('iframe');
+    frame.draftFixture = { text: 'Keep this primary-navigation draft', attachment: {}, cursor: 8 };
+    frame.contentWindow = { postMessage(data) { requests.push(data); } };
+    send({ type: 'TOYBACO_POSTIZ_READY' });
+  }
+  return { env, browser, state, requests, frame, base, destination,
+    click(useCollapsed = false) { collapsed = useCollapsed; return control.click(); },
+    answer(allowed) { send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed }); },
+    async travel(delta) {
+      browser.go(delta);
+      semanticPath = env.window.location.pathname + env.window.location.search + env.window.location.hash;
+      await guards.guard({ fullPath: semanticPath }); env.api.afterNavChange();
+    },
+    duplicateAtBase() { guards.afterNavigation({ fullPath: base }, { fullPath: base }, { type: 16 }); },
+  };
+}
+
+for (const kind of ['settings', 'reports']) {
+  const f = primaryGroupFixture({ kind });
+  const posting = f.env.window.location.href;
+  const draft = f.frame.draftFixture;
+  f.click(); await flush();
+  assert.equal(f.requests.length, 1, 'primary capture and router guard must share one prompt');
+  assert.equal(f.env.window.location.href, posting, 'capture must not replace the source posting entry');
+  assert.equal(f.state.expanded, false, 'expansion waits for an accepted navigation');
+  f.click(); await flush(); assert.equal(f.requests.length, 1, 'repeat primary clicks share the pending decision');
+  f.answer(false); await flush();
+  assert.equal(f.frame.draftFixture, draft);
+  assert.equal(f.env.document.querySelector('iframe'), f.frame);
+  assert.equal(f.state.expanded, false, 'cancel then retry still takes the native route branch');
+  f.click(); await flush(); f.answer(true); await flush();
+  assert.equal(f.requests.length, 2, 'retry gets exactly one new confirmation');
+  assert.equal(f.env.window.location.pathname, f.destination);
+  assert.equal(f.browser.entries.length, 3, 'different-route navigation creates no intermediate BASE');
+  assert.equal(f.browser.entries[1].url, posting, 'Back must retain the last analytics entry');
+  assert.equal(f.state.expanded, true);
+  assert.equal(f.state.toggles, 0, 'the route watcher already applied the frozen expansion intent');
+  await f.travel(-1);
+  assert.equal(f.env.window.location.href, posting);
+  assert.ok(f.env.document.querySelector('iframe'), 'Back reopens the last posting page');
+  await f.travel(1);
+  assert.equal(f.env.window.location.pathname, f.destination);
+  assert.equal(f.env.document.querySelector('iframe'), null);
+}
+
+for (const variant of [
+  { active: true, expanded: true, base: '/app/accounts/1/settings/general', after: true },
+  { active: true, expanded: false, base: '/app/accounts/1/settings/general', after: true },
+  { active: false, expanded: true, base: '/app/accounts/1/dashboard', after: false },
+]) {
+  const f = primaryGroupFixture(variant); const posting = f.env.window.location.href;
+  f.click(); assert.equal(f.requests.length, 1);
+  f.click(); assert.equal(f.requests.length, 1, 'a repeated toggle must not invalidate the pending decision');
+  f.answer(false); await flush();
+  assert.equal(f.state.expanded, variant.expanded);
+  assert.equal(f.env.document.querySelector('iframe'), f.frame);
+  assert.equal(f.env.window.location.href, posting);
+  f.click(); f.answer(true); await flush();
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.env.window.location.pathname, variant.base);
+  assert.equal(f.env.window.location.hash, '');
+  assert.equal(f.browser.entries.length, 3, 'same-base return adds exactly one explicit BASE entry');
+  assert.equal(f.browser.entries[1].url, posting);
+  assert.equal(f.state.routerPushes.length, 0, 'a native toggle-only group must not invent a route');
+  assert.equal(f.state.expanded, variant.after);
+  await f.travel(-1); assert.equal(f.env.window.location.href, posting);
+  await f.travel(1); assert.equal(f.env.window.location.hash, '');
+  assert.equal(f.browser.entries.length, 3, 'Back/Forward must not push an extra base');
+}
+
+{
+  const f = primaryGroupFixture({ base: '/app/accounts/1/settings/general', active: true });
+  const posting = f.env.window.location.href;
+  f.click(true); await flush(); assert.equal(f.requests.length, 1);
+  f.answer(false); await flush(); assert.equal(f.env.document.querySelector('iframe'), f.frame);
+  f.click(true); await flush(); f.answer(true); await flush();
+  assert.equal(f.requests.length, 2, 'collapsed duplicate route confirms once per attempt');
+  assert.equal(f.browser.entries.length, 3);
+  assert.equal(f.browser.entries[1].url, posting);
+  assert.equal(f.env.window.location.hash, '');
+}
+{
+  const f = primaryGroupFixture();
+  f.browser.go(-1); f.duplicateAtBase();
+  assert.equal(f.requests.length, 1); f.answer(true); await flush();
+  assert.equal(f.browser.entries.length, 2, 'a pop already at base cannot push another base');
+  assert.equal(f.browser.pushes.length, 1);
+}
+{
+  const f = primaryGroupFixture({ navigationFailure: true }); const posting = f.env.window.location.href;
+  f.click(); await flush(); f.answer(true); await flush();
+  assert.equal(f.env.window.location.href, posting);
+  assert.equal(f.browser.entries.length, 2, 'a later route failure cannot add a base or target entry');
+  assert.equal(f.state.expanded, false);
+  // Existing route guards close after the user allows discard; a later unrelated
+  // guard failure restores the URL's panel, not the deliberately discarded draft.
+  f.env.api.afterNavChange(); assert.ok(f.env.document.querySelector('iframe'));
+}
+{
+  const f = primaryGroupFixture({ redirectOutsideGroup: true });
+  f.click(); await flush(); f.answer(true); await flush();
+  assert.equal(f.env.window.location.pathname, '/app/accounts/1/inbox');
+  assert.equal(f.state.expanded, false, 'a successful redirect outside the group must not expand the old target');
+}
+for (const expanded of [false, true]) {
+  const f = primaryGroupFixture({ withPanel: false, expanded,
+    firstPath: '/app/accounts/1/settings/agents/list' });
+  f.click();
+  assert.equal(f.state.expanded, !expanded, 'no-panel native expansion remains immediate');
+  assert.equal(f.state.routerPushes.length, expanded ? 0 : 1);
+  if (!expanded) assert.equal(f.state.routerPushes[0], f.destination, 'use the first accessible child, not an assumed general route');
+  assert.equal(f.requests.length, 0); await flush();
+}
+console.log('primary native SidebarGroup history and single-confirm regressions: PASS');
 
 // All offered posting pages need a visible route after the upstream rail is hidden.
 {
