@@ -184,6 +184,8 @@
 
   var panel = null;      // 開いているパネルの DOM
   var panelPath = null;
+  var panelRouteBase = null;
+  var postRouteSequence = 0;
   var poller = null;     // 画面遷移を見張るタイマー(開いている間だけ)
   var loadTimer = null;
   var readyMessageHandler = null;
@@ -324,11 +326,58 @@
     } catch (e) { return DEFAULT_PATH; }
   }
 
+  function currentHistoryLocation() {
+    return window.location.pathname + window.location.search + window.location.hash;
+  }
+
+  function postingHistoryState(location) {
+    // createWebHistory also consumes entries added by this overlay on popstate.
+    // Preserve its state (and other callers' data), including a real current URL
+    // and position; a marker-only entry makes its next navigation use undefined.
+    var state = Object.assign({}, history.state || {});
+    state.current = location;
+    if (typeof state.back !== 'string') state.back = null;
+    if (typeof state.forward !== 'string') state.forward = null;
+    if (typeof state.position !== 'number' || !isFinite(state.position)) {
+      state.position = Math.max(0, (history.length || 1) - 1);
+    }
+    if (typeof state.replaced !== 'boolean') state.replaced = true;
+    if (!Object.prototype.hasOwnProperty.call(state, 'scroll')) state.scroll = null;
+    return state;
+  }
+
+  function writePostingHistory(hash, replace) {
+    var request = { hash: hash, replace: replace, handled: false };
+    window.dispatchEvent(new CustomEvent('toybaco:posting-history', { detail: request }));
+    if (request.handled) return;
+    // Before the router module loads, seed a complete entry for its startup.
+    // After startup its synchronous bridge owns every write and cache update.
+    var location = window.location.pathname + window.location.search + hash;
+    var previous = currentHistoryLocation();
+    var state = postingHistoryState(previous);
+    if (!replace) {
+      // Match createWebHistory's two-entry push contract, rather than copying
+      // the previous current/back/forward/position into a new browser entry.
+      state.forward = location;
+      history.replaceState(state, '', previous);
+      state = Object.assign({}, state, {
+        back: previous, current: location, forward: null,
+        position: state.position + 1, replaced: false, scroll: null
+      });
+    } else {
+      state.current = location;
+      state.replaced = true;
+    }
+    if (hash) state.toybacoPosting = true;
+    else delete state.toybacoPosting;
+    history[replace ? 'replaceState' : 'pushState'](state, '', location);
+  }
+
   function setHash(path) {
     try {
-      var h = HASH_PREFIX + '?path=' + encodeURIComponent(path);
+      var h = postingHash(path);
       if (window.location.hash !== h) {
-        history.pushState({ toybacoPosting: true }, '', h);
+        writePostingHistory(h, false);
       }
     } catch (e) { /* hash が付かなくても動作は続ける */ }
   }
@@ -336,9 +385,15 @@
   function stripHash() {
     try {
       if (isPostingHash(window.location.hash || '')) {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
+        writePostingHistory('', true);
       }
     } catch (e) { /* noop */ }
+  }
+
+  function hasPostingRouteGuard() {
+    var request = { handled: false };
+    window.dispatchEvent(new CustomEvent('toybaco:posting-route-owner', { detail: request }));
+    return request.handled;
   }
 
   function onKeydown(e) {
@@ -413,10 +468,12 @@
     return true;
   }
 
-  function clearPostCloseRequest() {
+  function clearPostCloseRequest(cancelPending) {
+    var request = postCloseRequest;
     if (postCloseRequest && postCloseRequest.timer) clearTimeout(postCloseRequest.timer);
     postCloseRequest = null;
     if (postCloseNotice) { postCloseNotice.remove(); postCloseNotice = null; }
+    if (cancelPending && request && request.cancel) request.cancel();
   }
 
   function postingDeniedFor(accountId) {
@@ -502,7 +559,7 @@
 
   function showContractMissing() {
     if (!panel) return;
-    clearPostCloseRequest();
+    clearPostCloseRequest(true);
     if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
     removeReadyMessageHandler();
     try {
@@ -657,7 +714,7 @@
     var current = panel;
     function restoreHash() {
       if (!fromHistory || panel !== current) return;
-      try { history.replaceState({ toybacoPosting: true }, '', postingHash(panelPath)); } catch (e) { /* noop */ }
+      try { writePostingHistory(postingHash(panelPath), true); } catch (e) { /* noop */ }
     }
     if (requestPanelClose(function () { navigatePostPath(destination, fromHistory); }, restoreHash)) return;
     var frame = panel.querySelector('iframe');
@@ -893,6 +950,7 @@
 
     panel = document.createElement('div');
     panelPath = validatePath(path || DEFAULT_PATH);
+    panelRouteBase = window.location.pathname + window.location.search;
     panel.setAttribute('data-' + MARK + '-panel', '1');
     panel.style.cssText =
       'position:absolute;inset:0;z-index:1;background:#fff;display:flex;flex-direction:column;box-sizing:border-box';
@@ -911,8 +969,10 @@
     // サイドバーから別画面へ移ったら閉じる(開いている間だけの軽い見張り)
     var seenPath = window.location.pathname;
     poller = setInterval(function () {
-      if (window.location.pathname !== seenPath) closePanel();
-      else if (!isPostingHash(window.location.hash || '')) closePanel();
+      if (hasPostingRouteGuard()) return;
+      if (window.location.pathname !== seenPath) {
+        if (!requestPanelClose(closePanel)) closePanel();
+      } else if (!isPostingHash(window.location.hash || '')) onHashMaybeChanged();
     }, 300);
 
     var id = currentAccountId();
@@ -924,13 +984,13 @@
     reconcilePostingAccess(id);
   }
 
-  function closePanel() {
-    clearPostCloseRequest();
+  function closePanel(preserveHistory) {
+    clearPostCloseRequest(true);
     postFrameReady = false;
     if (panelLayout) { panelLayout.stop(); panelLayout = null; }
     if (!panel) {
       removeReadyMessageHandler();
-      stripHash();
+      if (preserveHistory !== true) stripHash();
       return;
     }
     try {
@@ -942,9 +1002,10 @@
     } catch (e) { /* noop */ }
     panel = null;
     panelPath = null;
+    panelRouteBase = null;
     panelSpinner = null;
     syncPostingSelection();
-    stripHash();
+    if (preserveHistory !== true) stripHash();
   }
 
   // 既存メニューの1行を手本にして、同じ見た目の行を作る
@@ -2584,6 +2645,7 @@
   }
 
   function onHashMaybeChanged() {
+    if (panel && hasPostingRouteGuard()) return;
     var p = currentHashPath();
     // hash が受信箱のルーターに捨てられていても、退避してあれば開く。
     // 画面がまだログイン後の状態になっていないうちに取り出すと、
@@ -2592,7 +2654,12 @@
       var pending = takePendingPath();
       if (pending !== null) { openPanel(pending, false); return; }
     }
-    if (p === null) { if (panel) closePanel(); return; }
+    if (p === null) {
+      if (panel && !requestPanelClose(closePanel, function () {
+        if (panel) writePostingHistory(postingHash(panelPath), true);
+      })) closePanel();
+      return;
+    }
     if (!panel) { openPanel(p, true); return; }
     // 戻る/進むも補助ナビと同じ保存確認・読み込み・選択表示を使う。
     navigatePostPath(p, true);
@@ -2680,10 +2747,37 @@
     document.addEventListener('click', onDocumentClickCapture, true);
     window.addEventListener('toybaco:before-route-change', function (event) {
       if (!event.detail || typeof event.detail.proceed !== 'function') return;
-      if (requestPanelClose(function () { closePanel(); event.detail.proceed(); })) {
+      if (!panel) return;
+      var detail = event.detail;
+      var sequence = ++postRouteSequence;
+      var destination = null;
+      if (typeof detail.to === 'string') {
+        try {
+          var target = new URL(detail.to, window.location.href);
+          if (target.origin === window.location.origin &&
+              target.pathname + target.search === panelRouteBase && isPostingHash(target.hash)) {
+            var query = new URLSearchParams(target.hash.slice(target.hash.indexOf('?') + 1));
+            destination = validatePath(query.get('path') || DEFAULT_PATH);
+          }
+        } catch (e) { /* native destinations still use the existing close confirmation */ }
+      }
+      if (destination !== null && destination === panelPath) return;
+      function cancel() { if (typeof detail.cancel === 'function') detail.cancel(); }
+      if (postCloseRequest) {
         event.preventDefault();
-      } else if (panel) {
-        closePanel();
+        cancel();
+        return;
+      }
+      function proceed() {
+        if (sequence !== postRouteSequence) { cancel(); return; }
+        if (destination !== null) navigatePostPath(destination, true);
+        else closePanel(detail.preserveHistory === true);
+        detail.proceed();
+      }
+      if (requestPanelClose(proceed, cancel)) {
+        event.preventDefault();
+      } else {
+        proceed();
       }
     });
   } catch (e) { /* start 後の再試行で入口は出す */ }

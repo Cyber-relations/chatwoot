@@ -504,6 +504,9 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     URL,
     URLSearchParams,
     Event,
+    CustomEvent: class extends Event {
+      constructor(type, options) { super(type, options); this.detail = options.detail; }
+    },
     Promise,
     setTimeout(fn, ms) {
       if (options.setTimeout) return options.setTimeout(fn, ms);
@@ -3252,19 +3255,12 @@ assert.doesNotMatch(billingPageSource, /position:fixed|z-index:9998/, 'the contr
   assert.equal(url.value, null);
 }
 
-// Native routing also covers keyboard and collapsed-popover routes. Vue Router
-// reports same-route selections only to afterEach as a duplicated navigation.
-for (const sameRoute of [false, true]) {
-  const env = loadInjectEntry(() => new Promise(() => {}));
-  env.api.inject(); env.api.openPanel('/launches', false);
-  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
-  const frame = panel.querySelector('iframe'); const requests = []; const navigations = [];
-  frame.contentWindow = { postMessage(data) { requests.push(data); } };
-  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+function installPostingRouteGuards(env) {
   let guard; let afterNavigation;
+  const navigations = [];
   const start = sidebarSource.indexOf('const confirmPostingRouteChange =');
-  const end = sidebarSource.indexOf('onBeforeUnmount(removePostingDuplicateGuard);', start) + 'onBeforeUnmount(removePostingDuplicateGuard);'.length;
+  const end = sidebarSource.indexOf('// Calls run on the enterprise-only API', start);
+  assert.ok(start >= 0 && end > start);
   const cleanup = [];
   vm.runInNewContext(sidebarSource.slice(start, end), {
     router: {
@@ -3278,11 +3274,32 @@ for (const sameRoute of [false, true]) {
     CustomEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); this.defaultPrevented = false; } preventDefault() { this.defaultPrevented = true; } },
     onBeforeUnmount: fn => cleanup.push(fn),
   });
+  return { guard, afterNavigation, navigations, cleanup };
+}
+
+// Native routing also covers keyboard and collapsed-popover routes. Vue Router
+// reports same-route selections only to afterEach as a duplicated navigation.
+for (const sameRoute of [false, true]) {
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe'); const requests = [];
+  env.window.location.hash = '#/toybaco/posting?path=%2Flaunches';
+  let historyWrites = 0;
+  env.window.history.pushState = env.window.history.replaceState = () => { historyWrites += 1; };
+  frame.contentWindow = { postMessage(data) { requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  const { guard, afterNavigation, navigations, cleanup } = installPostingRouteGuards(env);
   const from = { fullPath: '/app/accounts/1/dashboard' };
   const to = sameRoute ? from : { fullPath: '/app/accounts/1/settings/contract' };
+  let decision;
   const requestNavigation = () => {
     if (sameRoute) afterNavigation(to, from, { type: 16 });
-    else assert.equal(guard(to, from), false);
+    else {
+      decision = guard(to, from);
+      assert.equal(typeof decision.then, 'function', 'the original navigation waits for the editor decision');
+    }
   };
   for (const failure of [undefined, { type: 4 }, { type: 8 }]) {
     afterNavigation(to, from, failure);
@@ -3291,27 +3308,220 @@ for (const sameRoute of [false, true]) {
   requestNavigation();
   assert.equal(requests.length, 1);
   send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].requestId, allowed: false });
+  if (!sameRoute) assert.equal(await decision, false);
   assert.equal(navigations.length, 0);
   assert.equal(panel.querySelector('iframe'), frame);
   requestNavigation();
   assert.equal(requests.length, 2);
   send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[1].requestId, allowed: true });
-  assert.deepEqual(navigations, [to.fullPath]);
+  if (!sameRoute) assert.equal(await decision, true);
+  assert.deepEqual(navigations, [], 'allowing a pending navigation or closing a duplicate route never replays router.push');
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(historyWrites, sameRoute ? 1 : 0, 'only a duplicate-route explicit close strips the current hash; native navigation keeps its previous posting entry');
   afterNavigation(from, from, { type: 16 });
   assert.equal(requests.length, 2, 'the approved same-route retry cannot open another confirmation after the panel closes');
   assert.equal(guard(to, from), true);
-  cleanup[0](); cleanup[1]();
-  assert.deepEqual(cleanup.slice(2), ['beforeEach removed', 'afterEach removed'], 'unmount unregisters both native routing hooks');
+  cleanup.slice().forEach(fn => fn());
+  assert.deepEqual(cleanup.slice(3), ['beforeEach removed', 'afterEach removed'], 'unmount unregisters both native routing hooks');
+  assert.equal(env.windowListeners['toybaco:posting-route-owner'].length, 0, 'unmount also releases hashchange/poller ownership');
+}
+
+// The real Sidebar guard owns native posting-hash and hash-to-none transitions.
+// Hashchange and the old poller must not unmount the iframe while it is deciding.
+{
+  const polls = [];
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', {
+    setInterval(fn) { polls.push(fn); return polls.length; },
+  });
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const base = env.window.location.pathname;
+  const calendarHash = '#/toybaco/posting?path=%2Flaunches';
+  const analyticsHash = '#/toybaco/posting?path=%2Fanalytics';
+  const requests = [];
+  const send = (frame, data) => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  const ready = frame => {
+    frame.contentWindow = { postMessage(data) { requests.push(data); } };
+    frame.draftFixture = { text: 'keep this draft', attachment: {} };
+    send(frame, { type: 'TOYBACO_POSTIZ_READY' });
+  };
+  let writes = 0;
+  env.window.history.pushState = env.window.history.replaceState = () => { writes += 1; };
+  const { guard, navigations } = installPostingRouteGuards(env);
+  const calendar = panel.querySelector('iframe'); ready(calendar);
+  env.window.location.hash = analyticsHash;
+  env.api.onHashMaybeChanged(); polls.forEach(fn => fn());
+  assert.equal(requests.length, 0, 'observers defer even before an asynchronous Router guard reaches this navigation');
+  let decision = guard({ fullPath: base + analyticsHash }, { fullPath: base });
+  env.api.onHashMaybeChanged(); polls.forEach(fn => fn());
+  assert.equal(requests.length, 1, 'native guard, hashchange and poller share one confirmation');
+  assert.equal(panel.querySelector('iframe'), calendar);
+  send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed: false });
+  assert.equal(await decision, false);
+  assert.equal(panel.querySelector('iframe'), calendar);
+  assert.equal(calendar.draftFixture.text, 'keep this draft');
+  assert.equal(writes, 0, 'Vue Router, not a destination-entry replace, restores the native history position');
+  decision = guard({ fullPath: base + analyticsHash }, { fullPath: base });
+  send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed: true });
+  assert.equal(await decision, true);
+  const analytics = panel.querySelector('iframe'); ready(analytics);
+  assert.notEqual(analytics, calendar);
+  assert.equal(new URL(analytics.src).searchParams.get('return'), '/analytics?tb_embed=1');
+  assert.equal(writes, 0, 'accepting native posting navigation retains its existing forward stack');
+  env.window.location.hash = '';
+  decision = guard({ fullPath: base }, { fullPath: base });
+  env.api.onHashMaybeChanged(); polls.forEach(fn => fn());
+  assert.equal(panel.querySelector('iframe'), analytics, 'back to the hashless base cannot bypass the dirty-editor guard');
+  send(analytics, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed: false });
+  assert.equal(await decision, false);
+  assert.equal(panel.querySelector('iframe'), analytics);
+  assert.equal(writes, 0);
+  decision = guard({ fullPath: base }, { fullPath: base + calendarHash });
+  send(analytics, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed: true });
+  assert.equal(await decision, true);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.equal(writes, 0);
+  assert.deepEqual(navigations, []);
+}
+
+for (const teardown of ['denied', 'trusted-close', 'close-panel']) {
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  frame.contentWindow = { postMessage() {} };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  const { guard } = installPostingRouteGuards(env);
+  const decision = guard({ fullPath: '/app/accounts/1/settings/contract' });
+  let result = 'pending';
+  decision.then(value => { result = value; });
+  if (teardown === 'close-panel') env.api.closePanel();
+  else send({ type: teardown === 'denied' ? 'TOYBACO_POSTIZ_DENIED' : 'TOYBACO_POSTIZ_CLOSE' });
+  await flush();
+  assert.equal(result, false, `${teardown}: removing the pending iframe must settle its navigation promise`);
+  assert.equal(env.document.querySelector('iframe'), null);
+}
+
+// Exercise the actual router-module bridge, not a test-only event handler.
+// Calling RouterHistory (not raw History or semantic router.push) is what also
+// updates Vue Router's private location/position cache before the next popstate.
+{
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  const routerSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/index.js'), 'utf8');
+  const start = routerSource.indexOf('const writePostingHistory = event =>');
+  const end = routerSource.indexOf('export const validateAuthenticateRoutePermission', start);
+  assert.ok(start >= 0 && end > start, 'the production RouterHistory bridge must be present');
+  const calls = [];
+  let rawWrites = 0;
+  env.window.history.pushState = env.window.history.replaceState = () => { rawWrites += 1; };
+  const record = method => (target, data) => {
+    calls.push({ method, target, data: { ...data } });
+    const url = new URL(target, env.window.location.href);
+    Object.assign(env.window.location, { href: url.href, pathname: url.pathname, search: url.search, hash: url.hash });
+  };
+  vm.runInNewContext(routerSource.slice(start, end), {
+    window: env.window,
+    router: {
+      options: { history: { push: record('push'), replace: record('replace') } },
+      push() { assert.fail('posting hashes must not invoke the semantic routing guard again'); },
+      replace() { assert.fail('posting hashes must not invoke the semantic routing guard again'); },
+    },
+  });
+  env.api.inject(); env.api.openPanel('/analytics?range=30', false);
+  assert.deepEqual(calls, [{
+    method: 'push', target: '/app/accounts/1/inbox#/toybaco/posting?path=%2Fanalytics%3Frange%3D30',
+    data: { toybacoPosting: true },
+  }]);
+  env.api.closePanel();
+  assert.deepEqual(calls[1], { method: 'replace', target: '/app/accounts/1/inbox', data: { toybacoPosting: false } });
+  assert.equal(rawWrites, 0, 'the initialized router always owns both browser state and its private cache');
+  for (const hash of [
+    'https://evil.example', '//evil.example', '/app/accounts/2/inbox',
+    '#/other', '#/toybaco/posting?path=%2Foauth',
+    '#/toybaco/posting?path=%2F%2Fevil.example',
+    '#/toybaco/posting?path=%2Flaunches%2F..%2Foauth',
+    '#/toybaco/posting?path=%2Fsettings%2Ftemplates',
+    '#/toybaco/posting?path=%252Fanalytics',
+  ]) {
+    const detail = { hash, replace: false, handled: false };
+    env.window.dispatchEvent({ type: 'toybaco:posting-history', detail });
+    assert.equal(detail.handled, true, 'invalid requests must not enable raw History fallback after router startup');
+    assert.equal(calls.length, 2, 'the bridge cannot navigate to a foreign origin, document, or unoffered page');
+  }
+  assert.equal(rawWrites, 0);
+}
+
+// Browser entries must remain consumable by createWebHistory after native
+// back/forward. Unlike the old no-op stub, this stores state and resolves URLs.
+function installEntryHistory(env, initialState) {
+  const entries = [{ url: env.window.location.href, state: structuredClone(initialState) }];
+  const pushes = [];
+  let index = 0;
+  const history = env.window.history;
+  const applyLocation = url => {
+    const next = new URL(url, env.window.location.href);
+    assert.equal(next.origin, 'https://app.staging.toybaco.jp', 'posting history cannot change the host');
+    Object.assign(env.window.location, {
+      href: next.href, pathname: next.pathname, search: next.search, hash: next.hash,
+    });
+  };
+  Object.defineProperties(history, {
+    state: { get: () => structuredClone(entries[index].state) },
+    length: { get: () => entries.length },
+  });
+  history.replaceState = (state, _title, url) => {
+    applyLocation(url);
+    entries[index] = { url: env.window.location.href, state: structuredClone(state) };
+  };
+  history.pushState = (state, _title, url) => {
+    applyLocation(url);
+    entries.splice(index + 1, entries.length, { url: env.window.location.href, state: structuredClone(state) });
+    index += 1;
+    pushes.push(url);
+  };
+  return {
+    entries, pushes,
+    go(delta) {
+      const previous = history.state;
+      index += delta;
+      assert.ok(index >= 0 && index < entries.length);
+      applyLocation(entries[index].url);
+      assert.equal(history.state.position - previous.position, delta, 'Vue Router must receive the real traversal direction and distance');
+      env.api.onHashMaybeChanged();
+    },
+    assertCurrent() {
+      const state = history.state;
+      const url = new URL(env.window.location.href);
+      assert.equal(state.current, url.pathname + url.search + url.hash, 'Vue Router current must be an actual relative URL, never undefined or stale');
+      assert.ok(Number.isInteger(state.position));
+      assert.equal(new URL(url.origin + state.current).origin, url.origin, 'Vue Router URL construction must not produce jpundefined');
+      return state;
+    },
+  };
 }
 
 // All offered posting pages need a visible route after the upstream rail is hidden.
 {
   const env = loadInjectEntry(() => new Promise(() => {}));
-  const history = [];
-  env.window.history.pushState = (_state, _title, hash) => { history.push(hash); env.window.location.hash = hash; };
-  env.window.history.replaceState = (_state, _title, hash) => { env.window.location.hash = hash; };
+  const initialRoute = env.window.location.pathname;
+  const browser = installEntryHistory(env, {
+    back: '/app/accounts/1/dashboard', current: initialRoute, forward: null,
+    position: 17, replaced: true, scroll: { left: 0, top: 36 },
+    callerData: { retained: true },
+  });
+  const history = browser.pushes;
   env.api.inject(); env.api.openPanel('/launches', false);
+  const firstState = browser.assertCurrent();
+  assert.equal(firstState.position, 18);
+  assert.equal(firstState.back, initialRoute);
+  assert.equal(firstState.forward, null);
+  assert.equal(firstState.replaced, false);
+  assert.equal(firstState.scroll, null);
+  assert.equal(browser.entries[0].state.forward, firstState.current);
+  assert.equal(browser.entries[0].state.current, initialRoute);
+  assert.deepEqual(browser.entries[0].state.scroll, { left: 0, top: 36 });
+  assert.deepEqual(firstState.callerData, { retained: true });
   const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
   const nav = panel.querySelector('[data-toybaco-post-subnav]');
   assert.equal(nav.getAttribute('aria-label'), '投稿メニュー');
@@ -3335,10 +3545,15 @@ for (const sameRoute of [false, true]) {
   assert.equal(panel.querySelector('iframe'), original);
   assert.equal(nav.children[0].getAttribute('aria-current'), 'page');
   assert.equal(history.length, 1);
+  assert.deepEqual(browser.assertCurrent(), firstState, 'cancelling the prompt must not alter the current entry');
   fireClick(nav.children[1]);
   send(original, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[1].data.requestId, allowed: true });
   const analytics = panel.querySelector('iframe');
   assert.notEqual(analytics, original);
+  const analyticsState = browser.assertCurrent();
+  assert.equal(analyticsState.back, firstState.current);
+  assert.equal(analyticsState.position, firstState.position + 1);
+  assert.equal(browser.entries[1].state.forward, analyticsState.current);
   assert.equal(new URL(analytics.src).searchParams.get('return'), '/analytics?tb_embed=1');
   assert.equal(nav.children[1].getAttribute('aria-current'), 'page');
   assert.equal(nav.children[0].getAttribute('aria-current'), null);
@@ -3356,19 +3571,26 @@ for (const sameRoute of [false, true]) {
     const next = panel.querySelector('iframe');
     assert.equal(new URL(next.src).searchParams.get('return'), `${path}?tb_embed=1`);
     assert.equal(nav.children[index].getAttribute('aria-current'), 'page');
+    browser.assertCurrent();
     ready(next);
   }
   const calendar = panel.querySelector('iframe');
-  env.window.location.hash = '#/toybaco/posting?path=%2Fsettings';
-  env.api.onHashMaybeChanged();
+  const calendarState = browser.assertCurrent();
+  browser.go(-1);
+  const cancelledPosition = env.window.history.state.position;
   send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).data.requestId, allowed: false });
   assert.equal(env.window.location.hash, '#/toybaco/posting?path=%2Flaunches', 'cancelled browser history restores the current URL');
   assert.equal(panel.querySelector('iframe'), calendar);
-  env.window.location.hash = '#/toybaco/posting?path=%2Fmedia';
-  env.api.onHashMaybeChanged();
+  assert.equal(browser.assertCurrent().position, cancelledPosition, 'cancel replaces the traversed entry without inventing a position');
+  assert.deepEqual(env.window.history.state.callerData, { retained: true });
+  browser.go(1);
+  assert.equal(browser.assertCurrent().position, calendarState.position);
+  assert.equal(panel.querySelector('iframe'), calendar, 'forward to the already visible page keeps its editor');
+  browser.go(-2);
   send(calendar, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).data.requestId, allowed: true });
   assert.equal(new URL(panel.querySelector('iframe').src).searchParams.get('return'), '/media?tb_embed=1');
   assert.equal(nav.children[2].getAttribute('aria-current'), 'page');
+  browser.assertCurrent();
   const loadingFrame = panel.querySelector('iframe');
   fireClick(nav.children[3]);
   assert.notEqual(panel.querySelector('iframe'), loadingFrame);
@@ -3378,6 +3600,29 @@ for (const sameRoute of [false, true]) {
   send(deniedFrame, { type: 'TOYBACO_POSTIZ_DENIED' });
   assert.equal(panel.querySelector('[data-toybaco-post-subnav]'), null, 'a denied store cannot keep offering posting routes');
   assert.equal(panel.querySelector('iframe'), null);
+  const beforeClose = browser.assertCurrent();
+  env.api.closePanel();
+  const closed = browser.assertCurrent();
+  assert.equal(closed.current, initialRoute);
+  assert.equal(closed.position, beforeClose.position);
+  assert.equal(closed.back, beforeClose.back);
+  assert.equal(closed.forward, beforeClose.forward);
+  assert.equal(closed.replaced, true);
+  assert.equal(closed.toybacoPosting, undefined);
+  assert.deepEqual(closed.callerData, { retained: true });
+}
+
+// Direct links can open before Vue Router has seeded its first entry.
+{
+  const env = loadInjectEntry(() => new Promise(() => {}));
+  const browser = installEntryHistory(env, null);
+  env.api.inject(); env.api.openPanel('/launches', false);
+  assert.equal(browser.entries[0].state.position, 0);
+  assert.equal(browser.entries[0].state.current, '/app/accounts/1/inbox');
+  assert.equal(browser.entries[0].state.back, null);
+  assert.equal(browser.assertCurrent().position, 1);
+  env.api.closePanel();
+  assert.equal(browser.assertCurrent().current, '/app/accounts/1/inbox');
 }
 
 console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed paths=allowlisted posting-status=fail-open stock-nav=hidden first-paint=retry in-app-tab=main-area native-navigation=preserved posting-sections=guarded billing-owner=server-gated slash-canned=first-keypress ai-modes=confirmed-readback ai-usage=server-confirmed tenant-races=isolated');
