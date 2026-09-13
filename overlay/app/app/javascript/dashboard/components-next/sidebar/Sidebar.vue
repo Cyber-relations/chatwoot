@@ -57,27 +57,40 @@ const router = useRouter();
 
 // Native leaves also navigate from the collapsed popover. Let the existing
 // posting editor confirm unsaved input before any of those route changes.
-const confirmPostingRouteChange = to => {
+const confirmPostingRouteChange = (to, duplicated = false) => {
+  let resolveResult;
+  const result = new Promise(resolve => { resolveResult = resolve; });
   const event = new CustomEvent('toybaco:before-route-change', {
     cancelable: true,
-    detail: { proceed: () => router.push(to.fullPath) },
+    detail: {
+      to: to.fullPath,
+      preserveHistory: !duplicated,
+      proceed: () => resolveResult(true),
+      cancel: () => resolveResult(false),
+    },
   });
   window.dispatchEvent(event);
-  return !event.defaultPrevented;
+  // Keep the original navigation. Replaying router.push after a popstate would
+  // discard its forward entries, and replace-based cancellation loses position.
+  return event.defaultPrevented ? result : true;
 };
-const removePostingGuard = router.beforeEach((to, from) => {
-  if (to.fullPath === from.fullPath) return true;
-  return confirmPostingRouteChange(to);
-});
+const removePostingGuard = router.beforeEach(to => confirmPostingRouteChange(to));
 // Posting adds its hash without changing the current Vue route. Selecting that
 // same route in a popover skips beforeEach, but still needs the close prompt.
 const removePostingDuplicateGuard = router.afterEach((to, from, failure) => {
   if (isNavigationFailure(failure, NavigationFailureType.duplicated)) {
-    confirmPostingRouteChange(to);
+    confirmPostingRouteChange(to, true);
   }
 });
+// While this guard is mounted it also owns hashchange/poller confirmation, so
+// those observers cannot close a dirty iframe ahead of the pending navigation.
+const markPostingRouteOwner = event => {
+  if (event.detail) event.detail.handled = true;
+};
+window.addEventListener('toybaco:posting-route-owner', markPostingRouteOwner);
 onBeforeUnmount(removePostingGuard);
 onBeforeUnmount(removePostingDuplicateGuard);
+onBeforeUnmount(() => window.removeEventListener('toybaco:posting-route-owner', markPostingRouteOwner));
 
 // Calls run on the enterprise-only API (cloud runs enterprise); hide the entry
 // on community so it doesn't lead to a dashboard/CTA the backend can't serve.
