@@ -935,15 +935,17 @@
   function createPostSpinner() {
     var spinner = document.createElement('div');
     spinner.setAttribute('data-toybaco-post-loading', '1');
+    spinner.setAttribute('role', 'status');
+    spinner.setAttribute('aria-live', 'polite');
     spinner.style.cssText =
       'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'flex-direction:column;gap:12px;background:#fff;color:#6b7684;font-size:14px';
+      'flex-direction:column;gap:12px;background:var(--toybaco-offwhite,#faf7f2);color:var(--toybaco-muted,#66758a);font-size:14px';
     spinner.innerHTML =
-      '<span style="width:28px;height:28px;border:3px solid #e8e2d8;border-top-color:#1f3a5f;' +
+      '<span data-toybaco-post-ring="" aria-hidden="true" style="width:28px;height:28px;min-width:28px;max-width:28px;box-sizing:border-box;flex-shrink:0;border:3px solid var(--toybaco-hairline,#dce2e8);border-top-color:var(--toybaco-muted,#66758a);' +
       'border-radius:50%;display:inline-block;animation:toybaco-spin 1s linear infinite"></span>' +
       '<span>投稿画面を開いています…</span>';
     var style = document.createElement('style');
-    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}';
+    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){[data-toybaco-post-ring]{animation:none!important}}';
     spinner.appendChild(style);
     return spinner;
   }
