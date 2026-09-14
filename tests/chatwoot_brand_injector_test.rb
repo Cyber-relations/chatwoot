@@ -253,16 +253,27 @@ class ChatwootBrandInjectorTest < Minitest::Test
   end
 end
 
-require 'tmpdir'
+require 'minitest/mock'
 require_relative '../overlay/app/lib/toybaco/source_offer'
 
 class ChatwootSourceOfferTest < Minitest::Test
   def with_source_offer(revision)
-    Dir.mktmpdir('toybaco-source-offer-') do |dir|
-      path = File.join(dir, 'revision')
-      File.write(path, revision) unless revision.nil?
-      app = ->(_env) { [418, {}, ['delegated']] }
-      yield Toybaco::SourceOffer.new(app, revision_path: path)
+    path = '/toybaco-source-offer-test/TOYBACO_PUBLIC_REVISION'
+    file_exists = lambda do |requested|
+      raise "unexpected revision path: #{requested}" unless requested == path
+
+      !revision.nil?
+    end
+    read_revision = lambda do |requested|
+      raise "unexpected revision read: #{requested}" unless requested == path && !revision.nil?
+
+      revision
+    end
+    app = ->(_env) { [418, {}, ['delegated']] }
+    File.stub(:file?, file_exists) do
+      File.stub(:read, read_revision) do
+        yield Toybaco::SourceOffer.new(app, revision_path: path)
+      end
     end
   end
 
