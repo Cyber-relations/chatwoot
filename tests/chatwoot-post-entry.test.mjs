@@ -4411,7 +4411,7 @@ function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent) {
   send({ type: 'TOYBACO_POSTIZ_READY', theme: 'light' });
   assert.equal(frame.style.visibility, 'hidden', 'legacy readiness cannot accept an unbound account');
   for (const overrides of [{ origin: 'https://evil.example' }, { origin: 'https://post.toybaco.jp' }, { source: {} }]) send(request, overrides);
-  for (const documentId of [undefined, '', request.documentId.toUpperCase(), 1, randomUUID().replace('-4', '-5')]) send({ ...request, documentId });
+  for (const documentId of [undefined, '', 'ABCDEF12-3456-4789-ABCD-123456789012', 1, 'abcdef12-3456-5789-abcd-123456789012']) send({ ...request, documentId });
   assert.equal(messages.length, 0, 'wrong sender/document shape receives no parent account');
   send(request);
   const init = messages.at(-1).data;
@@ -4564,6 +4564,20 @@ assert.doesNotMatch(original, /Math\.random/);
 console.log('TOYBACO_PARENT_ACCOUNT_RECOVERY=PASS secure-random-fallback no-crypto-guidance cached-child-full-reopen stale-document-no-rollback');
 
 // The common AI entry is discoverable before a conversation or channel exists.
+for (const path of ['/app/accounts/10/suspended', '/app/accounts/11/suspended/']) {
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry(aiModeAwareFetch, path, { body: tree.body });
+  const originalRows = [...tree.ul.children];
+  env.api.inject(); env.api.openAuxiliaryView('ai');
+  assert.deepEqual(tree.ul.children, originalRows, 'a suspended account switcher must not become a product navigation menu');
+  assert.equal(env.document.querySelector('[data-toybaco-aux-entry]'), null);
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry]'), null);
+  assert.equal(env.fetches.length, 0, 'suspended landing does not fetch AI or posting data');
+  env.window.location.pathname = '/app/accounts/4/dashboard';
+  env.api.afterNavChange();
+  assert.ok(env.document.querySelector('[data-toybaco-aux-entry="ai"]'), 'return to active account restores its own normal navigation');
+}
 {
   const tree = createMenuTree(true);
   const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/inbox', { body: tree.body });
@@ -4617,6 +4631,136 @@ for (const destination of ['ai', 'about']) {
   assert.ok(env.fetches.every(item => !item.opts?.method || item.opts.method === 'GET'));
 }
 console.log('AI/About auxiliary entry, read-only guidance, owned draft and close-decision regressions: PASS');
+
+function auxiliaryPostingFixture(postingPath = '/settings', aiIntent) {
+  const base = '/app/accounts/1/dashboard';
+  const env = loadInjectEntry(aiModeAwareFetch, base);
+  const browser = installEntryHistory(env, { back: null, current: base, forward: null,
+    position: 0, replaced: true, scroll: null });
+  env.api.inject(); env.api.openPanel(postingPath, false, aiIntent);
+  const frame = env.document.querySelector('iframe'), requests = [];
+  frame.draftFixture = { text: '破棄を許可するまでは残す本文', attachment: {} };
+  frame.contentWindow = { postMessage(data) { if (data.type === 'TOYBACO_POSTIZ_REQUEST_CLOSE') requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({
+    origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data,
+  }));
+  send(postingReady(frame));
+  return { env, browser, frame, requests,
+    open(kind) { fireClick(env.document.querySelector(`[data-toybaco-aux-entry="${kind}"]`), env.docListeners.click || []); },
+    answer(allowed) { send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests.at(-1).requestId, allowed }); },
+    close() { fireClick(env.document.querySelector('[data-toybaco-aux-view]').querySelector('header').querySelector('button')); },
+  };
+}
+
+// Assistance is a temporary view of the same location, not an extra base entry.
+for (const kind of ['about', 'ai']) for (const postingPath of ['/settings', '/analytics?range=30', '/media', '/launches']) {
+  const f = auxiliaryPostingFixture(postingPath, 'compose');
+  const location = f.env.window.location.href, state = f.browser.assertCurrent();
+  const draft = f.frame.draftFixture, historyLength = f.browser.entries.length;
+  f.open(kind); f.open(kind); assert.equal(f.requests.length, 1);
+  f.answer(false);
+  assert.equal(f.env.document.querySelector('iframe'), f.frame);
+  assert.equal(f.frame.draftFixture, draft); assert.equal(f.env.window.location.href, location);
+  f.open(kind); f.answer(true);
+  assert.equal(f.env.document.querySelector('iframe'), null, 'discarded composer is not held offscreen');
+  assert.equal(f.env.window.location.href, location, 'opening assistance must preserve the posting URL');
+  f.env.api.onHashMaybeChanged(); f.env.api.afterNavChange();
+  assert.ok(f.env.document.querySelector(`[data-toybaco-aux-view="${kind}"]`));
+  assert.equal(f.env.document.querySelector('iframe'), null, 'observer cannot remount behind assistance');
+  if (kind === 'about') f.close();
+  else {
+    const event = { key: 'Escape', preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+    [...(f.env.docListeners.keydown || [])].forEach(fn => fn(event));
+    assert.equal(event.defaultPrevented, true);
+  }
+  const restored = f.env.document.querySelector('iframe');
+  assert.ok(restored); assert.notEqual(restored, f.frame);
+  assert.equal(restored.draftFixture, undefined, 'discarded inputs and attachment objects are never restored');
+  const destination = new URL(new URL(restored.src).searchParams.get('return'), 'https://post.staging.toybaco.jp');
+  assert.equal(destination.pathname, postingPath.split('?')[0]);
+  assert.equal(destination.searchParams.get('range'), postingPath.includes('range=30') ? '30' : null);
+  assert.equal(destination.searchParams.has('tb_ai'), false, 'returning is not a fresh AI compose action');
+  assert.equal(restored.style.visibility, 'hidden', 'the new frame must pass its existing identity/READY gate');
+  assert.equal(f.env.window.location.href, location); assert.deepEqual(f.browser.assertCurrent(), state);
+  assert.equal(f.browser.entries.length, historyLength, 'open/close does not insert a Back trap');
+  f.browser.go(-1); assert.equal(f.env.document.querySelector('iframe'), null);
+  f.browser.go(1); assert.ok(f.env.document.querySelector('iframe'));
+  assert.equal(f.env.window.location.href, location);
+  f.env.api.closePanel();
+}
+
+// Switching assistance pages keeps the original destination; external navigation expires it.
+{
+  const f = auxiliaryPostingFixture(); f.open('about'); f.answer(true);
+  f.open('ai'); f.open('about'); f.close();
+  assert.equal(new URL(new URL(f.env.document.querySelector('iframe').src).searchParams.get('return'), 'https://post.staging.toybaco.jp').pathname, '/settings');
+  f.env.api.closePanel();
+}
+for (const changed of ['account', 'native-route', 'posting-history']) {
+  const f = auxiliaryPostingFixture(); f.open('about'); f.answer(true);
+  if (changed === 'posting-history') {
+    f.browser.go(-1); assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
+    assert.equal(f.env.document.querySelector('iframe'), null);
+    f.browser.go(1); assert.ok(f.env.document.querySelector('iframe'));
+  } else {
+    f.env.window.location.pathname = changed === 'account' ? '/app/accounts/2/dashboard' : '/app/accounts/1/settings/general';
+    f.env.window.location.hash = '';
+    f.close(); assert.equal(f.env.document.querySelector('iframe'), null, 'Close cannot restore into a different account or route');
+    f.env.api.afterNavChange(); assert.equal(f.env.document.querySelector('iframe'), null);
+  }
+  f.env.api.closePanel();
+}
+{
+  const f = auxiliaryPostingFixture(); f.open('ai'); f.answer(true);
+  const card = f.env.document.querySelector('[data-toybaco-ai-purpose="posting"]');
+  fireClick(card.querySelector('button'));
+  const returned = new URL(new URL(f.env.document.querySelector('iframe').src).searchParams.get('return'), 'https://post.staging.toybaco.jp');
+  assert.equal(returned.pathname, '/launches'); assert.equal(returned.searchParams.get('tb_ai'), 'compose');
+  assert.equal(f.browser.entries.length, 3, 'explicit action adds only its real destination, not an intermediate base');
+  f.env.api.closePanel();
+}
+{
+  const f = auxiliaryPostingFixture(); f.open('about'); f.answer(true);
+  // The existing reconciliation owns denial; a trusted denied message while the
+  // returned frame is loading must still remove it and show the normal contract UI.
+  f.close(); const frame = f.env.document.querySelector('iframe');
+  [...(f.env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow,
+    data: { type: 'TOYBACO_POSTIZ_DENIED' } }));
+  assert.equal(f.env.document.querySelector('iframe'), null); assert.match(collectText(f.env.document.body), /契約|利用/);
+  f.env.api.closePanel();
+}
+for (const sameBase of [false, true]) {
+  const f = primaryGroupFixture(sameBase ? { base: '/app/accounts/1/settings/general', expanded: true, active: true } : {});
+  const postingLocation = f.env.window.location.href;
+  f.env.api.openAuxiliaryView('about'); f.answer(true);
+  f.click(); await flush();
+  assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
+  assert.equal(f.env.document.querySelector('iframe'), null);
+  assert.equal(f.env.window.location.hash, '');
+  assert.equal(f.browser.entries.length, 3, 'native destination adds one real entry without an intermediate base');
+  if (sameBase) assert.equal(f.state.expanded, true, 'returning to the active native group preserves its expansion');
+  await f.travel(-1); assert.equal(f.env.window.location.href, postingLocation);
+  assert.ok(f.env.document.querySelector('iframe')); f.env.api.closePanel();
+}
+for (const action of ['返信AIの設定を確認', '会話を開く']) {
+  const f = auxiliaryPostingFixture(); f.open('ai'); f.answer(true);
+  const card = f.env.document.querySelector('[data-toybaco-ai-purpose="reply"]');
+  fireClick([...card.querySelectorAll('button')].find(button => button.textContent === action));
+  f.env.api.afterNavChange();
+  assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
+  if (action === '返信AIの設定を確認') {
+    assert.ok(f.env.document.querySelector('[data-toybaco-ai-mode-panel]'));
+    assert.ok(f.env.document.querySelector('iframe'));
+    assert.equal(f.browser.entries.length, 2, 'nested settings keep the original posting location');
+    f.env.api.closeAiModePanel();
+  } else {
+    assert.equal(f.env.document.querySelector('iframe'), null);
+    assert.equal(f.env.window.location.hash, ''); assert.equal(f.browser.entries.length, 3);
+    f.browser.go(-1); assert.ok(f.env.document.querySelector('iframe'));
+  }
+  f.env.api.closePanel();
+}
+console.log('About/AI return: exact posting path, unchanged history, discarded draft excluded, account/route invalidation and denial PASS');
 
 {
   const env = loadInjectEntry(async url => String(url).includes('/posting_status') ? statusResponse(false) : aiModeAwareFetch(url));

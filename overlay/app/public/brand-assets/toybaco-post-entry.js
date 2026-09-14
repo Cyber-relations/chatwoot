@@ -219,7 +219,8 @@
   })();
 
   function isLoggedInView() {
-    return /\/app\/accounts\//.test(window.location.pathname);
+    return /\/app\/accounts\//.test(window.location.pathname) &&
+      !/\/app\/accounts\/\d+\/suspended\/?$/.test(window.location.pathname);
   }
 
   function currentAccountId() {
@@ -1526,15 +1527,19 @@
   }
 
   function navigatePrimaryNav(kind) {
+    var auxiliaryPosting = auxiliaryPostingDestination();
     closeAuxiliaryView();
     if (requestPanelClose(function () { navigatePrimaryNav(kind); })) return;
     var id = currentAccountId();
     if (!id) return;
-    var returnToConversation = kind === 'inbox' && panel &&
+    var returnToConversation = kind === 'inbox' && (panel || auxiliaryPosting) &&
       /\/(dashboard|inbox|conversations)(?:\/|$)/.test(window.location.pathname);
     closeAiModePanel();
-    closePanel();
-    if (returnToConversation) return;
+    closePanel(auxiliaryPosting ? true : undefined);
+    if (returnToConversation) {
+      if (auxiliaryPosting) closePanelToBase();
+      return;
+    }
     var dest = primaryNavDestination(kind, id);
     if (window.location.pathname === dest) { syncPostingSelection(); return; }
     // 既存の子RouterLinkを経由し、Vueの会話・下書きを保ったまま画面を切り替える。
@@ -1660,6 +1665,7 @@
   var auxiliaryView = null;
   var auxiliaryAccount = null;
   var auxiliaryRoute = null;
+  var auxiliaryPostingReturn = null;
   var auxiliaryReturnFocus = null;
   var auxiliaryBackground = [];
 
@@ -1678,14 +1684,27 @@
     return button;
   }
 
-  function closeAuxiliaryView() {
+  function auxiliaryLocation() {
+    return window.location.pathname + (window.location.search || '') + (window.location.hash || '');
+  }
+
+  function auxiliaryPostingDestination() {
+    var destination = auxiliaryPostingReturn;
+    return destination && destination.account === currentAccountId() &&
+      destination.route === auxiliaryLocation() && destination.path === currentHashPath() &&
+      destination.path === validatePath(destination.path) ? destination : null;
+  }
+
+  function closeAuxiliaryView(restorePosting) {
     if (!auxiliaryView) return;
+    var destination = auxiliaryPostingDestination();
     var selected = document.querySelector('[data-toybaco-aux-entry][aria-current="page"]');
     if (selected) selected.removeAttribute('aria-current');
     auxiliaryView.remove();
     auxiliaryView = null;
     auxiliaryAccount = null;
     auxiliaryRoute = null;
+    auxiliaryPostingReturn = null;
     auxiliaryBackground.forEach(function (saved) {
       if (saved.inert === null) saved.node.removeAttribute('inert');
       else saved.node.setAttribute('inert', saved.inert);
@@ -1697,12 +1716,15 @@
     if (auxiliaryReturnFocus && auxiliaryReturnFocus.isConnected !== false && auxiliaryReturnFocus.focus) auxiliaryReturnFocus.focus();
     auxiliaryReturnFocus = null;
     syncPostingSelection();
+    // Only the explicit Close/Escape returns to the previous surface. A fresh
+    // iframe rechecks identity; discarded composer state and AI intent stay gone.
+    if (restorePosting === true && destination) openPanel(destination.path, true);
   }
 
   function auxiliaryKeydown(event) {
     if (event.key !== 'Escape' || !auxiliaryView || aiPanel) return;
     event.preventDefault(); event.stopPropagation();
-    closeAuxiliaryView();
+    closeAuxiliaryView(true);
   }
 
   function visitAiSettings() {
@@ -1740,8 +1762,8 @@
     host.appendChild(auxiliaryText('p', '届いた問い合わせに、確認して使える返信の下書きを。'));
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
-    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { closeAuxiliaryView(); openAiModePanel(); }, true));
-    actions.appendChild(auxiliaryButton('会話を開く', function () { closeAuxiliaryView(); navigatePrimaryNav('inbox'); }));
+    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { closeAuxiliaryView(true); openAiModePanel(); }, true));
+    actions.appendChild(auxiliaryButton('会話を開く', function () { navigatePrimaryNav('inbox'); }));
     host.appendChild(actions);
     var status = document.createElement('div');
     status.setAttribute('data-toybaco-ai-hub-status', '1');
@@ -1820,13 +1842,19 @@
     if (!isLoggedInView()) return;
     var host = findContentHost();
     if (!host) return;
-    if (panel) closePanelToBase();
+    var returnPosting = auxiliaryPostingReturn;
+    if (panel) {
+      returnPosting = { account: currentAccountId(), path: panelPath, route: auxiliaryLocation() };
+      closePanel(true);
+    }
     closeAiModePanel();
     closeAuxiliaryView();
     mountPanelHost(host);
     auxiliaryReturnFocus = document.activeElement;
     auxiliaryAccount = currentAccountId();
-    auxiliaryRoute = window.location.pathname + window.location.search;
+    auxiliaryRoute = auxiliaryLocation();
+    auxiliaryPostingReturn = returnPosting && returnPosting.account === auxiliaryAccount &&
+      returnPosting.route === auxiliaryRoute ? returnPosting : null;
     var view = document.createElement('section');
     view.setAttribute('data-toybaco-aux-view', kind);
     view.setAttribute('data-account', auxiliaryAccount);
@@ -1836,7 +1864,7 @@
     var title = auxiliaryText('h1', kind === 'ai' ? 'AIアシスタント' : 'トイバコについて');
     title.setAttribute('tabindex', '-1');
     head.appendChild(title);
-    head.appendChild(auxiliaryButton('閉じる', closeAuxiliaryView));
+    head.appendChild(auxiliaryButton('閉じる', function () { closeAuxiliaryView(true); }));
     view.appendChild(head);
     view.appendChild(auxiliaryText('p', kind === 'ai' ? '返信と投稿。それぞれの作業に合ったAIを選んでください。' : '問い合わせ対応と投稿管理を、ひとつのワークスペースで。', 'data-toybaco-aux-lead'));
     if (kind === 'ai') {
@@ -3107,6 +3135,10 @@
   }
 
   function onHashMaybeChanged() {
+    if (auxiliaryView) {
+      if (auxiliaryAccount === currentAccountId() && auxiliaryRoute === auxiliaryLocation()) return;
+      closeAuxiliaryView();
+    }
     if (panel && hasPostingRouteGuard()) return;
     var p = currentHashPath();
     // hash が受信箱のルーターに捨てられていても、退避してあれば開く。
@@ -3129,7 +3161,7 @@
   var previousBillingAccount = null;
 
   function afterNavChange() {
-    if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== window.location.pathname + window.location.search)) closeAuxiliaryView();
+    if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== auxiliaryLocation())) closeAuxiliaryView();
     if (panelLayout) panelLayout.update();
     var billingAccount = /\/settings\/contract\/?$/.test(window.location.pathname) ? currentAccountId() : null;
     var leavingBillingAccount = previousBillingAccount;
@@ -3210,8 +3242,18 @@
     document.addEventListener('click', onDocumentClickCapture, true);
     window.addEventListener('toybaco:posting-group-toggle', function (event) {
       var detail = event.detail;
-      if (!panel || !hasPostingRouteGuard() || !detail ||
+      if (!hasPostingRouteGuard() || !detail ||
           typeof detail.proceed !== 'function' || typeof detail.navigates !== 'boolean') return;
+      var auxiliaryPosting = auxiliaryPostingDestination();
+      closeAuxiliaryView();
+      if (auxiliaryPosting) {
+        detail.handled = true;
+        if (detail.navigates) { detail.proceed(); return; }
+        closePanelToBase();
+        if (!detail.preserveExpanded) detail.proceed();
+        return;
+      }
+      if (!panel) return;
       detail.handled = true;
       if (postCloseRequest) return;
       if (detail.navigates) { detail.proceed(); return; }
