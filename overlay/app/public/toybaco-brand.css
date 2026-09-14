@@ -1733,3 +1733,50 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
   color: var(--toybaco-ink);
   border-color: var(--toybaco-control-border) !important;
 }
+
+/* Shared assistance uses the same product surface and touch target as primary work. */
+[data-toybaco-aux-nav] { order: 20; margin-top: auto; padding-top: 24px; border-top: 1px solid var(--toybaco-hairline); }
+[data-toybaco-aux-entry] { display: flex; align-items: center; gap: 10px; min-height: 44px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+[data-toybaco-aux-entry] > span:first-child { width: 24px; height: 24px; flex: 0 0 24px; }
+[data-toybaco-aux-entry]:hover { background: var(--toybaco-wash); }
+[data-toybaco-aux-view] { position: absolute; inset: 0; z-index: 3; overflow: auto; padding: 32px; background: var(--toybaco-offwhite); color: var(--toybaco-ink); }
+[data-toybaco-aux-view] > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1120px; margin: auto; }
+[data-toybaco-aux-view] h1 { font-size: 24px; font-weight: 700; letter-spacing: -.025em; }
+[data-toybaco-aux-lead] { max-width: 1120px; margin: 8px auto 28px; color: var(--toybaco-muted); font-size: 14px; line-height: 1.7; }
+[data-toybaco-ai-cards] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 24px; max-width: 1120px; margin: auto; }
+[data-toybaco-ai-cards] > article { min-width: 0; border: 1px solid var(--toybaco-hairline); border-radius: 16px; background: var(--toybaco-surface); padding: 24px; }
+[data-toybaco-ai-cards] h2 { font-size: 19px; font-weight: 700; margin: 0 0 10px; }
+[data-toybaco-ai-cards] p, [data-toybaco-ai-cards] li { font-size: 13px; line-height: 1.8; color: var(--toybaco-muted); }
+[data-toybaco-ai-cards] ol { list-style: decimal; padding-left: 20px; margin: 20px 0; }
+[data-toybaco-ai-cards] li + li { margin-top: 12px; }
+[data-toybaco-aux-note] { margin: 20px 0; padding: 12px; border-radius: 10px; background: var(--toybaco-wash); }
+[data-toybaco-aux-action], .toybaco-ai-draft-result button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--toybaco-control-border); border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+[data-toybaco-aux-primary] { background: var(--toybaco-navy); border-color: var(--toybaco-navy); color: #fff; }
+[data-toybaco-aux-actions] { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+[data-toybaco-aux-view] [data-toybaco-ai-usage] { margin: 16px 0; }
+[data-toybaco-aux-view] :is(button,a):focus-visible, [data-toybaco-aux-entry]:focus-visible { outline: 2px solid var(--toybaco-focus); outline-offset: 3px; }
+.toybaco-ai-draft-result { display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid var(--toybaco-hairline); border-radius: 12px; background: var(--toybaco-wash); font-size: 13px; }
+.toybaco-ai-draft-result > div { flex: 1; min-width: 0; }
+.toybaco-ai-draft-result p { margin: 4px 0 0; line-height: 1.6; color: var(--toybaco-muted); }
+.toybaco-ai-draft-result button:disabled { cursor: not-allowed; opacity: .5; }
+@media (max-width: 900px) { [data-toybaco-ai-cards] { grid-template-columns: 1fr; } [data-toybaco-aux-view] { padding: 20px 16px 88px; } [data-toybaco-ai-cards] > article { padding: 20px; } .toybaco-ai-draft-result { flex-direction: column; align-items: stretch; } }
+
+[data-toybaco-aux-link] { display: inline-flex; min-height: 44px; align-items: center; margin-right: 20px; text-decoration: underline; text-underline-offset: 4px; }
+[data-toybaco-about-licenses] { margin-top: 32px; border-top: 1px solid var(--toybaco-hairline); padding-top: 12px; }
+[data-toybaco-about-licenses] summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+[data-toybaco-about-licenses] summary::before { content: '＋'; margin-right: 10px; }
+[data-toybaco-about-licenses][open] summary::before { content: '−'; }
+[data-toybaco-about-licenses] section { margin-top: 24px; }
+
+/* AI is a primary task beside inquiry/posting; About alone stays in utilities. */
+aside nav [data-toybaco-ai-nav] { order: 3; }
+[data-toybaco-aux-entry][aria-current="page"] { background: var(--toybaco-wash); color: var(--toybaco-navy); font-weight: 600; }
+[data-toybaco-ai-guide] { width: auto; min-height: 44px; padding: 4px 8px; font-size: 12px; text-decoration: underline; }
+
+[data-toybaco-aux-action]:disabled { opacity: .5; cursor: not-allowed; }
+
+[data-toybaco-ai-hub-status] { display: flex; flex-direction: column; gap: 4px; margin: 20px 0 12px; color: var(--toybaco-muted); font-size: 12px; line-height: 1.7; }
+[data-toybaco-ai-guide] { margin-top: 20px; border-top: 1px solid var(--toybaco-hairline); padding-top: 4px; }
+[data-toybaco-ai-guide] > summary { display: list-item; min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 13px; font-weight: 600; }
+[data-toybaco-ai-guide] [data-toybaco-aux-link] { margin: 8px 0 0; color: var(--toybaco-muted); font-size: 12px; }
+[data-toybaco-posting-ai-availability] { margin-top: 16px; }

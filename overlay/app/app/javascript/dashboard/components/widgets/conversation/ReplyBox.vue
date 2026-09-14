@@ -23,6 +23,7 @@ import AudioRecorder from 'dashboard/components/widgets/WootWriter/AudioRecorder
 import { AUDIO_FORMATS } from 'shared/constants/messages';
 import { BUS_EVENTS } from 'shared/constants/busEvents';
 import { CMD_AI_ASSIST } from 'dashboard/helper/commandbar/events';
+import { latestToybacoAiDraft } from 'dashboard/helper/toybacoAiDraft';
 import {
   getMessageVariables,
   getUndefinedVariablesInMessage,
@@ -243,6 +244,9 @@ export default {
         getEffectiveChannelType(this.channelType, this.inbox?.medium || '')
       );
       return !!stripped.trim();
+    },
+    toybacoAiDraft() {
+      return latestToybacoAiDraft(this.currentChat?.messages);
     },
     isBotOwnedPendingConversation() {
       return (
@@ -1048,6 +1052,18 @@ export default {
     clearEditorSelection() {
       this.updateEditorSelectionWith = '';
     },
+    async useToybacoAiDraft() {
+      const draft = this.toybacoAiDraft;
+      const conversationId = this.currentChat?.id;
+      if (!draft || this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent ||
+          (this.isPrivate && this.hasAttachments)) return;
+      if (this.isPrivate) this.setReplyMode(REPLY_EDITOR_MODES.REPLY);
+      await this.$nextTick();
+      if (this.currentChat?.id !== conversationId || this.toybacoAiDraft?.id !== draft.id ||
+          this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent) return;
+      // WootMessageEditor inserts this as a schema.text node, never as HTML.
+      this.addIntoEditor(draft.content);
+    },
     addIntoEditor(content) {
       this.updateEditorSelectionWith = content;
       this.onFocus();
@@ -1438,6 +1454,16 @@ export default {
               v-model:to-emails="toEmails"
             />
           </div>
+        </div>
+        <div v-if="toybacoAiDraft && isDefaultEditorMode" class="toybaco-ai-draft-result" role="status">
+          <div>
+            <strong>AIの返信下書きがあります</strong>
+            <p>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>
+            <p v-if="hasMeaningfulEditorContent || (isPrivate && hasAttachments)">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>
+          </div>
+          <button type="button" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
+            AI下書きを使う
+          </button>
         </div>
         <AudioRecorder
           v-if="showAudioRecorderEditor"

@@ -1,3 +1,4 @@
+import './chatwoot-ai-draft.test.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +32,7 @@ const entryPath = path.join(root, 'overlay/app/public/brand-assets/toybaco-post-
 const original = fs.readFileSync(entryPath, 'utf8');
 const instrumented = original.replace(
   /\n\}\)\(\);\s*$/,
-  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, onHashMaybeChanged: onHashMaybeChanged, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, readSessionHeaders: readSessionHeaders, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode };\n})();\n'
+  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, onHashMaybeChanged: onHashMaybeChanged, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, readSessionHeaders: readSessionHeaders, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode, openAuxiliaryView: openAuxiliaryView, closeAuxiliaryView: closeAuxiliaryView };\n})();\n'
 );
 assert.notEqual(instrumented, original, 'test instrumentation anchor was not found');
 
@@ -1662,6 +1663,9 @@ for (const destination of ['settings', 'reports', 'inbox']) {
     control({ 'data-toybaco-nav-link': 'reports' }, 'div'),
     control({ 'data-toybaco-nav-link': 'inbox' }, 'div'),
     control({}, 'div'), // An undecorated native conversation group expands.
+    control({}, 'button'),
+    control({ 'data-toybaco-aux-entry': 'unexpected' }, 'button'),
+    control({ 'data-toybaco-aux-entry': 'ai' }, 'button', tree.body),
     control({ href: 'https://outside.example/app/accounts/1/settings/general' }),
     control({ href: 'https://outside.example/', 'data-toybaco-nav-link': 'posting' }),
     control({ href: '/app/accounts/1/settings/general', target: '_blank' }),
@@ -1675,10 +1679,40 @@ for (const destination of ['settings', 'reports', 'inbox']) {
     assert.equal(props.isMobileSidebarOpen, true, 'non-terminal, external, and other-scope controls keep the drawer state');
     assert.equal(events.length, 0);
   }
+  for (const auxiliary of ['ai', 'about']) {
+    props.isMobileSidebarOpen = true; events.length = 0;
+    const entry = env.document.querySelector(`[data-toybaco-aux-entry="${auxiliary}"]`);
+    fireClick(entry.children[0], [...captures, ...env.docListeners.click]);
+    assert.equal(props.isMobileSidebarOpen, false, `${auxiliary}: native window capture closes before document navigation`);
+    assert.deepEqual(events, ['closeMobileSidebar']);
+    assert.ok(env.document.querySelector(`[data-toybaco-aux-view="${auxiliary}"]`));
+    env.api.closeAuxiliaryView();
+  }
   isMobile.value = false; props.isMobileSidebarOpen = true; events.length = 0;
   fireClick(leaf, captures); assert.equal(props.isMobileSidebarOpen, true);
   isMobile.value = true; props.isMobileSidebarOpen = false;
   fireClick(leaf, captures); assert.equal(events.length, 0);
+
+  for (const auxiliary of ['ai', 'about']) {
+    isMobile.value = true; props.isMobileSidebarOpen = true; events.length = 0;
+    env.api.openPanel('/launches', false);
+    const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+    const frame = panel.querySelector('iframe'), draft = { text: '保持する編集中の投稿' }, requests = [];
+    frame.draftFixture = draft;
+    frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
+    const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+    send(postingReady(frame));
+    const entry = env.document.querySelector(`[data-toybaco-aux-entry="${auxiliary}"]`);
+    fireClick(entry, [...captures, ...env.docListeners.click]);
+    assert.equal(props.isMobileSidebarOpen, false); assert.equal(requests.length, 1);
+    assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+    send({ type: 'TOYBACO_POSTIZ_CLOSE_PENDING', requestId: requests[0].requestId });
+    assert.deepEqual(events, ['closeMobileSidebar'], 'pending cannot duplicate native close');
+    send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].requestId, allowed: false });
+    assert.equal(panel.querySelector('iframe'), frame); assert.equal(frame.draftFixture, draft);
+    assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+    env.api.closePanel();
+  }
 
   // Settings/reports retain their native group behavior, then close the drawer
   // only when the current iframe confirms that its discard dialog is shown.
@@ -1973,7 +2007,7 @@ function readinessResponse(overrides = {}) {
   assert.equal(
     env.document.querySelector('aside [data-toybaco-ai-mode-entry], nav [data-toybaco-ai-mode-entry]'),
     null,
-    'AI応答 must stay off the canonical left nav'
+    'composer reply-mode control remains beside the editor; the shared AI assistant has its own auxiliary entry'
   );
   const entry = aiModeEntry(env.document);
   assert.ok(entry, 'AI応答 must sit next to the reply box');
@@ -2016,7 +2050,7 @@ function readinessResponse(overrides = {}) {
   assert.doesNotMatch(collectText(bar), /Captain|Copilot|Auto|Draft/);
   const compact = bar.querySelector('[data-toybaco-ai-compact]');
   assert.ok(compact, 'mobile AI controls must have a separate compact presentation');
-  assert.equal(compact.children.length, 2, 'compact controls contain only the status and settings entry');
+  assert.equal(compact.children.length, 3, 'compact controls contain status, settings and direct reply AI guidance');
   assert.equal(compact.querySelector('[data-toybaco-ai-mode]'), null, 'mode choices stay outside the compact presentation');
   assert.equal(compact.querySelector('[data-toybaco-ai-readiness]'), null, 'long connection details stay outside the compact presentation');
   env.api.ensureComposerAiBar();
@@ -2195,7 +2229,7 @@ function deferred() {
   const settingsControl = settings.querySelector('[role="button"]');
   const reportsControl = reports.querySelector('[role="button"]');
   const primaryCount = () => tree.ul.children.filter((row) => row.getAttribute('data-toybaco-primary-nav') || row.getAttribute('data-toybaco-post-entry-wrap') || row.querySelector('[data-toybaco-billing-entry]')).length;
-  assert.equal(primaryCount(), 4, 'contract details belong inside settings, leaving four primary functions');
+  assert.equal(primaryCount(), 5, 'AI is a discoverable primary task; contract details remain inside settings');
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(fireClick(settingsControl, env.docListeners.click || []).prevented, false, 'native settings click must be allowed');
   assert.equal(settingsChildren.style.display, '');
@@ -2239,7 +2273,7 @@ function deferred() {
   settingsRows[1].remove();
   env.api.inject();
   assert.equal(settingsChildren.children.length, 3, 'do not recreate a child removed by role policy');
-  assert.equal(primaryCount(), 4);
+  assert.equal(primaryCount(), 5);
   assert.ok(visits.includes('/app/accounts/4/settings/canned-response/list'));
 }
 
@@ -4349,13 +4383,13 @@ for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 
 
 // Parent-account intent is exchanged with the current document before READY.
 // Send raw messages here: do not use the compatibility fixture helper above.
-function postingContextFixture(pathname = '/app/accounts/1/inbox') {
+function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent) {
   const timers = new Map(); let timerId = 0;
   const env = loadInjectEntry(() => new Promise(() => {}), pathname, {
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
-  env.api.openPanel('/analytics', false);
+  env.api.openPanel(aiIntent === 'compose' ? '/launches' : '/analytics', false, aiIntent);
   const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
   const frame = panel.querySelector('iframe');
   const messages = [];
@@ -4528,3 +4562,119 @@ console.log('TOYBACO_PARENT_ACCOUNT_INTENT=PASS trusted-init immutable-route sta
 }
 assert.doesNotMatch(original, /Math\.random/);
 console.log('TOYBACO_PARENT_ACCOUNT_RECOVERY=PASS secure-random-fallback no-crypto-guidance cached-child-full-reopen stale-document-no-rollback');
+
+// The common AI entry is discoverable before a conversation or channel exists.
+{
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/inbox', { body: tree.body });
+  const input = createDomNode('textarea'); input.value = '未保存の返信'; tree.content.appendChild(input);
+  tree.content.setAttribute('aria-hidden', 'false');
+  env.api.inject(); env.api.inject();
+  const ai = env.document.querySelector('[data-toybaco-aux-entry="ai"]');
+  assert.ok(ai); assert.equal(ai.parentElement.getAttribute('data-toybaco-primary-nav'), 'ai');
+  assert.equal(env.document.querySelectorAll('[data-toybaco-aux-nav]').length, 1);
+  assert.equal(env.document.querySelector('[data-toybaco-aux-nav]').children.length, 1, 'About alone is a footer utility');
+  fireClick(ai, env.docListeners.click || []);
+  const view = env.document.querySelector('[data-toybaco-aux-view="ai"]'); assert.ok(view);
+  assert.match(collectText(view), /問い合わせ返信/); assert.match(collectText(view), /投稿文作成/);
+  assert.match(collectText(view), /内部メモ/); assert.match(collectText(view), /AI下書きを使う/);
+  assert.match(collectText(view), /返信AIの月間利用枠/); assert.match(collectText(view), /管理者/);
+  assert.equal(input.value, '未保存の返信'); assert.equal(input.getAttribute('inert'), '');
+  await flush(); assert.ok(env.fetches.every(item => !item.opts?.method || item.opts.method === 'GET'));
+  env.api.closeAuxiliaryView(); assert.equal(input.getAttribute('inert'), null); assert.equal(input.value, '未保存の返信');
+  env.api.openAuxiliaryView('about');
+  const about = env.document.querySelector('[data-toybaco-aux-view="about"]');
+  const details = about.querySelector('details'); assert.ok(details); assert.equal(details.getAttribute('open'), null);
+  assert.match(collectText(details), /個別条件/);
+  const links = [...about.querySelectorAll('a')].map(a => a.href);
+  assert.ok(links.includes('https://app.staging.toybaco.jp/toybaco/source'));
+  assert.ok(links.includes('https://post.staging.toybaco.jp/api/toybaco/source'));
+  env.window.location.pathname = '/app/accounts/2/inbox'; env.api.afterNavChange();
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+  assert.equal(input.getAttribute('inert'), null);
+  assert.equal(env.document.querySelector('[data-toybaco-aux-nav]').getAttribute('data-account'), '2');
+}
+for (const destination of ['ai', 'about']) {
+  const env = loadInjectEntry(aiModeAwareFetch);
+  env.api.inject(); env.api.openPanel('/launches', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe'), requests = [];
+  frame.draftFixture = { text: '残す投稿文', file: {} };
+  const draft = frame.draftFixture;
+  frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send(postingReady(frame));
+  const target = env.document.querySelector(`[data-toybaco-aux-entry="${destination}"]`);
+  fireClick(target, env.docListeners.click || []); fireClick(target, env.docListeners.click || []);
+  assert.equal(requests.length, 1); assert.equal(requests[0].type, 'TOYBACO_POSTIZ_REQUEST_CLOSE');
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[0].requestId, allowed: false });
+  assert.equal(panel.querySelector('iframe'), frame); assert.equal(frame.draftFixture, draft);
+  fireClick(target, env.docListeners.click || []);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: requests[1].requestId, allowed: true });
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+  assert.ok(env.document.querySelector(`[data-toybaco-aux-view="${destination}"]`));
+  assert.ok(env.fetches.every(item => !item.opts?.method || item.opts.method === 'GET'));
+}
+console.log('AI/About auxiliary entry, read-only guidance, owned draft and close-decision regressions: PASS');
+
+{
+  const env = loadInjectEntry(async url => String(url).includes('/posting_status') ? statusResponse(false) : aiModeAwareFetch(url));
+  env.api.inject(); await flush(); env.api.openAuxiliaryView('ai');
+  const view = env.document.querySelector('[data-toybaco-aux-view="ai"]');
+  const card = view.querySelector('[data-toybaco-ai-purpose="posting"]');
+  const start = card.querySelector('button');
+  assert.equal(start.disabled, true); assert.match(collectText(card), /契約者にご確認/);
+  fireClick(start, env.docListeners.click || []);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null);
+}
+{
+  const env = loadInjectEntry(aiModeAwareFetch); const history = [];
+  env.window.history.pushState = (_state, _title, url) => history.push(url);
+  env.api.inject(); await flush(); env.api.openAuxiliaryView('ai');
+  const card = env.document.querySelector('[data-toybaco-ai-purpose="posting"]');
+  fireClick(card.querySelector('button'), env.docListeners.click || []);
+  const frame = env.document.querySelector('iframe');
+  assert.ok(new URL(frame.src).searchParams.get('return').includes('tb_ai=compose'));
+  assert.ok(history.every(url => !String(url).includes('tb_ai')));
+  env.api.closePanel(); env.api.openPanel('/launches', true);
+  assert.ok(!new URL(env.document.querySelector('iframe').src).searchParams.get('return').includes('tb_ai'));
+}
+console.log('explicit hub AI intent is child-only; parent history and Back do not replay it: PASS');
+
+// Explicit compose intent survives only pre-READY retry in its original account.
+for (const intent of [undefined, 'compose']) {
+  const f = postingContextFixture('/app/accounts/1/inbox', intent);
+  const timeout = [...f.timers.values()].find(timer => timer.ms === 20000); timeout.fn();
+  const retry = f.panel.querySelector('[data-toybaco-post-loading]').querySelector('button');
+  retry.listeners.click[0]();
+  const next = f.env.document.querySelector('iframe');
+  assert.notEqual(next, f.frame);
+  assert.equal(new URL(next.src).searchParams.get('return').includes('tb_ai=compose'), intent === 'compose');
+  assert.ok(!f.env.window.location.hash.includes('tb_ai'));
+  f.env.api.closePanel();
+  f.env.api.openPanel('/launches', false);
+  assert.ok(!new URL(f.env.document.querySelector('iframe').src).searchParams.get('return').includes('tb_ai'), 'closing/cancelling entry never retains an AI intent globally');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture('/app/accounts/1/inbox', 'compose');
+  f.send(f.request); f.send(f.ready(f.messages.at(-1).data));
+  assert.equal(f.frame.style.visibility, 'visible');
+  // A later document navigation can time out, but the original action is spent.
+  f.send({ ...f.request, documentId: randomUUID() });
+  [...f.timers.values()].find(timer => timer.ms === 20000).fn();
+  f.panel.querySelector('[data-toybaco-post-loading]').querySelector('button').listeners.click[0]();
+  assert.ok(!new URL(f.env.document.querySelector('iframe').src).searchParams.get('return').includes('tb_ai'), 'accepted READY permanently consumes the parent retry intent');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture('/app/accounts/1/inbox', 'compose');
+  [...f.timers.values()].find(timer => timer.ms === 20000).fn();
+  const retry = f.panel.querySelector('[data-toybaco-post-loading]').querySelector('button');
+  f.env.window.location.pathname = '/app/accounts/2/inbox';
+  retry.listeners.click[0]();
+  assert.equal(f.env.document.querySelector('iframe'), f.frame, 'stale retry cannot carry an AI intent into another account');
+  f.env.api.closePanel();
+}
+console.log('TOYBACO_AI_ENTRY_RETRY=PASS pre-ready-same-account-only normal-no-intent ready-consumed cancelled-no-global-intent');
