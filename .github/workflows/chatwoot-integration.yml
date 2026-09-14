@@ -159,6 +159,7 @@ jobs:
             --file Dockerfile \
             --build-arg "CHATWOOT_IMAGE=$CHATWOOT_BASE_IMAGE" \
             --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_SHA" \
+            --build-arg "TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT" \
             --tag "$image" \
             --metadata-file "$metadata" \
             --provenance=false \

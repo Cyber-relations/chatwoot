@@ -14,8 +14,8 @@
  *     (hash の path は検証してから使う。検証に落ちたら既定画面を開く)
  *   - 受信箱の返信欄で「/」を打った最初のキーで、既存の定型文一覧をすぐ出す
  *     (設定画面へ行かせない。LP の「返信はたった3秒」と同じ操作)
- *   - AI 一次応答は返信欄の横で「全自動」「下書き」だけを選ぶ
- *     (左ナビは会話/投稿/レポート/設定。ご契約内容は設定配下。Captain は開かない)
+ *   - AI アシスタントを主ナビで案内し、返信欄の横で「全自動」「下書き」を選ぶ
+ *     (主ナビは会話/投稿/AIアシスタント/レポート/設定。Captain は開かない)
  *   - 何かあっても受信箱を壊さない(失敗したら黙って何もしない)
  *   - 戻るボタン/ESC で閉じられる。サイドバーで別画面へ移ったら自動で閉じる
  */
@@ -295,7 +295,8 @@
   var postThemeSequence = 0;
 
   function revealPostFrame(frame) {
-    if (!panel || panel.querySelector('iframe') !== frame || !postFrameReady) return;
+    if (!panel || panel.querySelector('iframe') !== frame || !postFrameReady ||
+        frame.toybacoExpectedAccountId !== currentAccountId()) return;
     frame.style.visibility = 'visible';
     if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
     if (panelSpinner && panelSpinner.parentNode) panelSpinner.parentNode.removeChild(panelSpinner);
@@ -325,11 +326,12 @@
     } catch (e) { /* READY still sends the current theme without an observer */ }
   }
 
-  function buildSrc(path) {
+  function buildSrc(path, aiIntent) {
     var destination = new URL(validatePath(path), POST_ORIGIN);
     // OIDC 往復後も iframe 文脈を維持し、同名 query は固定値1個へ正規化する。
     destination.searchParams.set('tb_embed', '1');
     destination.searchParams.set('tb_theme', postingDisplayTheme());
+    if (aiIntent === 'compose') destination.searchParams.set('tb_ai', 'compose');
 
     // 既存のPostiz cookieを信用して直接画面を開かない。iframeを作るたびに
     // 専用入口へ入り、Chatwootの現在accountへGENERIC OIDCを再束縛する。
@@ -666,9 +668,17 @@
     }, refresh);
   }
 
-  function mountPostFrame(path, spinner) {
+  function mountPostFrame(path, spinner, aiIntent) {
+    // The visible parent route is the intent for this frame, not a shared cookie.
+    var expectedAccountId = currentAccountId();
+    var pendingAiIntent = aiIntent === 'compose' ? 'compose' : null;
+    var context = null;
+    var seenDocuments = Object.create(null);
+    var contextRejected = false;
+    var loadingMarkup = spinner.innerHTML;
     var frame = document.createElement('iframe');
-    frame.src = buildSrc(path || DEFAULT_PATH);
+    frame.toybacoExpectedAccountId = expectedAccountId;
+    frame.src = buildSrc(path || DEFAULT_PATH, aiIntent);
     frame.title = '投稿';
     frame.style.cssText = 'border:0;width:100%;height:100%;min-height:0;flex:1';
     // 認証途中の別レイアウトを見せず、投稿shellのREADY後にだけ描画する。
@@ -692,9 +702,114 @@
       } catch (e) { /* cross-origin の通常画面は READY を待つ */ }
     });
 
+    function showFrameError(message, canRetry) {
+      if (!panel || panel.querySelector('iframe') !== frame || !spinner.parentNode) return;
+      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+      spinner.innerHTML = '';
+      var text = document.createElement('span');
+      text.textContent = message;
+      spinner.appendChild(text);
+      function addRecoveryButton(label, action) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.cssText = 'min-height:44px;padding:8px 20px;border:1px solid #B5A99B;border-radius:8px;background:#FFFDF9;color:#1F3A5F;cursor:pointer';
+        button.addEventListener('click', function () {
+          if (!panel || panel.querySelector('iframe') !== frame || currentAccountId() !== expectedAccountId) return;
+          action();
+        });
+        spinner.appendChild(button);
+      }
+      if (canRetry !== false) addRecoveryButton('再試行', function () {
+        var nextPath = currentHashPath() || DEFAULT_PATH;
+        closePanel();
+        openPanel(nextPath, false, pendingAiIntent);
+      });
+      // Re-fetch the current trusted parent route, including its posting hash.
+      // A same-URL anchor can be fragment-only and keep an old parent script.
+      addRecoveryButton('トイバコを開き直す', function () { window.location.reload(); });
+    }
+
+    function armFrameTimeout() {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(function () {
+        showFrameError('投稿画面を開けませんでした。店舗を確認してから再試行してください。');
+      }, LOAD_TIMEOUT_MS);
+    }
+
+    function validContextId(value) {
+      return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+    }
+
+    function newContextId() {
+      var crypto = window.crypto;
+      if (!crypto) return null;
+      try {
+        if (typeof crypto.randomUUID === 'function') {
+          var id = crypto.randomUUID();
+          if (validContextId(id)) return id;
+        }
+      } catch (e) { /* try the secure byte API below */ }
+      try {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        var hex = '';
+        for (var i = 0; i < bytes.length; i += 1) hex += ('0' + bytes[i].toString(16)).slice(-2);
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+      } catch (e) { return null; }
+    }
+
+    function matchesContext(data) {
+      return !!(context && data && data.documentId === context.documentId &&
+        data.frameId === context.frameId && data.accountId === expectedAccountId &&
+        currentAccountId() === expectedAccountId);
+    }
+
     removeReadyMessageHandler();
     readyMessageHandler = function (event) {
-      if (!panel || panel.querySelector('iframe') !== frame) return;
+      if (!panel || panel.querySelector('iframe') !== frame || currentAccountId() !== expectedAccountId) return;
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && typeof event.data === 'object' && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_REQUEST') {
+        if (!validContextId(event.data.documentId) ||
+            !/^[1-9][0-9]{0,18}$/.test(expectedAccountId || '') || currentAccountId() !== expectedAccountId) return;
+        if (!context || context.documentId !== event.data.documentId) {
+          // WindowProxy survives document navigation. A queued request from an
+          // already-seen document must not roll back the current binding.
+          if (seenDocuments[event.data.documentId]) return;
+          var frameId = newContextId();
+          if (!validContextId(frameId)) {
+            showFrameError('安全な接続確認に対応していません。ブラウザーを更新してからトイバコを開き直してください。', false);
+            return;
+          }
+          seenDocuments[event.data.documentId] = true;
+          context = { documentId: event.data.documentId, frameId: frameId, accountId: expectedAccountId };
+          contextRejected = false;
+          postFrameReady = false;
+          frame.toybacoThemeRequest = null;
+          frame.toybacoThemeSupported = false;
+          frame.style.visibility = 'hidden';
+          // A new document in the same iframe must pass the gate again.
+          if (!spinner.parentNode) panel.insertBefore(spinner, frame);
+          spinner.innerHTML = loadingMarkup;
+          armFrameTimeout();
+        }
+        frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_INIT',
+          documentId: context.documentId, frameId: context.frameId, accountId: context.accountId }, POST_ORIGIN);
+        return;
+      }
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_DENIED') {
+        if (!matchesContext(event.data) ||
+            ['account-mismatch', 'context-unavailable', 'session-changed'].indexOf(event.data.reason) < 0) return;
+        // A mounted editor owns later reconnect UI; never discard its local draft.
+        if (!postFrameReady) {
+          contextRejected = true;
+          showFrameError('別の店舗で接続されているか、接続を確認できません。元の店舗を選び直してから再試行してください。');
+        }
+        return;
+      }
       if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
           event.data && event.data.type === 'TOYBACO_POSTIZ_THEME_APPLIED') {
         var pendingTheme = frame.toybacoThemeRequest;
@@ -735,34 +850,24 @@
         try { request.proceed(); } finally { postCloseApproved = false; }
         return;
       }
-      if (!isTrustedPostizReady(event, frame.contentWindow)) return;
+      if (!isTrustedPostizReady(event, frame.contentWindow) || contextRejected || !matchesContext(event.data) ||
+          typeof event.data.organizationId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(event.data.organizationId)) return;
       postFrameReady = true;
+      pendingAiIntent = null;
       frame.toybacoThemeSupported = event.data.theme === 'light' || event.data.theme === 'dark';
       if (frame.toybacoThemeSupported) {
         frame.toybacoDisplayTheme = event.data.theme;
         syncPostFrameTheme();
       } else {
-        // Rolling deployment compatibility: old Postiz READY has no theme
-        // protocol. Retain its existing display behavior until it is upgraded.
+        // Identity is mandatory; only the independent theme protocol is optional.
         revealPostFrame(frame);
       }
       // iframe内のEscapeは親documentへ伝播しないため、READY後も閉じる通知を受ける。
     };
     window.addEventListener('message', readyMessageHandler);
 
-    loadTimer = setTimeout(function () {
-      if (!panel || !spinner.parentNode || !panel.querySelector('iframe')) return;
-      spinner.innerHTML =
-        '<span>投稿画面を開けませんでした。</span>' +
-        '<button type="button" style="padding:8px 20px;border:1px solid #ccc;border-radius:8px;' +
-        'background:#fff;cursor:pointer">再試行</button>';
-      var btn = spinner.querySelector('button');
-      if (btn) btn.addEventListener('click', function () {
-        var p = currentHashPath() || DEFAULT_PATH;
-        closePanel();
-        openPanel(p, false);
-      });
-    }, LOAD_TIMEOUT_MS);
+    armFrameTimeout();
 
     panel.appendChild(frame);
   }
@@ -830,15 +935,17 @@
   function createPostSpinner() {
     var spinner = document.createElement('div');
     spinner.setAttribute('data-toybaco-post-loading', '1');
+    spinner.setAttribute('role', 'status');
+    spinner.setAttribute('aria-live', 'polite');
     spinner.style.cssText =
       'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
-      'flex-direction:column;gap:12px;background:#fff;color:#6b7684;font-size:14px';
+      'flex-direction:column;gap:12px;background:var(--toybaco-offwhite,#faf7f2);color:var(--toybaco-muted,#66758a);font-size:14px';
     spinner.innerHTML =
-      '<span style="width:28px;height:28px;border:3px solid #e8e2d8;border-top-color:#1f3a5f;' +
+      '<span data-toybaco-post-ring="" aria-hidden="true" style="width:28px;height:28px;min-width:28px;max-width:28px;box-sizing:border-box;flex-shrink:0;border:3px solid var(--toybaco-hairline,#dce2e8);border-top-color:var(--toybaco-muted,#66758a);' +
       'border-radius:50%;display:inline-block;animation:toybaco-spin 1s linear infinite"></span>' +
       '<span>投稿画面を開いています…</span>';
     var style = document.createElement('style');
-    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}';
+    style.textContent = '@keyframes toybaco-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){[data-toybaco-post-ring]{animation:none!important}}';
     spinner.appendChild(style);
     return spinner;
   }
@@ -1010,7 +1117,7 @@
     syncEmbeddedWorkspace();
     try {
       var path = window.location.pathname;
-      var selected = panel ? 'posting' :
+      var selected = auxiliaryView ? auxiliaryView.getAttribute('data-toybaco-aux-view') : panel ? 'posting' :
         /\/reports(?:\/|$)/.test(path) ? 'reports' :
         /\/settings(?:\/|$)/.test(path) ? 'settings' :
         /\/(dashboard|inbox|inbox-view|conversations)(?:\/|$)/.test(path) ? 'inbox' : '';
@@ -1030,8 +1137,9 @@
     } catch (e) { /* 選択表示が無くても開閉は続ける */ }
   }
 
-  function openPanel(path, fromHash) {
+  function openPanel(path, fromHash, aiIntent) {
     if (panel) return;
+    closeAuxiliaryView();
     closeAiModePanel();
     // 開けない場面(ログイン前など)で hash だけ残ると、以後ずっと
     // 「開いているつもり」の状態になる。消してから戻る。
@@ -1078,7 +1186,7 @@
       showContractMissing();
       return;
     }
-    mountPostFrame(path, spinner);
+    mountPostFrame(path, spinner, aiIntent);
     reconcilePostingAccess(id);
   }
 
@@ -1210,6 +1318,7 @@
   function isToybacoNavRow(row) {
     if (!row) return false;
     try {
+      if (row.getAttribute && (row.getAttribute('data-toybaco-aux-nav') || row.getAttribute('data-toybaco-ai-nav'))) return true;
       if (row.getAttribute && (
         row.getAttribute('data-' + MARK + '-wrap') === '1' ||
         row.getAttribute('data-' + MARK)
@@ -1417,6 +1526,7 @@
   }
 
   function navigatePrimaryNav(kind) {
+    closeAuxiliaryView();
     if (requestPanelClose(function () { navigatePrimaryNav(kind); })) return;
     var id = currentAccountId();
     if (!id) return;
@@ -1544,6 +1654,233 @@
   function removePostEntry() {
     var el = document.querySelector('[data-' + MARK + ']');
     if (el && el.parentElement) el.parentElement.remove();
+  }
+
+  // Shared product assistance: these are read-only entry points, never AI activation.
+  var auxiliaryView = null;
+  var auxiliaryAccount = null;
+  var auxiliaryRoute = null;
+  var auxiliaryReturnFocus = null;
+  var auxiliaryBackground = [];
+
+  function auxiliaryText(tag, text, attribute) {
+    var node = document.createElement(tag);
+    node.textContent = text;
+    if (attribute) node.setAttribute(attribute, '1');
+    return node;
+  }
+
+  function auxiliaryButton(text, action, primary) {
+    var button = auxiliaryText('button', text, 'data-toybaco-aux-action');
+    button.type = 'button';
+    if (primary) button.setAttribute('data-toybaco-aux-primary', '1');
+    button.addEventListener('click', action);
+    return button;
+  }
+
+  function closeAuxiliaryView() {
+    if (!auxiliaryView) return;
+    var selected = document.querySelector('[data-toybaco-aux-entry][aria-current="page"]');
+    if (selected) selected.removeAttribute('aria-current');
+    auxiliaryView.remove();
+    auxiliaryView = null;
+    auxiliaryAccount = null;
+    auxiliaryRoute = null;
+    auxiliaryBackground.forEach(function (saved) {
+      if (saved.inert === null) saved.node.removeAttribute('inert');
+      else saved.node.setAttribute('inert', saved.inert);
+      if (saved.hidden === null) saved.node.removeAttribute('aria-hidden');
+      else saved.node.setAttribute('aria-hidden', saved.hidden);
+    });
+    auxiliaryBackground = [];
+    document.removeEventListener('keydown', auxiliaryKeydown, true);
+    if (auxiliaryReturnFocus && auxiliaryReturnFocus.isConnected !== false && auxiliaryReturnFocus.focus) auxiliaryReturnFocus.focus();
+    auxiliaryReturnFocus = null;
+    syncPostingSelection();
+  }
+
+  function auxiliaryKeydown(event) {
+    if (event.key !== 'Escape' || !auxiliaryView || aiPanel) return;
+    event.preventDefault(); event.stopPropagation();
+    closeAuxiliaryView();
+  }
+
+  function visitAiSettings() {
+    var id = currentAccountId();
+    if (!id || id !== auxiliaryAccount) return;
+    var destination = '/app/accounts/' + id + '/settings/inboxes/list';
+    var nativeLink = null;
+    walkNavNodes(primaryNavList(), function (node) {
+      if (!nativeLink && hrefOf(node) === destination && typeof node.click === 'function') nativeLink = node;
+    });
+    if (!nativeLink) return;
+    closeAuxiliaryView();
+    nativeLink.click();
+  }
+
+  function hasAiSettingsLink() {
+    var destination = '/app/accounts/' + currentAccountId() + '/settings/inboxes/list';
+    var found = false;
+    walkNavNodes(primaryNavList(), function (node) { if (hrefOf(node) === destination) found = true; });
+    return found;
+  }
+
+  function auxiliarySteps(items) {
+    var details = document.createElement('details');
+    details.setAttribute('data-toybaco-ai-guide', '1');
+    details.appendChild(auxiliaryText('summary', '使い方'));
+    var steps = document.createElement('ol');
+    items.forEach(function (text) { steps.appendChild(auxiliaryText('li', text)); });
+    details.appendChild(steps);
+    return details;
+  }
+
+  function appendReplyAiGuide(host) {
+    host.appendChild(auxiliaryText('h2', '問い合わせ返信'));
+    host.appendChild(auxiliaryText('p', '届いた問い合わせに、確認して使える返信の下書きを。'));
+    var actions = document.createElement('div');
+    actions.setAttribute('data-toybaco-aux-actions', '1');
+    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { closeAuxiliaryView(); openAiModePanel(); }, true));
+    actions.appendChild(auxiliaryButton('会話を開く', function () { closeAuxiliaryView(); navigatePrimaryNav('inbox'); }));
+    host.appendChild(actions);
+    var status = document.createElement('div');
+    status.setAttribute('data-toybaco-ai-hub-status', '1');
+    appendAiModeStatus(status); host.appendChild(status);
+    appendAiUsage(host);
+    var guide = auxiliarySteps([
+      'AIを割り当てた受信箱に、新しい問い合わせが届くと開始します。AI対応中の会話が対象で、担当者が対応を始めた会話では作成しません。',
+      '下書きモードの結果は、会話内の内部メモに届きます。お客さまにはまだ送信されません。',
+      '「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
+    ]);
+    if (hasAiSettingsLink()) guide.appendChild(auxiliaryButton('受信箱の接続設定', visitAiSettings));
+    else guide.appendChild(auxiliaryText('p', '接続先の変更は管理者が行います。「設定 → 受信箱 → 対象の受信箱 → ボット設定」を確認してもらってください。', 'data-toybaco-aux-note'));
+    host.appendChild(guide);
+  }
+
+  function appendPostingAiGuide(host) {
+    host.appendChild(auxiliaryText('h2', '投稿文作成'));
+    host.appendChild(auxiliaryText('p', '商品の紹介やお知らせを、伝わる投稿文に。'));
+    var accountId = currentAccountId();
+    var availability = auxiliaryText('p', '', 'data-toybaco-posting-ai-availability');
+    availability.setAttribute('role', 'status');
+    var start = auxiliaryButton('投稿画面で文案を作る', function () { if (currentAccountId() !== accountId || postingDeniedFor(accountId)) return; closeAuxiliaryView(); openPanel(DEFAULT_PATH, false, 'compose'); }, true);
+    var actions = document.createElement('div'); actions.setAttribute('data-toybaco-aux-actions', '1');
+    actions.appendChild(start); host.appendChild(actions); host.appendChild(availability);
+    function paintAvailability() {
+      if (currentAccountId() !== accountId) return;
+      var denied = postingDeniedFor(accountId);
+      start.disabled = denied;
+      start.textContent = denied ? '投稿機能は利用できません' : postingStatusCache[accountId] === true ? '投稿画面で文案を作る' : '投稿画面で利用条件を確認';
+      availability.textContent = denied ? 'このワークスペースでは投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。' : 'AIの利用可否は、開いた投稿画面でご案内します。';
+    }
+    paintAvailability(); resolvePostingAllowed(accountId, paintAvailability);
+    host.appendChild(auxiliaryText('p', '問い合わせ返信とは別の文章支援です。返信AIの月間利用枠は使いません。', 'data-toybaco-aux-note'));
+    var guide = auxiliarySteps([
+      '「投稿画面で文案を作る」から投稿先を選びます。未接続なら、先に「チャンネルを追加」で連携してください。',
+      '作りたい文案・雰囲気・文字数をAIに伝えます。画像・動画のAI生成は提供していません。',
+      '文案を編集して下書き保存。公開・予約は、内容と投稿先を確認してから操作します。'
+    ]);
+    var support = document.createElement('a');
+    support.href = 'mailto:support@toybaco.jp?subject=' + encodeURIComponent('投稿文AIの接続設定について');
+    support.textContent = '接続設定について相談する';
+    support.setAttribute('data-toybaco-aux-link', '1'); guide.appendChild(support);
+    host.appendChild(guide);
+  }
+
+  function appendAboutGuide(host) {
+    var support = document.createElement('a');
+    support.href = 'mailto:support@toybaco.jp';
+    support.textContent = 'サポートに問い合わせる';
+    support.setAttribute('data-toybaco-aux-link', '1');
+    host.appendChild(support);
+    var details = document.createElement('details');
+    details.setAttribute('data-toybaco-about-licenses', '1');
+    details.appendChild(auxiliaryText('summary', 'ライセンス情報'));
+    details.appendChild(auxiliaryText('p', 'トイバコは以下のオープンソースソフトウェアを利用しています。追加の機能・依存ソフトウェアの個別条件は、各ライセンス本文を参照してください。'));
+    [
+      ['問い合わせ対応', 'Chatwoot / MIT', 'https://github.com/chatwoot/chatwoot/blob/b354a9550e1fb59fa537a9c384232cb076213e72/LICENSE', new URL('/toybaco/source', window.location.origin).href],
+      ['投稿管理', 'Postiz / AGPL-3.0', 'https://www.gnu.org/licenses/agpl-3.0.html', new URL('/api/toybaco/source', POST_ORIGIN).href]
+    ].forEach(function (item) {
+      var section = document.createElement('section');
+      section.appendChild(auxiliaryText('h2', item[0]));
+      section.appendChild(auxiliaryText('p', item[1]));
+      [['ライセンス本文', item[2]], ['対応するソース', item[3]]].forEach(function (link) {
+        var a = document.createElement('a'); a.textContent = link[0]; a.href = link[1];
+        a.target = '_blank'; a.rel = 'noopener noreferrer'; a.setAttribute('data-toybaco-aux-link', '1');
+        section.appendChild(a);
+      });
+      details.appendChild(section);
+    });
+    host.appendChild(details);
+  }
+
+  function openAuxiliaryView(kind, purpose) {
+    if (kind !== 'ai' && kind !== 'about') return;
+    if (requestPanelClose(function () { openAuxiliaryView(kind, purpose); })) return;
+    if (!isLoggedInView()) return;
+    var host = findContentHost();
+    if (!host) return;
+    if (panel) closePanelToBase();
+    closeAiModePanel();
+    closeAuxiliaryView();
+    mountPanelHost(host);
+    auxiliaryReturnFocus = document.activeElement;
+    auxiliaryAccount = currentAccountId();
+    auxiliaryRoute = window.location.pathname + window.location.search;
+    var view = document.createElement('section');
+    view.setAttribute('data-toybaco-aux-view', kind);
+    view.setAttribute('data-account', auxiliaryAccount);
+    view.setAttribute('role', 'region');
+    view.setAttribute('aria-label', kind === 'ai' ? 'AIアシスタント' : 'トイバコについて');
+    var head = document.createElement('header');
+    var title = auxiliaryText('h1', kind === 'ai' ? 'AIアシスタント' : 'トイバコについて');
+    title.setAttribute('tabindex', '-1');
+    head.appendChild(title);
+    head.appendChild(auxiliaryButton('閉じる', closeAuxiliaryView));
+    view.appendChild(head);
+    view.appendChild(auxiliaryText('p', kind === 'ai' ? '返信と投稿。それぞれの作業に合ったAIを選んでください。' : '問い合わせ対応と投稿管理を、ひとつのワークスペースで。', 'data-toybaco-aux-lead'));
+    if (kind === 'ai') {
+      var grid = document.createElement('div');
+      grid.setAttribute('data-toybaco-ai-cards', '1');
+      var reply = document.createElement('article'); reply.setAttribute('data-toybaco-ai-purpose', 'reply'); reply.setAttribute('tabindex', '-1');
+      var posting = document.createElement('article'); posting.setAttribute('data-toybaco-ai-purpose', 'posting'); posting.setAttribute('tabindex', '-1');
+      appendReplyAiGuide(reply); appendPostingAiGuide(posting);
+      grid.appendChild(reply); grid.appendChild(posting); view.appendChild(grid);
+    } else appendAboutGuide(view);
+    auxiliaryBackground = Array.prototype.slice.call(host.children || []).map(function (node) {
+      var saved = { node: node, inert: node.getAttribute('inert'), hidden: node.getAttribute('aria-hidden') };
+      node.setAttribute('inert', ''); node.setAttribute('aria-hidden', 'true');
+      return saved;
+    });
+    host.appendChild(view);
+    auxiliaryView = view;
+    syncPostingSelection();
+    document.addEventListener('keydown', auxiliaryKeydown, true);
+    if (kind === 'ai') { prefetchAiMode(auxiliaryAccount, true); paintAiModeControls(); paintAiUsage(); }
+    var selected = document.querySelector('[data-toybaco-aux-entry="' + kind + '"]');
+    if (selected) selected.setAttribute('aria-current', 'page');
+    var destination = purpose === 'reply' ? reply : purpose === 'posting' ? posting : title;
+    if (destination && destination.focus) destination.focus();
+    if (purpose && destination && destination.scrollIntoView) destination.scrollIntoView({ block: 'nearest' });
+  }
+
+  function ensureAuxiliaryNavigation(sample) {
+    var id = currentAccountId();
+    if (!id || !sample) return;
+    [['ai', 'AIアシスタント', 'i-lucide-sparkles', 'data-toybaco-ai-nav'], ['about', 'トイバコについて', 'i-lucide-info', 'data-toybaco-aux-nav']].forEach(function (item) {
+      var row = document.querySelector('[' + item[3] + ']');
+      if (row && row.getAttribute('data-account') !== id) { row.remove(); row = null; }
+      if (!row) {
+        row = document.createElement('li'); row.setAttribute(item[3], '1'); row.setAttribute('data-account', id);
+        if (item[0] === 'ai') row.setAttribute('data-toybaco-primary-nav', 'ai');
+        var button = document.createElement('button'); button.type = 'button';
+        button.setAttribute('data-toybaco-aux-entry', item[0]); button.setAttribute('aria-label', item[1]);
+        if (item[0] === 'ai') button.setAttribute('data-toybaco-nav-link', 'ai');
+        var icon = document.createElement('span'); icon.className = item[2]; icon.setAttribute('aria-hidden', 'true');
+        button.appendChild(icon); button.appendChild(auxiliaryText('span', item[1])); row.appendChild(button);
+        sample.ul.appendChild(row);
+      } else if (row.parentElement !== sample.ul) sample.ul.appendChild(row);
+    });
   }
 
   function normalizeAiMode(value) {
@@ -1715,7 +2052,8 @@
       }
       var connections = document.querySelectorAll('[data-toybaco-ai-readiness]');
       for (i = 0; i < connections.length; i += 1) {
-        if (connections[i].textContent !== connectionText) connections[i].textContent = connectionText;
+        var displayedConnection = connections[i].parentElement && connections[i].parentElement.getAttribute('data-toybaco-ai-hub-status') === '1' && connection === 'configured' && usage.phase === 'ready' && usage.data.enabled && usage.data.remaining !== 0 ? 'AIを割り当てた受信箱：' + readiness.data.configured_inboxes + ' / ' + readiness.data.total_inboxes + ' 件' : connectionText;
+        if (connections[i].textContent !== displayedConnection) connections[i].textContent = displayedConnection;
       }
       var summaries = document.querySelectorAll('[data-toybaco-ai-compact-status]');
       for (i = 0; i < summaries.length; i += 1) {
@@ -2053,6 +2391,10 @@
         title.setAttribute('data-' + AI_MARK, '1');
         title.textContent = AI_NAV_LABEL;
         bar.appendChild(title);
+        var guide = document.createElement('button'); guide.type = 'button';
+        guide.setAttribute('data-toybaco-aux-entry', 'ai'); guide.setAttribute('data-toybaco-aux-purpose', 'reply');
+        guide.setAttribute('data-toybaco-ai-guide', '1'); guide.textContent = '返信AIの使い方';
+        bar.appendChild(guide);
         var scope = document.createElement('span');
         scope.setAttribute('data-toybaco-ai-scope', '1');
         scope.textContent = '店舗全体';
@@ -2075,6 +2417,9 @@
         settings.setAttribute('aria-label', '店舗全体のAI応答設定を開く');
         settings.textContent = '設定';
         compact.appendChild(settings);
+        var compactGuide = document.createElement('button'); compactGuide.type = 'button'; compactGuide.textContent = '使い方';
+        compactGuide.setAttribute('data-toybaco-aux-entry', 'ai'); compactGuide.setAttribute('data-toybaco-aux-purpose', 'reply');
+        compactGuide.setAttribute('data-toybaco-ai-guide', '1'); compact.appendChild(compactGuide);
         bar.appendChild(compact);
         box.parentElement.insertBefore(bar, box);
       }
@@ -2088,6 +2433,7 @@
   function openAiModePanel() {
     try {
       if (aiPanel) { closeAiModePanel(); return; }
+      closeAuxiliaryView();
       prefetchAiMode(currentAccountId(), true);
       aiPanelReturnFocus = document.activeElement;
       var wrapEl = document.createElement('div');
@@ -2203,6 +2549,7 @@
         }
         var preserveExpanded = returnsToExpandedNativeGroup(navLink, navKind);
         closeAiModePanel();
+        closeAuxiliaryView();
         closePanel();
         if (preserveExpanded) {
           if (e.preventDefault) e.preventDefault();
@@ -2225,6 +2572,13 @@
         if (e.stopPropagation) e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         openPanel(DEFAULT_PATH, false);
+        return;
+      }
+      var auxiliaryEntry = closestAttr(t, 'data-toybaco-aux-entry');
+      if (auxiliaryEntry) {
+        e.preventDefault(); e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        openAuxiliaryView(auxiliaryEntry.getAttribute('data-toybaco-aux-entry'), auxiliaryEntry.getAttribute('data-toybaco-aux-purpose'));
         return;
       }
       if (closestMarked(t, AI_MARK)) {
@@ -2715,6 +3069,7 @@
       var sample = findMenu();
       if (!sample) return;
       ensurePrimaryNavigation(sample);
+      ensureAuxiliaryNavigation(sample);
       syncPostingSelection();
 
       var id = currentAccountId();
@@ -2774,6 +3129,7 @@
   var previousBillingAccount = null;
 
   function afterNavChange() {
+    if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== window.location.pathname + window.location.search)) closeAuxiliaryView();
     if (panelLayout) panelLayout.update();
     var billingAccount = /\/settings\/contract\/?$/.test(window.location.pathname) ? currentAccountId() : null;
     var leavingBillingAccount = previousBillingAccount;

@@ -393,7 +393,7 @@ const onMobileNavClick = event => {
     return;
   }
 
-  const control = event.target?.closest?.('a, [data-toybaco-nav-link]');
+  const control = event.target?.closest?.('a, [data-toybaco-nav-link], [data-toybaco-aux-entry="ai"], [data-toybaco-aux-entry="about"]');
   if (!control || !sidebarNav.value?.contains(control)) return;
   const kind = control.getAttribute('data-toybaco-nav-link');
   if (
@@ -412,7 +412,8 @@ const onMobileNavClick = event => {
   }
 
   // These entries already navigate in post-entry's document capture handler.
-  const workspaceEntry = ['posting', 'inbox'].includes(kind);
+  const auxiliaryEntry = ['ai', 'about'].includes(control.getAttribute('data-toybaco-aux-entry'));
+  const workspaceEntry = ['posting', 'inbox'].includes(kind) || auxiliaryEntry;
   if (control.tagName === 'A') {
     const href = (control.getAttribute('href') || control.href || '').trim();
     if (!href || (!workspaceEntry && href.startsWith('#'))) return;

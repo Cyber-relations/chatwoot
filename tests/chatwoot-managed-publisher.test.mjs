@@ -309,6 +309,7 @@ function validate(workflowSource, gateSource) {
   for (const required of [
     'docker buildx build --no-cache --pull --platform linux/amd64',
     '--metadata-file "$metadata"',
+    '--build-arg "TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT"',
     '--provenance=false',
     '--sbom=false',
     '--push .',
@@ -488,6 +489,7 @@ assert.throws(
 );
 
 const mutations = [
+  [workflow.replace('TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT', 'TOYBACO_PUBLIC_REVISION=main'), gate],
   [workflow.replace('--pkg-types os,library', '--pkg-types os'), gate],
   [workflow.replace('--severity CRITICAL,HIGH', '--severity CRITICAL'), gate],
   [workflow.replace('--ignore-unfixed=false', '--ignore-unfixed=true'), gate],
