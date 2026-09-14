@@ -295,7 +295,8 @@
   var postThemeSequence = 0;
 
   function revealPostFrame(frame) {
-    if (!panel || panel.querySelector('iframe') !== frame || !postFrameReady) return;
+    if (!panel || panel.querySelector('iframe') !== frame || !postFrameReady ||
+        frame.toybacoExpectedAccountId !== currentAccountId()) return;
     frame.style.visibility = 'visible';
     if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
     if (panelSpinner && panelSpinner.parentNode) panelSpinner.parentNode.removeChild(panelSpinner);
@@ -667,7 +668,14 @@
   }
 
   function mountPostFrame(path, spinner) {
+    // The visible parent route is the intent for this frame, not a shared cookie.
+    var expectedAccountId = currentAccountId();
+    var context = null;
+    var seenDocuments = Object.create(null);
+    var contextRejected = false;
+    var loadingMarkup = spinner.innerHTML;
     var frame = document.createElement('iframe');
+    frame.toybacoExpectedAccountId = expectedAccountId;
     frame.src = buildSrc(path || DEFAULT_PATH);
     frame.title = '投稿';
     frame.style.cssText = 'border:0;width:100%;height:100%;min-height:0;flex:1';
@@ -692,9 +700,114 @@
       } catch (e) { /* cross-origin の通常画面は READY を待つ */ }
     });
 
+    function showFrameError(message, canRetry) {
+      if (!panel || panel.querySelector('iframe') !== frame || !spinner.parentNode) return;
+      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+      spinner.innerHTML = '';
+      var text = document.createElement('span');
+      text.textContent = message;
+      spinner.appendChild(text);
+      function addRecoveryButton(label, action) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.cssText = 'min-height:44px;padding:8px 20px;border:1px solid #B5A99B;border-radius:8px;background:#FFFDF9;color:#1F3A5F;cursor:pointer';
+        button.addEventListener('click', function () {
+          if (!panel || panel.querySelector('iframe') !== frame || currentAccountId() !== expectedAccountId) return;
+          action();
+        });
+        spinner.appendChild(button);
+      }
+      if (canRetry !== false) addRecoveryButton('再試行', function () {
+        var nextPath = currentHashPath() || DEFAULT_PATH;
+        closePanel();
+        openPanel(nextPath, false);
+      });
+      // Re-fetch the current trusted parent route, including its posting hash.
+      // A same-URL anchor can be fragment-only and keep an old parent script.
+      addRecoveryButton('トイバコを開き直す', function () { window.location.reload(); });
+    }
+
+    function armFrameTimeout() {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(function () {
+        showFrameError('投稿画面を開けませんでした。店舗を確認してから再試行してください。');
+      }, LOAD_TIMEOUT_MS);
+    }
+
+    function validContextId(value) {
+      return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+    }
+
+    function newContextId() {
+      var crypto = window.crypto;
+      if (!crypto) return null;
+      try {
+        if (typeof crypto.randomUUID === 'function') {
+          var id = crypto.randomUUID();
+          if (validContextId(id)) return id;
+        }
+      } catch (e) { /* try the secure byte API below */ }
+      try {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        var hex = '';
+        for (var i = 0; i < bytes.length; i += 1) hex += ('0' + bytes[i].toString(16)).slice(-2);
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+      } catch (e) { return null; }
+    }
+
+    function matchesContext(data) {
+      return !!(context && data && data.documentId === context.documentId &&
+        data.frameId === context.frameId && data.accountId === expectedAccountId &&
+        currentAccountId() === expectedAccountId);
+    }
+
     removeReadyMessageHandler();
     readyMessageHandler = function (event) {
-      if (!panel || panel.querySelector('iframe') !== frame) return;
+      if (!panel || panel.querySelector('iframe') !== frame || currentAccountId() !== expectedAccountId) return;
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && typeof event.data === 'object' && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_REQUEST') {
+        if (!validContextId(event.data.documentId) ||
+            !/^[1-9][0-9]{0,18}$/.test(expectedAccountId || '') || currentAccountId() !== expectedAccountId) return;
+        if (!context || context.documentId !== event.data.documentId) {
+          // WindowProxy survives document navigation. A queued request from an
+          // already-seen document must not roll back the current binding.
+          if (seenDocuments[event.data.documentId]) return;
+          var frameId = newContextId();
+          if (!validContextId(frameId)) {
+            showFrameError('安全な接続確認に対応していません。ブラウザーを更新してからトイバコを開き直してください。', false);
+            return;
+          }
+          seenDocuments[event.data.documentId] = true;
+          context = { documentId: event.data.documentId, frameId: frameId, accountId: expectedAccountId };
+          contextRejected = false;
+          postFrameReady = false;
+          frame.toybacoThemeRequest = null;
+          frame.toybacoThemeSupported = false;
+          frame.style.visibility = 'hidden';
+          // A new document in the same iframe must pass the gate again.
+          if (!spinner.parentNode) panel.insertBefore(spinner, frame);
+          spinner.innerHTML = loadingMarkup;
+          armFrameTimeout();
+        }
+        frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_INIT',
+          documentId: context.documentId, frameId: context.frameId, accountId: context.accountId }, POST_ORIGIN);
+        return;
+      }
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_DENIED') {
+        if (!matchesContext(event.data) ||
+            ['account-mismatch', 'context-unavailable', 'session-changed'].indexOf(event.data.reason) < 0) return;
+        // A mounted editor owns later reconnect UI; never discard its local draft.
+        if (!postFrameReady) {
+          contextRejected = true;
+          showFrameError('別の店舗で接続されているか、接続を確認できません。元の店舗を選び直してから再試行してください。');
+        }
+        return;
+      }
       if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
           event.data && event.data.type === 'TOYBACO_POSTIZ_THEME_APPLIED') {
         var pendingTheme = frame.toybacoThemeRequest;
@@ -735,34 +848,23 @@
         try { request.proceed(); } finally { postCloseApproved = false; }
         return;
       }
-      if (!isTrustedPostizReady(event, frame.contentWindow)) return;
+      if (!isTrustedPostizReady(event, frame.contentWindow) || contextRejected || !matchesContext(event.data) ||
+          typeof event.data.organizationId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(event.data.organizationId)) return;
       postFrameReady = true;
       frame.toybacoThemeSupported = event.data.theme === 'light' || event.data.theme === 'dark';
       if (frame.toybacoThemeSupported) {
         frame.toybacoDisplayTheme = event.data.theme;
         syncPostFrameTheme();
       } else {
-        // Rolling deployment compatibility: old Postiz READY has no theme
-        // protocol. Retain its existing display behavior until it is upgraded.
+        // Identity is mandatory; only the independent theme protocol is optional.
         revealPostFrame(frame);
       }
       // iframe内のEscapeは親documentへ伝播しないため、READY後も閉じる通知を受ける。
     };
     window.addEventListener('message', readyMessageHandler);
 
-    loadTimer = setTimeout(function () {
-      if (!panel || !spinner.parentNode || !panel.querySelector('iframe')) return;
-      spinner.innerHTML =
-        '<span>投稿画面を開けませんでした。</span>' +
-        '<button type="button" style="padding:8px 20px;border:1px solid #ccc;border-radius:8px;' +
-        'background:#fff;cursor:pointer">再試行</button>';
-      var btn = spinner.querySelector('button');
-      if (btn) btn.addEventListener('click', function () {
-        var p = currentHashPath() || DEFAULT_PATH;
-        closePanel();
-        openPanel(p, false);
-      });
-    }, LOAD_TIMEOUT_MS);
+    armFrameTimeout();
 
     panel.appendChild(frame);
   }
