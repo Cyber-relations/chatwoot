@@ -1351,10 +1351,9 @@ aside nav span.inline-grid.rounded-full {
   border-radius: 7px !important;
 }
 
-/* 基盤製品のヘルプだけを非表示にする。
- * 連携先の公式管理画面・設定資料は、初期設定と再接続に必要なため残す。 */
-a[href*="help.chatwoot.com"],
-a[href*="www.chatwoot.com/hc"] {
+/* プロフィールメニューにある上流製品の案内だけを非表示にする。
+ * 会話・メモ・登録資料の同じURLはユーザーの内容なので隠さない。 */
+aside .n-dropdown-item > a[href="https://www.chatwoot.com/hc/user-guide/en"] {
   display: none !important;
 }
 
@@ -1716,4 +1715,21 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
 @media (max-width: 767px) {
   [data-toybaco-post-subnav] { padding: 4px 8px; gap: 2px; }
   [data-toybaco-post-subnav] button { min-height: 44px; padding-inline: 10px; }
+}
+
+/* The posting shell shares the native resolved theme, including system mode. */
+[data-toybaco-post-entry-panel],
+[data-toybaco-post-loading] {
+  background: var(--toybaco-offwhite) !important;
+  color: var(--toybaco-muted) !important;
+}
+.dark [data-toybaco-post-subnav] button:hover,
+.dark [data-toybaco-post-subnav] button[aria-current="page"] {
+  color: #8eb2d8;
+}
+.dark [data-toybaco-post-subnav] button:focus-visible { outline-color: #8eb2d8; }
+.dark [data-toybaco-post-loading] button {
+  background: var(--toybaco-surface) !important;
+  color: var(--toybaco-ink);
+  border-color: var(--toybaco-control-border) !important;
 }

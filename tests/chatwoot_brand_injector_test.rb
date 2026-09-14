@@ -216,6 +216,21 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_match(/v-(?:if|show)|:key/, wrapper, 'opening an iframe must not remount the native router view')
   end
 
+  def test_command_palette_preserves_localized_keyboard_help_in_public_footer_slot
+    source = File.read(File.expand_path('../overlay/app/app/javascript/dashboard/routes/dashboard/commands/commandbar.vue', __dir__))
+    assert_includes(source, "const { t, tm } = useI18n();", 'keep existing global command translations')
+    assert_includes(source, "const { t: footerT } = useI18n({")
+    assert_includes(source, "useScope: 'local'")
+    footer = source[/<div slot="footer" class="toybaco-command-footer">.*?<\/div>/m]
+    refute_nil(footer, 'public slot replaces the dependency English fallback without hiding help')
+    assert_equal(4, footer.scan('<kbd>').length)
+    %w[SELECT NAVIGATE CLOSE PARENT].each { |key| assert_includes(footer, "footerT('#{key}')") }
+    %w[選択 項目を移動 閉じる 一つ上へ戻る].each { |text| assert_includes(source, "'#{text}'") }
+    %w[:placeholder= @change= @selected= @closed=].each { |binding| assert_includes(source, binding) }
+    assert_includes(source, 'flex-wrap: wrap;')
+    refute_match(/\.toybaco-command-footer[^}]*display:\s*none/m, source)
+  end
+
   private
 
   def brand_css

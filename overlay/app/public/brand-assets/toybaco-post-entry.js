@@ -283,10 +283,53 @@
     } catch (e) { return DEFAULT_PATH; }
   }
 
+  // Native Chatwoot resolves light/dark/system. Share its rendered state, never
+  // the preference cookie, account identity, or permission data.
+  function postingDisplayTheme() {
+    function dark(node) {
+      return !!(node && node.classList && node.classList.contains('dark'));
+    }
+    return dark(document.body) || dark(document.documentElement) ? 'dark' : 'light';
+  }
+
+  var postThemeSequence = 0;
+
+  function revealPostFrame(frame) {
+    if (!panel || panel.querySelector('iframe') !== frame || !postFrameReady) return;
+    frame.style.visibility = 'visible';
+    if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
+    if (panelSpinner && panelSpinner.parentNode) panelSpinner.parentNode.removeChild(panelSpinner);
+  }
+
+  function syncPostFrameTheme() {
+    if (!panel || !postFrameReady) return;
+    var frame = panel.querySelector('iframe');
+    if (!frame || !frame.contentWindow || !frame.toybacoThemeSupported) return;
+    var theme = postingDisplayTheme();
+    var pending = frame.toybacoThemeRequest;
+    if (!pending && frame.toybacoDisplayTheme === theme) { revealPostFrame(frame); return; }
+    if (pending && pending.theme === theme) return;
+    // Initial mount remains hidden until acknowledgement; later updates keep
+    // the already usable frame visible even if a theme response is lost.
+    var request = { requestId: ++postThemeSequence, theme: theme };
+    frame.toybacoThemeRequest = request;
+    frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_THEME', theme: theme, requestId: request.requestId }, POST_ORIGIN);
+  }
+
+  function watchPostingTheme() {
+    try {
+      var observer = new MutationObserver(function () { syncPostFrameTheme(); });
+      [document.documentElement, document.body].forEach(function (node) {
+        if (node) observer.observe(node, { attributes: true, attributeFilter: ['class'] });
+      });
+    } catch (e) { /* READY still sends the current theme without an observer */ }
+  }
+
   function buildSrc(path) {
     var destination = new URL(validatePath(path), POST_ORIGIN);
     // OIDC 往復後も iframe 文脈を維持し、同名 query は固定値1個へ正規化する。
     destination.searchParams.set('tb_embed', '1');
+    destination.searchParams.set('tb_theme', postingDisplayTheme());
 
     // 既存のPostiz cookieを信用して直接画面を開かない。iframeを作るたびに
     // 専用入口へ入り、Chatwootの現在accountへGENERIC OIDCを再束縛する。
@@ -395,10 +438,42 @@
     return request.handled;
   }
 
-  function onKeydown(e) {
-    if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !e.defaultPrevented) {
-      if (!requestPanelClose(closePanel)) closePanel();
+  function isVisibleNativeOverlay(node) {
+    if (!node || !node.getClientRects || !node.getClientRects().length) return false;
+    if (node.closest('[inert], [aria-hidden="true"]')) return false;
+    var style = window.getComputedStyle(node);
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+      style.visibility !== 'collapse' && style.opacity !== '0';
+  }
+
+  function hasNativeEscapeOverlay() {
+    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], ' +
+      '[role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"], dialog[open], .modal-container');
+    for (var i = 0; i < overlays.length; i++) {
+      if (isVisibleNativeOverlay(overlays[i])) return true;
     }
+    // ninja-keys renders its visible modal in an open shadow root. The host
+    // itself stays mounted when closed and is not evidence of an open palette.
+    var palettes = document.querySelectorAll('ninja-keys');
+    for (var j = 0; j < palettes.length; j++) {
+      var modal = palettes[j].shadowRoot && palettes[j].shadowRoot.querySelector('.modal.visible');
+      if (modal && isVisibleNativeOverlay(modal)) return true;
+    }
+    return false;
+  }
+
+  function onKeydown(e) {
+    if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || e.defaultPrevented || !panel) return;
+    if (hasNativeEscapeOverlay()) return;
+    var escapePanel = panel;
+    var escapeFrame = panel.querySelector('iframe');
+    // Let native target/bubble handlers finish first. A microtask can run
+    // between capture and bubble on real key input, so use the next task.
+    setTimeout(function () {
+      if (panel !== escapePanel || panel.querySelector('iframe') !== escapeFrame ||
+          e.defaultPrevented || hasNativeEscapeOverlay()) return;
+      if (!requestPanelClose(closePanel)) closePanel();
+    }, 0);
   }
 
   function removeReadyMessageHandler() {
@@ -596,6 +671,9 @@
     frame.src = buildSrc(path || DEFAULT_PATH);
     frame.title = '投稿';
     frame.style.cssText = 'border:0;width:100%;height:100%;min-height:0;flex:1';
+    // 認証途中の別レイアウトを見せず、投稿shellのREADY後にだけ描画する。
+    // visibilityならサイズを保ち、子の初期化・READY検出を止めない。
+    frame.style.visibility = 'hidden';
     frame.allow = 'clipboard-write';
 
     // load はログイン画面・エラーページでも発火するため成功判定には使わない。
@@ -617,6 +695,18 @@
     removeReadyMessageHandler();
     readyMessageHandler = function (event) {
       if (!panel || panel.querySelector('iframe') !== frame) return;
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
+          event.data && event.data.type === 'TOYBACO_POSTIZ_THEME_APPLIED') {
+        var pendingTheme = frame.toybacoThemeRequest;
+        if (!pendingTheme || event.data.requestId !== pendingTheme.requestId ||
+            event.data.theme !== pendingTheme.theme) return;
+        frame.toybacoDisplayTheme = event.data.theme;
+        frame.toybacoThemeRequest = null;
+        // A native theme change may precede its MutationObserver callback.
+        // Recheck it before revealing, including dark -> light -> dark races.
+        syncPostFrameTheme();
+        return;
+      }
       if (isTrustedPostizDenied(event, frame.contentWindow)) {
         applyPostingDenied();
         return;
@@ -647,8 +737,15 @@
       }
       if (!isTrustedPostizReady(event, frame.contentWindow)) return;
       postFrameReady = true;
-      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
-      if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+      frame.toybacoThemeSupported = event.data.theme === 'light' || event.data.theme === 'dark';
+      if (frame.toybacoThemeSupported) {
+        frame.toybacoDisplayTheme = event.data.theme;
+        syncPostFrameTheme();
+      } else {
+        // Rolling deployment compatibility: old Postiz READY has no theme
+        // protocol. Retain its existing display behavior until it is upgraded.
+        revealPostFrame(frame);
+      }
       // iframe内のEscapeは親documentへ伝播しないため、READY後も閉じる通知を受ける。
     };
     window.addEventListener('message', readyMessageHandler);
@@ -2714,6 +2811,7 @@
     inject();
     ensurePostingContract();
     hookHistory();
+    watchPostingTheme();
     try {
       var pending = null;
       var observer = new MutationObserver(function () {
