@@ -140,6 +140,7 @@ export default {
       showWhatsAppTemplatesModal: false,
       showContentTemplatesModal: false,
       updateEditorSelectionWith: '',
+      toybacoImportedAiDraft: null,
       undefinedVariableMessage: '',
       showMentions: false,
       showUserMentions: false,
@@ -247,6 +248,13 @@ export default {
     },
     toybacoAiDraft() {
       return latestToybacoAiDraft(this.currentChat?.messages);
+    },
+    toybacoAiDraftImported() {
+      const applied = this.toybacoImportedAiDraft;
+      return !!applied && this.hasMeaningfulEditorContent && !this.isPrivate &&
+        applied.accountId === this.$route?.params?.accountId &&
+        applied.conversationId === this.currentChat?.id &&
+        applied.draftId === this.toybacoAiDraft?.id;
     },
     isBotOwnedPendingConversation() {
       return (
@@ -512,9 +520,13 @@ export default {
     },
   },
   watch: {
+    '$route.params.accountId'() {
+      this.toybacoImportedAiDraft = null;
+    },
     currentChat(conversation, oldConversation) {
       if (oldConversation && oldConversation.id !== conversation.id) {
         this.emailRecipientsExpanded = false;
+        this.toybacoImportedAiDraft = null;
         // Only update email fields when switching to a completely different conversation (by ID)
         // This prevents overwriting user input (e.g., CC/BCC fields) when performing actions
         // like self-assign or other updates that do not actually change the conversation context
@@ -557,6 +569,7 @@ export default {
       }
     },
     message() {
+      if (!this.hasMeaningfulEditorContent) this.toybacoImportedAiDraft = null;
       // Autosave the current message draft.
       this.doAutoSaveDraft();
     },
@@ -1055,14 +1068,21 @@ export default {
     async useToybacoAiDraft() {
       const draft = this.toybacoAiDraft;
       const conversationId = this.currentChat?.id;
+      const accountId = this.$route?.params?.accountId;
       if (!draft || this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent ||
           (this.isPrivate && this.hasAttachments)) return;
       if (this.isPrivate) this.setReplyMode(REPLY_EDITOR_MODES.REPLY);
       await this.$nextTick();
-      if (this.currentChat?.id !== conversationId || this.toybacoAiDraft?.id !== draft.id ||
-          this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent) return;
+      if (this.currentChat?.id !== conversationId || this.$route?.params?.accountId !== accountId ||
+          this.toybacoAiDraft?.id !== draft.id || this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent) return;
       // WootMessageEditor inserts this as a schema.text node, never as HTML.
       this.addIntoEditor(draft.content);
+      await this.$nextTick();
+      if (this.currentChat?.id === conversationId && this.$route?.params?.accountId === accountId &&
+          this.toybacoAiDraft?.id === draft.id && !this.isEditorDisabled && this.canSendPublicReply &&
+          !this.isPrivate && this.hasMeaningfulEditorContent) {
+        this.toybacoImportedAiDraft = { accountId, conversationId, draftId: draft.id };
+      }
     },
     addIntoEditor(content) {
       this.updateEditorSelectionWith = content;
@@ -1458,8 +1478,9 @@ export default {
         <div v-if="toybacoAiDraft && isDefaultEditorMode" class="toybaco-ai-draft-result" role="status">
           <div>
             <strong>AIの返信下書きがあります</strong>
-            <p>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>
-            <p v-if="hasMeaningfulEditorContent || (isPrivate && hasAttachments)">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>
+            <p v-if="toybacoAiDraftImported">AI下書きを返信欄に入れました。内容を確認してから送信してください。</p>
+            <p v-else-if="hasMeaningfulEditorContent || (isPrivate && hasAttachments)">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>
+            <p v-else>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>
           </div>
           <button type="button" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
             AI下書きを使う
