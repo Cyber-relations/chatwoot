@@ -27,9 +27,11 @@ const toggleSupportWidgetVisibility = () => {
 };
 
 const toggleSupportWidget = () => {
-  if (window.$chatwoot) {
+  if (typeof window.$chatwoot?.toggle === 'function') {
     window.$chatwoot.toggle();
+    return;
   }
+  window.location.href = 'mailto:support@toybaco.jp';
 };
 
 const setupListenerForWidgetEvent = () => {
