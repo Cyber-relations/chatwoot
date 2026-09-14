@@ -3,6 +3,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+
+const frameHarnesses = new WeakMap();
+// Older navigation/theme fixtures now perform the real parent handshake before
+// emitting READY. INIT is captured separately from their existing close/theme log.
+function postingReady(frame, data = {}) {
+  const harness = frameHarnesses.get(frame);
+  if (!harness) throw new Error('frame fixture is missing its parent');
+  if (!harness.context) {
+    const postMessage = frame.contentWindow.postMessage;
+    frame.contentWindow.postMessage = (message, origin) => {
+      if (message.type === 'TOYBACO_POSTIZ_INIT') harness.context = { ...message };
+      else postMessage.call(frame.contentWindow, message, origin);
+    };
+    try {
+      harness.send({ type: 'TOYBACO_POSTIZ_CONTEXT_REQUEST', documentId: randomUUID() });
+    } finally { frame.contentWindow.postMessage = postMessage; }
+    assert.ok(harness.context, 'current frame must receive INIT before READY');
+  }
+  return { ...harness.context, type: 'TOYBACO_POSTIZ_READY', organizationId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', ...data };
+}
+
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entryPath = path.join(root, 'overlay/app/public/brand-assets/toybaco-post-entry.js');
@@ -439,6 +461,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
   const windowListeners = {};
   const window = {
     TOYBACO_POST_URL: 'https://post.staging.toybaco.jp',
+    crypto: { randomUUID },
     globalConfig: {},
     location: {
       hash: options.hash || '',
@@ -447,6 +470,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
       protocol: 'https:',
       origin: 'https://app.staging.toybaco.jp',
       href: `https://app.staging.toybaco.jp${pathname}${options.hash || ''}`,
+      reload() { this.reloadCount = (this.reloadCount || 0) + 1; },
       replace(url) {
         this.replaced = String(url);
         this.pathname = String(url);
@@ -486,7 +510,15 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
       const list = docListeners[name] || [];
       docListeners[name] = list.filter((item) => item !== fn);
     },
-    createElement: createDomNode,
+    createElement(tag) {
+      const node = createDomNode(tag);
+      if (tag === 'iframe') frameHarnesses.set(node, {
+        send(data, overrides = {}) {
+          [...(windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: node.contentWindow, data, ...overrides }));
+        },
+      });
+      return node;
+    },
     execCommand() { return false; },
     querySelector(selector) {
       if (matchesSimpleSelector(body, selector)) return body;
@@ -1400,7 +1432,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
     const event = { origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides };
     [...(tab.windowListeners.message || [])].forEach((fn) => fn(event));
   };
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   assert.equal(tab.windowListeners.message.length, 1, 'the close bridge must remain after READY');
   const close = { type: 'TOYBACO_POSTIZ_CLOSE' };
   for (const overrides of [
@@ -1475,7 +1507,7 @@ for (const destination of ['settings', 'reports', 'inbox']) {
     const event = { origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides };
     [...(env.windowListeners.message || [])].forEach(fn => fn(event));
   };
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   const target = env.document.querySelector(`[data-toybaco-nav-link="${destination}"]`);
   let nativeCalls = 0;
   if (destination === 'settings' || destination === 'reports') {
@@ -1527,7 +1559,7 @@ for (const destination of ['settings', 'reports', 'inbox']) {
   const requests = [];
   frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
   const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   requestNativeRoute(env, '/app/accounts/1/settings/contract');
   const timeout = [...timers.values()].at(-1);
   assert.equal(timeout.ms, 5000);
@@ -1659,7 +1691,7 @@ for (const destination of ['settings', 'reports', 'inbox']) {
     const requests = [];
     frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
     const send = (data, overrides = {}) => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides }));
-    send({ type: 'TOYBACO_POSTIZ_READY' });
+    send(postingReady(frame));
     const group = control({ 'data-toybaco-nav-link': kind }, 'div');
     fireClick(group, [...captures, ...env.docListeners.click]);
     assert.equal(props.isMobileSidebarOpen, true, 'native group selection waits for an actual child confirmation');
@@ -3295,7 +3327,7 @@ for (const sameRoute of [false, true]) {
   env.window.history.pushState = env.window.history.replaceState = () => { historyWrites += 1; };
   frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
   const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   const { guard, afterNavigation, navigations, cleanup } = installPostingRouteGuards(env);
   const from = { fullPath: '/app/accounts/1/dashboard' };
   const to = sameRoute ? from : { fullPath: '/app/accounts/1/settings/contract' };
@@ -3349,7 +3381,7 @@ for (const sameRoute of [false, true]) {
   const ready = frame => {
     frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
     frame.draftFixture = { text: 'keep this draft', attachment: {} };
-    send(frame, { type: 'TOYBACO_POSTIZ_READY' });
+    send(frame, postingReady(frame));
   };
   let writes = 0;
   env.window.history.pushState = env.window.history.replaceState = () => { writes += 1; };
@@ -3397,7 +3429,7 @@ for (const teardown of ['denied', 'trusted-close', 'close-panel']) {
   const frame = panel.querySelector('iframe');
   frame.contentWindow = { postMessage() {} };
   const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   const { guard } = installPostingRouteGuards(env);
   const decision = guard({ fullPath: '/app/accounts/1/settings/contract' });
   let result = 'pending';
@@ -3774,7 +3806,7 @@ function primaryGroupFixture({ base = '/app/accounts/1/dashboard', kind = 'setti
     frame = env.document.querySelector('[data-toybaco-post-entry-panel]').querySelector('iframe');
     frame.draftFixture = { text: 'Keep this primary-navigation draft', attachment: {}, cursor: 8 };
     frame.contentWindow = { postMessage(data) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push(data); } };
-    send({ type: 'TOYBACO_POSTIZ_READY' });
+    send(postingReady(frame));
   }
   return { env, browser, state, requests, frame, base, destination,
     click(useCollapsed = false) { collapsed = useCollapsed; return control.click(); },
@@ -3916,7 +3948,7 @@ console.log('primary native SidebarGroup history and single-confirm regressions:
   const send = (frame, data) => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
   const ready = frame => {
     frame.contentWindow = { postMessage(data, origin) { if (data.type !== 'TOYBACO_POSTIZ_THEME') requests.push({ data, origin }); } };
-    send(frame, { type: 'TOYBACO_POSTIZ_READY' });
+    send(frame, postingReady(frame));
   };
   const original = panel.querySelector('iframe');
   assert.equal(original.style.visibility, 'hidden', 'auth and redirect documents stay hidden until a trusted shell is ready');
@@ -3945,7 +3977,7 @@ console.log('primary native SidebarGroup history and single-confirm regressions:
   assert.equal(nav.children[1].getAttribute('aria-current'), 'page');
   assert.equal(nav.children[0].getAttribute('aria-current'), null);
   assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 1);
-  send(original, { type: 'TOYBACO_POSTIZ_READY' });
+  send(original, postingReady(original));
   assert.equal(panel.querySelectorAll('[data-toybaco-post-loading]').length, 1, 'an old iframe cannot finish loading the new page');
   assert.equal(analytics.style.visibility, 'hidden', 'a stale READY must not reveal an intermediate auth page');
   ready(analytics);
@@ -4111,7 +4143,8 @@ console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed
   const send = (data, overrides = {}) => [...env.windowListeners.message].forEach((fn) => fn({
     origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides,
   }));
-  const ready = (theme, overrides) => send({ type: 'TOYBACO_POSTIZ_READY', theme }, overrides);
+  const boundReady = postingReady(frame);
+  const ready = (theme, overrides) => send({ ...boundReady, theme }, overrides);
   const ack = (request, overrides) => send({ ...request, type: 'TOYBACO_POSTIZ_THEME_APPLIED' }, overrides);
   const loadingTimer = () => [...timers.values()].find(({ ms }) => ms === 20000);
   themeObserver.fire();
@@ -4177,7 +4210,8 @@ console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed
   assert.match(new URL(nextFrame.src).searchParams.get('return'), /tb_theme=light/);
   ack(later);
   assert.equal(nextFrame.style.visibility, 'hidden', 'old frame ACK cannot reveal new generation');
-  const nextReady = theme => send({ type: 'TOYBACO_POSTIZ_READY', theme }, { source: nextFrame.contentWindow });
+  const nextBoundReady = postingReady(nextFrame);
+  const nextReady = theme => send({ ...nextBoundReady, theme }, { source: nextFrame.contentWindow });
   nextReady('light');
   assert.equal(nextFrame.style.visibility, 'visible', 'matching new READY reveals immediately');
   assert.equal(messages.length, count, 'matching new READY needs no theme round trip');
@@ -4187,9 +4221,9 @@ console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed
   const rollingFrame = env.document.querySelector('iframe');
   rollingFrame.contentWindow = { postMessage(data, origin) { messages.push({ data, origin }); } };
   send({ type: 'TOYBACO_POSTIZ_READY' }, { source: rollingFrame.contentWindow });
-  assert.equal(rollingFrame.style.visibility, 'visible', 'old READY remains compatible during rolling deployment');
+  assert.equal(rollingFrame.style.visibility, 'hidden', 'legacy READY without parent intent is refused during rolling deployment');
   nativeDark = true; themeObserver.fire();
-  assert.equal(messages.length, count, 'old child without ACK protocol is not hidden or sent unsupported messages');
+  assert.equal(messages.length, count, 'an unbound child is not sent theme messages');
   env.api.closePanel();
 }
 
@@ -4209,7 +4243,7 @@ function nativeEscapeFixture() {
   const requests = [];
   frame.contentWindow = { postMessage(data) { requests.push(data); } };
   const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
-  send({ type: 'TOYBACO_POSTIZ_READY' });
+  send(postingReady(frame));
   const runTasks = () => {
     const tasks = [...timers].filter(([, value]) => value.ms === 0);
     for (const [id, { fn }] of tasks) { timers.delete(id); fn(); }
@@ -4311,3 +4345,186 @@ for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 
   env.api.closePanel(); escape(); runTasks();
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'no-panel native behavior is unchanged');
 }
+
+
+// Parent-account intent is exchanged with the current document before READY.
+// Send raw messages here: do not use the compatibility fixture helper above.
+function postingContextFixture(pathname = '/app/accounts/1/inbox') {
+  const timers = new Map(); let timerId = 0;
+  const env = loadInjectEntry(() => new Promise(() => {}), pathname, {
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  env.api.openPanel('/analytics', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  const messages = [];
+  frame.contentWindow = { postMessage(data, origin) { messages.push({ data: { ...data }, origin }); } };
+  const send = (data, overrides = {}) => [...env.windowListeners.message].forEach(fn => fn({
+    origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data, ...overrides,
+  }));
+  const documentId = randomUUID();
+  const request = { type: 'TOYBACO_POSTIZ_CONTEXT_REQUEST', documentId };
+  const ready = (init, extra = {}) => ({ ...init, type: 'TOYBACO_POSTIZ_READY',
+    organizationId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', theme: 'light', ...extra });
+  return { env, panel, frame, messages, send, documentId, request, ready, timers };
+}
+{
+  const f = postingContextFixture();
+  const { env, panel, frame, messages, send, request, ready } = f;
+  const src = frame.src; const hash = env.window.location.hash; const cookie = env.document.cookie;
+  const fetchCount = env.fetches.length;
+  send({ type: 'TOYBACO_POSTIZ_READY', theme: 'light' });
+  assert.equal(frame.style.visibility, 'hidden', 'legacy readiness cannot accept an unbound account');
+  for (const overrides of [{ origin: 'https://evil.example' }, { origin: 'https://post.toybaco.jp' }, { source: {} }]) send(request, overrides);
+  for (const documentId of [undefined, '', request.documentId.toUpperCase(), 1, randomUUID().replace('-4', '-5')]) send({ ...request, documentId });
+  assert.equal(messages.length, 0, 'wrong sender/document shape receives no parent account');
+  send(request);
+  const init = messages.at(-1).data;
+  assert.equal(init.type, 'TOYBACO_POSTIZ_INIT');
+  assert.equal(init.documentId, request.documentId);
+  assert.equal(init.accountId, '1');
+  assert.match(init.frameId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(messages.at(-1).origin, 'https://post.staging.toybaco.jp');
+  send(request);
+  assert.deepEqual(messages.at(-1).data, init, 'same-document request is idempotent');
+  const loader = panel.querySelector('[data-toybaco-post-loading]');
+  assert.match(loader.innerHTML, /width:28px/, 'handshake preserves the existing loading ring');
+  for (const extra of [
+    { documentId: randomUUID() }, { frameId: randomUUID() }, { accountId: '2' },
+    { accountId: 1 }, { organizationId: undefined }, { organizationId: 'not-an-org' },
+  ]) send(ready(init, extra));
+  assert.equal(frame.style.visibility, 'hidden', 'identity/handshake mismatch cannot expose business UI');
+  send(ready(init));
+  assert.equal(frame.style.visibility, 'visible');
+  assert.equal(panel.querySelector('[data-toybaco-post-loading]'), null);
+  send(request);
+  assert.equal(frame.style.visibility, 'visible', 'repeated current INIT does not blank a usable frame');
+  assert.equal(frame.src, src); assert.equal(env.window.location.hash, hash);
+  assert.equal(env.document.cookie, cookie); assert.equal(env.fetches.length, fetchCount);
+  frame.draftFixture = { text: 'retain this draft' };
+  const draft = frame.draftFixture;
+  send({ ...init, type: 'TOYBACO_POSTIZ_CONTEXT_DENIED', reason: 'session-changed' });
+  assert.equal(panel.querySelector('iframe'), frame, 'later refusal retains the mounted editor');
+  assert.equal(frame.draftFixture, draft); assert.equal(frame.style.visibility, 'visible');
+  env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  f.send(f.request); const first = f.messages.at(-1).data;
+  f.send(f.ready(first));
+  const secondRequest = { ...f.request, documentId: randomUUID() };
+  f.send(secondRequest); const second = f.messages.at(-1).data;
+  assert.notEqual(first.frameId, second.frameId, 'same iframe new document receives a fresh binding');
+  assert.equal(f.frame.style.visibility, 'hidden');
+  assert.ok(f.panel.querySelector('[data-toybaco-post-loading]'), 'document reload restores a visible loading state');
+  assert.ok([...f.timers.values()].some(timer => timer.ms === 20000), 'document reload retains bounded explicit recovery');
+  const messagesBeforeStaleRequest = f.messages.length;
+  f.send(f.request);
+  assert.equal(f.messages.length, messagesBeforeStaleRequest, 'already-seen old document request cannot reset the newer binding');
+  f.send(f.ready(first));
+  assert.equal(f.frame.style.visibility, 'hidden', 'previous document READY cannot reveal the new document');
+  f.send(f.ready(second));
+  assert.equal(f.frame.style.visibility, 'visible');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  f.send(f.request); const init = f.messages.at(-1).data;
+  const cookie = f.env.document.cookie; const src = f.frame.src; const count = f.env.fetches.length;
+  f.send({ ...init, type: 'TOYBACO_POSTIZ_CONTEXT_DENIED', reason: 'unknown' });
+  assert.equal(f.panel.querySelector('[data-toybaco-post-loading]').querySelector('button'), null, 'unknown denial does not create recovery UI');
+  f.send({ ...init, type: 'TOYBACO_POSTIZ_CONTEXT_DENIED', reason: 'account-mismatch' });
+  const loader = f.panel.querySelector('[data-toybaco-post-loading]');
+  assert.match(loader.querySelector('span').textContent, /別の店舗/);
+  const retry = loader.querySelector('button');
+  assert.equal(retry.textContent, '再試行'); assert.match(retry.style.cssText, /min-height:44px/);
+  f.send(f.ready(init));
+  assert.equal(f.frame.style.visibility, 'hidden', 'denied document cannot later declare itself accepted');
+  assert.equal(f.frame.src, src); assert.equal(f.env.document.cookie, cookie); assert.equal(f.env.fetches.length, count);
+  assert.equal([...f.timers.values()].some(timer => timer.ms === 20000), false, 'explicit refusal clears the loading timer without automatic reconnection');
+  retry.listeners.click[0]();
+  const replacement = f.env.document.querySelector('iframe');
+  assert.notEqual(replacement, f.frame, 'only explicit retry creates a new entry request');
+  assert.equal(new URL(replacement.src).pathname, '/toybaco/entry');
+  assert.equal(replacement.style.visibility, 'hidden');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  f.send(f.request); const init = f.messages.at(-1).data;
+  // A theme ACK may arrive after a native account route changed but before its
+  // observer closes the old frame. It must not reveal it under the new account.
+  f.send(f.ready(init, { theme: 'dark' }));
+  const theme = f.messages.at(-1).data;
+  assert.equal(theme.type, 'TOYBACO_POSTIZ_THEME');
+  f.env.window.location.pathname = '/app/accounts/2/inbox';
+  f.send({ ...theme, type: 'TOYBACO_POSTIZ_THEME_APPLIED' });
+  f.send(f.ready(init));
+  const count = f.messages.length;
+  f.send({ ...f.request, documentId: randomUUID() });
+  assert.equal(f.messages.length, count, 'a stale frame is never rebound to the new route account');
+  assert.equal(f.frame.style.visibility, 'hidden');
+  f.env.api.closePanel();
+}
+for (const account of ['0', '01', '12345678901234567890']) {
+  const f = postingContextFixture(`/app/accounts/${account}/inbox`);
+  f.send(f.request); assert.equal(f.messages.length, 0, 'noncanonical account intent is refused');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture('/app/accounts/9223372036854775807/inbox');
+  f.send(f.request); assert.equal(f.messages.at(-1).data.accountId, '9223372036854775807', 'account intent never rounds through a JS number');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  f.env.window.crypto = undefined;
+  f.send(f.request);
+  assert.equal(f.messages.length, 0); assert.equal(f.frame.style.visibility, 'hidden');
+  const loader = f.panel.querySelector('[data-toybaco-post-loading]');
+  assert.match(loader.querySelector('span').textContent, /ブラウザーを更新/);
+  assert.deepEqual(loader.querySelectorAll('button').map(button => button.textContent), ['トイバコを開き直す'], 'no-crypto refusal does not suggest a futile frame-only retry');
+  f.env.api.closePanel();
+}
+console.log('TOYBACO_PARENT_ACCOUNT_INTENT=PASS trusted-init immutable-route stale-document refused-ready explicit-retry draft-retained');
+
+{
+  const f = postingContextFixture();
+  let secureCalls = 0;
+  f.env.window.crypto = { getRandomValues(bytes) {
+    secureCalls += 1;
+    assert.equal(bytes.length, 16);
+    bytes.fill(255); // Controlled secure-API result; verify version/variant masking.
+    return bytes;
+  } };
+  f.send(f.request);
+  const init = f.messages.at(-1).data;
+  assert.equal(secureCalls, 1);
+  assert.equal(init.frameId, 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+  f.send(f.ready(init)); assert.equal(f.frame.style.visibility, 'visible');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  const href = f.env.window.location.href; const hash = f.env.window.location.hash;
+  const cookie = f.env.document.cookie; const fetchCount = f.env.fetches.length;
+  f.send({ type: 'TOYBACO_POSTIZ_READY', theme: 'light' }); // Cached old child.
+  assert.equal(f.frame.style.visibility, 'hidden');
+  const timeout = [...f.timers.values()].find(timer => timer.ms === 20000);
+  timeout.fn();
+  const buttons = f.panel.querySelector('[data-toybaco-post-loading]').querySelectorAll('button');
+  assert.deepEqual(buttons.map(button => button.textContent), ['再試行', 'トイバコを開き直す']);
+  buttons[1].listeners.click[0]();
+  assert.equal(f.env.window.location.reloadCount, 1, 'full app recovery re-fetches the parent, not only the iframe');
+  assert.equal(f.env.window.location.href, href); assert.equal(f.env.window.location.hash, hash);
+  assert.equal(f.env.document.cookie, cookie); assert.equal(f.env.fetches.length, fetchCount);
+  assert.equal(f.panel.querySelector('iframe'), f.frame, 'recovery never manually replays a business request');
+  assert.equal(f.frame.getAttribute('sandbox'), null, 'existing iframe permits user-activated neutral recovery to the parent app');
+  f.env.window.location.pathname = '/app/accounts/2/inbox';
+  buttons[1].listeners.click[0]();
+  assert.equal(f.env.window.location.reloadCount, 1, 'stale recovery cannot reload a newly selected account');
+  f.env.api.closePanel();
+}
+assert.doesNotMatch(original, /Math\.random/);
+console.log('TOYBACO_PARENT_ACCOUNT_RECOVERY=PASS secure-random-fallback no-crypto-guidance cached-child-full-reopen stale-document-no-rollback');
