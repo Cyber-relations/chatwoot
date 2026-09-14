@@ -110,3 +110,11 @@ LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:0dcaaacc41ba5
       jp.toybaco.source.tree="9a17426900d328a6acc2bdaecba0533e8b401120" \
       jp.toybaco.gate.control-sha256="${TOYBACO_CONTROL_SHA256}"
 COPY --from=overlay-normalizer /toybaco-overlay/ /app/
+# The publisher supplies its checked-out public source revision. Local/non-public
+# builds leave this empty and the public source route returns an explicit 503.
+ARG TOYBACO_PUBLIC_REVISION=""
+RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
+      test "${#TOYBACO_PUBLIC_REVISION}" -eq 40 \
+      && ! printf '%s' "$TOYBACO_PUBLIC_REVISION" | grep -q '[^0-9a-f]'; \
+    fi \
+    && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION

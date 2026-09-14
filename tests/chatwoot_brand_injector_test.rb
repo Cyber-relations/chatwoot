@@ -252,3 +252,53 @@ class ChatwootBrandInjectorTest < Minitest::Test
     (values.last + 0.05) / (values.first + 0.05)
   end
 end
+
+require 'tmpdir'
+require_relative '../overlay/app/lib/toybaco/source_offer'
+
+class ChatwootSourceOfferTest < Minitest::Test
+  def with_source_offer(revision)
+    Dir.mktmpdir('toybaco-source-offer-') do |dir|
+      path = File.join(dir, 'revision')
+      File.write(path, revision) unless revision.nil?
+      app = ->(_env) { [418, {}, ['delegated']] }
+      yield Toybaco::SourceOffer.new(app, revision_path: path)
+    end
+  end
+
+  def request(method = 'GET', path = '/toybaco/source')
+    { 'REQUEST_METHOD' => method, 'PATH_INFO' => path, 'QUERY_STRING' => 'revision=main&url=https://example.invalid' }
+  end
+
+  def test_exact_build_revision_is_the_only_redirect_target
+    revision = '0123456789abcdef' * 2 + '01234567'
+    with_source_offer("#{revision}\n") do |offer|
+      status, headers, body = offer.call(request)
+      assert_equal(302, status)
+      assert_equal("https://github.com/Cyber-relations/chatwoot/tree/#{revision}", headers['location'])
+      assert_equal('no-store', headers['cache-control'])
+      assert_empty(body)
+      assert_equal([status, headers, body], offer.call(request('HEAD')))
+    end
+  end
+
+  def test_missing_or_invalid_revision_never_claims_main_as_deployed
+    [nil, '', 'main', 'A' * 40, 'a' * 39, 'a' * 41, 'https://example.invalid'].each do |revision|
+      with_source_offer(revision) do |offer|
+        status, headers, body = offer.call(request)
+        assert_equal(503, status, revision.inspect)
+        refute(headers.key?('location'))
+        assert_includes(body.join, '対応ソースを確認できません')
+        assert_empty(offer.call(request('HEAD'))[2])
+      end
+    end
+  end
+
+  def test_other_paths_and_methods_keep_existing_app_behavior
+    with_source_offer('a' * 40) do |offer|
+      [['POST', '/toybaco/source'], ['GET', '/toybaco/source/'], ['GET', '/app']].each do |method, path|
+        assert_equal([418, {}, ['delegated']], offer.call(request(method, path)))
+      end
+    end
+  end
+end
