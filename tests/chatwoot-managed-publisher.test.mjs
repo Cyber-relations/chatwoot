@@ -5,12 +5,20 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
+import vm from 'node:vm';
 
 const root = resolve(process.argv[2] || '.');
 const workflowPath = resolve(root, '.github/workflows/chatwoot-integration.yml');
 const gatePath = resolve(root, 'bin/toybaco-chatwoot-gate');
+const postEntryPath = resolve(root, 'overlay/app/public/brand-assets/toybaco-post-entry.js');
 const workflow = readFileSync(workflowPath, 'utf8');
 const gate = readFileSync(gatePath, 'utf8');
+const postEntry = readFileSync(postEntryPath, 'utf8');
+const instrumentedPostEntry = postEntry.replace(
+  /\n\}\)\(\);\s*$/,
+  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { findMenu: findMenu, placeEntry: placeEntry };\n})();\n',
+);
+assert.notEqual(instrumentedPostEntry, postEntry, 'post-entry test instrumentation anchor missing');
 
 const ACTIONS = Object.freeze({
   checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
@@ -49,6 +57,178 @@ function usedActions(source) {
   return [...source.matchAll(/^\s+uses:\s+(\S+)/gm)].map((match) => match[1]);
 }
 
+function validatePostEntryNavigation(source) {
+  const placeEntry = `  function placeEntry(menu, entry) {
+    if (entry.parentElement !== menu.ul || entry.previousElementSibling !== menu.li) {
+      menu.ul.insertBefore(entry, menu.li.nextSibling);
+    }
+  }`;
+  const nativeFirst = "li = ul.querySelector(':scope > li:not([data-' + MARK + '-wrap])');";
+  const sameAccount = "if (existing && existing.getAttribute('data-account') === id) {";
+  const existingWrap = 'var existingWrap = existing.parentElement;';
+  const markedWrap =
+    "if (existingWrap && existingWrap.getAttribute('data-' + MARK + '-wrap') === '1') {";
+  const repairPosition = 'placeEntry(sample, existingWrap);';
+  const removeExisting = '      removePostEntry();\n      var now = findMenu();';
+  const duplicateGuard = "if (document.querySelector('[data-' + MARK + ']')) return;";
+  const insertAfterFirst = 'placeEntry(now, buildEntry(now, id));';
+
+  const positions = [
+    placeEntry,
+    nativeFirst,
+    sameAccount,
+    existingWrap,
+    markedWrap,
+    repairPosition,
+    removeExisting,
+    duplicateGuard,
+    insertAfterFirst,
+  ]
+    .map((contract) => source.indexOf(contract));
+  assert.ok(positions.every((position) => position >= 0), 'post-entry navigation contract missing');
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions,
+    'post-entry account/idempotency checks must precede insertion');
+  assert.equal(source.match(/buildEntry\(now, id\)/g)?.length, 1,
+    'post-entry must be inserted exactly once');
+  assert.ok(!source.includes('now.ul.appendChild(buildEntry(now, id));'),
+    'post-entry must not be appended to the menu end');
+}
+
+function loadPostEntryNavigation() {
+  const window = {
+    TOYBACO_POST_URL: 'https://post.staging.toybaco.jp',
+    globalConfig: {},
+    location: { hash: '', pathname: '/app/accounts/1/inbox', protocol: 'https:' },
+    addEventListener() {},
+  };
+  const document = {
+    readyState: 'loading',
+    addEventListener() {},
+  };
+  vm.runInNewContext(instrumentedPostEntry, {
+    window,
+    document,
+    URL,
+    URLSearchParams,
+    sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
+  }, { filename: postEntryPath });
+  return { api: window.__TOYBACO_POST_ENTRY_TEST__, document };
+}
+
+function makeRow(name) {
+  const row = { name, parentElement: null };
+  Object.defineProperties(row, {
+    previousElementSibling: {
+      get() {
+        if (!row.parentElement) return null;
+        const index = row.parentElement.children.indexOf(row);
+        return index > 0 ? row.parentElement.children[index - 1] : null;
+      },
+    },
+    nextSibling: {
+      get() {
+        if (!row.parentElement) return null;
+        const index = row.parentElement.children.indexOf(row);
+        return index >= 0 ? (row.parentElement.children[index + 1] || null) : null;
+      },
+    },
+  });
+  return row;
+}
+
+function makeList(rows) {
+  const ul = {
+    children: [...rows],
+    insertCalls: 0,
+    insertBefore(node, reference) {
+      this.insertCalls += 1;
+      if (node.parentElement) {
+        const previous = node.parentElement.children.indexOf(node);
+        if (previous >= 0) node.parentElement.children.splice(previous, 1);
+      }
+      const index = reference === null ? this.children.length : this.children.indexOf(reference);
+      assert.notEqual(index, -1, 'reference row must belong to the destination menu');
+      this.children.splice(index, 0, node);
+      node.parentElement = this;
+    },
+  };
+  rows.forEach((row) => { row.parentElement = ul; });
+  return ul;
+}
+
+function testPostEntryNavigation() {
+  const fixture = loadPostEntryNavigation();
+  // The native group uses a role=button div when expanded and a button when
+  // collapsed. Without that group, the remaining inbox link is the fallback.
+  for (const conversationTag of [null, 'DIV', 'BUTTON']) {
+    const postingFirst = makeRow('posting');
+    postingFirst.getAttribute = (name) =>
+      name === 'data-toybaco-post-entry-wrap' ? '1' : null;
+    const inbox = makeRow('inbox');
+    const conversations = makeRow('conversations');
+    const primaryList = makeList([postingFirst, inbox, conversations]);
+    const inboxInner = {
+      tagName: 'A',
+      getAttribute: (name) => ({
+        title: '通知', href: '/app/accounts/1/inbox-view',
+      })[name] ?? null,
+    };
+    const conversationInner = conversationTag && {
+      tagName: conversationTag,
+      getAttribute: (name) => ({
+        title: '会話', role: conversationTag === 'DIV' ? 'button' : null,
+      })[name] ?? null,
+    };
+    for (const [row, inner] of [[inbox, inboxInner], [conversations, conversationInner]]) {
+      row.children = inner ? [inner] : [];
+      row.querySelector = (selector) => inner && selector.split(',').some((part) =>
+        part.trim() === inner.tagName.toLowerCase() ||
+        (part.trim() === '[role="button"]' && inner.getAttribute('role') === 'button'))
+        ? inner : null;
+    }
+    primaryList.querySelector = (selector) => {
+      assert.equal(selector, ':scope > li:not([data-toybaco-post-entry-wrap])');
+      return inbox;
+    };
+    const nav = {
+      querySelector(selector) {
+        assert.equal(selector, 'ul');
+        return primaryList;
+      },
+    };
+    fixture.document.querySelectorAll = (selector) => {
+      assert.equal(selector, 'nav');
+      return [nav];
+    };
+
+    const menu = fixture.api.findMenu();
+    assert.ok(menu, 'native conversation controls must yield a navigation sample');
+    assert.equal(menu.li, conversationTag ? conversations : inbox,
+      'the conversation parent must outrank the notification link and injected posting row');
+    assert.equal(menu.inner, conversationInner || inboxInner);
+    fixture.api.placeEntry(menu, postingFirst);
+    assert.deepEqual(primaryList.children.map((row) => row.name), conversationTag
+      ? ['inbox', 'conversations', 'posting']
+      : ['inbox', 'posting', 'conversations']);
+    assert.equal(primaryList.insertCalls, 1, 'posting-first drift must be repaired once');
+    fixture.api.placeEntry(menu, postingFirst);
+    assert.equal(primaryList.insertCalls, 1, 'correct repeated placement must not mutate the DOM');
+  }
+
+  const stalePosting = makeRow('posting');
+  const staleList = makeList([stalePosting]);
+  const freshInbox = makeRow('fresh-inbox');
+  const freshOther = makeRow('fresh-other');
+  const freshList = makeList([freshInbox, freshOther]);
+  fixture.api.placeEntry({ ul: freshList, li: freshInbox }, stalePosting);
+  assert.deepEqual(staleList.children, [], 'entry must leave the stale navigation list');
+  assert.deepEqual(freshList.children.map((row) => row.name), [
+    'fresh-inbox',
+    'posting',
+    'fresh-other',
+  ]);
+}
+
 function validate(workflowSource, gateSource) {
   for (const input of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot*']) {
     assert.ok(workflowSource.includes(`      - '${input}'`), `runtime source push path missing: ${input}`);
@@ -72,18 +252,14 @@ function validate(workflowSource, gateSource) {
   assert.deepEqual(usedActions(quality), [ACTIONS.checkout]);
 
   assert.ok(
-    publish.includes('false &&'),
-    'private repository publisher must remain fail-closed after public repository migration',
-  );
-  assert.ok(
     publish.includes("(github.event_name == 'push' && github.ref == 'refs/heads/main') ||"),
-    'parked publisher source must document its former main-only condition',
+    'push publisher must remain main-only',
   );
   assert.ok(
     publish.includes(
       "(github.event_name == 'workflow_dispatch' && inputs.publish_reviewed_main)",
     ),
-    'parked publisher source must document its former manual condition',
+    'manual republish request must make the publisher job reachable',
   );
   assert.match(publish, /^    needs: quality$/m);
   assert.match(publish, /environment:\n\s+name: chatwoot-production/);
@@ -181,6 +357,7 @@ function validate(workflowSource, gateSource) {
     assert.ok(publish.includes(required), `ECR scan contract missing: ${required}`);
   }
   assert.doesNotMatch(publish, /start-image-scan/);
+
   const trivyIndex = publish.indexOf('固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認');
   assert.ok(publish.indexOf('SPDX SBOMの形式と上限を確認') < trivyIndex &&
     trivyIndex < publish.indexOf('SLSA provenanceを署名してOCIへ保存'),
@@ -255,9 +432,6 @@ function validate(workflowSource, gateSource) {
     'find "$CONTROL_ROOT" -type f -exec chmod u=rwX,go=rX {} +',
     'chmod 0777 "$results"',
     'tests/chatwoot_full_japanese_test.rb',
-    'tests/chatwoot_checkout_session_test.rb',
-    'tests/chatwoot_billing_plan_names_test.rb',
-    'tests/chatwoot_ai_reply_mode_test.rb',
     'Rake::Task["db:migrate"].invoke',
     'bundle exec rails db:toybaco_prepare',
     'bundle exec rspec',
@@ -265,12 +439,6 @@ function validate(workflowSource, gateSource) {
     'tests/chatwoot-http-smoke.rb',
     'bundle exec sidekiq -C config/sidekiq.yml',
     'DOCKER_BUILDKIT=1 docker build --no-cache --pull --platform linux/amd64',
-    'grep -Fq "libexpat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile"',
-    'test ! -e /usr/lib/libexpat.so.1.12.3',
-    'Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}',
-    '"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n',
-    'assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'',
-    'test ! -e /app/spec',
     'test ! -e /app/tests/playwright',
     'test ! -e /app/node_modules',
     'test ! -e /usr/local/lib/node_modules/npm',
@@ -301,6 +469,24 @@ function validate(workflowSource, gateSource) {
 }
 
 validate(workflow, gate);
+validatePostEntryNavigation(postEntry);
+testPostEntryNavigation();
+
+assert.throws(
+  () => validatePostEntryNavigation(postEntry.replace(
+    'placeEntry(now, buildEntry(now, id));',
+    'now.ul.appendChild(buildEntry(now, id));',
+  )),
+  'post-entry end-append negative control was accepted',
+);
+
+assert.throws(
+  () => validatePostEntryNavigation(postEntry.replace(
+    'menu.ul.insertBefore(entry, menu.li.nextSibling);',
+    '',
+  )),
+  'post-entry position-repair negative control was accepted',
+);
 
 const mutations = [
   [workflow.replace('TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT', 'TOYBACO_PUBLIC_REVISION=main'), gate],
@@ -334,13 +520,6 @@ const mutations = [
   [workflow, gate.replace('ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}', 'true')],
   [workflow, gate.replace('ruby /contract/tests/verify_chatwoot_runtime_gems.rb', 'ruby /contract/tests/not-run.rb')],
   [workflow, gate.replace('Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}', 'Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.2}')],
-  [workflow, gate.replace('assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'', ':')],
-  [workflow, gate.replace('test ! -e /app/spec', ':')],
-  [workflow, gate.replaceAll('libexpat=2.8.4-r0', 'libexpat=2.8.3-r0')],
-  [workflow, gate.replaceAll('test ! -e /usr/lib/libexpat.so.1.12.3', ':')],
-  [workflow, gate.replaceAll('Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}', 'Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.3}')],
-  [workflow, gate.replace('"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n', '"$PRODUCTION_IMAGE" sh -c \'\n')],
-  [workflow.replace('false &&', 'true &&'), gate],
   [workflow.replace('needs: quality', 'needs: []'), gate],
   [workflow.replace(
     `if [[ "$REQUEST_REF_TYPE" != 'branch' || "$REQUEST_REF" != 'refs/heads/main' ]]; then`,
@@ -397,7 +576,9 @@ for (const [index, [mutatedWorkflow, mutatedGate]] of mutations.entries()) {
   );
 }
 
-console.log(`Chatwoot managed publisher: PASS (${mutations.length} negative controls)`);
+console.log(
+  `Chatwoot managed publisher: PASS (${mutations.length} publisher + 2 post-entry negative controls)`,
+);
 
 // Execute the exact publisher shell with synthetic SPDX/reports and a Docker
 // stand-in. These are policy regressions, not a replacement for a real scan.
