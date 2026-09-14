@@ -37,9 +37,9 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       'BRAND_NAME' => 'トイバコ',
       'BRAND_URL' => 'https://toybaco.jp',
       'WIDGET_BRAND_URL' => 'https://toybaco.jp',
-      'LOGO' => '/brand-assets/toybaco-logo-c4.png',
-      'LOGO_DARK' => '/brand-assets/toybaco-logo-c4-dark.png',
-      'LOGO_THUMBNAIL' => '/brand-assets/toybaco-mark-c4.png',
+      'LOGO' => '/brand-assets/toybaco-logo-c4.png?v=ivory-20260914',
+      'LOGO_DARK' => '/brand-assets/toybaco-logo-c4-dark.png?v=ivory-20260914',
+      'LOGO_THUMBNAIL' => '/brand-assets/toybaco-app-icon-ivory.png',
       'TERMS_URL' => 'https://toybaco.jp/terms',
       'PRIVACY_URL' => 'https://toybaco.jp/privacy',
       # Chatwoot 既定メタデータ(アップデートバナー・BuildInfo のバージョン表記)を出さない
