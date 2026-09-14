@@ -438,10 +438,42 @@
     return request.handled;
   }
 
-  function onKeydown(e) {
-    if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !e.defaultPrevented) {
-      if (!requestPanelClose(closePanel)) closePanel();
+  function isVisibleNativeOverlay(node) {
+    if (!node || !node.getClientRects || !node.getClientRects().length) return false;
+    if (node.closest('[inert], [aria-hidden="true"]')) return false;
+    var style = window.getComputedStyle(node);
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+      style.visibility !== 'collapse' && style.opacity !== '0';
+  }
+
+  function hasNativeEscapeOverlay() {
+    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], ' +
+      '[role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"], dialog[open], .modal-container');
+    for (var i = 0; i < overlays.length; i++) {
+      if (isVisibleNativeOverlay(overlays[i])) return true;
     }
+    // ninja-keys renders its visible modal in an open shadow root. The host
+    // itself stays mounted when closed and is not evidence of an open palette.
+    var palettes = document.querySelectorAll('ninja-keys');
+    for (var j = 0; j < palettes.length; j++) {
+      var modal = palettes[j].shadowRoot && palettes[j].shadowRoot.querySelector('.modal.visible');
+      if (modal && isVisibleNativeOverlay(modal)) return true;
+    }
+    return false;
+  }
+
+  function onKeydown(e) {
+    if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || e.defaultPrevented || !panel) return;
+    if (hasNativeEscapeOverlay()) return;
+    var escapePanel = panel;
+    var escapeFrame = panel.querySelector('iframe');
+    // Let native target/bubble handlers finish first. A microtask can run
+    // between capture and bubble on real key input, so use the next task.
+    setTimeout(function () {
+      if (panel !== escapePanel || panel.querySelector('iframe') !== escapeFrame ||
+          e.defaultPrevented || hasNativeEscapeOverlay()) return;
+      if (!requestPanelClose(closePanel)) closePanel();
+    }, 0);
   }
 
   function removeReadyMessageHandler() {

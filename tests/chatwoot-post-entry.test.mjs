@@ -220,6 +220,7 @@ function matchesSimpleSelector(node, selector) {
     if (part === ':scope > li:not([data-toybaco-post-entry-wrap])') return false;
     if (part === 'aside nav > ul' || part === 'aside nav ul') return false;
     if (part.startsWith('[')) return matchesAttrSelector(node, part);
+    if (/^\.[A-Za-z0-9_.-]+$/.test(part)) return part.slice(1).split('.').every(name => (node.className || '').split(/\s+/).includes(name));
     const tagged = part.match(/^([A-Za-z0-9-]+)(.*)$/);
     if (!tagged) return false;
     if (node.tagName !== tagged[1].toUpperCase()) return false;
@@ -1278,6 +1279,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   assert.notEqual(panel.parentElement, tab.body);
   assert.match(postingEntry(tab.document).className, /bg-n-alpha-2/);
   (tab.docListeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(tab.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'ESC must close the posting tab');
   assert.doesNotMatch(postingEntry(tab.document).className, /bg-n-alpha-2/);
 }
@@ -1425,6 +1427,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
     assert.equal(tab.document.querySelector('[data-toybaco-post-entry-panel]'), reopened, 'consumed or composing parent Escape cannot close the panel');
   }
   (tab.docListeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(tab.windowListeners.message.length, 0);
 }
 
@@ -4188,4 +4191,123 @@ console.log('TOYBACO_CHATWOOT_POST_ENTRY=PASS origin=dynamic invalid=fail-closed
   nativeDark = true; themeObserver.fire();
   assert.equal(messages.length, count, 'old child without ACK protocol is not hidden or sent unsupported messages');
   env.api.closePanel();
+}
+
+// Native overlays own Escape before the posting parent. Execute the actual
+// capture handler and its deferred task, including the child draft-close bridge.
+function nativeEscapeFixture() {
+  const timers = new Map(); let timerId = 0;
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', {
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  env.window.getComputedStyle = node => ({ display: 'block', visibility: 'visible', opacity: '1', ...node.style });
+  env.api.openPanel('/analytics', false);
+  const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  const frame = panel.querySelector('iframe');
+  frame.draftFixture = '編集中の本文を保持';
+  const requests = [];
+  frame.contentWindow = { postMessage(data) { requests.push(data); } };
+  const send = data => [...(env.windowListeners.message || [])].forEach(fn => fn({ origin: 'https://post.staging.toybaco.jp', source: frame.contentWindow, data }));
+  send({ type: 'TOYBACO_POSTIZ_READY' });
+  const runTasks = () => {
+    const tasks = [...timers].filter(([, value]) => value.ms === 0);
+    for (const [id, { fn }] of tasks) { timers.delete(id); fn(); }
+  };
+  const escape = (extra = {}, nativeHandler = () => {}) => {
+    const event = { key: 'Escape', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+    [...(env.docListeners.keydown || [])].forEach(fn => fn(event));
+    nativeHandler(event); // Target/bubble phase runs after the parent capture.
+    return event;
+  };
+  return { env, panel, frame, requests, send, escape, runTasks };
+}
+function nativeOverlayFixture(kind) {
+  const node = createDomNode(kind === 'dialog' ? 'dialog' : 'div');
+  node.getClientRects = () => [{ width: 240, height: 120 }];
+  if (kind === 'dropdown') node.className = 'n-dropdown-body';
+  else if (kind === 'teleported') node.setAttribute('data-dropdown-menu', '');
+  else if (kind === 'legacy-modal') node.className = 'modal-container';
+  else if (kind === 'dialog') node.setAttribute('open', '');
+  else if (kind === 'aria-modal') node.setAttribute('aria-modal', 'true');
+  else node.setAttribute('role', kind);
+  return node;
+}
+for (const kind of ['dropdown', 'teleported', 'menu', 'listbox', 'dialog', 'aria-modal', 'legacy-modal']) {
+  const { env, panel, frame, requests, escape, runTasks } = nativeEscapeFixture();
+  const overlay = nativeOverlayFixture(kind); env.body.appendChild(overlay);
+  const originalHash = env.window.location.hash;
+  let nativeCalls = 0;
+  escape({}, () => { nativeCalls += 1; }); runTasks();
+  assert.equal(nativeCalls, 1, `${kind}: existing native handler is not intercepted`);
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel);
+  assert.equal(frame.draftFixture, '編集中の本文を保持');
+  assert.equal(env.window.location.hash, originalHash);
+  assert.equal(requests.length, 0, `${kind}: Escape must not request discard or change posting history`);
+  // A native handler may close its overlay without preventDefault. It still
+  // owns this Escape; the same event must not also close the posting panel.
+  escape({}, () => overlay.remove()); runTasks();
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel);
+  assert.equal(requests.length, 0);
+  env.api.closePanel();
+}
+{
+  const { env, panel, requests, escape, runTasks } = nativeEscapeFixture();
+  const palette = createDomNode('ninja-keys');
+  const shadow = createDomNode('section');
+  const modal = nativeOverlayFixture('unused'); modal.className = 'modal visible';
+  shadow.appendChild(modal); palette.shadowRoot = shadow; env.body.appendChild(palette);
+  escape({}, () => { modal.className = 'modal'; }); runTasks();
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel, 'visible native palette alone consumes this Escape');
+  assert.equal(requests.length, 0);
+  escape(); runTasks();
+  assert.equal(requests.at(-1).type, 'TOYBACO_POSTIZ_REQUEST_CLOSE', 'closed but mounted palette must not block shell Escape');
+  env.api.closePanel();
+}
+for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 'aria-hidden']) {
+  const { env, requests, escape, runTasks } = nativeEscapeFixture();
+  const overlay = nativeOverlayFixture('dropdown'); env.body.appendChild(overlay);
+  if (hidden === 'no-layout') overlay.getClientRects = () => [];
+  else if (hidden === 'display') overlay.style.display = 'none';
+  else if (hidden === 'visibility') overlay.style.visibility = 'hidden';
+  else if (hidden === 'opacity') overlay.style.opacity = '0';
+  else if (hidden === 'inert') overlay.setAttribute('inert', '');
+  else overlay.setAttribute('aria-hidden', 'true');
+  escape(); runTasks();
+  assert.equal(requests.at(-1).type, 'TOYBACO_POSTIZ_REQUEST_CLOSE', `${hidden}: hidden overlay is not an active Escape owner`);
+  env.api.closePanel();
+}
+{
+  const { env, panel, frame, requests, send, escape, runTasks } = nativeEscapeFixture();
+  for (const extra of [{ key: 'Enter' }, { isComposing: true }, { keyCode: 229 }, { defaultPrevented: true }]) { escape(extra); runTasks(); }
+  assert.equal(requests.length, 0, 'composition, consumed keys and other keys retain existing behavior');
+  escape({}, event => event.preventDefault()); runTasks();
+  assert.equal(requests.length, 0, 'later native preventDefault takes precedence');
+  const lateMenu = nativeOverlayFixture('dropdown');
+  escape({}, () => env.body.appendChild(lateMenu)); runTasks();
+  assert.equal(requests.length, 0, 'native overlay mounted during bubbling takes precedence');
+  lateMenu.remove();
+  escape();
+  assert.equal(requests.length, 0, 'capture must not close before native handlers');
+  runTasks();
+  const first = requests.at(-1);
+  assert.equal(first.type, 'TOYBACO_POSTIZ_REQUEST_CLOSE');
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: first.requestId, allowed: false });
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel);
+  assert.equal(frame.draftFixture, '編集中の本文を保持');
+  escape(); runTasks();
+  const retry = requests.at(-1);
+  assert.notEqual(retry.requestId, first.requestId);
+  send({ type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: retry.requestId, allowed: true });
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'shell Escape retry closes after the normal child discard approval');
+}
+{
+  const { env, escape, runTasks, requests } = nativeEscapeFixture();
+  escape(); env.api.closePanel(); env.api.openPanel('/media', false);
+  const reopened = env.document.querySelector('[data-toybaco-post-entry-panel]');
+  runTasks();
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), reopened);
+  assert.equal(requests.length, 0, 'deferred Escape cannot act on a replacement panel/frame');
+  env.api.closePanel(); escape(); runTasks();
+  assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'no-panel native behavior is unchanged');
 }
