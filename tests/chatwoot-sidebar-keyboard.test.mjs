@@ -56,6 +56,9 @@ const releaseMobileFocus = () => {
   for (const resolve of mobileFocusWaiters.splice(0)) resolve();
 };
 const pushes = [];
+const accountNavigations = [];
+const accountFixtures = new Map();
+const accountWindow = { location: { set href(value) { accountNavigations.push(value); } } };
 const focusCalls = [];
 const originalFocus = dom.window.HTMLElement.prototype.focus;
 const originalInert = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, 'inert');
@@ -85,7 +88,7 @@ function source(relative) {
 
 // Transform import/export syntax using the compiler's parser, without changing
 // function bodies or template output. No transpiler dependency or disk bundle.
-function evaluateModule(code, load, resultName) {
+function evaluateModule(code, load, resultName, executionWindow = window) {
   const parsed = babelParse(code, { sourceType: 'module' });
   const edits = [];
   const exports = [];
@@ -111,38 +114,75 @@ function evaluateModule(code, load, resultName) {
   }
   for (const [start, end, replacement] of edits.sort((a, b) => b[0] - a[0])) code = code.slice(0, start) + replacement + code.slice(end);
   const result = resultName || '{' + exports.join(',') + '}';
-  return new Function('__load', 'setTimeout', 'clearTimeout', code + '\nreturn ' + result + ';')(
+  return new Function('__load', 'setTimeout', 'clearTimeout', 'window', code + '\nreturn ' + result + ';')(
     load,
     callback => { const id = ++timerId; timers.set(id, callback); return id; },
-    id => timers.delete(id)
+    id => timers.delete(id), executionWindow
   );
 }
-const storeApi = { useMapGetter: () => Vue.ref(false) };
+const storeApi = { useMapGetter: name => accountFixtures.get(name) || Vue.ref(false) };
 const routerApi = { useRoute: () => route, useRouter: () => router };
 const empty = Vue.defineComponent({ setup: () => () => null });
 const icon = Vue.defineComponent({ inheritAttrs: false, setup: (_props, context) => () => Vue.h('span', { ...context.attrs, 'aria-hidden': 'true' }) });
 const policy = Vue.defineComponent({ props: ['as', 'permissions', 'featureFlag'], setup: (props, context) => () => Vue.h(props.as || 'div', context.attrs, context.slots.default?.()) });
 const leaf = Vue.defineComponent({ props: ['label', 'to'], setup: (props, context) => () => Vue.h('a', { ...context.attrs, href: props.to?.path, onClick: event => { event.preventDefault(); router.push(props.to); } }, props.label) });
 const compiled = new Map();
+const modules = new Map();
+const dropdownBase = 'app/javascript/dashboard/components-next/dropdown-menu/base/';
+const outsideClickHandlers = new WeakMap();
+// VueUse is not installed in this portable fixture. These adapters supply only
+// reactive toggle and directive lifecycle/events, never dropdown key/focus logic.
+const dropdownOutsideClick = {
+  mounted(element, binding) {
+    const [close, options] = binding.value;
+    const handler = event => {
+      if (!element.contains(event.target) && !options.ignore.some(selector => event.target.closest(selector))) close(event);
+    };
+    outsideClickHandlers.set(element, handler);
+    document.addEventListener('click', handler, true);
+  },
+  unmounted(element) {
+    document.removeEventListener('click', outsideClickHandlers.get(element), true);
+    outsideClickHandlers.delete(element);
+  },
+};
 let provider;
 function load(name, from) {
   if (name === 'vue') return Vue;
   if (name === 'vue-router') return routerApi;
   if (name.startsWith('dashboard/composables/store')) return storeApi;
+  if (name === 'vue-i18n') return { useI18n: () => ({ t: key => key }) };
+  if (name === 'dashboard/composables/useAccount') return { useAccount: () => ({
+    accountId: Vue.ref(4), currentAccount: Vue.computed(() => accountFixtures.get('getCurrentUser').value.accounts.find(account => account.id === 4)),
+  }) };
   if (name === 'dashboard/composables/usePolicy') return { usePolicy: () => ({ shouldShow: (_flag, permissions) => permissions.every(item => allowed.value.has(item)) }) };
   if (name === 'dashboard/composables/useUISettings') return { useUISettings: () => ({ uiSettings: Vue.ref({}), updateUISettings() { throw new Error('settings writes forbidden'); } }) };
   if (name === './provider') return provider;
   if (name === 'next/icon/Icon.vue') return { default: icon };
+  if (name === 'dashboard/components-next/icon/Icon.vue' || name === 'next/icon/Logo.vue') return { default: icon };
+  if (name === 'next/button/Button.vue') return { default: empty };
+  if (name === 'next/dropdown-menu/base') return Object.fromEntries(
+    ['DropdownContainer', 'DropdownBody', 'DropdownSection', 'DropdownItem'].map(component => [component, sfc(dropdownBase + component + '.vue')])
+  );
+  if (name === '@vueuse/components') return { vOnClickOutside: dropdownOutsideClick };
   if (name === 'dashboard/components/policy.vue') return { default: policy };
   if (name === './SidebarGroupLeaf.vue') return { default: leaf };
   if (['./SidebarSubGroup.vue', './SidebarGroupEmptyLeaf.vue', './SidebarUnreadBadge.vue', './SidebarSortMenu.vue'].includes(name)) return { default: empty };
-  if (name === '@vueuse/core') return { onClickOutside: (element, callback) => {
+  if (name === '@vueuse/core') return { useToggle: initial => {
+    const value = Vue.ref(initial);
+    return [value, next => { value.value = typeof next === 'boolean' ? next : !value.value; return value.value; }];
+  }, onClickOutside: (element, callback) => {
     const handler = event => { if (element.value && !element.value.contains(event.target) && !event.target.closest('[data-popover-content]')) callback(event); };
     Vue.onMounted(() => document.addEventListener('pointerdown', handler));
     Vue.onUnmounted(() => document.removeEventListener('pointerdown', handler));
   } };
   const relative = name.startsWith('./') ? path.posix.join(path.posix.dirname(from), name)
-    : name === 'dashboard/components-next/TeleportWithDirection.vue' ? 'app/javascript/dashboard/components-next/TeleportWithDirection.vue' : null;
+    : name === 'dashboard/components-next/TeleportWithDirection.vue' ? 'app/javascript/dashboard/components-next/TeleportWithDirection.vue'
+      : name === 'dashboard/composables/useDropdownPosition' ? 'app/javascript/dashboard/composables/useDropdownPosition.js' : null;
+  if (relative?.endsWith('.js')) {
+    if (!modules.has(relative)) modules.set(relative, evaluateModule(source(relative), dependency => load(dependency, relative)));
+    return modules.get(relative);
+  }
   assert.ok(relative?.endsWith('.vue'), 'unhandled import: ' + name);
   return { default: sfc(relative) };
 }
@@ -151,7 +191,8 @@ function sfc(relative) {
   const parsed = parse(source(relative), { filename: relative });
   assert.deepEqual(parsed.errors, [], 'SFC parse: ' + relative);
   const output = compileScript(parsed.descriptor, { id: sha(Buffer.from(relative)), genDefaultAs: '__component', inlineTemplate: true });
-  const component = evaluateModule(output.content, name => load(name, relative), '__component');
+  const component = evaluateModule(output.content, name => load(name, relative), '__component',
+    relative === base + 'SidebarAccountSwitcher.vue' ? accountWindow : window);
   compiled.set(relative, component);
   return component;
 }
@@ -218,7 +259,7 @@ function mountActualParentEscape(mode) {
   }).join('\n');
   mobileContractHashes.parent_escape_functions_sha256 = sha(Buffer.from(functions));
   const parent = document.createElement('div');
-  if (mode === 'about') parent.setAttribute('data-toybaco-aux-view', 'about');
+  if (mode === 'about' || mode === 'ai') parent.setAttribute('data-toybaco-aux-view', mode);
   else parent.setAttribute('data-toybaco-post-entry-panel', '');
   document.body.append(parent);
   const effects = { request: 0, postingClose: 0, aboutClose: 0 };
@@ -227,7 +268,7 @@ function mountActualParentEscape(mode) {
   const handlers = new Function('panel', 'auxiliaryView', 'aiPanel', 'document', 'window', 'setTimeout',
     'requestPanelClose', 'closePanel', 'closeAuxiliaryView',
     functions + '\nreturn {onKeydown, auxiliaryKeydown};')(
-    mode === 'posting' ? parent : null, mode === 'about' ? parent : null, null, document, window,
+    mode === 'posting' ? parent : null, mode === 'about' || mode === 'ai' ? parent : null, null, document, window,
     callback => { const id = ++timerId; timers.set(id, callback); return id; },
     () => { effects.request += 1; return false; }, () => { effects.postingClose += 1; },
     restore => { assert.equal(restore, true); effects.aboutClose += 1; }
@@ -281,6 +322,7 @@ ${script.slice(mobile.start, mobile.end)}
 ${lifecycle}
 </script><template><aside ${templateAttributes}>
 <nav>
+  <slot />
   <a href="/hidden" hidden>Hidden</a>
   <button disabled>Disabled</button>
   <a href="/disabled" aria-disabled="true">Unavailable</a>
@@ -447,6 +489,121 @@ async function verifyMobileDrawer(descriptor) {
   pass('Mobile launcher Escape works; IME, consumed keys, nested menus/dialogs, outside targets and desktop remain owned by their existing handlers');
 }
 
+async function verifyAccountDropdown(descriptor) {
+  const Drawer = compileMobileDrawerContract(descriptor);
+  const AccountSwitcher = sfc(base + 'SidebarAccountSwitcher.vue');
+  const Container = sfc(dropdownBase + 'DropdownContainer.vue');
+  const Body = sfc(dropdownBase + 'DropdownBody.vue');
+  const provideRects = () => {
+    for (const element of host.querySelectorAll('aside, div, ul, a, button')) {
+      Object.defineProperty(element, 'getClientRects', { value: () => [{}], configurable: true });
+    }
+  };
+  const mountDropdown = async ({ account = true, closeOnEscape = false } = {}) => {
+    await dispose();
+    accountNavigations.length = 0;
+    accountFixtures.clear();
+    const accounts = [{ id: 4, name: 'Account 4', role: 'administrator' }, { id: 13, name: 'Account 13', role: 'agent' }];
+    accountFixtures.set('getCurrentUser', Vue.ref({ accounts }));
+    accountFixtures.set('getUserAccounts', Vue.ref(accounts));
+    accountFixtures.set('globalConfig/get', Vue.ref({ createNewAccountFromDashboard: false }));
+    const props = Vue.reactive({ fixtureWidth: 390, isMobileSidebarOpen: false, fixtureCurrent: true });
+    const closes = [];
+    const dropdownCloses = [];
+    host = document.createElement('div'); document.body.append(host);
+    const dropdown = () => account ? Vue.h(AccountSwitcher) : Vue.h(Container, {
+      closeOnEscape, onClose: () => dropdownCloses.push('close'),
+    }, {
+      trigger: ({ toggle }) => Vue.h('button', { id: 'fixture-dropdown-trigger', onClick: toggle }, 'Dropdown'),
+      default: () => Vue.h(Body, {}, { default: () => Vue.h('li', {}, 'Option') }),
+    });
+    app = Vue.createApp({ setup: () => () => account ? Vue.h('div', [
+      Vue.h('div', { id: 'mobile-sidebar-launcher' }, Vue.h('button', {}, 'Menu')),
+      Vue.h(Drawer, { ...props, onCloseMobileSidebar: () => { closes.push('close'); props.isMobileSidebarOpen = false; } }, { default: dropdown }),
+    ]) : dropdown() });
+    app.config.errorHandler = error => runtimeErrors.push(error.message);
+    app.mount(host); await tick(); provideRects();
+    const launcher = host.querySelector('#mobile-sidebar-launcher button');
+    if (account) {
+      launcher.focus(); props.isMobileSidebarOpen = true; await tick();
+    }
+    const accountTrigger = host.querySelector(account ? '#sidebar-account-switcher' : '#fixture-dropdown-trigger');
+    const body = () => host.querySelector('.n-dropdown-body');
+    const open = async () => { accountTrigger.focus(); accountTrigger.click(); await tick(); provideRects(); assert.ok(body()); };
+    return { props, closes, dropdownCloses, launcher, trigger: accountTrigger, body, open, drawer: host.querySelector('aside') };
+  };
+
+  for (const focusOrigin of ['trigger', 'body']) {
+    const fixture = await mountDropdown();
+    window.history.replaceState({}, '', '/app/accounts/4/dashboard#/toybaco/assistant');
+    const aiUrl = window.location.href;
+    const parent = mountActualParentEscape('ai');
+    try {
+      await fixture.open();
+      assert.equal(fixture.trigger.getAttribute('aria-haspopup'), 'listbox');
+      assert.equal(fixture.body().getAttribute('role'), null, 'actual account list has no synthetic role=menu');
+      assert.ok(host.querySelector('#account-4')); assert.ok(host.querySelector('#account-13'));
+      const origin = focusOrigin === 'trigger' ? fixture.trigger : host.querySelector('#account-13');
+      if (focusOrigin === 'body') { origin.tabIndex = -1; origin.focus(); }
+      assert.equal(document.activeElement, origin);
+      assert.equal(event(origin, 'Escape').defaultPrevented, true);
+      await tick(); await runTimers();
+      assert.equal(fixture.body(), null, 'actual isOpen state closed, not merely hidden with the drawer');
+      assert.equal(document.activeElement, fixture.trigger);
+      assert.equal(fixture.closes.length, 0);
+      assert.equal(fixture.drawer.getAttribute('data-toybaco-mobile-sidebar-open'), 'true');
+      assert.deepEqual(parent.effects, { request: 0, postingClose: 0, aboutClose: 0 });
+      assert.equal(parent.parent.getAttribute('data-toybaco-aux-view'), 'ai');
+      assert.equal(parent.parent.isConnected, true); assert.equal(window.location.href, aiUrl);
+      assert.deepEqual(accountNavigations, []);
+      assert.equal(event(fixture.trigger, 'Escape').defaultPrevented, true);
+      await tick(); await runTimers();
+      assert.equal(fixture.closes.length, 1, 'second Escape reaches actual Sidebar drawer handler');
+      assert.equal(document.activeElement, fixture.launcher);
+      assert.equal(fixture.body(), null);
+      assert.deepEqual(parent.effects, { request: 0, postingClose: 0, aboutClose: 0 });
+      assert.equal(parent.parent.isConnected, true); assert.equal(window.location.href, aiUrl);
+      fixture.props.fixtureWidth = 1000; await tick();
+      assert.equal(fixture.body(), null, 'desktop transition cannot reveal stale open dropdown state');
+    } finally { parent.cleanup(); }
+  }
+  pass('Mounted actual account trigger/body Escape closes dropdown and restores trigger; second Escape closes actual drawer while AI URL/view survives, including desktop return');
+
+  for (const extra of [{ isComposing: true }, { keyCode: 229 }, { prePrevented: true }]) {
+    const fixture = await mountDropdown(); await fixture.open();
+    const focusCount = focusCalls.length;
+    let bubbled = 0;
+    const bubble = () => { bubbled += 1; };
+    window.addEventListener('keydown', bubble);
+    try {
+      const escape = event(fixture.trigger, 'Escape', extra); await tick();
+      assert.equal(escape.defaultPrevented, !!extra.prePrevented);
+      assert.equal(bubbled, 1, 'ignored Escape is not propagation-consumed by the dropdown');
+      assert.ok(fixture.body()); assert.equal(fixture.closes.length, 0);
+      assert.equal(focusCalls.length, focusCount); assert.deepEqual(accountNavigations, []);
+    } finally { window.removeEventListener('keydown', bubble); }
+  }
+  pass('Mounted account dropdown leaves IME, keyCode229 and already-prevented Escape unconsumed without closing or refocusing');
+
+  let fixture = await mountDropdown({ account: false, closeOnEscape: true });
+  fixture.trigger.focus();
+  assert.equal(event(fixture.trigger, 'Escape').defaultPrevented, false);
+  assert.deepEqual(fixture.dropdownCloses, []);
+  fixture = await mountDropdown({ account: false }); await fixture.open();
+  assert.equal(event(fixture.trigger, 'Escape').defaultPrevented, false); await tick();
+  assert.ok(fixture.body()); assert.deepEqual(fixture.dropdownCloses, []);
+  pass('Mounted actual DropdownContainer leaves closed and default opt-out Escape behavior unchanged');
+
+  fixture = await mountDropdown(); await fixture.open();
+  document.getElementById('outside').click(); await tick();
+  assert.equal(fixture.body(), null); assert.equal(fixture.closes.length, 0); assert.deepEqual(accountNavigations, []);
+  await fixture.open(); host.querySelector('#account-13').click(); await tick();
+  assert.equal(fixture.body(), null); assert.equal(fixture.closes.length, 0);
+  assert.deepEqual(accountNavigations, ['/app/accounts/13/dashboard']);
+  pass('Mounted account outside-click callback still closes; actual account selection closes and requests only its selected account URL through a no-navigation boundary');
+  await dispose(); accountFixtures.clear();
+}
+
 try {
   provider = evaluateModule(source(base + 'provider.js'), name => load(name, base + 'provider.js'));
   Group = sfc(base + 'SidebarGroup.vue');
@@ -560,10 +717,11 @@ try {
   assert.equal(route.path, '/late'); assert.equal(trigger().getAttribute('aria-expanded'), 'true');
   assert.notEqual(expandedList().style.display, 'none'); pass('Late children activate and expand a group without changing the URL');
   await verifyMobileDrawer(sidebarSource.descriptor);
+  await verifyAccountDropdown(sidebarSource.descriptor);
   assert.deepEqual(runtimeErrors, []);
   assert.ok(focusCalls.every(item => item.connected), 'focus never targets detached elements');
   console.log(JSON.stringify({ status: 'PASS', cases, source_sha256: sourceHashes, mobile_contract_sha256: mobileContractHashes, inertReflectionPolyfill: needsInertReflection, externalCalls: 0,
-    businessCalls: 0, boundaries: ['Full actual Group/Popover/Header/Teleport/provider; route, policy, store, decorative leaves and click-outside adapter are controlled.', 'Mobile: verbatim Sidebar lifecycle/key/close/computed/aside bindings plus four actual parent visibility/key functions on one DOM; final parent close/request effects are counted. Representative nav leaves, useEventListener registration adapter, controlled rectangles and deferred real nextTick completion for races. No native inert Tab/AX/layout assertion.', 'No computed browser layout or real router/backend assertion.'] }));
+    businessCalls: 0, boundaries: ['Full actual Group/Popover/Header/Teleport/provider; route, policy, store, decorative leaves and click-outside adapter are controlled.', 'Mobile: verbatim Sidebar lifecycle/key/close/computed/aside bindings plus four actual parent visibility/key functions on one DOM; final parent close/request effects are counted. Representative nav leaves, useEventListener registration adapter, controlled rectangles and deferred real nextTick completion for races. No native inert Tab/AX/layout assertion.', 'Account: full actual AccountSwitcher/DropdownContainer/Body/Section/Item and provider mounted without extracting or replacing the new Escape handler. Controlled account4/account13 store/i18n/decorative leaves; VueUse toggle and outside-click lifecycle adapters; account location.href captured without navigation; default inline dropdown only.', 'No computed browser layout or real router/backend assertion.'] }));
 } finally {
   await dispose();
   timers.clear();
