@@ -13,6 +13,10 @@ SOURCE_ROOT = Pathname.new(source_argument).realpath
 OUTPUT_ROOT = Pathname.new(output_argument).expand_path
 
 SOURCE_SHA256 = {
+  "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue" =>
+    "d45770e734a5dc1a50885c5a585e1abeee6539809b34b3fdf92b771256e57e28",
+  "app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue" =>
+    "7020844ea92e1217e828969bb095f4a942331b52e34005de3a219bdda0f0113b",
   'app/javascript/dashboard/components-next/Contacts/EmptyState/contactEmptyStateContent.js' =>
     '4542ea4bca42064b84ae10928432a67fb3a9ea288090cd2c0008cdbf1ee6aa2f',
   'app/javascript/dashboard/components/auth/SessionLimitOverlay.vue' =>
@@ -238,6 +242,7 @@ MAJOR_ROUTE_ANCHORS = {
       'app/javascript/dashboard/routes/dashboard/settings/inbox/AddAgents.vue',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/Settings.vue',
+      "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue",
       'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Twitter.vue',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Facebook.vue',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Website.vue',
@@ -247,6 +252,13 @@ MAJOR_ROUTE_ANCHORS = {
       'app/javascript/dashboard/routes/dashboard/settings/inbox/components/WeeklyAvailability.vue',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/helpers/businessHour.js',
       'app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CustomerSatisfactionPage.vue'
+    ]
+  },
+  'whatsapp_templates' => {
+    route_source: 'app/javascript/dashboard/routes/dashboard/settings/templates/templates.routes.js',
+    anchors: ["path: frontendURL('accounts/:accountId/settings/templates')"],
+    required_overlays: [
+      'app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue'
     ]
   },
   'automation' => {
@@ -337,6 +349,15 @@ def replacement(before, after, count = 1)
 end
 
 REPLACEMENTS = {
+  "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue" => [
+    replacement("      isOnChatwootCloud: 'globalConfig/isOnChatwootCloud',\n", "      isOnChatwootCloud: 'globalConfig/isOnChatwootCloud',\n      globalConfig: 'globalConfig/get',\n"),
+    replacement("    isEmbeddedSignupWhatsApp() {\n", "    isToybacoInstance() {\n      return this.globalConfig.installationName === 'トイバコ';\n    },\n    isEmbeddedSignupWhatsApp() {\n"),
+    replacement("            <a\n              target=\"_blank\"\n              rel=\"noopener noreferrer\"\n              href=\"https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/\"\n              class=\"text-n-blue-11 hover:underline text-label-small\"\n            >\n              {{\n                $t('INBOX_MGMT.SETTINGS_POPUP.IDENTITY_VALIDATION.VIEW_DOCS')\n              }}\n            </a>\n          </p>\n", "            <span v-if=\"isToybacoInstance\" class=\"block mt-1.5\">\n              このキーはサイトのサーバー側で使用します。本人確認の動作を確認してから、下の必須設定を有効にしてください。\n            </span>\n            <a\n              v-else\n              target=\"_blank\"\n              rel=\"noopener noreferrer\"\n              href=\"https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/\"\n              class=\"text-n-blue-11 hover:underline text-label-small\"\n            >\n              {{\n                $t('INBOX_MGMT.SETTINGS_POPUP.IDENTITY_VALIDATION.VIEW_DOCS')\n              }}\n            </a>\n          </p>\n          <details v-if=\"isToybacoInstance\" class=\"mt-3 text-label-small text-n-slate-11\">\n            <summary class=\"cursor-pointer font-medium\">サイト担当者向けの設定要点</summary>\n            <ol class=\"mt-2 list-decimal space-y-1 pl-5\">\n              <li>サーバー側で、上のキーとログイン済みユーザーのID文字列からHMAC-SHA256の16進署名を生成します。</li>\n              <li>同じIDをSDKのsetUserへ渡し、identifier_hashに署名を設定します。名前・メールアドレス・画像URLのうち、少なくとも1つも渡してください。</li>\n              <li>キー自体はブラウザーへ渡さず、設定後に本人確認の動作を確かめてください。</li>\n            </ol>\n            <pre class=\"mt-2 whitespace-pre-wrap break-words\"><code>window.$chatwoot.setUser(identifier, { name: displayName, identifier_hash: signature });</code></pre>\n          </details>\n")
+  ],
+  "app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue" => [
+    replacement("const store = useStore();\nconst { t } = useI18n();\n", "const store = useStore();\nconst { t } = useI18n();\nconst globalConfig = useMapGetter('globalConfig/get');\nconst isToybacoInstance = computed(\n  () => globalConfig.value.installationName === 'トイバコ'\n);\n"),
+    replacement("          <a\n            :href=\"TEMPLATE_LEARN_MORE_URL\"\n            class=\"text-sm font-medium text-n-blue-11 hover:underline\"\n            target=\"_blank\"\n            rel=\"noopener noreferrer\"\n          >\n            {{ $t('WHATSAPP_TEMPLATE_MGMT.KNOW_MORE') }}\n          </a>\n", "          <span v-if=\"isToybacoInstance\" class=\"block mt-1\">\n            テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。\n          </span>\n          <a\n            v-else\n            :href=\"TEMPLATE_LEARN_MORE_URL\"\n            class=\"text-sm font-medium text-n-blue-11 hover:underline\"\n            target=\"_blank\"\n            rel=\"noopener noreferrer\"\n          >\n            {{ $t('WHATSAPP_TEMPLATE_MGMT.KNOW_MORE') }}\n          </a>\n")
+  ],
   'app/javascript/dashboard/components/ModalHeader.vue' => [
     replacement('alt="No image"', 'alt=""')
   ],
@@ -1217,7 +1238,7 @@ FORBIDDEN_VISIBLE = {
 abort 'replacement/source file sets differ' unless REPLACEMENTS.keys.sort == SOURCE_SHA256.keys.sort
 
 expected_surfaces = %w[
-  auth onboarding conversations contacts inbox automation campaigns helpcenter
+  auth onboarding conversations contacts inbox whatsapp_templates automation campaigns helpcenter
   captain profile data labels teams
 ]
 abort 'major route surface set differs' unless MAJOR_ROUTE_ANCHORS.keys == expected_surfaces
