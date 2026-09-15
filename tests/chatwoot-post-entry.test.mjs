@@ -1314,7 +1314,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   (tab.docListeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(tab.document.querySelector('[data-toybaco-post-entry-panel]'), null, 'ESC must close the posting tab');
-  assert.doesNotMatch(postingEntry(tab.document).className, /bg-n-alpha-2/);
+  assert.doesNotMatch(postingEntry(tab.document).className, /(?:^|\s)bg-n-alpha-2(?:\s|$)/);
 }
 
 {
@@ -2323,7 +2323,7 @@ function deferred() {
   }
   env.api.inject();
   for (const entry of [postingEntry(env.document)]) {
-    assert.doesNotMatch(entry.className, /router-link-active|router-link-exact-active|bg-n-alpha-2/, 'new entries cannot inherit the active inbox classes');
+    assert.doesNotMatch(entry.className, /(?:^|\s)(?:router-link-active|router-link-exact-active|bg-n-alpha-2)(?:\s|$)/, 'new entries cannot inherit the active inbox classes');
     assert.equal(entry.getAttribute('data-toybaco-nav-current'), 'false');
   }
   assert.equal(inboxControl.getAttribute('href'), '/app/accounts/1/dashboard');
@@ -3712,6 +3712,9 @@ for (const teardown of ['denied', 'trusted-close', 'close-panel']) {
     assert.equal(calls.length, 2, 'the bridge cannot navigate to a foreign origin, document, or unoffered page');
   }
   assert.equal(rawWrites, 0);
+  env.api.openAuxiliaryView('ai');
+  assert.deepEqual(calls[2], { method: 'push', target: '/app/accounts/1/inbox#/toybaco/assistant', data: { toybacoPosting: false } });
+  assert.equal(rawWrites, 0, 'assistant navigation uses the same router-owned history cache');
 }
 
 // Browser entries must remain consumable by createWebHistory after native
@@ -4295,13 +4298,14 @@ function nativeOverlayFixture(kind) {
   node.getClientRects = () => [{ width: 240, height: 120 }];
   if (kind === 'dropdown') node.className = 'n-dropdown-body';
   else if (kind === 'teleported') node.setAttribute('data-dropdown-menu', '');
+  else if (kind === 'sidebar-popover') node.setAttribute('data-toybaco-sidebar-popover', '');
   else if (kind === 'legacy-modal') node.className = 'modal-container';
   else if (kind === 'dialog') node.setAttribute('open', '');
   else if (kind === 'aria-modal') node.setAttribute('aria-modal', 'true');
   else node.setAttribute('role', kind);
   return node;
 }
-for (const kind of ['dropdown', 'teleported', 'menu', 'listbox', 'dialog', 'aria-modal', 'legacy-modal']) {
+for (const kind of ['dropdown', 'teleported', 'sidebar-popover', 'menu', 'listbox', 'dialog', 'aria-modal', 'legacy-modal']) {
   const { env, panel, frame, requests, escape, runTasks } = nativeEscapeFixture();
   const overlay = nativeOverlayFixture(kind); env.body.appendChild(overlay);
   const originalHash = env.window.location.hash;
@@ -4318,6 +4322,17 @@ for (const kind of ['dropdown', 'teleported', 'menu', 'listbox', 'dialog', 'aria
   assert.equal(env.document.querySelector('[data-toybaco-post-entry-panel]'), panel);
   assert.equal(requests.length, 0);
   env.api.closePanel();
+}
+{
+  const { env, escape, runTasks } = nativeEscapeFixture();
+  env.api.closePanel(); env.api.openAuxiliaryView('about');
+  const about = env.document.querySelector('[data-toybaco-aux-view="about"]');
+  const popover = nativeOverlayFixture('sidebar-popover'); env.body.appendChild(popover);
+  const event = escape({}, () => popover.remove()); runTasks();
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view="about"]'), about, 'closing a keyboard sidebar popover must not also close About');
+  escape({ stopPropagation() {} }); runTasks();
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
 }
 {
   const { env, panel, requests, escape, runTasks } = nativeEscapeFixture();
@@ -4652,8 +4667,108 @@ function auxiliaryPostingFixture(postingPath = '/settings', aiIntent) {
   };
 }
 
-// Assistance is a temporary view of the same location, not an extra base entry.
-for (const kind of ['about', 'ai']) for (const postingPath of ['/settings', '/analytics?range=30', '/media', '/launches']) {
+// The assistant is a primary page: a real destination, reloadable and traversable
+// without restoring discarded composer content or replaying generation intent.
+for (const postingPath of ['/settings', '/analytics?range=30', '/media', '/launches']) {
+  const f = auxiliaryPostingFixture(postingPath, 'compose');
+  const postingUrl = f.env.window.location.href, draft = f.frame.draftFixture;
+  f.open('ai'); f.open('ai'); assert.equal(f.requests.length, 1);
+  f.answer(false);
+  assert.equal(f.env.document.querySelector('iframe'), f.frame);
+  assert.equal(f.frame.draftFixture, draft); assert.equal(f.env.window.location.href, postingUrl);
+  f.open('ai'); f.answer(true);
+  const assistant = f.env.document.querySelector('[data-toybaco-aux-view="ai"]');
+  assert.ok(assistant); assert.equal(f.env.window.location.hash, '#/toybaco/assistant');
+  assert.equal(f.env.document.querySelector('iframe'), null);
+  assert.equal(f.browser.entries.length, 3); f.browser.assertCurrent();
+  assert.equal(assistant.querySelector('header').querySelector('button'), null, 'primary pages do not have modal Close controls');
+  const escape = { key: 'Escape', preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+  [...(f.env.docListeners.keydown || [])].forEach(fn => fn(escape));
+  assert.equal(escape.defaultPrevented, undefined);
+  f.open('ai'); f.env.api.afterNavChange();
+  assert.equal(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'), assistant, 'reselecting the current page avoids a remount and loading flash');
+  assert.equal(f.browser.entries.length, 3);
+  f.open('about'); f.close();
+  assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'));
+  assert.equal(f.browser.entries.length, 3, 'About returns to its underlying assistant page');
+  f.browser.go(-1);
+  const returned = f.env.document.querySelector('iframe');
+  assert.ok(returned); assert.notEqual(returned, f.frame); assert.equal(returned.draftFixture, undefined);
+  assert.equal(f.env.window.location.href, postingUrl);
+  assert.ok(!new URL(returned.src).searchParams.get('return').includes('tb_ai'));
+  f.browser.go(1); assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'));
+  assert.equal(f.env.document.querySelector('iframe'), null); f.browser.assertCurrent();
+}
+{
+  const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/dashboard', { hash: '#/toybaco/assistant' });
+  const browser = installEntryHistory(env, { current: '/app/accounts/1/dashboard#/toybaco/assistant', position: 0 });
+  env.api.inject(); env.api.onHashMaybeChanged();
+  assert.ok(env.document.querySelector('[data-toybaco-aux-view="ai"]'), 'a fresh document opens the assistant from its URL');
+  assert.equal(browser.entries.length, 1); assert.equal(browser.pushes.length, 0);
+  assert.equal(env.document.querySelector('[data-toybaco-nav-link="ai"]').getAttribute('aria-current'), 'page');
+  assert.equal(env.document.querySelector('[data-toybaco-nav-link="inbox"]').getAttribute('aria-current'), null);
+}
+for (const sameBase of [false, true]) {
+  const f = primaryGroupFixture(sameBase ? { base: '/app/accounts/1/settings/general', expanded: true, active: true } : {});
+  f.env.api.openAuxiliaryView('ai'); f.answer(true);
+  f.click(); await flush();
+  assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
+  assert.equal(f.env.window.location.hash, '');
+  if (sameBase) assert.equal(f.state.expanded, true);
+  await f.travel(-1);
+  assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'), 'native group Back returns to the assistant, including duplicate base routes');
+}
+console.log('Assistant page: guarded drafts, router history, reload, Back/Forward, same-page stability and native group return PASS');
+
+{
+  const tree = createMenuTree(true);
+  const row = tree.extra.find(item => item.name === '設定');
+  row.firstChild.setAttribute('aria-expanded', 'true');
+  const submenu = createDomNode('ul'); submenu.style.display = ''; submenu.setAttribute('aria-hidden', 'false'); row.appendChild(submenu);
+  const nativeRoute = createDomNode('section'); nativeRoute.setAttribute('data-toybaco-native-route', '');
+  const draft = createDomNode('textarea'); draft.value = '会話の編集中の返信'; nativeRoute.appendChild(draft); tree.content.appendChild(nativeRoute);
+  const launcher = createDomNode('button'); launcher.setAttribute('id', 'mobile-sidebar-launcher'); tree.content.appendChild(launcher);
+  const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/settings/general', { body: tree.body });
+  installEntryHistory(env, { current: '/app/accounts/1/settings/general', position: 0 });
+  env.api.inject(); env.api.openAuxiliaryView('ai');
+  assert.equal(submenu.getAttribute('data-toybaco-embedded-background'), 'nav');
+  assert.equal(submenu.getAttribute('aria-hidden'), 'true'); assert.notEqual(submenu.getAttribute('inert'), null);
+  assert.equal(row.firstChild.getAttribute('aria-expanded'), 'false', 'the native header cannot announce its hidden children as expanded');
+  assert.equal(nativeRoute.getAttribute('aria-hidden'), 'true');
+  assert.equal(launcher.getAttribute('inert'), null, 'mobile users retain their menu launcher on the assistant page');
+  assert.equal(launcher.getAttribute('aria-hidden'), null);
+  env.api.openAuxiliaryView('about'); env.api.closeAuxiliaryView(true);
+  assert.equal(submenu.getAttribute('aria-hidden'), 'true');
+  assert.equal(launcher.getAttribute('inert'), null, 'About return cannot leave the mobile launcher inert');
+  env.api.openPanel('/media', false);
+  assert.equal(nativeRoute.getAttribute('data-toybaco-embedded-background'), 'route');
+  env.api.closePanel();
+  assert.equal(submenu.getAttribute('aria-hidden'), 'false'); assert.equal(submenu.getAttribute('inert'), null);
+  assert.equal(submenu.style.display, '', 'native expansion is preserved for the return journey');
+  assert.equal(row.firstChild.getAttribute('aria-expanded'), 'true');
+  assert.equal(nativeRoute.getAttribute('inert'), null); assert.equal(draft.value, '会話の編集中の返信');
+  row.firstChild.setAttribute('data-toybaco-native-expanded', 'false');
+  row.firstChild.setAttribute('aria-expanded', 'false'); submenu.style.display = 'none';
+  env.api.openAuxiliaryView('ai');
+  // A native route watcher can patch its state before our queued history hook.
+  row.firstChild.setAttribute('data-toybaco-native-expanded', 'true');
+  row.firstChild.setAttribute('aria-expanded', 'true'); submenu.style.display = '';
+  env.api.closeAuxiliaryView();
+  assert.equal(row.firstChild.getAttribute('aria-expanded'), 'true', 'restoration follows the latest Vue expansion, not the value before navigation');
+}
+for (const kind of ['posting', 'ai']) {
+  const env = loadInjectEntry(aiModeAwareFetch); env.api.inject();
+  const link = env.document.querySelector(`[data-toybaco-nav-link="${kind}"]`);
+  for (const options of [{ metaKey: true }, { ctrlKey: true }, { button: 1 }]) {
+    const click = fireClick(link, env.docListeners.click || [], options);
+    assert.equal(click.prevented, false, 'modified link activation keeps the browser new-tab behavior');
+    assert.equal(env.document.querySelector('iframe'), null);
+    assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
+  }
+}
+
+// About remains a temporary view of the same location.
+for (const kind of ['about']) for (const postingPath of ['/settings', '/analytics?range=30', '/media', '/launches']) {
   const f = auxiliaryPostingFixture(postingPath, 'compose');
   const location = f.env.window.location.href, state = f.browser.assertCurrent();
   const draft = f.frame.draftFixture, historyLength = f.browser.entries.length;
@@ -4692,7 +4807,7 @@ for (const kind of ['about', 'ai']) for (const postingPath of ['/settings', '/an
 // Switching assistance pages keeps the original destination; external navigation expires it.
 {
   const f = auxiliaryPostingFixture(); f.open('about'); f.answer(true);
-  f.open('ai'); f.open('about'); f.close();
+  f.open('about'); f.close();
   assert.equal(new URL(new URL(f.env.document.querySelector('iframe').src).searchParams.get('return'), 'https://post.staging.toybaco.jp').pathname, '/settings');
   f.env.api.closePanel();
 }
@@ -4716,7 +4831,7 @@ for (const changed of ['account', 'native-route', 'posting-history']) {
   fireClick(card.querySelector('button'));
   const returned = new URL(new URL(f.env.document.querySelector('iframe').src).searchParams.get('return'), 'https://post.staging.toybaco.jp');
   assert.equal(returned.pathname, '/launches'); assert.equal(returned.searchParams.get('tb_ai'), 'compose');
-  assert.equal(f.browser.entries.length, 3, 'explicit action adds only its real destination, not an intermediate base');
+  assert.equal(f.browser.entries.length, 4, 'posting and the assistant are independent destinations, without an intermediate base');
   f.env.api.closePanel();
 }
 {
@@ -4747,20 +4862,21 @@ for (const action of ['返信AIの設定を確認', '会話を開く']) {
   const card = f.env.document.querySelector('[data-toybaco-ai-purpose="reply"]');
   fireClick([...card.querySelectorAll('button')].find(button => button.textContent === action));
   f.env.api.afterNavChange();
-  assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
   if (action === '返信AIの設定を確認') {
     assert.ok(f.env.document.querySelector('[data-toybaco-ai-mode-panel]'));
-    assert.ok(f.env.document.querySelector('iframe'));
-    assert.equal(f.browser.entries.length, 2, 'nested settings keep the original posting location');
+    assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'));
+    assert.equal(f.env.document.querySelector('iframe'), null);
+    assert.equal(f.browser.entries.length, 3, 'nested settings keep the assistant page underneath');
     f.env.api.closeAiModePanel();
   } else {
+    assert.equal(f.env.document.querySelector('[data-toybaco-aux-view]'), null);
     assert.equal(f.env.document.querySelector('iframe'), null);
-    assert.equal(f.env.window.location.hash, ''); assert.equal(f.browser.entries.length, 3);
-    f.browser.go(-1); assert.ok(f.env.document.querySelector('iframe'));
+    assert.equal(f.env.window.location.hash, ''); assert.equal(f.browser.entries.length, 4);
+    f.browser.go(-1); assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'));
   }
   f.env.api.closePanel();
 }
-console.log('About/AI return: exact posting path, unchanged history, discarded draft excluded, account/route invalidation and denial PASS');
+console.log('About return and assistant actions: exact destinations, discarded draft excluded, account/route invalidation and denial PASS');
 
 {
   const env = loadInjectEntry(async url => String(url).includes('/posting_status') ? statusResponse(false) : aiModeAwareFetch(url));

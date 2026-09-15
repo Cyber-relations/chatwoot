@@ -54,12 +54,21 @@ const hasChildren = computed(
 // Use shared popover state - only one popover can be open at a time
 const isPopoverOpen = computed(() => activePopover.value === props.name);
 const triggerRef = ref(null);
+const popoverId = computed(
+  () => `toybaco-sidebar-popover-${encodeURIComponent(props.name)}`
+);
+const childrenId = computed(
+  () => `toybaco-sidebar-children-${encodeURIComponent(props.name)}`
+);
+const focusRequest = ref(0);
+const popoverContainsFocus = () =>
+  document.getElementById(popoverId.value)?.contains(document.activeElement);
 const triggerRect = ref({ top: 0, left: 0, bottom: 0, right: 0 });
 // The sort dropdown teleports outside the popover; keep the popover open while
 // it is showing so moving the cursor onto it does not close everything.
 const isSortMenuOpen = ref(false);
 
-const openPopover = () => {
+const openPopover = (withKeyboardFocus = false) => {
   if (triggerRef.value) {
     const rect = triggerRef.value.getBoundingClientRect();
     triggerRect.value = {
@@ -69,10 +78,12 @@ const openPopover = () => {
       right: rect.right,
     };
   }
+  focusRequest.value = withKeyboardFocus ? focusRequest.value + 1 : 0;
   setActivePopover(props.name);
 };
 
 const closePopover = () => {
+  focusRequest.value = 0;
   if (activePopover.value === props.name) {
     closeActivePopover();
   }
@@ -85,7 +96,8 @@ const handleMouseEnter = () => {
 };
 
 const handleMouseLeave = () => {
-  if (!hasChildren.value || isSortMenuOpen.value) return;
+  if (!hasChildren.value || isSortMenuOpen.value || popoverContainsFocus())
+    return;
   scheduleClose(200);
 };
 
@@ -94,8 +106,46 @@ const handlePopoverMouseEnter = () => {
 };
 
 const handlePopoverMouseLeave = () => {
-  if (isSortMenuOpen.value) return;
+  if (isSortMenuOpen.value || popoverContainsFocus()) return;
   scheduleClose(100);
+};
+
+const handlePopoverFocusout = event => {
+  const popover = document.getElementById(popoverId.value);
+  if (isSortMenuOpen.value || popover?.contains(event.relatedTarget)) return;
+  closePopover();
+};
+
+const closePopoverAndFocusTrigger = async () => {
+  cancelClose();
+  closePopover();
+  await nextTick();
+  if (isCollapsed.value) triggerRef.value?.focus();
+};
+
+const handleCollapsedKeydown = event => {
+  if (
+    event.defaultPrevented ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    !hasAccessibleChildren.value ||
+    isResizing.value
+  )
+    return;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelClose();
+    openPopover(true);
+  } else if (event.key === 'Escape' && isPopoverOpen.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    closePopoverAndFocusTrigger();
+  }
 };
 
 const handleSortToggle = isOpen => {
@@ -237,7 +287,7 @@ const toggleTrigger = () => {
 
 onMounted(async () => {
   await nextTick();
-  if (hasActiveChild.value) {
+  if (hasActiveChild.value && !isExpanded.value) {
     setExpandedItem(props.name);
   }
   window.addEventListener('blur', handleWindowBlur);
@@ -250,13 +300,12 @@ onUnmounted(() => {
 });
 
 watch(
-  hasActiveChild,
-  hasNewActiveChild => {
-    if (hasNewActiveChild && !isExpanded.value) {
+  [() => route.path, hasActiveChild],
+  () => {
+    if (hasActiveChild.value && !isExpanded.value) {
       setExpandedItem(props.name);
     }
-  },
-  { once: true }
+  }
 );
 </script>
 
@@ -287,17 +336,28 @@ watch(
             'text-n-slate-11 hover:bg-n-alpha-2': !isActive && !hasActiveChild,
           }"
           :title="label"
+          :aria-label="label"
+          :aria-expanded="hasAccessibleChildren ? isPopoverOpen : undefined"
+          :aria-controls="
+            hasAccessibleChildren && isPopoverOpen ? popoverId : undefined
+          "
+          @keydown="handleCollapsedKeydown"
           @click="hasChildren ? handleCollapsedClick() : undefined"
         >
           <Icon v-if="icon" :icon="icon" class="size-4" />
         </component>
         <SidebarCollapsedPopover
           v-if="hasChildren && isPopoverOpen"
+          :id="popoverId"
+          :focus-request="focusRequest"
           :label="label"
           :children="children"
           :active-child="activeChild"
           :trigger-rect="triggerRect"
           @close="closePopover"
+          @escape="closePopoverAndFocusTrigger"
+          @focusin="cancelClose"
+          @focusout="handlePopoverFocusout"
           @mouseenter="handlePopoverMouseEnter"
           @mouseleave="handlePopoverMouseLeave"
           @sort-toggle="handleSortToggle"
@@ -316,11 +376,15 @@ watch(
         :has-active-child="hasActiveChild"
         :expandable="hasChildren"
         :is-expanded="isExpanded"
+        :aria-expanded="hasChildren ? isExpanded : undefined"
+        :data-toybaco-native-expanded="hasChildren ? String(isExpanded) : undefined"
+        :aria-controls="hasChildren ? childrenId : undefined"
         @toggle="toggleTrigger"
       />
       <ul
         v-if="hasChildren"
-        v-show="isExpanded || hasActiveChild"
+        :id="childrenId"
+        v-show="isExpanded"
         class="grid m-0 list-none min-w-0"
       >
         <template v-for="child in visibleChildren" :key="child.name">

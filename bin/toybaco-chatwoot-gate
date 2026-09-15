@@ -121,6 +121,8 @@ control_file_list() {
     'tests/chatwoot_checkout_session_test.rb' \
     'tests/chatwoot_billing_plan_names_test.rb' \
     'tests/chatwoot-notification-login.test.mjs' \
+    'tests/chatwoot-post-entry.test.mjs' \
+    'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
     'tests/chatwoot_ai_reply_mode_test.rb' \
     'tests/chatwoot_agent_seat_limit_test.rb' \
@@ -867,6 +869,7 @@ verify_base_and_frame_contract() {
 
   node "$CONTROL_ROOT/tests/toybaco-plan-change-ui.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
+  node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \

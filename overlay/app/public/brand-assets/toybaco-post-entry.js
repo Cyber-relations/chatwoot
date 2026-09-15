@@ -375,6 +375,10 @@
     return window.location.pathname + window.location.search + window.location.hash;
   }
 
+  function isAssistantHash(hash) {
+    return hash === '#/toybaco/assistant';
+  }
+
   function postingHistoryState(location) {
     // createWebHistory also consumes entries added by this overlay on popstate.
     // Preserve its state (and other callers' data), including a real current URL
@@ -413,7 +417,7 @@
       state.current = location;
       state.replaced = true;
     }
-    if (hash) state.toybacoPosting = true;
+    if (isPostingHash(hash)) state.toybacoPosting = true;
     else delete state.toybacoPosting;
     history[replace ? 'replaceState' : 'pushState'](state, '', location);
   }
@@ -450,7 +454,7 @@
   }
 
   function hasNativeEscapeOverlay() {
-    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], ' +
+    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], [data-toybaco-sidebar-popover], ' +
       '[role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"], dialog[open], .modal-container');
     for (var i = 0; i < overlays.length; i++) {
       if (isVisibleNativeOverlay(overlays[i])) return true;
@@ -1042,6 +1046,12 @@
     }).join(' ');
   }
 
+  function primaryEntryClassName() {
+    // A native row may currently be its 40px collapsed button. Keep the
+    // expanded structure stable and let the shared sidebar state size the rail.
+    return 'flex items-center gap-2 px-1.5 py-1 rounded-lg h-8 min-w-0 text-n-slate-11 hover:bg-n-alpha-2';
+  }
+
   // router-view の状態は保ち、埋め込み表示中だけ背景と native 子メニューを隠す。
   // Dashboard の共通ダイアログ・mobile launcher はこの所有範囲に含めない。
   var embeddedBackground = [];
@@ -1064,11 +1074,13 @@
   }
 
   function syncEmbeddedWorkspace() {
-    var foreground = panel;
+    var foreground = panel || auxiliaryView;
     var targets = [];
     if (foreground) {
       var host = findContentHost();
-      var routes = host ? host.querySelectorAll('[data-toybaco-native-route]') : [];
+      // Assistance owns its content background; both workspaces suppress the
+      // unrelated native submenus through this shared navigation owner.
+      var routes = panel && host ? host.querySelectorAll('[data-toybaco-native-route]') : [];
       for (var r = 0; r < routes.length; r += 1) targets.push({ node: routes[r], kind: 'route' });
       var rows = document.querySelectorAll('[data-toybaco-primary-nav]');
       for (var n = 0; n < rows.length; n += 1) {
@@ -1076,7 +1088,9 @@
         if (kind !== 'settings' && kind !== 'reports' && kind !== 'inbox') continue;
         var children = rows[n].children;
         for (var c = 0; c < children.length; c += 1) {
-          if (children[c].tagName === 'UL') targets.push({ node: children[c], kind: 'nav' });
+          if (children[c].tagName === 'UL') targets.push({
+            node: children[c], kind: 'nav', control: rows[n].querySelector('[data-toybaco-nav-link]')
+          });
         }
       }
     }
@@ -1085,6 +1099,13 @@
       embeddedAttributes.forEach(function (name, index) {
         setEmbeddedAttribute(saved.node, name, saved.values[index]);
       });
+      if (saved.control) {
+        // Vue can have expanded the destination before this history observer
+        // runs. Restore its current state rather than the pre-navigation value.
+        var nativeExpanded = saved.control.getAttribute('data-toybaco-native-expanded');
+        setEmbeddedAttribute(saved.control, 'aria-expanded',
+          nativeExpanded === 'true' || nativeExpanded === 'false' ? nativeExpanded : saved.expanded);
+      }
       return false;
     });
     if (!foreground && embeddedReturnFocus) {
@@ -1104,10 +1125,12 @@
         if (foreground.focus) foreground.focus();
       }
       if (!embeddedBackground.some(function (saved) { return saved.node === target.node; })) {
-        embeddedBackground.push({ node: target.node, values: embeddedAttributes.map(function (name) {
+        embeddedBackground.push({ node: target.node, control: target.control,
+          expanded: target.control && target.control.getAttribute('aria-expanded'), values: embeddedAttributes.map(function (name) {
           return target.node.getAttribute(name);
         }) });
       }
+      if (target.control) setEmbeddedAttribute(target.control, 'aria-expanded', 'false');
       [target.kind, '', 'true'].forEach(function (value, index) {
         setEmbeddedAttribute(target.node, embeddedAttributes[index], value);
       });
@@ -1129,7 +1152,7 @@
         var on = kind === selected && !closestAttr(link, 'data-toybaco-nav-duplicate');
         link.setAttribute('data-toybaco-nav-current', on ? 'true' : 'false');
         // 注入行はVue Routerの選択classを引き継がない。
-        if (kind === 'posting') {
+        if (kind === 'posting' || kind === 'ai') {
           link.className = navigationClassName(link) + (on ? ' ' + SELECTED_CLASS : '');
         }
         if (on) link.setAttribute('aria-current', 'page');
@@ -1217,7 +1240,7 @@
 
   // Returning to the underlying page is a destination, so Back retains posting.
   function closePanelToBase() {
-    if (isPostingHash(window.location.hash || '')) writePostingHistory('', false);
+    if (isPostingHash(window.location.hash || '') || isAssistantHash(window.location.hash || '')) writePostingHistory('', false);
     closePanel(true);
   }
 
@@ -1229,7 +1252,7 @@
 
     var a = document.createElement('a');
     a.href = postingHash(DEFAULT_PATH);
-    a.className = navigationClassName(sampleRow.inner);
+    a.className = primaryEntryClassName();
     a.title = LABEL;
     a.setAttribute('data-' + MARK, '1');
     a.setAttribute('data-account', accountId);
@@ -1251,6 +1274,7 @@
     a.appendChild(textWrap);
 
     a.addEventListener('click', function (e) {
+      if ((e.button != null && e.button !== 0) || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (e.preventDefault) e.preventDefault();
       if (e.stopPropagation) e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -1528,16 +1552,17 @@
 
   function navigatePrimaryNav(kind) {
     var auxiliaryPosting = auxiliaryPostingDestination();
+    var assistant = isAssistantHash(window.location.hash || '');
     closeAuxiliaryView();
     if (requestPanelClose(function () { navigatePrimaryNav(kind); })) return;
     var id = currentAccountId();
     if (!id) return;
-    var returnToConversation = kind === 'inbox' && (panel || auxiliaryPosting) &&
+    var returnToConversation = kind === 'inbox' && (panel || auxiliaryPosting || assistant) &&
       /\/(dashboard|inbox|conversations)(?:\/|$)/.test(window.location.pathname);
     closeAiModePanel();
     closePanel(auxiliaryPosting ? true : undefined);
     if (returnToConversation) {
-      if (auxiliaryPosting) closePanelToBase();
+      if (auxiliaryPosting || assistant) closePanelToBase();
       return;
     }
     var dest = primaryNavDestination(kind, id);
@@ -1719,10 +1744,12 @@
     // Only the explicit Close/Escape returns to the previous surface. A fresh
     // iframe rechecks identity; discarded composer state and AI intent stay gone.
     if (restorePosting === true && destination) openPanel(destination.path, true);
+    else if (restorePosting === true && isAssistantHash(window.location.hash || '')) openAuxiliaryView('ai', null, true);
   }
 
   function auxiliaryKeydown(event) {
-    if (event.key !== 'Escape' || !auxiliaryView || aiPanel) return;
+    if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented || !auxiliaryView || aiPanel ||
+        auxiliaryView.getAttribute('data-toybaco-aux-view') !== 'about' || hasNativeEscapeOverlay()) return;
     event.preventDefault(); event.stopPropagation();
     closeAuxiliaryView(true);
   }
@@ -1762,7 +1789,7 @@
     host.appendChild(auxiliaryText('p', '届いた問い合わせに、確認して使える返信の下書きを。'));
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
-    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { closeAuxiliaryView(true); openAiModePanel(); }, true));
+    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { openAiModePanel(); }, true));
     actions.appendChild(auxiliaryButton('会話を開く', function () { navigatePrimaryNav('inbox'); }));
     host.appendChild(actions);
     var status = document.createElement('div');
@@ -1836,9 +1863,11 @@
     host.appendChild(details);
   }
 
-  function openAuxiliaryView(kind, purpose) {
+  function openAuxiliaryView(kind, purpose, fromHash) {
     if (kind !== 'ai' && kind !== 'about') return;
-    if (requestPanelClose(function () { openAuxiliaryView(kind, purpose); })) return;
+    if (!purpose && auxiliaryView && auxiliaryView.getAttribute('data-toybaco-aux-view') === kind &&
+        auxiliaryAccount === currentAccountId() && auxiliaryRoute === auxiliaryLocation()) return;
+    if (requestPanelClose(function () { openAuxiliaryView(kind, purpose, fromHash); })) return;
     if (!isLoggedInView()) return;
     var host = findContentHost();
     if (!host) return;
@@ -1849,6 +1878,10 @@
     }
     closeAiModePanel();
     closeAuxiliaryView();
+    if (kind === 'ai') {
+      if (!fromHash && !isAssistantHash(window.location.hash || '')) writePostingHistory('#/toybaco/assistant', false);
+      try { sessionStorage.removeItem(PENDING_KEY); } catch (e) { /* optional pending return */ }
+    }
     mountPanelHost(host);
     auxiliaryReturnFocus = document.activeElement;
     auxiliaryAccount = currentAccountId();
@@ -1864,7 +1897,7 @@
     var title = auxiliaryText('h1', kind === 'ai' ? 'AIアシスタント' : 'トイバコについて');
     title.setAttribute('tabindex', '-1');
     head.appendChild(title);
-    head.appendChild(auxiliaryButton('閉じる', function () { closeAuxiliaryView(true); }));
+    if (kind === 'about') head.appendChild(auxiliaryButton('閉じる', function () { closeAuxiliaryView(true); }));
     view.appendChild(head);
     view.appendChild(auxiliaryText('p', kind === 'ai' ? '返信と投稿。それぞれの作業に合ったAIを選んでください。' : '問い合わせ対応と投稿管理を、ひとつのワークスペースで。', 'data-toybaco-aux-lead'));
     if (kind === 'ai') {
@@ -1875,7 +1908,9 @@
       appendReplyAiGuide(reply); appendPostingAiGuide(posting);
       grid.appendChild(reply); grid.appendChild(posting); view.appendChild(grid);
     } else appendAboutGuide(view);
-    auxiliaryBackground = Array.prototype.slice.call(host.children || []).map(function (node) {
+    auxiliaryBackground = Array.prototype.slice.call(host.children || []).filter(function (node) {
+      return kind !== 'ai' || node.getAttribute('id') !== 'mobile-sidebar-launcher';
+    }).map(function (node) {
       var saved = { node: node, inert: node.getAttribute('inert'), hidden: node.getAttribute('aria-hidden') };
       node.setAttribute('inert', ''); node.setAttribute('aria-hidden', 'true');
       return saved;
@@ -1901,11 +1936,22 @@
       if (!row) {
         row = document.createElement('li'); row.setAttribute(item[3], '1'); row.setAttribute('data-account', id);
         if (item[0] === 'ai') row.setAttribute('data-toybaco-primary-nav', 'ai');
-        var button = document.createElement('button'); button.type = 'button';
+        var button = document.createElement(item[0] === 'ai' ? 'a' : 'button');
+        if (item[0] === 'ai') { button.href = '#/toybaco/assistant'; button.className = primaryEntryClassName(); }
+        else button.type = 'button';
+        button.title = item[1];
         button.setAttribute('data-toybaco-aux-entry', item[0]); button.setAttribute('aria-label', item[1]);
         if (item[0] === 'ai') button.setAttribute('data-toybaco-nav-link', 'ai');
         var icon = document.createElement('span'); icon.className = item[2]; icon.setAttribute('aria-hidden', 'true');
-        button.appendChild(icon); button.appendChild(auxiliaryText('span', item[1])); row.appendChild(button);
+        if (item[0] === 'ai') {
+          row.className = sample.li.className;
+          var iconWrap = document.createElement('div'); iconWrap.className = 'relative flex items-center gap-2';
+          icon.className += ' size-4'; iconWrap.appendChild(icon); button.appendChild(iconWrap);
+          var textWrap = document.createElement('div'); textWrap.className = 'flex items-center min-w-0 flex-grow';
+          var label = auxiliaryText('span', item[1]); label.className = 'truncate';
+          textWrap.appendChild(label); button.appendChild(textWrap);
+        } else { button.appendChild(icon); button.appendChild(auxiliaryText('span', item[1])); }
+        row.appendChild(button);
         sample.ul.appendChild(row);
       } else if (row.parentElement !== sample.ul) sample.ul.appendChild(row);
     });
@@ -2461,7 +2507,7 @@
   function openAiModePanel() {
     try {
       if (aiPanel) { closeAiModePanel(); return; }
-      closeAuxiliaryView();
+      if (!auxiliaryView || auxiliaryView.getAttribute('data-toybaco-aux-view') !== 'ai') closeAuxiliaryView();
       prefetchAiMode(currentAccountId(), true);
       aiPanelReturnFocus = document.activeElement;
       var wrapEl = document.createElement('div');
@@ -2561,6 +2607,7 @@
 
   function onNavClickCapture(e) {
     try {
+      if (e.defaultPrevented || (e.button != null && e.button !== 0)) return;
       var t = e.target || e.srcElement;
       var navLink = closestAttr(t, 'data-toybaco-nav-link');
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
@@ -2596,6 +2643,7 @@
         return;
       }
       if (closestMarked(t, MARK)) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -2604,6 +2652,7 @@
       }
       var auxiliaryEntry = closestAttr(t, 'data-toybaco-aux-entry');
       if (auxiliaryEntry) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault(); e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         openAuxiliaryView(auxiliaryEntry.getAttribute('data-toybaco-aux-entry'), auxiliaryEntry.getAttribute('data-toybaco-aux-purpose'));
@@ -3137,9 +3186,11 @@
   function onHashMaybeChanged() {
     if (auxiliaryView) {
       if (auxiliaryAccount === currentAccountId() && auxiliaryRoute === auxiliaryLocation()) return;
+      closeAiModePanel();
       closeAuxiliaryView();
     }
     if (panel && hasPostingRouteGuard()) return;
+    if (isAssistantHash(window.location.hash || '')) { openAuxiliaryView('ai', null, true); return; }
     var p = currentHashPath();
     // hash が受信箱のルーターに捨てられていても、退避してあれば開く。
     // ログイン前やメイン領域未準備の間は保持し、openPanelのmount成功で消費する。
@@ -3161,7 +3212,10 @@
   var previousBillingAccount = null;
 
   function afterNavChange() {
-    if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== auxiliaryLocation())) closeAuxiliaryView();
+    if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== auxiliaryLocation())) {
+      closeAiModePanel();
+      closeAuxiliaryView();
+    }
     if (panelLayout) panelLayout.update();
     var billingAccount = /\/settings\/contract\/?$/.test(window.location.pathname) ? currentAccountId() : null;
     var leavingBillingAccount = previousBillingAccount;
@@ -3171,7 +3225,7 @@
     }
     inject();
     ensurePostingContract();
-    if (!panel && (currentHashPath() !== null || hasPendingPath())) {
+    if (!panel && (currentHashPath() !== null || isAssistantHash(window.location.hash || '') || hasPendingPath())) {
       onHashMaybeChanged();
     }
   }
@@ -3245,8 +3299,9 @@
       if (!hasPostingRouteGuard() || !detail ||
           typeof detail.proceed !== 'function' || typeof detail.navigates !== 'boolean') return;
       var auxiliaryPosting = auxiliaryPostingDestination();
+      var assistant = isAssistantHash(window.location.hash || '');
       closeAuxiliaryView();
-      if (auxiliaryPosting) {
+      if (auxiliaryPosting || assistant) {
         detail.handled = true;
         if (detail.navigates) { detail.proceed(); return; }
         closePanelToBase();
@@ -3267,7 +3322,13 @@
     });
     window.addEventListener('toybaco:before-route-change', function (event) {
       if (!event.detail || typeof event.detail.proceed !== 'function') return;
-      if (!panel) return;
+      if (!panel) {
+        if (event.detail.pushBaseHistory === true && isAssistantHash(window.location.hash || '')) {
+          closeAuxiliaryView();
+          closePanelToBase();
+        }
+        return;
+      }
       var detail = event.detail;
       var sequence = ++postRouteSequence;
       var destination = null;
