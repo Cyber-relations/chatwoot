@@ -1037,7 +1037,7 @@ aside nav [data-toybaco-nav-link] > .i-lucide-chevron-up[style*="display: none"]
     min-height: 44px;
   }
   aside [data-toybaco-sidebar-header] #sidebar-account-switcher,
-  aside [data-toybaco-sidebar-header] [data-toybaco-sidebar-action],
+  [data-toybaco-dashboard] aside [data-toybaco-sidebar-header] [data-toybaco-sidebar-action],
   #mobile-sidebar-launcher button {
     min-width: 44px;
     min-height: 44px;
