@@ -548,12 +548,6 @@ select:focus {
     background-color: var(--toybaco-offwhite) !important;
     border-right: 1px solid var(--toybaco-hairline);
   }
-
-  aside[style*="width: 200px"] {
-    width: 168px !important;
-    min-width: 168px !important;
-    max-width: 168px !important;
-  }
 }
 
 .conversations-list-wrap:not(.basis-full) {
@@ -627,7 +621,7 @@ aside nav > ul {
 
 /* 親行自身のラベル・アイコンだけを判定する。
  * 子孫全体への :has() は、配下に担当者や会話レポートを持つ「設定」「レポート」まで隠す。 */
-aside nav > ul > li:has(> :is(a, [role="button"]):is(
+aside nav > ul > li:not([data-toybaco-ai-nav]):has(> :is(a, [role="button"]):is(
   [title="連絡先"], [title="キャンペーン"], [title="ヘルプセンター"],
   [title="ヘルプ"], [title="企業"], [title="通話"], [title="AIアシスタント"],
   [title="Captain"], [title="会話データ"], [title="チーム"],
@@ -1002,6 +996,14 @@ aside nav [data-toybaco-nav-current="false"] {
   background-color: transparent !important;
   color: var(--toybaco-muted) !important;
   font-weight: 500 !important;
+}
+
+aside nav [data-toybaco-nav-current="false"]:hover {
+  background-color: var(--toybaco-wash) !important;
+}
+
+aside nav [data-toybaco-primary-nav]:has(> ul[data-toybaco-embedded-background="nav"]) [data-toybaco-nav-link] > .i-lucide-chevron-up {
+  transform: rotate(180deg);
 }
 
 aside nav [data-toybaco-nav-link] {
@@ -1738,15 +1740,62 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
 [data-toybaco-aux-nav] { order: 20; margin-top: auto; padding-top: 24px; border-top: 1px solid var(--toybaco-hairline); }
 [data-toybaco-aux-entry] { display: flex; align-items: center; gap: 10px; min-height: 44px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 [data-toybaco-aux-entry] > span:first-child { width: 24px; height: 24px; flex: 0 0 24px; }
+
+/* AI follows the native primary row; About keeps its utility presentation. */
+aside nav [data-toybaco-aux-entry="ai"] { min-height: 32px; padding: 6px; gap: 8px; border-radius: 6px; font-size: 12.5px; line-height: 18px; }
+aside nav [data-toybaco-aux-entry="ai"] > div:first-child { flex: 0 0 16px; width: 16px; height: 16px; }
+aside nav [data-toybaco-aux-entry="ai"] > div:first-child > span { width: 16px; height: 16px; font-size: 16px; line-height: 16px; }
 /* Keep the full About label on one line in the compact 168px sidebar. */
 aside nav [data-toybaco-aux-entry="about"] { padding-inline: 8px; gap: 8px; }
 aside nav [data-toybaco-aux-entry="about"] > span:first-child { width: 20px; height: 20px; flex-basis: 20px; }
 aside nav [data-toybaco-aux-entry="about"] > span:last-child { white-space: nowrap; }
 [data-toybaco-aux-entry]:hover { background: var(--toybaco-wash); }
-/* Assistance has its own Close control; the floating launcher obscures its actions. */
+/* AI is a page: keep the native bottom launcher away from its heading. */
 @media (max-width: 767px) {
-  [data-toybaco-post-host]:has(> [data-toybaco-aux-view]) > #mobile-sidebar-launcher {
+  aside nav [data-toybaco-aux-entry="ai"] { min-height: 44px; font-size: 15px; line-height: 22px; }
+  [data-toybaco-post-host]:has(> [data-toybaco-aux-view="about"]) > #mobile-sidebar-launcher {
     display: none !important;
+  }
+  [data-toybaco-post-host]:has(> [data-toybaco-aux-view="ai"]) > #mobile-sidebar-launcher {
+    display: block !important;
+    top: auto;
+    bottom: 16px;
+  }
+}
+
+/* Sidebar state owns the rail width. Injected destinations follow its icon-only mode. */
+@media (min-width: 768px) {
+  aside[data-toybaco-sidebar-collapsed="true"] nav > ul > :is([data-toybaco-post-entry-wrap], [data-toybaco-ai-nav], [data-toybaco-aux-nav]) {
+    width: 40px;
+    max-width: 100%;
+  }
+  aside[data-toybaco-sidebar-collapsed="true"] nav :is([data-toybaco-post-entry], [data-toybaco-aux-entry]) {
+    width: 100%;
+    min-width: 0;
+    max-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    margin-inline: auto;
+    padding: 6px;
+    justify-content: center;
+    gap: 0;
+  }
+  aside[data-toybaco-sidebar-collapsed="true"] nav :is([data-toybaco-post-entry], [data-toybaco-aux-entry="ai"]) > div:last-child,
+  aside[data-toybaco-sidebar-collapsed="true"] nav [data-toybaco-aux-entry="about"] > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  aside[data-toybaco-sidebar-collapsed="true"] nav [data-toybaco-aux-entry="about"] > span:first-child {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    font-size: 16px;
   }
 }
 [data-toybaco-aux-view] { position: absolute; inset: 0; z-index: 3; overflow: auto; padding: 32px; background: var(--toybaco-offwhite); color: var(--toybaco-ink); }

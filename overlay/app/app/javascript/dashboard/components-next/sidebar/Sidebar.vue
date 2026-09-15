@@ -184,9 +184,17 @@ const {
   setSidebarWidth,
   saveWidth,
   snapToCollapsed,
-  snapToExpanded,
   COLLAPSED_THRESHOLD,
 } = useSidebarResize();
+
+// Keep the product's initial width in the resize state itself. A CSS-only
+// override left a hidden 200px start width and made the first drag jump.
+const expandedSidebarWidth = 168;
+if (sidebarWidth.value === 200) setSidebarWidth(expandedSidebarWidth);
+const snapToExpanded = () => {
+  setSidebarWidth(expandedSidebarWidth);
+  saveWidth();
+};
 
 // On mobile, sidebar is always expanded (flyout mode)
 const isEffectivelyCollapsed = computed(
@@ -1060,6 +1068,7 @@ const menuItems = computed(() => {
 
 <template>
   <aside
+    :data-toybaco-sidebar-collapsed="isEffectivelyCollapsed ? 'true' : 'false'"
     v-on-click-outside="[
       closeMobileSidebar,
       {

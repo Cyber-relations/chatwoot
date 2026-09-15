@@ -96,7 +96,7 @@ const writePostingHistory = event => {
   detail.handled = true;
   const { hash, replace } = detail;
   if (typeof hash !== 'string' || typeof replace !== 'boolean') return;
-  if (hash) {
+  if (hash && hash !== '#/toybaco/assistant') {
     const prefix = '#/toybaco/posting?path=';
     if (!hash.startsWith(prefix)) return;
     try {
@@ -116,7 +116,7 @@ const writePostingHistory = event => {
   }
   const target = window.location.pathname + window.location.search + hash;
   router.options.history[replace ? 'replace' : 'push'](target, {
-    toybacoPosting: Boolean(hash),
+    toybacoPosting: hash.startsWith('#/toybaco/posting?path='),
   });
 };
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
