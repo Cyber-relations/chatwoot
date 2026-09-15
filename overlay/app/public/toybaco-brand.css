@@ -1033,6 +1033,15 @@ aside nav [data-toybaco-nav-link] > .i-lucide-chevron-up[style*="display: none"]
   aside nav [data-toybaco-nav-link] {
     min-height: 44px;
   }
+  aside nav [id^="toybaco-sidebar-children-"] li > a {
+    min-height: 44px;
+  }
+  aside [data-toybaco-sidebar-header] #sidebar-account-switcher,
+  aside [data-toybaco-sidebar-header] [data-toybaco-sidebar-action],
+  #mobile-sidebar-launcher button {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 aside nav [data-test-id="sidebar-unread-badge"],
