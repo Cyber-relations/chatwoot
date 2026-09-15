@@ -48,9 +48,27 @@ let route;
 let router;
 let allowed;
 let sidebar;
+let holdMobileFocus = false;
+const mobileFocusWaiters = [];
+const mobileListeners = new Set();
+const releaseMobileFocus = () => {
+  holdMobileFocus = false;
+  for (const resolve of mobileFocusWaiters.splice(0)) resolve();
+};
 const pushes = [];
 const focusCalls = [];
 const originalFocus = dom.window.HTMLElement.prototype.focus;
+const originalInert = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, 'inert');
+const needsInertReflection = !('inert' in dom.window.HTMLElement.prototype);
+if (needsInertReflection) {
+  // Older JSDOM lacks this native boolean reflected property. Reflect only the
+  // attribute; do not synthesize inert focus/Tab/AX behavior or change Vue code.
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'inert', {
+    configurable: true,
+    get() { return this.hasAttribute('inert'); },
+    set(value) { if (value) this.setAttribute('inert', ''); else this.removeAttribute('inert'); },
+  });
+}
 dom.window.HTMLElement.prototype.focus = function (...args) {
   focusCalls.push({ connected: this.isConnected, text: this.textContent });
   return originalFocus.apply(this, args);
@@ -153,6 +171,7 @@ function pass(name) { cases.push(name); }
 async function dispose() {
   if (app) app.unmount();
   app = null;
+  releaseMobileFocus();
   if (host) host.remove();
   host = null;
   provider?.usePopoverState().closeActivePopover();
@@ -178,6 +197,256 @@ async function mount({ collapsed = true, pathname = '/active', children = [child
   return props;
 }
 let Group;
+let mobileContractHashes;
+function mountActualParentEscape(mode) {
+  const code = source('public/brand-assets/toybaco-post-entry.js');
+  const parsed = babelParse(code, { sourceType: 'script' });
+  const names = ['isVisibleNativeOverlay', 'hasNativeEscapeOverlay', 'onKeydown', 'auxiliaryKeydown'];
+  const declarations = new Map(names.map(name => [name, []]));
+  const visit = node => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'FunctionDeclaration' && declarations.has(node.id?.name)) declarations.get(node.id.name).push(node);
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(parsed.program);
+  const functions = names.map(name => {
+    const found = declarations.get(name); assert.equal(found.length, 1, 'unique actual parent function: ' + name);
+    return code.slice(found[0].start, found[0].end);
+  }).join('\n');
+  mobileContractHashes.parent_escape_functions_sha256 = sha(Buffer.from(functions));
+  const parent = document.createElement('div');
+  if (mode === 'about') parent.setAttribute('data-toybaco-aux-view', 'about');
+  else parent.setAttribute('data-toybaco-post-entry-panel', '');
+  document.body.append(parent);
+  const effects = { request: 0, postingClose: 0, aboutClose: 0 };
+  // Only the final business close/request effects are counted. Overlay visibility,
+  // both key handlers and their capture ordering run unchanged on the same DOM.
+  const handlers = new Function('panel', 'auxiliaryView', 'aiPanel', 'document', 'window', 'setTimeout',
+    'requestPanelClose', 'closePanel', 'closeAuxiliaryView',
+    functions + '\nreturn {onKeydown, auxiliaryKeydown};')(
+    mode === 'posting' ? parent : null, mode === 'about' ? parent : null, null, document, window,
+    callback => { const id = ++timerId; timers.set(id, callback); return id; },
+    () => { effects.request += 1; return false; }, () => { effects.postingClose += 1; },
+    restore => { assert.equal(restore, true); effects.aboutClose += 1; }
+  );
+  document.addEventListener('keydown', handlers.onKeydown, true);
+  document.addEventListener('keydown', handlers.auxiliaryKeydown, true);
+  return { effects, parent, cleanup() {
+    document.removeEventListener('keydown', handlers.onKeydown, true);
+    document.removeEventListener('keydown', handlers.auxiliaryKeydown, true);
+    parent.remove();
+  } };
+}
+
+function compileMobileDrawerContract(descriptor) {
+  const script = descriptor.scriptSetup.content;
+  const parsed = babelParse(script, { sourceType: 'module' });
+  const declaration = name => {
+    const nodes = parsed.program.body.filter(node => node.type === 'VariableDeclaration' &&
+      node.declarations.some(item => item.id.type === 'Identifier' && item.id.name === name));
+    assert.equal(nodes.length, 1, 'unique actual Sidebar declaration: ' + name);
+    return nodes[0];
+  };
+  const start = declaration('sidebarRoot').start;
+  const end = declaration('closeMobileSidebar').end;
+  assert.ok(start < end, 'mobile lifecycle and its actual close handler form one block');
+  const lifecycle = script.slice(start, end);
+  const lifecycleAst = babelParse(lifecycle, { sourceType: 'module' });
+  assert.equal(lifecycleAst.program.body.filter(node => node.type === 'ExpressionStatement' &&
+    node.expression.type === 'CallExpression' && node.expression.callee.name === 'watch').length, 1,
+  'mount the actual mobile watch once');
+  const mobile = declaration('isMobile');
+  const vueImport = parsed.program.body.filter(node => node.type === 'ImportDeclaration' && node.source.value === 'vue');
+  assert.equal(vueImport.length, 1);
+  const asides = descriptor.template.ast.children.filter(node => node.type === 1 && node.tag === 'aside');
+  assert.equal(asides.length, 1, 'actual root aside');
+  const attributes = asides[0].props.filter(prop =>
+    (prop.type === 6 && prop.name === 'ref') ||
+    (prop.type === 7 && prop.name === 'bind' && ['inert', 'aria-hidden', 'data-toybaco-mobile-sidebar-open'].includes(prop.arg?.content)));
+  assert.equal(attributes.length, 4, 'actual ref/inert/aria-hidden/open-overlay bindings are present');
+  const templateAttributes = attributes.map(prop => prop.loc.source).join(' ');
+  mobileContractHashes = { lifecycle_sha256: sha(Buffer.from(lifecycle)), aside_attributes_sha256: sha(Buffer.from(templateAttributes)) };
+  // Only reactive inputs and representative nav leaves are fixtures. The computed
+  // mobile predicate, focus lifecycle and three DOM bindings are verbatim source.
+  const fixture = `<script setup>
+${script.slice(vueImport[0].start, vueImport[0].end)}
+import { useEventListener } from '@vueuse/core';
+const props = defineProps({ isMobileSidebarOpen: Boolean, fixtureWidth: Number, fixtureCurrent: Boolean });
+const emit = defineEmits(['closeMobileSidebar']);
+const windowWidth = computed(() => props.fixtureWidth);
+${script.slice(mobile.start, mobile.end)}
+${lifecycle}
+</script><template><aside ${templateAttributes}>
+<nav>
+  <a href="/hidden" hidden>Hidden</a>
+  <button disabled>Disabled</button>
+  <a href="/disabled" aria-disabled="true">Unavailable</a>
+  <a href="/negative" tabindex="-1">Negative tabindex</a>
+  <a href="/invisible" style="visibility:hidden">Invisible</a>
+  <a id="fixture-first" href="/first">First</a>
+  <a id="fixture-current" href="/current" aria-current="page" class="router-link-exact-active"
+     :data-toybaco-nav-current="fixtureCurrent ? 'true' : 'false'">Current</a>
+</nav></aside></template>`;
+  const fragment = parse(fixture, { filename: 'Sidebar.mobile-lifecycle.fixture.vue' });
+  assert.deepEqual(fragment.errors, []);
+  const output = compileScript(fragment.descriptor, { id: 'actual-sidebar-mobile-lifecycle', genDefaultAs: '__component', inlineTemplate: true });
+  return evaluateModule(output.content, name => {
+    if (name === '@vueuse/core') return { useEventListener: (target, type, callback) => {
+      assert.equal(target, window); assert.equal(type, 'keydown');
+      // Default window bubble registration/cleanup contract only; the key
+      // handler and close emission above are verbatim Sidebar source.
+      Vue.onMounted(() => { target.addEventListener(type, callback); mobileListeners.add(callback); });
+      Vue.onBeforeUnmount(() => { target.removeEventListener(type, callback); mobileListeners.delete(callback); });
+    } };
+    assert.equal(name, 'vue', 'mobile lifecycle fragment has no external data imports');
+    return { ...Vue, nextTick: (...args) => {
+      const completion = Vue.nextTick(...args);
+      return holdMobileFocus ? completion.then(() => new Promise(resolve => mobileFocusWaiters.push(resolve))) : completion;
+    } };
+  }, '__component');
+}
+
+async function verifyMobileDrawer(descriptor) {
+  const Component = compileMobileDrawerContract(descriptor);
+  const mountMobile = async ({ width = 390, open = false, current = true } = {}) => {
+    await dispose();
+    assert.equal(mobileListeners.size, 0, 'previous drawer listener disposed');
+    const props = Vue.reactive({ fixtureWidth: width, isMobileSidebarOpen: open, fixtureCurrent: current });
+    const closes = [];
+    host = document.createElement('div'); document.body.append(host);
+    app = Vue.createApp({ setup: () => () => Vue.h('div', [
+      Vue.h('div', { id: 'mobile-sidebar-launcher' }, Vue.h('button', {}, 'Menu')),
+      Vue.h('button', { id: 'fixture-dialog' }, 'New dialog'),
+      Vue.h(Component, { ...props, onCloseMobileSidebar: () => { closes.push('close'); props.isMobileSidebarOpen = false; } }),
+    ]) });
+    app.config.errorHandler = error => runtimeErrors.push(error.message);
+    app.mount(host); await tick();
+    // JSDOM has no computed layout. Supply rectangles only; actual source still
+    // filters hidden/inert/disabled/tabindex and computed visibility itself.
+    for (const control of host.querySelectorAll('aside, a, button')) {
+      Object.defineProperty(control, 'getClientRects', { value: () => [{}], configurable: true });
+    }
+    return { props, closes, drawer: host.querySelector('aside'), launcher: host.querySelector('#mobile-sidebar-launcher button'),
+      first: host.querySelector('#fixture-first'), current: host.querySelector('#fixture-current'),
+      dialog: host.querySelector('#fixture-dialog') };
+  };
+  let fixture = await mountMobile();
+  assert.equal(fixture.drawer.hasAttribute('inert'), true);
+  assert.equal(fixture.drawer.getAttribute('aria-hidden'), 'true');
+  fixture.launcher.focus(); fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(fixture.drawer.hasAttribute('inert'), false);
+  assert.equal(fixture.drawer.hasAttribute('aria-hidden'), false);
+  assert.equal(document.activeElement, fixture.current);
+  pass('Mobile closed aside is inert/aria-hidden; launcher open focuses current eligible actual nav');
+
+  fixture.props.isMobileSidebarOpen = false; await tick();
+  assert.equal(document.activeElement, fixture.launcher);
+  assert.equal(fixture.drawer.hasAttribute('inert'), true);
+  fixture.props.fixtureCurrent = false;
+  fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(document.activeElement, fixture.first);
+  pass('Mobile close returns drawer focus to launcher; next open selects first eligible nav when current marker is false');
+
+  fixture = await mountMobile();
+  fixture.dialog.focus(); fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(document.activeElement, fixture.dialog);
+  fixture.props.isMobileSidebarOpen = false; await tick();
+  fixture.launcher.focus(); holdMobileFocus = true; fixture.props.isMobileSidebarOpen = true;
+  await tick(); assert.equal(mobileFocusWaiters.length, 1);
+  fixture.dialog.focus(); releaseMobileFocus(); await tick();
+  assert.equal(document.activeElement, fixture.dialog);
+  fixture.current.focus(); holdMobileFocus = true; fixture.props.isMobileSidebarOpen = false;
+  await tick(); assert.equal(mobileFocusWaiters.length, 1);
+  fixture.dialog.focus(); releaseMobileFocus(); await tick();
+  assert.equal(document.activeElement, fixture.dialog);
+  pass('Mobile lifecycle preserves external route/dialog focus on open and close, including the nextTick gap');
+
+  fixture = await mountMobile();
+  fixture.launcher.focus();
+  const rapidFocus = focusCalls.length;
+  holdMobileFocus = true; fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(mobileFocusWaiters.length, 1);
+  fixture.props.isMobileSidebarOpen = false; await tick(); releaseMobileFocus(); await tick();
+  assert.equal(document.activeElement, fixture.launcher);
+  assert.equal(focusCalls.length, rapidFocus);
+  fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(document.activeElement, fixture.current);
+  assert.equal(focusCalls.length, rapidFocus + 1);
+  pass('Mobile rapid open/close rejects stale focus; a subsequent open focuses once');
+
+  fixture = await mountMobile();
+  fixture.launcher.focus(); holdMobileFocus = true; fixture.props.isMobileSidebarOpen = true;
+  await tick(); assert.equal(mobileFocusWaiters.length, 1);
+  const unmountFocus = focusCalls.length;
+  await dispose(); await tick();
+  assert.equal(focusCalls.length, unmountFocus);
+  pass('Mobile unmount during nextTick cannot focus retired drawer controls');
+
+  fixture = await mountMobile({ width: 1000 });
+  assert.equal(fixture.drawer.hasAttribute('inert'), false);
+  assert.equal(fixture.drawer.hasAttribute('aria-hidden'), false);
+  fixture.launcher.focus(); fixture.props.isMobileSidebarOpen = true; await tick();
+  assert.equal(document.activeElement, fixture.launcher);
+  fixture = await mountMobile();
+  fixture.launcher.focus(); holdMobileFocus = true; fixture.props.isMobileSidebarOpen = true;
+  await tick(); assert.equal(mobileFocusWaiters.length, 1);
+  fixture.props.fixtureWidth = 1000; await tick(); releaseMobileFocus(); await tick();
+  assert.equal(document.activeElement, fixture.launcher);
+  fixture.props.isMobileSidebarOpen = false; await tick();
+  assert.equal(fixture.drawer.hasAttribute('inert'), false);
+  assert.equal(fixture.drawer.hasAttribute('aria-hidden'), false);
+  pass('Desktop aside stays available and mobile-to-desktop transition rejects pending focus');
+
+  for (const mode of ['posting', 'about']) {
+    fixture = await mountMobile();
+    fixture.launcher.focus(); fixture.props.isMobileSidebarOpen = true; await tick();
+    assert.equal(fixture.drawer.getAttribute('data-toybaco-mobile-sidebar-open'), 'true');
+    const parent = mountActualParentEscape(mode);
+    try {
+      assert.equal(timers.size, 0);
+      assert.equal(event(fixture.current, 'Escape').defaultPrevented, true); await tick();
+      assert.equal(timers.size, 0, 'actual parent capture saw the open drawer marker before its bubble close');
+      await runTimers();
+      assert.equal(fixture.closes.length, 1);
+      assert.equal(fixture.drawer.hasAttribute('data-toybaco-mobile-sidebar-open'), false);
+      assert.equal(document.activeElement, fixture.launcher);
+      assert.deepEqual(parent.effects, { request: 0, postingClose: 0, aboutClose: 0 });
+      assert.equal(parent.parent.isConnected, true);
+      event(fixture.launcher, 'Escape'); await tick(); await runTimers();
+      assert.equal(fixture.closes.length, 1);
+      assert.deepEqual(parent.effects, mode === 'posting'
+        ? { request: 1, postingClose: 1, aboutClose: 0 }
+        : { request: 0, postingClose: 0, aboutClose: 1 });
+    } finally { parent.cleanup(); }
+  }
+  pass('Actual posting/About document capture respects the real open drawer marker; first Escape closes only drawer, next Escape reaches parent');
+
+  fixture = await mountMobile({ open: true });
+  fixture.launcher.focus();
+  assert.equal(event(fixture.launcher, 'Escape').defaultPrevented, true); await tick();
+  assert.equal(fixture.closes.length, 1);
+  fixture = await mountMobile({ open: true });
+  for (const extra of [{ isComposing: true }, { keyCode: 229 }, { prePrevented: true }]) {
+    event(fixture.current, 'Escape', extra); await tick(); assert.equal(fixture.closes.length, 0);
+  }
+  for (const role of ['menu', 'listbox', 'dialog']) {
+    const nested = document.createElement('div'); nested.setAttribute('role', role);
+    const button = document.createElement('button'); nested.append(button); fixture.drawer.append(nested);
+    assert.equal(event(button, 'Escape').defaultPrevented, false); await tick();
+    assert.equal(fixture.closes.length, 0); nested.remove();
+  }
+  assert.equal(event(fixture.dialog, 'Escape').defaultPrevented, false); await tick();
+  assert.equal(fixture.closes.length, 0);
+  fixture.props.fixtureWidth = 1000; await tick();
+  assert.equal(event(fixture.current, 'Escape').defaultPrevented, false); await tick();
+  assert.equal(fixture.closes.length, 0);
+  await dispose(); assert.equal(mobileListeners.size, 0);
+  pass('Mobile launcher Escape works; IME, consumed keys, nested menus/dialogs, outside targets and desktop remain owned by their existing handlers');
+}
+
 try {
   provider = evaluateModule(source(base + 'provider.js'), name => load(name, base + 'provider.js'));
   Group = sfc(base + 'SidebarGroup.vue');
@@ -290,14 +559,19 @@ try {
   late.children.push(child('late')); await tick();
   assert.equal(route.path, '/late'); assert.equal(trigger().getAttribute('aria-expanded'), 'true');
   assert.notEqual(expandedList().style.display, 'none'); pass('Late children activate and expand a group without changing the URL');
+  await verifyMobileDrawer(sidebarSource.descriptor);
   assert.deepEqual(runtimeErrors, []);
   assert.ok(focusCalls.every(item => item.connected), 'focus never targets detached elements');
-  console.log(JSON.stringify({ status: 'PASS', cases, source_sha256: sourceHashes, externalCalls: 0,
-    businessCalls: 0, boundaries: ['Full actual Group/Popover/Header/Teleport/provider; route, policy, store, decorative leaves and click-outside adapter are controlled.', 'No computed browser layout or real router/backend assertion.'] }));
+  console.log(JSON.stringify({ status: 'PASS', cases, source_sha256: sourceHashes, mobile_contract_sha256: mobileContractHashes, inertReflectionPolyfill: needsInertReflection, externalCalls: 0,
+    businessCalls: 0, boundaries: ['Full actual Group/Popover/Header/Teleport/provider; route, policy, store, decorative leaves and click-outside adapter are controlled.', 'Mobile: verbatim Sidebar lifecycle/key/close/computed/aside bindings plus four actual parent visibility/key functions on one DOM; final parent close/request effects are counted. Representative nav leaves, useEventListener registration adapter, controlled rectangles and deferred real nextTick completion for races. No native inert Tab/AX/layout assertion.', 'No computed browser layout or real router/backend assertion.'] }));
 } finally {
   await dispose();
   timers.clear();
   dom.window.HTMLElement.prototype.focus = originalFocus;
+  if (needsInertReflection) {
+    if (originalInert) Object.defineProperty(dom.window.HTMLElement.prototype, 'inert', originalInert);
+    else delete dom.window.HTMLElement.prototype.inert;
+  }
   dom.window.close();
   for (const [key, descriptor] of savedGlobals) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);

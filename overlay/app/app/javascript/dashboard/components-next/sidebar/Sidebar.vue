@@ -1,5 +1,5 @@
 <script setup>
-import { h, ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { h, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import {
   isNavigationFailure,
   NavigationFailureType,
@@ -380,6 +380,68 @@ const sortedLabels = computed(() =>
     unreadCountKey: label => getLabelUnreadCount.value(label.id),
   })
 );
+
+const sidebarRoot = ref(null);
+const isMobileSidebarHidden = computed(
+  () => isMobile.value && !props.isMobileSidebarOpen
+);
+const canFocusSidebarControl = control => {
+  if (!control || !control.isConnected || control.tabIndex < 0 ||
+      control.matches(':disabled, [aria-disabled="true"]') ||
+      control.closest('[inert], [aria-hidden="true"], [hidden]') ||
+      !control.getClientRects().length) return false;
+  const style = window.getComputedStyle(control);
+  return style.display !== 'none' && style.visibility !== 'hidden' &&
+    style.visibility !== 'collapse';
+};
+let mobileFocusRequest = 0;
+watch([isMobile, () => props.isMobileSidebarOpen], async ([mobile, open]) => {
+  const request = ++mobileFocusRequest;
+  if (!mobile) return;
+  const drawer = sidebarRoot.value;
+  const launcher = document.querySelector('#mobile-sidebar-launcher button');
+  const active = document.activeElement;
+  const enterDrawer = open && launcher?.contains(active);
+  const returnToLauncher = !open && drawer?.contains(active);
+  if (!enterDrawer && !returnToLauncher) return;
+  await nextTick();
+  if (request !== mobileFocusRequest || sidebarRoot.value !== drawer ||
+      !drawer?.isConnected || !isMobile.value ||
+      props.isMobileSidebarOpen !== open) return;
+  const focused = document.activeElement;
+  if (enterDrawer) {
+    // A route or confirmation dialog may already have taken focus.
+    if (focused !== active) return;
+    const controls = [...drawer.querySelectorAll('nav a[href], nav button, nav [tabindex]')]
+      .filter(canFocusSidebarControl);
+    const current = controls.find(control =>
+      control.getAttribute('data-toybaco-nav-current') === 'true' ||
+      (control.getAttribute('data-toybaco-nav-current') !== 'false' &&
+        (control.getAttribute('aria-current') === 'page' ||
+          control.matches('.router-link-exact-active, .active')))
+    );
+    (current || controls[0])?.focus();
+  } else if ((focused === document.body || drawer.contains(focused)) &&
+      canFocusSidebarControl(launcher)) {
+    launcher.focus();
+  }
+});
+
+const onMobileSidebarKeydown = event => {
+  if (!isMobile.value || !props.isMobileSidebarOpen ||
+      event.key !== 'Escape' || event.isComposing || event.keyCode === 229 ||
+      event.defaultPrevented) return;
+  const target = event.target;
+  const drawer = sidebarRoot.value;
+  const launcher = document.querySelector('#mobile-sidebar-launcher button');
+  if (!drawer?.contains(target) && !launcher?.contains(target)) return;
+  // Nested menus/dialogs keep their own Escape and focus-return behavior.
+  if (target?.closest?.('[data-popover-content], [data-dropdown-menu], .n-dropdown-body, [role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"], dialog[open], .modal-container')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeMobileSidebar();
+};
+useEventListener(window, 'keydown', onMobileSidebarKeydown);
 
 const closeMobileSidebar = () => {
   if (!props.isMobileSidebarOpen) return;
@@ -1068,6 +1130,10 @@ const menuItems = computed(() => {
 
 <template>
   <aside
+    ref="sidebarRoot"
+    :inert="isMobileSidebarHidden"
+    :data-toybaco-mobile-sidebar-open="isMobile && isMobileSidebarOpen ? 'true' : undefined"
+    :aria-hidden="isMobileSidebarHidden ? 'true' : undefined"
     :data-toybaco-sidebar-collapsed="isEffectivelyCollapsed ? 'true' : 'false'"
     v-on-click-outside="[
       closeMobileSidebar,
@@ -1091,6 +1157,7 @@ const menuItems = computed(() => {
     :style="isMobile ? undefined : { width: `${sidebarWidth}px` }"
   >
     <section
+      data-toybaco-sidebar-header
       class="grid"
       :class="isEffectivelyCollapsed ? 'mt-3 mb-6 gap-4' : 'mt-1 mb-4 gap-2'"
     >
@@ -1124,6 +1191,7 @@ const menuItems = computed(() => {
       >
         <RouterLink
           v-if="!isEffectivelyCollapsed"
+          data-toybaco-sidebar-action="search"
           :to="{ name: 'search' }"
           class="flex gap-2 items-center px-2 py-1 w-full h-7 rounded-lg outline outline-1 outline-n-weak bg-n-button-color transition-all duration-100 ease-out"
         >
@@ -1148,6 +1216,8 @@ const menuItems = computed(() => {
         <ComposeConversation align="start">
           <template #trigger="{ isOpen }">
             <Button
+              data-toybaco-sidebar-action="compose"
+              :aria-label="t('NEW_CONVERSATION.TITLE')"
               icon="i-lucide-pen-line"
               color="slate"
               size="sm"

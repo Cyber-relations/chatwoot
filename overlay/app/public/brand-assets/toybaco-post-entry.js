@@ -454,7 +454,7 @@
   }
 
   function hasNativeEscapeOverlay() {
-    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], [data-toybaco-sidebar-popover], ' +
+    var overlays = document.querySelectorAll('.n-dropdown-body, [data-dropdown-menu], [data-toybaco-sidebar-popover], [data-toybaco-mobile-sidebar-open="true"], ' +
       '[role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"], dialog[open], .modal-container');
     for (var i = 0; i < overlays.length; i++) {
       if (isVisibleNativeOverlay(overlays[i])) return true;

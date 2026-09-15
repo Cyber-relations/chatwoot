@@ -4299,13 +4299,14 @@ function nativeOverlayFixture(kind) {
   if (kind === 'dropdown') node.className = 'n-dropdown-body';
   else if (kind === 'teleported') node.setAttribute('data-dropdown-menu', '');
   else if (kind === 'sidebar-popover') node.setAttribute('data-toybaco-sidebar-popover', '');
+  else if (kind === 'mobile-sidebar') node.setAttribute('data-toybaco-mobile-sidebar-open', 'true');
   else if (kind === 'legacy-modal') node.className = 'modal-container';
   else if (kind === 'dialog') node.setAttribute('open', '');
   else if (kind === 'aria-modal') node.setAttribute('aria-modal', 'true');
   else node.setAttribute('role', kind);
   return node;
 }
-for (const kind of ['dropdown', 'teleported', 'sidebar-popover', 'menu', 'listbox', 'dialog', 'aria-modal', 'legacy-modal']) {
+for (const kind of ['dropdown', 'teleported', 'sidebar-popover', 'mobile-sidebar', 'menu', 'listbox', 'dialog', 'aria-modal', 'legacy-modal']) {
   const { env, panel, frame, requests, escape, runTasks } = nativeEscapeFixture();
   const overlay = nativeOverlayFixture(kind); env.body.appendChild(overlay);
   const originalHash = env.window.location.hash;
@@ -4323,14 +4324,14 @@ for (const kind of ['dropdown', 'teleported', 'sidebar-popover', 'menu', 'listbo
   assert.equal(requests.length, 0);
   env.api.closePanel();
 }
-{
+for (const kind of ['sidebar-popover', 'mobile-sidebar']) {
   const { env, escape, runTasks } = nativeEscapeFixture();
   env.api.closePanel(); env.api.openAuxiliaryView('about');
   const about = env.document.querySelector('[data-toybaco-aux-view="about"]');
-  const popover = nativeOverlayFixture('sidebar-popover'); env.body.appendChild(popover);
+  const popover = nativeOverlayFixture(kind); env.body.appendChild(popover);
   const event = escape({}, () => popover.remove()); runTasks();
   assert.equal(event.defaultPrevented, false);
-  assert.equal(env.document.querySelector('[data-toybaco-aux-view="about"]'), about, 'closing a keyboard sidebar popover must not also close About');
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view="about"]'), about, `${kind}: closing the sidebar overlay must not also close About`);
   escape({ stopPropagation() {} }); runTasks();
   assert.equal(env.document.querySelector('[data-toybaco-aux-view]'), null);
 }
@@ -4345,6 +4346,14 @@ for (const kind of ['dropdown', 'teleported', 'sidebar-popover', 'menu', 'listbo
   assert.equal(requests.length, 0);
   escape(); runTasks();
   assert.equal(requests.at(-1).type, 'TOYBACO_POSTIZ_REQUEST_CLOSE', 'closed but mounted palette must not block shell Escape');
+  env.api.closePanel();
+}
+{
+  const { env, requests, escape, runTasks } = nativeEscapeFixture();
+  const drawer = nativeOverlayFixture('mobile-sidebar'); env.body.appendChild(drawer);
+  drawer.setAttribute('data-toybaco-mobile-sidebar-open', 'false');
+  escape(); runTasks();
+  assert.equal(requests.at(-1).type, 'TOYBACO_POSTIZ_REQUEST_CLOSE', 'closed mobile drawer does not block shell Escape');
   env.api.closePanel();
 }
 for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 'aria-hidden']) {
