@@ -4587,6 +4587,66 @@ console.log('TOYBACO_PARENT_ACCOUNT_INTENT=PASS trusted-init immutable-route sta
 assert.doesNotMatch(original, /Math\.random/);
 console.log('TOYBACO_PARENT_ACCOUNT_RECOVERY=PASS secure-random-fallback no-crypto-guidance cached-child-full-reopen stale-document-no-rollback');
 
+// DOM order must match the visible primary navigation without moving Vue-owned rows.
+{
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/1/inbox', { body: tree.body });
+  const nativeRows = [...tree.ul.children];
+  const nativeChildren = createDomNode('ul'); nativeChildren.setAttribute('data-native-children', '1');
+  tree.inbox.appendChild(nativeChildren); tree.inbox.setAttribute('data-toybaco-native-expanded', 'true');
+  const assertOrder = (ul, inbox, rows, account) => {
+    const posting = postingEntry(env.document);
+    const ai = env.document.querySelector('[data-toybaco-ai-nav]');
+    assert.ok(posting && ai, 'both primary entries must exist');
+    assert.ok(posting.parentElement.previousElementSibling === inbox, 'Posting must directly follow the current inbox');
+    assert.ok(ai.previousElementSibling === posting.parentElement, 'AI must directly follow Posting in DOM keyboard order');
+    assert.ok(ai.parentElement === ul, 'AI belongs to the current primary list');
+    assert.equal(ai.getAttribute('data-account'), account);
+    assert.equal(posting.getAttribute('data-account'), account);
+    assert.equal(ai.children[0].href, '#/toybaco/assistant');
+    assert.deepEqual(ul.children.filter(row => rows.includes(row)), rows, 'native row identity and relative order are retained');
+    assert.equal(env.document.querySelectorAll('[data-toybaco-ai-nav]').length, 1);
+    assert.equal(env.document.querySelectorAll('[data-toybaco-post-entry]').length, 1);
+  };
+  env.api.inject(); assertOrder(tree.ul, tree.inbox, nativeRows, '1');
+  const ai = env.document.querySelector('[data-toybaco-ai-nav]');
+  const posting = postingEntry(env.document);
+  let insertions = 0;
+  const insertBefore = tree.ul.insertBefore; const appendChild = tree.ul.appendChild;
+  tree.ul.insertBefore = function (...args) { insertions += 1; return insertBefore.apply(this, args); };
+  tree.ul.appendChild = function (...args) { insertions += 1; return appendChild.apply(this, args); };
+  env.api.inject(); env.api.inject();
+  assert.equal(insertions, 0, 'correctly placed entries must not be detached and reinserted on repeated injection');
+  tree.ul.insertBefore = insertBefore; tree.ul.appendChild = appendChild;
+  tree.ul.appendChild(ai); env.api.inject(); assertOrder(tree.ul, tree.inbox, nativeRows, '1');
+  tree.ul.appendChild(posting.parentElement); env.api.inject(); assertOrder(tree.ul, tree.inbox, nativeRows, '1');
+  assert.ok(tree.inbox.children.includes(nativeChildren));
+  assert.equal(tree.inbox.getAttribute('data-toybaco-native-expanded'), 'true', 'repair preserves native expansion');
+  assert.ok(postingEntry(env.document) === posting); assert.ok(env.document.querySelector('[data-toybaco-ai-nav]') === ai);
+
+  const fresh = createMenuTree(true); const freshRows = [...fresh.ul.children];
+  tree.ul.remove(); tree.nav.appendChild(fresh.ul);
+  env.api.afterNavChange(); assertOrder(fresh.ul, fresh.inbox, freshRows, '1');
+  const remountedAi = env.document.querySelector('[data-toybaco-ai-nav]');
+  env.window.location.pathname = '/app/accounts/2/inbox';
+  env.api.afterNavChange(); assertOrder(fresh.ul, fresh.inbox, freshRows, '2');
+  assert.ok(env.document.querySelector('[data-toybaco-ai-nav]') !== remountedAi, 'an account switch replaces the owned account-bound row');
+  assert.equal(remountedAi.parentElement, null);
+  assert.ok(env.fetches.every(({ opts }) => !opts?.method || opts.method === 'GET'), 'placement does not perform business writes');
+}
+{
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry(async () => ({ ok: true, json: async () => ({ enabled: false }) }), '/app/accounts/1/inbox', { body: tree.body });
+  env.api.inject(); await flush(); env.api.inject();
+  assert.equal(postingEntry(env.document), null);
+  const ai = env.document.querySelector('[data-toybaco-ai-nav]');
+  assert.ok(ai.previousElementSibling === tree.inbox, 'without Posting permission AI follows the native inbox');
+  tree.ul.appendChild(ai); env.api.inject();
+  assert.ok(ai.previousElementSibling === tree.inbox, 'denied Posting still repairs AI order without recreating Posting');
+  assert.equal(postingEntry(env.document), null);
+}
+console.log('TOYBACO_AI_DOM_ORDER=PASS initial idempotent drift remount account-switch denied-fallback native-preserved');
+
 // The common AI entry is discoverable before a conversation or channel exists.
 for (const path of ['/app/accounts/10/suspended', '/app/accounts/11/suspended/']) {
   const tree = createMenuTree(true);

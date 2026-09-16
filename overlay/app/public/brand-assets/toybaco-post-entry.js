@@ -1952,7 +1952,20 @@
           textWrap.appendChild(label); button.appendChild(textWrap);
         } else { button.appendChild(icon); button.appendChild(auxiliaryText('span', item[1])); }
         row.appendChild(button);
-        sample.ul.appendChild(row);
+      }
+      if (item[0] === 'ai') {
+        var anchor = sample.li;
+        var posting = document.querySelector('[data-' + MARK + ']');
+        var postingWrap = posting && posting.parentElement;
+        if (posting && posting.getAttribute('data-account') === id && postingWrap &&
+            postingWrap.getAttribute('data-' + MARK + '-wrap') === '1' && postingWrap.parentElement === sample.ul) {
+          // Vue 再描画後も既存の投稿位置を先に整え、表示順と DOM 順を揃える。
+          placeEntry(sample, postingWrap);
+          anchor = postingWrap;
+        }
+        if (row.parentElement !== sample.ul || row.previousElementSibling !== anchor) {
+          sample.ul.insertBefore(row, anchor.nextSibling);
+        }
       } else if (row.parentElement !== sample.ul) sample.ul.appendChild(row);
     });
   }
