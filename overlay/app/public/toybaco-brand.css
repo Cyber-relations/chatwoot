@@ -1042,6 +1042,9 @@ aside nav [data-toybaco-nav-link] > .i-lucide-chevron-up[style*="display: none"]
     min-width: 44px;
     min-height: 44px;
   }
+  #mobile-sidebar-launcher button {
+    color: #fff !important;
+  }
 }
 
 aside nav [data-test-id="sidebar-unread-badge"],
