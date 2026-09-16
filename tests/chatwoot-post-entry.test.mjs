@@ -4407,13 +4407,13 @@ for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 
 
 // Parent-account intent is exchanged with the current document before READY.
 // Send raw messages here: do not use the compatibility fixture helper above.
-function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent) {
+function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent, postPath = aiIntent === 'compose' ? '/launches' : '/analytics') {
   const timers = new Map(); let timerId = 0;
   const env = loadInjectEntry(() => new Promise(() => {}), pathname, {
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
-  env.api.openPanel(aiIntent === 'compose' ? '/launches' : '/analytics', false, aiIntent);
+  env.api.openPanel(postPath, false, aiIntent);
   const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
   const frame = panel.querySelector('iframe');
   const messages = [];
@@ -4442,6 +4442,7 @@ function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent) {
   assert.equal(init.type, 'TOYBACO_POSTIZ_INIT');
   assert.equal(init.documentId, request.documentId);
   assert.equal(init.accountId, '1');
+  assert.deepEqual({ ...init.initialRoute }, { pathname: '/analytics', aiIntent: null });
   assert.match(init.frameId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(messages.at(-1).origin, 'https://post.staging.toybaco.jp');
   send(request);
@@ -4474,6 +4475,7 @@ function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent) {
   const secondRequest = { ...f.request, documentId: randomUUID() };
   f.send(secondRequest); const second = f.messages.at(-1).data;
   assert.notEqual(first.frameId, second.frameId, 'same iframe new document receives a fresh binding');
+  assert.equal(second.initialRoute, null, 'an accepted frame does not force its first route on a later document');
   assert.equal(f.frame.style.visibility, 'hidden');
   assert.ok(f.panel.querySelector('[data-toybaco-post-loading]'), 'document reload restores a visible loading state');
   assert.ok([...f.timers.values()].some(timer => timer.ms === 20000), 'document reload retains bounded explicit recovery');
@@ -4586,6 +4588,62 @@ console.log('TOYBACO_PARENT_ACCOUNT_INTENT=PASS trusted-init immutable-route sta
 }
 assert.doesNotMatch(original, /Math\.random/);
 console.log('TOYBACO_PARENT_ACCOUNT_RECOVERY=PASS secure-random-fallback no-crypto-guidance cached-child-full-reopen stale-document-no-rollback');
+
+// Initial route is a frame-scoped intent, never a child URL or a perpetual route lock.
+for (const initialRoute of [undefined, null, {},
+  { pathname: '/settings', aiIntent: null },
+  { pathname: '/analytics', aiIntent: 'compose' },
+  { pathname: '/analytics?code=fixture-secret', aiIntent: null },
+  { pathname: '/oauth', aiIntent: null }]) {
+  const f = postingContextFixture();
+  f.send(f.request); const init = f.messages.at(-1).data;
+  f.send(f.ready(init, { initialRoute }));
+  assert.equal(f.frame.style.visibility, 'hidden', 'missing or mismatched initial route cannot expose the frame');
+  assert.ok(f.panel.querySelector('[data-toybaco-post-loading]'));
+  f.env.api.closePanel();
+}
+for (const intent of [undefined, 'compose']) {
+  const f = postingContextFixture('/app/accounts/1/inbox', intent,
+    intent ? '/launches?tb_theme=dark&code=fixture-secret' : '/media?folder=images&state=fixture-secret');
+  const src = f.frame.src;
+  f.send(f.request); const init = f.messages.at(-1).data;
+  assert.deepEqual({ ...init.initialRoute }, { pathname: intent ? '/launches' : '/media', aiIntent: intent || null });
+  assert.equal(JSON.stringify(init).includes('fixture-secret'), false, 'INIT never forwards query values');
+  const secondDocument = { ...f.request, documentId: randomUUID() };
+  f.send(secondDocument); const second = f.messages.at(-1).data;
+  assert.deepEqual({ ...second.initialRoute }, { ...init.initialRoute }, 'pre-READY document changes retain the original intent');
+  f.send(f.ready(init)); assert.equal(f.frame.style.visibility, 'hidden', 'old document route proof is not current');
+  f.send(f.ready(second)); assert.equal(f.frame.style.visibility, 'visible');
+  const draft = f.frame.draftFixture = { text: 'retain draft', nestedModal: { open: true } };
+  f.send(secondDocument);
+  const repeated = f.messages.at(-1).data;
+  for (const key of ['documentId', 'frameId', 'accountId']) assert.equal(repeated[key], second[key], 'same-document identity remains immutable after READY');
+  assert.equal(repeated.initialRoute, null, 'accepted frame does not resend its consumed route/AI intent');
+  f.send({ ...second, type: 'TOYBACO_POSTIZ_CONTEXT_DENIED', reason: 'path-mismatch' });
+  assert.equal(f.frame.style.visibility, 'visible', 'late route refusal cannot hide the accepted editor');
+  assert.equal(f.frame.draftFixture, draft); assert.equal(f.panel.querySelector('iframe'), f.frame);
+  const laterDocument = { ...f.request, documentId: randomUUID() };
+  f.send(laterDocument); const later = f.messages.at(-1).data;
+  assert.equal(later.initialRoute, null, 'later legitimate in-frame navigation has no initial path or AI replay');
+  f.send(f.ready(later)); assert.equal(f.frame.style.visibility, 'visible');
+  assert.equal(f.frame.src, src, 'protocol never redirects or remounts the iframe');
+  f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture();
+  f.send(f.request); const init = f.messages.at(-1).data;
+  const src = f.frame.src, cookie = f.env.document.cookie, fetchCount = f.env.fetches.length;
+  f.send({ ...init, type: 'TOYBACO_POSTIZ_CONTEXT_DENIED', reason: 'path-mismatch' });
+  const loader = f.panel.querySelector('[data-toybaco-post-loading]');
+  assert.ok(loader.querySelector('span').textContent.length > 0, 'route refusal has immediate explicit recovery');
+  assert.equal(loader.querySelector('button').textContent, '再試行');
+  assert.equal(f.frame.style.visibility, 'hidden');
+  f.send(f.ready(init)); assert.equal(f.frame.style.visibility, 'hidden', 'refused initial document cannot revive itself');
+  assert.equal(f.frame.src, src); assert.equal(f.env.document.cookie, cookie); assert.equal(f.env.fetches.length, fetchCount);
+  assert.equal([...f.timers.values()].some(timer => timer.ms === 20000), false, 'route refusal ends the loading deadline without retrying');
+  f.env.api.closePanel();
+}
+console.log('TOYBACO_PARENT_INITIAL_ROUTE=PASS pathname-only initial-ready-required pre-ready-reload-bound accepted-navigation-unlocked no-auto-redirect draft-retained');
 
 // DOM order must match the visible primary navigation without moving Vue-owned rows.
 {
