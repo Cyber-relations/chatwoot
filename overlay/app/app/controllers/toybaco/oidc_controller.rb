@@ -24,17 +24,14 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     return head :bad_request unless valid_authorize_request?
 
     user = oidc_session_user
-    return redirect_to_login unless user
+    return redirect_unauthenticated unless user
 
     account = postiz_account_for(user)
     return redirect_access_denied unless postiz_enabled?(account)
 
     # 同期済み membership を確認できた場合だけ code を発行する。ここで例外を
     # 握りつぶすと Postiz GENERIC の自己登録画面へ落ちるため、必ず fail closed。
-    sync_context = sync_to_postiz(user, account)
-    code = issue_code_for(user, account, sync_context)
-    set_postiz_locale_cookie
-    redirect_to oidc_redirect_url([['code', code], ['state', params[:state].to_s]]), allow_other_host: true
+    complete_authorization(user, account)
   rescue Toybaco::PostizSync::Error, Toybaco::Oidc::CodeStore::IssueFailed => e
     Rails.logger.error(
       "[トイバコID] 認可前同期に失敗 user_id=#{user&.id} account_id=#{account&.id}: #{e.class}"
@@ -58,7 +55,6 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
   end
 
   # 認可コードは client 認証後に一度だけ消費する。不正な secret ではコードを焼かない。
-  # rubocop:disable Metrics/AbcSize
   def token
     return render_oauth_error(:bad_request, 'unsupported_grant_type') unless params[:grant_type] == 'authorization_code'
     return render_oauth_error(:unauthorized, 'invalid_client') unless valid_token_client?
@@ -69,9 +65,7 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     context = current_access_context(grant)
     return render_oauth_error(:bad_request, 'invalid_grant') unless context
 
-    access_token = Toybaco::Oidc::CodeStore.issue_access_token(
-      user_id: grant['user_id'], account_id: grant['account_id'], organization_id: context[:organization_id]
-    )
+    access_token = issue_access_token_for(grant, context)
     render json: { access_token: access_token, token_type: 'Bearer', expires_in: 600, scope: OIDC_SCOPE }
   rescue Toybaco::PostizSync::AccessRevoked
     render_oauth_error(:bad_request, 'invalid_grant')
@@ -82,7 +76,6 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     Rails.logger.error("[トイバコID] token 保存に失敗: #{e.class}")
     render_oauth_error(:service_unavailable, 'temporarily_unavailable')
   end
-  # rubocop:enable Metrics/AbcSize
 
   # access_token は TTL 中に複数回読める。sub には変更されない User ID を使う。
   # rubocop:disable Metrics/CyclomaticComplexity
@@ -99,7 +92,7 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     return render_bearer_unauthorized unless context
     return render_missing_email(user) if user.email.blank?
 
-    render json: userinfo_payload(user, account, context)
+    render json: bound_userinfo_payload(userinfo_payload(user, account, context), token_data)
   rescue Toybaco::PostizSync::AccessRevoked
     render_bearer_unauthorized
   rescue Toybaco::PostizSync::Unavailable, Toybaco::PostizSync::NotConfigured => e
@@ -139,6 +132,29 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
 
   private
 
+  def complete_authorization(user, account)
+    renewal_binding = @oidc_session_reader.renewal_binding(user) if renewal_authorize?
+    return redirect_access_denied if renewal_authorize? && !renewal_binding
+
+    sync_context = sync_to_postiz(user, account)
+    code = issue_code_for(user, account, sync_context, renewal_binding)
+    set_postiz_locale_cookie
+    redirect_to oidc_redirect_url([['code', code], ['state', params[:state].to_s]]), allow_other_host: true
+  end
+
+  def issue_access_token_for(grant, context)
+    Toybaco::Oidc::CodeStore.issue_access_token(
+      user_id: grant['user_id'], account_id: grant['account_id'], organization_id: context[:organization_id],
+      **(grant.key?('renewal_binding') ? { renewal_binding: grant['renewal_binding'] } : {})
+    )
+  end
+
+  def bound_userinfo_payload(payload, token_data)
+    return payload unless token_data.key?('renewal_binding')
+
+    payload.merge(toybaco_session_bound: true, auth_time: token_data['renewal_binding']['auth_time'])
+  end
+
   def disable_oidc_caching
     response.headers['Cache-Control'] = 'no-store'
   end
@@ -155,6 +171,8 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
   end
 
   def valid_authorize_request?
+    return false if params.key?(:toybaco_renew) && !renewal_authorize?
+
     expected = ENV.fetch('TOYBACO_OIDC_CLIENT_ID', nil)
     requested_scopes = params[:scope].to_s.split
     expected.present? && params[:client_id].to_s == expected &&
@@ -164,7 +182,16 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
   end
 
   def oidc_session_user
-    Toybaco::Oidc::SessionReader.new(cookies[:cw_d_session_info]).user
+    @oidc_session_reader = Toybaco::Oidc::SessionReader.new(cookies[:cw_d_session_info])
+    @oidc_session_reader.user
+  end
+
+  def renewal_authorize?
+    params[:toybaco_renew] == '1'
+  end
+
+  def redirect_unauthenticated
+    renewal_authorize? ? redirect_access_denied : redirect_to_login
   end
 
   # warden / session / signed cookie はログアウト後も残りうるため使わない。
@@ -209,13 +236,12 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     account&.active? && Toybaco::PostizSync.enabled?(account)
   end
 
-  def issue_code_for(user, account, sync_context)
+  def issue_code_for(user, account, sync_context, renewal_binding = nil)
     Toybaco::Oidc::CodeStore.issue_code(
-      user_id: user.id,
-      account_id: account.id,
-      organization_id: sync_context.fetch(:organization_id),
+      identity: { user_id: user.id, account_id: account.id, organization_id: sync_context.fetch(:organization_id) },
       client_id: params[:client_id].to_s,
-      redirect_uri: authorize_redirect_uri.to_s
+      redirect_uri: authorize_redirect_uri.to_s,
+      **(renewal_binding ? { renewal_binding: renewal_binding } : {})
     )
   end
 
@@ -270,6 +296,8 @@ class Toybaco::OidcController < ActionController::Base # rubocop:disable Rails/A
     user = User.find_by(id: token_data['user_id'])
     account = Account.find_by(id: token_data['account_id'])
     return unless user && account
+
+    return if token_data.key?('renewal_binding') && !Toybaco::Oidc::SessionReader.renewal_current?(user, token_data['renewal_binding'])
 
     Toybaco::PostizSync.access_context(
       user: user, account: account, organization_id: token_data['organization_id'].to_s

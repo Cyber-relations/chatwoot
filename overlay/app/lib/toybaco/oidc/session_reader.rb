@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'digest/sha2'
+
 # Chatwoot のブラウザcookieから、いま受信箱にログインしている人を割り出す。
 # warden / session / cookies.signed はログアウトで確実に消えないため使わず、
 # devise_token_auth が保存した bcrypt token と期限を valid_token? で照合する。
@@ -9,6 +11,7 @@ class Toybaco::Oidc::SessionReader
   end
 
   def user
+    @validated_user = @validated_client = @validated_at = nil
     session = parsed_session
     return unless session
 
@@ -23,8 +26,62 @@ class Toybaco::Oidc::SessionReader
     valid_users = User.where(uid: uid_candidates).to_a.select do |candidate|
       candidate.confirmed? && candidate.valid_token?(access_token, client)
     end
-    valid_users.first if valid_users.one?
+    return unless valid_users.one?
+
+    @validated_user = valid_users.first
+    @validated_client = client
+    @validated_at = Time.current.to_i
+    @validated_user
   end
+
+  # Renewal carries only server-record identity, never the browser's bearer token.
+  def renewal_binding(user)
+    return unless user == @validated_user && @validated_at
+
+    digest = self.class.record_digest(user, @validated_client)
+    return unless digest
+
+    { 'client' => @validated_client, 'record_digest' => digest, 'auth_time' => @validated_at }
+  end
+
+  def self.renewal_current?(user, binding)
+    return false unless valid_binding?(binding) && current_auth_time?(binding['auth_time'])
+
+    current = record_digest(user, binding['client'])
+    current.present? && ActiveSupport::SecurityUtils.secure_compare(current, binding['record_digest'])
+  end
+
+  def self.record_digest(user, client)
+    return unless user&.confirmed? && valid_client?(client)
+
+    record = user.tokens[client] if user.tokens.is_a?(Hash)
+    return unless valid_record?(record)
+
+    # Current-token rotation deliberately fails renewal closed. Batch timestamps
+    # and last_token are excluded: ordinary reads must not invalidate the binding.
+    Digest::SHA256.hexdigest([record['token'], record['expiry']].to_json)
+  end
+
+  def self.valid_binding?(binding)
+    binding.is_a?(Hash) && binding.keys.sort == %w[auth_time client record_digest] &&
+      binding['record_digest'].is_a?(String) && binding['record_digest'].match?(/\A[0-9a-f]{64}\z/)
+  end
+
+  def self.current_auth_time?(auth_time)
+    now = Time.current.to_i
+    auth_time.is_a?(Integer) && auth_time.positive? && auth_time <= now && now < auth_time + 600
+  end
+
+  def self.valid_record?(record)
+    record.is_a?(Hash) && record['token'].is_a?(String) && record['token'].present? &&
+      record['expiry'].is_a?(Integer) && record['expiry'] > Time.current.to_i
+  end
+
+  def self.valid_client?(client)
+    client.is_a?(String) && client.present? && client.length <= 200
+  end
+
+  private_class_method :valid_binding?, :current_auth_time?, :valid_record?, :valid_client?
 
   private
 

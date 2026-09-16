@@ -11,16 +11,19 @@ class Toybaco::Oidc::CodeStore
   class IssueFailed < StandardError; end
 
   class << self
-    def issue_code(user_id:, account_id:, organization_id:, client_id:, redirect_uri:)
+    def issue_code(identity:, client_id:, redirect_uri:, renewal_binding: nil)
+      raise ArgumentError, 'Invalid OIDC code identity' unless identity.is_a?(Hash) && identity.keys.sort == %i[account_id organization_id user_id]
+
       code = SecureRandom.urlsafe_base64(32)
       payload = {
-        user_id: user_id,
-        account_id: account_id,
-        organization_id: organization_id,
+        user_id: identity.fetch(:user_id),
+        account_id: identity.fetch(:account_id),
+        organization_id: identity.fetch(:organization_id),
         client_id: client_id,
         redirect_uri: redirect_uri,
         exp: Time.current.to_i + CODE_TTL
       }
+      payload[:renewal_binding] = renewal_binding unless renewal_binding.nil?
       stored = Redis::Alfred.set(code_key(code), payload.to_json, nx: true, ex: CODE_TTL)
       raise IssueFailed, '認可コードを保存できません' unless stored
 
@@ -33,9 +36,10 @@ class Toybaco::Oidc::CodeStore
       parse_json(consume_code_value(code_key(code)))
     end
 
-    def issue_access_token(user_id:, account_id:, organization_id:)
+    def issue_access_token(user_id:, account_id:, organization_id:, renewal_binding: nil)
       access_token = SecureRandom.urlsafe_base64(32)
       payload = { user_id: user_id, account_id: account_id, organization_id: organization_id }
+      payload[:renewal_binding] = renewal_binding unless renewal_binding.nil?
       stored = Redis::Alfred.set(token_key(access_token), payload.to_json, nx: true, ex: TOKEN_TTL)
       raise IssueFailed, 'アクセストークンを保存できません' unless stored
 
