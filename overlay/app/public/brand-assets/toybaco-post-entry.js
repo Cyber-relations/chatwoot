@@ -684,6 +684,14 @@
     var frame = document.createElement('iframe');
     frame.toybacoExpectedAccountId = expectedAccountId;
     frame.src = buildSrc(path || DEFAULT_PATH, aiIntent);
+    var requestedRoute = new URL(new URL(frame.src).searchParams.get('return'), POST_ORIGIN);
+    var initialRoute = {
+      pathname: requestedRoute.pathname,
+      aiIntent: requestedRoute.searchParams.get('tb_ai') === 'compose' ? 'compose' : null
+    };
+    // Only the first business document belongs to this launch intent. Later
+    // in-frame navigation still rebinds identity, without rewinding its route.
+    var firstBusinessReady = false;
     frame.title = '投稿';
     frame.style.cssText = 'border:0;width:100%;height:100%;min-height:0;flex:1';
     // 認証途中の別レイアウトを見せず、投稿shellのREADY後にだけ描画する。
@@ -801,17 +809,20 @@
           armFrameTimeout();
         }
         frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_INIT',
-          documentId: context.documentId, frameId: context.frameId, accountId: context.accountId }, POST_ORIGIN);
+          documentId: context.documentId, frameId: context.frameId, accountId: context.accountId,
+          initialRoute: firstBusinessReady ? null : initialRoute }, POST_ORIGIN);
         return;
       }
       if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
           event.data && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_DENIED') {
         if (!matchesContext(event.data) ||
-            ['account-mismatch', 'context-unavailable', 'session-changed'].indexOf(event.data.reason) < 0) return;
+            ['account-mismatch', 'context-unavailable', 'session-changed', 'path-mismatch'].indexOf(event.data.reason) < 0) return;
         // A mounted editor owns later reconnect UI; never discard its local draft.
         if (!postFrameReady) {
           contextRejected = true;
-          showFrameError('別の店舗で接続されているか、接続を確認できません。元の店舗を選び直してから再試行してください。');
+          showFrameError(event.data.reason === 'path-mismatch'
+            ? '選択した投稿画面を開けませんでした。再試行してください。'
+            : '別の店舗で接続されているか、接続を確認できません。元の店舗を選び直してから再試行してください。');
         }
         return;
       }
@@ -858,6 +869,14 @@
       if (!isTrustedPostizReady(event, frame.contentWindow) || contextRejected || !matchesContext(event.data) ||
           typeof event.data.organizationId !== 'string' ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(event.data.organizationId)) return;
+      if (!firstBusinessReady && (!event.data.initialRoute ||
+          event.data.initialRoute.pathname !== initialRoute.pathname ||
+          event.data.initialRoute.aiIntent !== initialRoute.aiIntent)) {
+        contextRejected = true;
+        showFrameError('選択した投稿画面を確認できません。トイバコを開き直してください。', false);
+        return;
+      }
+      firstBusinessReady = true;
       postFrameReady = true;
       pendingAiIntent = null;
       frame.toybacoThemeSupported = event.data.theme === 'light' || event.data.theme === 'dark';
@@ -916,7 +935,7 @@
   // 投稿内の移動も既存composerの保存確認を通す。許可されるまでiframeと入力を残す。
   function navigatePostPath(path, fromHistory) {
     var destination = validatePath(path);
-    if (!panel || destination === panelPath || postingDeniedFor(currentAccountId())) return;
+    if (!panel || (destination === panelPath && postFrameReady) || postingDeniedFor(currentAccountId())) return;
     var current = panel;
     function restoreHash() {
       if (!fromHistory || panel !== current) return;
