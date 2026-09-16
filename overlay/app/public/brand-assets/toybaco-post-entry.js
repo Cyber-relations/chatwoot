@@ -1786,7 +1786,7 @@
 
   function appendReplyAiGuide(host) {
     host.appendChild(auxiliaryText('h2', '問い合わせ返信'));
-    host.appendChild(auxiliaryText('p', '届いた問い合わせに、確認して使える返信の下書きを。'));
+    host.appendChild(auxiliaryText('p', '問い合わせへの返信を、下書き・自動応答で支援します。'));
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
     actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { openAiModePanel(); }, true));
@@ -1798,8 +1798,8 @@
     appendAiUsage(host);
     var guide = auxiliarySteps([
       'AIを割り当てた受信箱に、新しい問い合わせが届くと開始します。AI対応中の会話が対象で、担当者が対応を始めた会話では作成しません。',
-      '下書きモードの結果は、会話内の内部メモに届きます。お客さまにはまだ送信されません。',
-      '「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
+      '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「返信AIの設定を確認」で、現在のモードを確認できます。',
+      '下書きを使う場合は、会話内の「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
     ]);
     if (hasAiSettingsLink()) guide.appendChild(auxiliaryButton('受信箱の接続設定', visitAiSettings));
     else guide.appendChild(auxiliaryText('p', '接続先の変更は管理者が行います。「設定 → 受信箱 → 対象の受信箱 → ボット設定」を確認してもらってください。', 'data-toybaco-aux-note'));
