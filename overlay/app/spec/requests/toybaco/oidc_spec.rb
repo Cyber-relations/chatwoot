@@ -111,9 +111,7 @@ RSpec.describe 'Toybaco OIDC', type: :request do
     it '同期済みPostiz organization UUIDを認可codeへ束縛する' do
       set_chatwoot_session_cookie(auth_headers)
       expect(Toybaco::Oidc::CodeStore).to receive(:issue_code).with(
-        user_id: user.id,
-        account_id: account.id,
-        organization_id: organization_id,
+        identity: { user_id: user.id, account_id: account.id, organization_id: organization_id },
         client_id: client_id,
         redirect_uri: redirect_uri
       ).and_return('bound-code')

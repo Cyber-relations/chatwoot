@@ -11,12 +11,14 @@ class Toybaco::Oidc::CodeStore
   class IssueFailed < StandardError; end
 
   class << self
-    def issue_code(user_id:, account_id:, organization_id:, client_id:, redirect_uri:, renewal_binding: nil)
+    def issue_code(identity:, client_id:, redirect_uri:, renewal_binding: nil)
+      raise ArgumentError, 'Invalid OIDC code identity' unless identity.is_a?(Hash) && identity.keys.sort == %i[account_id organization_id user_id]
+
       code = SecureRandom.urlsafe_base64(32)
       payload = {
-        user_id: user_id,
-        account_id: account_id,
-        organization_id: organization_id,
+        user_id: identity.fetch(:user_id),
+        account_id: identity.fetch(:account_id),
+        organization_id: identity.fetch(:organization_id),
         client_id: client_id,
         redirect_uri: redirect_uri,
         exp: Time.current.to_i + CODE_TTL

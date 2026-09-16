@@ -52,7 +52,7 @@ class Toybaco::Oidc::SessionReader
   end
 
   def self.record_digest(user, client)
-    return unless user&.confirmed? && client.is_a?(String) && client.present? && client.length <= 200
+    return unless user&.confirmed? && valid_client?(client)
 
     record = user.tokens[client] if user.tokens.is_a?(Hash)
     return unless valid_record?(record)
@@ -77,7 +77,11 @@ class Toybaco::Oidc::SessionReader
       record['expiry'].is_a?(Integer) && record['expiry'] > Time.current.to_i
   end
 
-  private_class_method :valid_binding?, :current_auth_time?, :valid_record?
+  def self.valid_client?(client)
+    client.is_a?(String) && client.present? && client.length <= 200
+  end
+
+  private_class_method :valid_binding?, :current_auth_time?, :valid_record?, :valid_client?
 
   private
 
