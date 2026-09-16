@@ -271,6 +271,8 @@ RSpec.describe 'Toybaco OIDC', type: :request do
           'name' => account.name,
           'role' => 'ADMIN'
         )
+        expect(response.parsed_body).not_to have_key('toybaco_session_bound')
+        expect(response.parsed_body).not_to have_key('auth_time')
       end
     end
 
@@ -296,6 +298,76 @@ RSpec.describe 'Toybaco OIDC', type: :request do
 
       expect(response).to have_http_status(:unauthorized)
       expect(response.headers['WWW-Authenticate']).to eq('Bearer')
+    end
+  end
+
+  describe 'renewal-only session binding' do
+    it '現在のCW sessionで検証した時刻をcodeからuserinfoまで保持する' do
+      started_at = Time.current.to_i
+      access_token = issue_access_token(toybaco_renew: '1')
+
+      get userinfo_path, headers: { 'Authorization' => "Bearer #{access_token}" }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to include('toybaco_session_bound' => true)
+      expect(response.parsed_body.fetch('auth_time')).to be_between(started_at, Time.current.to_i)
+      expect(response.parsed_body).not_to have_key('renewal_binding')
+      expect(response.parsed_body).not_to have_key('record_digest')
+    end
+
+    it '未ログインのrenewalはhidden loginへ進まずaccess_deniedを返す' do
+      expect(Toybaco::Oidc::CodeStore).not_to receive(:issue_code)
+
+      request_authorize(toybaco_renew: '1')
+
+      expect(redirect_query).to include('error' => 'access_denied', 'state' => state)
+      expect(response.cookies['toybaco_oidc_return']).to be_nil
+    end
+
+    it 'renewal flagの不正値を通常SSOへfallbackしない' do
+      request_authorize(toybaco_renew: 'true')
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'authorize後のlogoutでtoken交換を拒否する' do
+      code = issue_authorization_code(toybaco_renew: '1')
+      user.update!(tokens: {})
+      expect(Toybaco::Oidc::CodeStore).not_to receive(:issue_access_token)
+
+      exchange_code(code)
+
+      expect(response).to have_http_status(:bad_request)
+      expect(response.parsed_body).to eq('error' => 'invalid_grant')
+    end
+
+    it 'token交換後のlogoutでもuserinfoを拒否する' do
+      access_token = issue_access_token(toybaco_renew: '1')
+      user.update!(tokens: {})
+
+      get userinfo_path, headers: { 'Authorization' => "Bearer #{access_token}" }
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.headers['WWW-Authenticate']).to eq('Bearer')
+    end
+
+    it 'token交換後に同clientのcurrent tokenがrotateしたらuserinfoを拒否する' do
+      access_token = issue_access_token(toybaco_renew: '1')
+      user.reload.tokens[auth_headers.fetch('client')]['token'] = 'rotated-server-hash'
+      user.save!
+
+      get userinfo_path, headers: { 'Authorization' => "Bearer #{access_token}" }
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'renewalでも現在の所属再検証を省略しない' do
+      access_token = issue_access_token(toybaco_renew: '1')
+      allow(Toybaco::PostizSync).to receive(:access_context).and_raise(Toybaco::PostizSync::AccessRevoked)
+
+      get userinfo_path, headers: { 'Authorization' => "Bearer #{access_token}" }
+
+      expect(response).to have_http_status(:unauthorized)
     end
   end
 
@@ -381,9 +453,9 @@ RSpec.describe 'Toybaco OIDC', type: :request do
     URI.decode_www_form(URI.parse(response.location).query).to_h
   end
 
-  def issue_authorization_code
+  def issue_authorization_code(overrides = {})
     set_chatwoot_session_cookie(auth_headers)
-    request_authorize
+    request_authorize(overrides)
     redirect_query.fetch('code')
   end
 
@@ -399,8 +471,8 @@ RSpec.describe 'Toybaco OIDC', type: :request do
          headers: { 'CONTENT_TYPE' => 'application/x-www-form-urlencoded' }
   end
 
-  def issue_access_token
-    code = issue_authorization_code
+  def issue_access_token(overrides = {})
+    code = issue_authorization_code(overrides)
     exchange_code(code)
     response.parsed_body.fetch('access_token')
   end

@@ -4409,7 +4409,10 @@ for (const hidden of ['no-layout', 'display', 'visibility', 'opacity', 'inert', 
 // Send raw messages here: do not use the compatibility fixture helper above.
 function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent, postPath = aiIntent === 'compose' ? '/launches' : '/analytics') {
   const timers = new Map(); let timerId = 0;
+  const intervals = new Map(); let intervalId = 0;
   const env = loadInjectEntry(() => new Promise(() => {}), pathname, {
+    setInterval(fn, ms) { const id = ++intervalId; intervals.set(id, { fn, ms }); return id; },
+    clearInterval(id) { intervals.delete(id); },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
   });
@@ -4425,7 +4428,7 @@ function postingContextFixture(pathname = '/app/accounts/1/inbox', aiIntent, pos
   const request = { type: 'TOYBACO_POSTIZ_CONTEXT_REQUEST', documentId };
   const ready = (init, extra = {}) => ({ ...init, type: 'TOYBACO_POSTIZ_READY',
     organizationId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', theme: 'light', ...extra });
-  return { env, panel, frame, messages, send, documentId, request, ready, timers };
+  return { env, panel, frame, messages, send, documentId, request, ready, timers, intervals };
 }
 {
   const f = postingContextFixture();
@@ -5065,3 +5068,144 @@ for (const intent of [undefined, 'compose']) {
   f.env.api.closePanel();
 }
 console.log('TOYBACO_AI_ENTRY_RETRY=PASS pre-ready-same-account-only normal-no-intent ready-consumed cancelled-no-global-intent');
+
+
+// Execute the current parent protocol with the existing DOM/message/timer fixture.
+// No SSO server or child self-verification is simulated as a completed login.
+const renewalOwner = { id: 'e5360bd2-0e13-4a98-84c5-d71c4c9f2d61', orgId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', role: 'ADMIN', providerName: 'GENERIC' };
+function renewalActorCookie(uid = 'fixture-owner@example.test', client = 'fixture-client') {
+  return 'cw_d_session_info=' + encodeURIComponent(JSON.stringify({ 'access-token': 'fixture-unused', uid, client }));
+}
+function postingRenewalFixture(owner = renewalOwner) {
+  const f = postingContextFixture();
+  f.env.document.cookie = renewalActorCookie();
+  f.env.window.location.hash = '#/toybaco/posting?path=%2Fanalytics';
+  f.send(f.request); const init = f.messages.at(-1).data;
+  f.send(f.ready(init, { owner }));
+  const hidden = () => f.env.document.querySelector('[data-toybaco-post-renewal]');
+  let sequence = 0;
+  const request = (extra = {}) => ({ ...init, type: 'TOYBACO_POSTIZ_RENEW_REQUEST', requestId: randomUUID(), requestSequence: ++sequence, owner: { ...renewalOwner }, ...extra });
+  const results = () => f.messages.filter(message => message.data.type === 'TOYBACO_POSTIZ_RENEW_RESULT');
+  const complete = (data, ok = true, overrides = {}) => {
+    const renewalFrame = hidden();
+    if (renewalFrame && !renewalFrame.contentWindow) renewalFrame.contentWindow = {};
+    f.send({ type: 'TOYBACO_POSTIZ_RENEW_COMPLETE', documentId: data.documentId, frameId: data.frameId,
+      accountId: data.accountId, requestId: data.requestId, ok }, { source: renewalFrame?.contentWindow, ...overrides });
+  };
+  return { ...f, init, hidden, renewalRequest: request, results, complete };
+}
+{
+  const f = postingRenewalFixture();
+  const request = f.renewalRequest();
+  const original = { frame: f.frame, src: f.frame.src, hash: f.env.window.location.hash, cookie: f.env.document.cookie, fetches: f.env.fetches.length };
+  f.frame.draftFixture = { text: '保存前の本文', media: ['fixture-media'] };
+  const draft = f.frame.draftFixture;
+  f.env.document.activeElement = f.frame;
+  f.send(request);
+  const hidden = f.hidden(); assert.ok(hidden); assert.equal(hidden.parentNode, f.env.document.body);
+  assert.equal(f.panel.querySelector('iframe'), original.frame); assert.equal(f.frame.src, original.src);
+  assert.equal(f.frame.draftFixture, draft); assert.equal(f.env.document.activeElement, f.frame);
+  assert.equal(hidden.hidden, true); assert.equal(hidden.style.display, 'none'); assert.equal(hidden.tabIndex, -1); assert.equal(hidden.getAttribute('aria-hidden'), 'true');
+  const url = new URL(hidden.src); assert.equal(url.origin, 'https://post.staging.toybaco.jp'); assert.equal(url.pathname, '/toybaco/entry');
+  assert.deepEqual(Object.fromEntries(url.searchParams), { purpose: 'renew', return: '/launches?tb_embed=1', tb_embed: '1',
+    request_id: request.requestId, document_id: request.documentId, frame_id: request.frameId,
+    account_id: '1', user_id: renewalOwner.id, organization_id: renewalOwner.orgId, role: 'ADMIN' });
+  assert.doesNotMatch(hidden.src, /fixture-unused|fixture-client|fixture-owner|access-token/);
+  assert.equal(f.env.document.cookie, original.cookie); assert.equal(f.env.window.location.hash, original.hash); assert.equal(f.env.fetches.length, original.fetches);
+  f.send(request); assert.equal(f.hidden(), hidden); assert.equal(f.results().length, 0, 'same pending nonce is idempotent');
+  const busy = f.renewalRequest(); f.send(busy); assert.equal(f.hidden(), hidden); assert.equal(f.results().length, 1); assert.equal(f.results()[0].data.ok, false); assert.equal(f.results()[0].data.requestId, busy.requestId);
+  f.send(busy); assert.equal(f.results().length, 1, 'busy nonce cannot later replay');
+  for (const overrides of [{ origin: 'https://evil.example' }, { source: f.frame.contentWindow }, { source: {} }]) f.complete(request, true, overrides);
+  for (const extra of [{ requestId: randomUUID() }, { documentId: randomUUID() }, { frameId: randomUUID() }, { accountId: '2' }]) f.complete({ ...request, ...extra });
+  f.complete(request, 'true'); assert.equal(f.results().length, 1); assert.equal(f.hidden(), hidden);
+  const completedSource = hidden.contentWindow; const beforeMessages = f.messages.length;
+  f.complete(request); assert.equal(f.hidden(), null); assert.equal(f.results().length, 2);
+  const result = f.results().at(-1); assert.equal(result.origin, 'https://post.staging.toybaco.jp');
+  assert.deepEqual(result.data, { type: 'TOYBACO_POSTIZ_RENEW_RESULT', documentId: request.documentId,
+    frameId: request.frameId, accountId: request.accountId, requestId: request.requestId, requestSequence: request.requestSequence, ok: true });
+  assert.equal(f.messages.length, beforeMessages + 1, 'completion forwards only RESULT, never READY/INIT or business navigation');
+  assert.equal(f.frame.src, original.src); assert.equal(f.frame.draftFixture, draft); assert.equal(f.env.document.activeElement, f.frame);
+  f.complete(request, true, { source: completedSource }); f.send(request); assert.equal(f.hidden(), null); assert.equal(f.results().length, 2);
+  f.env.api.closePanel();
+}
+{
+  const f = postingRenewalFixture();
+  const request = f.renewalRequest();
+  for (const overrides of [{ origin: 'https://evil.example' }, { origin: 'https://post.toybaco.jp' }, { source: {} }]) f.send(request, overrides);
+  for (const extra of [{ requestSequence: undefined }, { requestSequence: '1' }, { requestSequence: 0 }, { requestSequence: -1 }, { requestSequence: 1.5 }, { requestSequence: Number.MAX_SAFE_INTEGER + 1 }, { requestId: '' }, { requestId: 5 }, { requestId: 'abcdef12-3456-5789-abcd-123456789012' }, { documentId: randomUUID() }, { frameId: randomUUID() }, { accountId: '2' }, { accountId: 1 },
+    ...[{ id: randomUUID() }, { orgId: randomUUID() }, { role: 'USER' }, { providerName: 'GOOGLE' }].map(owner => ({ owner: { ...renewalOwner, ...owner } }))]) f.send({ ...request, ...extra });
+  assert.equal(f.hidden(), null); assert.equal(f.results().length, 0);
+  for (const cookie of ['', renewalActorCookie('other@example.test'), renewalActorCookie('fixture-owner@example.test', 'other-client')]) {
+    f.env.document.cookie = cookie; f.send(request); assert.equal(f.hidden(), null);
+  }
+  f.env.document.cookie = renewalActorCookie(); f.send(request); assert.ok(f.hidden()); f.env.api.closePanel();
+}
+for (const owner of [undefined, {}, { ...renewalOwner, orgId: randomUUID() }, { ...renewalOwner, providerName: 'GOOGLE' }]) {
+  const f = postingRenewalFixture(owner === undefined ? null : owner);
+  f.send(f.renewalRequest()); assert.equal(f.hidden(), null, 'missing/invalid first READY owner cannot renew'); f.env.api.closePanel();
+}
+{
+  const f = postingRenewalFixture();
+  const request = f.renewalRequest(); f.send(request); const hidden = f.hidden();
+  const timer = [...f.timers.values()].find(item => item.ms === 20000); assert.ok(timer);
+  f.send({ ...request, type: 'TOYBACO_POSTIZ_RENEW_CANCEL', requestId: randomUUID() }); assert.equal(f.hidden(), hidden);
+  f.send({ ...request, type: 'TOYBACO_POSTIZ_RENEW_CANCEL' }); assert.equal(f.hidden(), null); assert.equal(f.results().length, 0);
+  timer.fn(); assert.equal(f.results().length, 0, 'cancelled timeout cannot notify');
+  const next = f.renewalRequest(); f.send(next); assert.ok(f.hidden());
+  const timeout = [...f.timers.values()].find(item => item.ms === 20000); timeout.fn();
+  assert.equal(f.hidden(), null); assert.equal(f.results().at(-1).data.ok, false); assert.equal(f.panel.querySelector('iframe'), f.frame);
+  const errorRequest = f.renewalRequest(); f.send(errorRequest);
+  f.hidden().listeners.error[0](); assert.equal(f.hidden(), null); assert.equal(f.results().at(-1).data.ok, false);
+  f.env.api.closePanel();
+}
+for (const invalidate of ['document', 'panel', 'frame', 'hash', 'account', 'logout', 'actor', 'pagehide']) {
+  const f = postingRenewalFixture(); const request = f.renewalRequest(); f.send(request); const hidden = f.hidden();
+  hidden.contentWindow = {}; const source = hidden.contentWindow; const timers = [...f.timers.values()];
+  if (invalidate === 'document') f.send({ ...f.request, documentId: randomUUID() });
+  if (invalidate === 'panel') f.env.api.closePanel();
+  if (invalidate === 'frame') f.frame.remove();
+  if (invalidate === 'hash') f.env.window.location.hash = '#/toybaco/posting?path=%2Fmedia';
+  if (invalidate === 'account') f.env.window.location.pathname = '/app/accounts/2/inbox';
+  if (invalidate === 'logout') f.env.document.cookie = '';
+  if (invalidate === 'actor') f.env.document.cookie = renewalActorCookie('changed@example.test');
+  if (invalidate === 'pagehide') f.env.window.dispatchEvent(new Event('pagehide'));
+  // The existing live panel timer also checks invalidation without a DOM event.
+  for (const interval of [...f.intervals.values()]) interval.fn();
+  assert.equal(f.hidden(), null, invalidate + ': hidden request must be cleaned');
+  f.complete(request, true, { source }); for (const timer of timers) timer.fn();
+  assert.equal(f.results().length, 0, invalidate + ': stale callbacks/timeouts must not notify any document');
+  f.env.api.closePanel();
+}
+{
+  const f = postingRenewalFixture();
+  const first = f.renewalRequest(); f.send(first); const oldSource = f.hidden().contentWindow = {}; f.complete(first);
+  for (let i = 0; i < 70; i++) { const next = f.renewalRequest(); f.send(next); assert.ok(f.hidden()); f.complete(next); }
+  const next = f.renewalRequest({ requestId: first.requestId }); f.send(next); assert.ok(f.hidden());
+  f.hidden().contentWindow = {}; assert.notEqual(f.hidden().contentWindow, oldSource);
+  f.complete(first, true, { source: oldSource }); assert.ok(f.hidden(), 'old hidden WindowProxy with reused UUID cannot satisfy a new attempt');
+  f.send({ ...first, requestId: randomUUID() }); assert.equal(f.results().length, 71, 'older sequence is rejected even with a fresh UUID');
+  f.complete(next); assert.equal(f.hidden(), null); assert.equal(f.results().length, 72);
+  f.env.api.closePanel();
+}
+{
+  const a = postingRenewalFixture(), b = postingRenewalFixture();
+  const ar = a.renewalRequest(), br = b.renewalRequest(); a.send(ar); b.send(br);
+  a.hidden().contentWindow = {}; b.hidden().contentWindow = {};
+  a.complete(ar, true, { source: b.hidden().contentWindow }); assert.ok(a.hidden());
+  b.complete(br); assert.equal(b.hidden(), null); assert.ok(a.hidden());
+  a.complete(ar); assert.equal(a.hidden(), null);
+  assert.equal(a.results().length, 1); assert.equal(b.results().length, 1); a.env.api.closePanel(); b.env.api.closePanel();
+}
+{
+  const f = postingRenewalFixture();
+  f.send(f.ready(f.init, { owner: { ...renewalOwner, id: randomUUID(), role: 'USER' } }));
+  f.send(f.renewalRequest({ owner: { ...renewalOwner, role: 'USER' } })); assert.equal(f.hidden(), null, 'later READY cannot replace the first accepted owner');
+  f.send(f.renewalRequest()); assert.ok(f.hidden(), 'the original owner stays pinned'); f.env.api.closePanel();
+}
+{
+  const f = postingContextFixture(); f.env.document.cookie = renewalActorCookie(); f.env.window.location.hash = '#/toybaco/posting?path=%2Fanalytics';
+  f.send(f.request); const init = f.messages.at(-1).data;
+  f.send({ ...init, type: 'TOYBACO_POSTIZ_RENEW_REQUEST', requestId: randomUUID(), requestSequence: 1, owner: renewalOwner });
+  assert.equal(f.env.document.querySelector('[data-toybaco-post-renewal]'), null, 'pre-READY requests cannot begin authentication'); f.env.api.closePanel();
+}
+console.log('TOYBACO_PARENT_SESSION_RENEWAL=PASS owner-pinned actor-bound one-hidden-frame busy-rejected replay-rejected exact-completion cancel-timeout context-navigation-logout-cleanup no-ready no-draft-loss');

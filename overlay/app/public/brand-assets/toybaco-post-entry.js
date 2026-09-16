@@ -195,6 +195,33 @@
   var postCloseNotice = null;
   var postCloseSequence = 0;
   var postCloseApproved = false;
+  var postRenewal = null;
+
+  function clearPostRenewal() {
+    var request = postRenewal;
+    postRenewal = null;
+    if (!request) return;
+    if (request.timer) clearTimeout(request.timer);
+    if (request.frame.parentNode) request.frame.parentNode.removeChild(request.frame);
+  }
+
+  function reconcilePostRenewal() {
+    if (postRenewal && !postRenewal.isCurrent()) clearPostRenewal();
+  }
+
+  // Compare the existing parent session identity locally; no token is retained
+  // or copied into a frame URL/message. The server independently binds the grant.
+  function postingActor() {
+    var auth = readSessionHeaders();
+    return auth ? { uid: auth.uid, client: auth.client } : null;
+  }
+
+  function samePostingActor(actor) {
+    var current = postingActor();
+    return !!(actor && current && actor.uid === current.uid && actor.client === current.client);
+  }
+
+  window.addEventListener('pagehide', clearPostRenewal);
 
   function isPostingHash(h) {
     return h === HASH_PREFIX || h.indexOf(HASH_PREFIX + '?') === 0;
@@ -484,6 +511,7 @@
   }
 
   function removeReadyMessageHandler() {
+    clearPostRenewal();
     if (!readyMessageHandler) return;
     window.removeEventListener('message', readyMessageHandler);
     readyMessageHandler = null;
@@ -680,6 +708,9 @@
     var context = null;
     var seenDocuments = Object.create(null);
     var contextRejected = false;
+    var renewalOwner = null;
+    var renewalActor = null;
+    var lastRenewalSequence = 0;
     var loadingMarkup = spinner.innerHTML;
     var frame = document.createElement('iframe');
     frame.toybacoExpectedAccountId = expectedAccountId;
@@ -780,9 +811,99 @@
         currentAccountId() === expectedAccountId);
     }
 
+    function validRenewalOwner(owner, organizationId) {
+      var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      return !!(owner && typeof owner === 'object' && typeof owner.id === 'string' && uuid.test(owner.id) &&
+        typeof owner.orgId === 'string' && uuid.test(owner.orgId) && owner.orgId === organizationId &&
+        (owner.role === 'ADMIN' || owner.role === 'USER') && owner.providerName === 'GENERIC');
+    }
+
+    function matchesRenewalOwner(owner) {
+      return !!(renewalOwner && validRenewalOwner(owner, renewalOwner.orgId) &&
+        owner.id === renewalOwner.id && owner.role === renewalOwner.role);
+    }
+
+    function sendRenewalResult(data, ok) {
+      frame.contentWindow.postMessage({ type: 'TOYBACO_POSTIZ_RENEW_RESULT',
+        documentId: data.documentId, frameId: data.frameId, accountId: data.accountId,
+        requestId: data.requestId, requestSequence: data.requestSequence, ok: ok }, POST_ORIGIN);
+    }
+
+    function beginRenewal(data) {
+      if (!postFrameReady || contextRejected || !matchesContext(data) || !validContextId(data.requestId) ||
+          !matchesRenewalOwner(data.owner) || !samePostingActor(renewalActor) || !isLoggedInView() ||
+          !isPostingHash(window.location.hash || '')) return;
+      if (!Number.isSafeInteger(data.requestSequence) || data.requestSequence <= lastRenewalSequence) return;
+      // One monotonic counter prevents replay without limiting an all-day editor.
+      lastRenewalSequence = data.requestSequence;
+      reconcilePostRenewal();
+      if (postRenewal) { sendRenewalResult(data, false); return; }
+      var hidden = document.createElement('iframe');
+      hidden.setAttribute('data-toybaco-post-renewal', '1');
+      hidden.setAttribute('aria-hidden', 'true');
+      hidden.tabIndex = -1;
+      hidden.hidden = true;
+      hidden.style.display = 'none';
+      hidden.title = '投稿の接続更新';
+      var entry = new URL('/toybaco/entry', POST_ORIGIN);
+      entry.searchParams.set('purpose', 'renew');
+      entry.searchParams.set('return', '/launches?tb_embed=1');
+      entry.searchParams.set('tb_embed', '1');
+      entry.searchParams.set('request_id', data.requestId);
+      entry.searchParams.set('document_id', data.documentId);
+      entry.searchParams.set('frame_id', data.frameId);
+      entry.searchParams.set('account_id', data.accountId);
+      entry.searchParams.set('user_id', renewalOwner.id);
+      entry.searchParams.set('organization_id', renewalOwner.orgId);
+      entry.searchParams.set('role', renewalOwner.role);
+      var ownedPanel = panel, ownedContext = context;
+      var ownedLocation = auxiliaryLocation();
+      var request = {
+        frame: hidden, source: frame.contentWindow, requestId: data.requestId, requestSequence: data.requestSequence,
+        documentId: data.documentId, frameId: data.frameId, accountId: data.accountId,
+        timer: null,
+        isCurrent: function () {
+          return panel === ownedPanel && !!panel && panel.parentNode && panel.querySelector('iframe') === frame &&
+            frame.contentWindow === request.source && context === ownedContext && postFrameReady &&
+            !contextRejected && currentAccountId() === expectedAccountId && isLoggedInView() &&
+            auxiliaryLocation() === ownedLocation && samePostingActor(renewalActor);
+        },
+        finish: function (ok) {
+          if (postRenewal !== request) return;
+          var current = request.isCurrent();
+          clearPostRenewal();
+          if (current) sendRenewalResult(request, ok);
+        }
+      };
+      postRenewal = request;
+      request.timer = setTimeout(function () { request.finish(false); }, 20000);
+      hidden.addEventListener('error', function () { request.finish(false); });
+      hidden.src = entry.href;
+      // A sibling outside the panel never replaces its business iframe or focus.
+      try { document.body.appendChild(hidden); } catch (e) { request.finish(false); }
+    }
+
     removeReadyMessageHandler();
     readyMessageHandler = function (event) {
+      reconcilePostRenewal();
       if (!panel || panel.querySelector('iframe') !== frame || currentAccountId() !== expectedAccountId) return;
+      if (event.origin === POST_ORIGIN && event.data && typeof event.data === 'object' &&
+          event.data.type === 'TOYBACO_POSTIZ_RENEW_COMPLETE') {
+        var renewal = postRenewal;
+        if (!renewal || event.source !== renewal.frame.contentWindow ||
+            event.data.requestId !== renewal.requestId || event.data.documentId !== renewal.documentId ||
+            event.data.frameId !== renewal.frameId || event.data.accountId !== renewal.accountId ||
+            typeof event.data.ok !== 'boolean') return;
+        renewal.finish(event.data.ok);
+        return;
+      }
+      if (event.origin === POST_ORIGIN && event.source === frame.contentWindow && event.data &&
+          (event.data.type === 'TOYBACO_POSTIZ_RENEW_REQUEST' || event.data.type === 'TOYBACO_POSTIZ_RENEW_CANCEL')) {
+        if (event.data.type === 'TOYBACO_POSTIZ_RENEW_REQUEST') beginRenewal(event.data);
+        else if (postRenewal && matchesContext(event.data) && event.data.requestId === postRenewal.requestId &&
+            event.data.requestSequence === postRenewal.requestSequence) clearPostRenewal();
+        return;
+      }
       if (event.origin === POST_ORIGIN && event.source === frame.contentWindow &&
           event.data && typeof event.data === 'object' && event.data.type === 'TOYBACO_POSTIZ_CONTEXT_REQUEST') {
         if (!validContextId(event.data.documentId) ||
@@ -796,6 +917,10 @@
             showFrameError('安全な接続確認に対応していません。ブラウザーを更新してからトイバコを開き直してください。', false);
             return;
           }
+          clearPostRenewal();
+          renewalOwner = null;
+          renewalActor = null;
+          lastRenewalSequence = 0;
           seenDocuments[event.data.documentId] = true;
           context = { documentId: event.data.documentId, frameId: frameId, accountId: expectedAccountId };
           contextRejected = false;
@@ -875,6 +1000,15 @@
         contextRejected = true;
         showFrameError('選択した投稿画面を確認できません。トイバコを開き直してください。', false);
         return;
+      }
+      // Renewal is available only to the owner from this document's first READY.
+      // Legacy READY remains usable but cannot request a renewal without its owner.
+      if (!postFrameReady) {
+        if (validRenewalOwner(event.data.owner, event.data.organizationId)) {
+          renewalOwner = { id: event.data.owner.id, orgId: event.data.owner.orgId,
+            role: event.data.owner.role, providerName: 'GENERIC' };
+          renewalActor = postingActor();
+        }
       }
       firstBusinessReady = true;
       postFrameReady = true;
@@ -1218,6 +1352,7 @@
     // サイドバーから別画面へ移ったら閉じる(開いている間だけの軽い見張り)
     var seenPath = window.location.pathname;
     poller = setInterval(function () {
+      reconcilePostRenewal();
       if (hasPostingRouteGuard()) return;
       if (window.location.pathname !== seenPath) {
         if (!requestPanelClose(closePanel)) closePanel();
@@ -3216,6 +3351,7 @@
   }
 
   function onHashMaybeChanged() {
+    reconcilePostRenewal();
     if (auxiliaryView) {
       if (auxiliaryAccount === currentAccountId() && auxiliaryRoute === auxiliaryLocation()) return;
       closeAiModePanel();
@@ -3244,6 +3380,7 @@
   var previousBillingAccount = null;
 
   function afterNavChange() {
+    reconcilePostRenewal();
     if (auxiliaryView && (auxiliaryAccount !== currentAccountId() || auxiliaryRoute !== auxiliaryLocation())) {
       closeAiModePanel();
       closeAuxiliaryView();
