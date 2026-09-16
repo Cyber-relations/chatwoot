@@ -2385,9 +2385,15 @@
   }
 
   function paintAiUsage() {
-    var card = document.querySelector('[data-toybaco-ai-usage]');
-    if (!card || card.getAttribute('data-account') !== currentAccountId()) return;
-    var state = aiUsageState();
+    var cards = document.querySelectorAll('[data-toybaco-ai-usage]');
+    var account = currentAccountId();
+    var state = aiUsageState(account);
+    for (var i = 0; i < cards.length; i += 1) {
+      if (cards[i].getAttribute('data-account') === account) paintAiUsageCard(cards[i], state);
+    }
+  }
+
+  function paintAiUsageCard(card, state) {
     var data = state.phase === 'ready' ? state.data : null;
     var active = data && data.enabled;
     var busy = state.phase === 'loading' || state.phase === 'idle';
@@ -2731,7 +2737,23 @@
   }
 
   function escCloseAiMode(e) {
-    if (e.key === 'Escape') closeAiModePanel();
+    if (!aiPanel || e.defaultPrevented || e.isComposing) return;
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      closeAiModePanel();
+      return;
+    }
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var controls = Array.prototype.filter.call(aiPanel.querySelectorAll('button'), function (button) {
+      return !button.disabled && !button.hidden && !button.closest('[hidden], [inert]') &&
+        (!button.getClientRects || button.getClientRects().length > 0);
+    });
+    if (!controls.length) return;
+    var current = controls.indexOf(document.activeElement);
+    if (current === -1 || (e.shiftKey ? current === 0 : current === controls.length - 1)) {
+      e.preventDefault(); e.stopPropagation();
+      controls[e.shiftKey ? controls.length - 1 : 0].focus();
+    }
   }
 
   function closestMarked(node, mark) {

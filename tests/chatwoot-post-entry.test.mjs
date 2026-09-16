@@ -2389,7 +2389,9 @@ function modeResponse(mode) {
   assert.doesNotMatch(collectText(panel), /外部への応答動作は未確認/);
   assert.ok(panel.querySelector('[data-toybaco-ai-usage]'), 'mobile settings must retain the existing contract and usage details');
   assert.ok(panel.querySelector('[data-toybaco-ai-retry]'), 'mobile settings must retain the existing retry control');
-  for (const listener of env.docListeners.keydown) listener({ key: 'Escape' });
+  const closeEvent = { key: 'Escape', preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+  for (const listener of env.docListeners.keydown) listener(closeEvent);
+  assert.equal(closeEvent.defaultPrevented, true);
   assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null);
   assert.equal(env.document.activeElement, opener, 'closing AI settings must return focus to its entry');
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0, 'opening and closing mobile settings must not change the saved mode');
@@ -2976,6 +2978,69 @@ for (const invalid of [
   stalled.resolve(usageResponse());
   await flush();
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '', 'a late timed-out response cannot restore stale usage');
+}
+
+// A reply-settings dialog and its underlying assistant page share the current
+// account's confirmed usage; neither card may shadow the other.
+{
+  const reads = [deferred(), deferred()]; let usageReads = 0;
+  const env = loadInjectEntry((url, opts) => String(url).includes('/ai_usage')
+    ? reads[usageReads++].promise : aiModeAwareFetch(url, opts));
+  env.api.inject(); env.api.openAuxiliaryView('ai'); env.api.openAiModePanel();
+  const cards = env.document.querySelectorAll('[data-toybaco-ai-usage]');
+  assert.equal(cards.length, 2);
+  const foreign = createDomNode('section'); foreign.setAttribute('data-toybaco-ai-usage', '1');
+  foreign.setAttribute('data-account', '2'); foreign.textContent = 'another account';
+  env.body.insertBefore(foreign, env.body.firstChild);
+  for (const card of cards) assert.equal(card.getAttribute('aria-busy'), 'true');
+  reads[0].resolve(usageResponse()); await flush();
+  for (const card of cards) {
+    assert.equal(card.getAttribute('data-toybaco-ai-usage-state'), 'ready');
+    assert.equal(card.querySelector('[data-toybaco-ai-usage-value]').textContent, '100 / 500 件');
+  }
+  fireClick(cards[1].querySelector('[data-toybaco-ai-usage-refresh]'));
+  for (const card of cards) {
+    assert.equal(card.getAttribute('aria-busy'), 'true');
+    assert.equal(card.querySelector('[data-toybaco-ai-usage-value]').textContent, '');
+  }
+  reads[1].reject(new Error('fixture usage unavailable')); await flush();
+  for (const card of cards) assert.equal(card.getAttribute('data-toybaco-ai-usage-state'), 'error');
+  assert.equal(foreign.textContent, 'another account');
+  assert.equal(foreign.getAttribute('aria-busy'), null, 'foreign-account cards must never receive the current account usage');
+  assert.equal(usageReads, 2);
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
+  env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
+}
+
+{
+  const env = loadInjectEntry(aiModeAwareFetch);
+  env.api.inject(); env.api.openAuxiliaryView('ai'); await flush();
+  const hub = env.document.querySelector('[data-toybaco-aux-view="ai"]');
+  const opener = hub.querySelector('[data-toybaco-ai-purpose="reply"]').querySelector('button');
+  opener.focus = () => { env.document.activeElement = opener; }; opener.focus();
+  env.api.openAiModePanel(); await flush();
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  const controls = panel.querySelectorAll('button').filter(button => !button.disabled && !button.hidden);
+  for (const button of controls) button.focus = () => { env.document.activeElement = button; };
+  const key = (value, extra = {}) => {
+    const event = { key: value, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.stopped = true; }, ...extra };
+    [...(env.docListeners.keydown || [])].forEach(fn => fn(event)); return event;
+  };
+  const first = controls[0], last = controls.at(-1);
+  first.focus(); assert.equal(key('Tab').defaultPrevented, false, 'interior Tab keeps native sequential movement');
+  assert.equal(key('Tab', { shiftKey: true }).defaultPrevented, true); assert.equal(env.document.activeElement, last);
+  assert.equal(key('Tab').defaultPrevented, true); assert.equal(env.document.activeElement, first);
+  env.document.activeElement = env.body; key('Tab'); assert.equal(env.document.activeElement, first);
+  first.focus(); key('Tab', { shiftKey: true, ctrlKey: true }); assert.equal(env.document.activeElement, first);
+  assert.equal(key('Escape', { isComposing: true }).defaultPrevented, false);
+  const escape = key('Escape'); assert.equal(escape.defaultPrevented, true); assert.equal(escape.stopped, true);
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null);
+  assert.equal(env.document.activeElement, opener);
+  assert.equal(env.document.querySelector('[data-toybaco-aux-view="ai"]'), hub);
+  assert.equal(key('Tab').defaultPrevented, false, 'closed settings leave no focus trap');
+  assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
+  env.api.closeAuxiliaryView();
 }
 
 // The stock settings header count changes only after the agents store accepts a save/delete.
