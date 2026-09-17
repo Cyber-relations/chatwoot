@@ -5358,3 +5358,52 @@ for (const invalidate of ['document', 'panel', 'frame', 'hash', 'account', 'logo
   assert.equal(f.env.document.querySelector('[data-toybaco-post-renewal]'), null, 'pre-READY requests cannot begin authentication'); f.env.api.closePanel();
 }
 console.log('TOYBACO_PARENT_SESSION_RENEWAL=PASS owner-pinned actor-bound one-hidden-frame busy-rejected replay-rejected exact-completion cancel-timeout context-navigation-logout-cleanup no-ready no-draft-loss');
+
+// A contact fetch can finish after the separate posting workspace has opened.
+// Execute the production query updater with a stale native route and the actual
+// visible hash: background pagination must not close the overlay on reload.
+{
+  const contactsSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/routes/dashboard/contacts/pages/ContactsIndex.vue'), 'utf8');
+  const begin = contactsSource.indexOf('const updatePageParam =');
+  const end = contactsSource.indexOf('const buildSortAttr =', begin);
+  assert.ok(begin >= 0 && end > begin);
+  const updaterSource = contactsSource.slice(begin, end);
+  const exercise = (source, hash, query, page, search) => {
+    const calls = [];
+    const location = { hash };
+    const route = { query: structuredClone(query), hash: '' };
+    const update = vm.runInNewContext(source + '\nupdatePageParam;', {
+      window: { location }, route,
+      router: { replace: value => calls.push(structuredClone(value)) },
+    });
+    update(page, search);
+    assert.deepEqual(route.query, query, 'query objects from Vue are never mutated');
+    assert.equal(location.hash, hash, 'background fetch cannot change the visible workspace');
+    return { calls, update, location };
+  };
+  const overlays = ['#/toybaco/assistant', '#/toybaco/posting',
+    ...['launches', 'analytics', 'media', 'settings'].map(name => '#/toybaco/posting?path=%2F' + name)];
+  for (const hash of overlays) {
+    for (const query of [{}, { page: '3', search: 'customer', label: 'retained' }]) {
+      const f = exercise(updaterSource, hash, query, 2, 'updated');
+      assert.equal(f.calls.length, 0, 'posting and AI keep their URL while hidden Contacts finishes');
+      f.location.hash = '';
+      f.update(2, 'updated');
+      assert.equal(f.calls.length, 1, 'pagination works again when Contacts is visible');
+      assert.equal(f.calls[0].query.page, '2');
+      assert.equal(f.calls[0].query.search, 'updated');
+    }
+  }
+  for (const hash of ['', '#contact', '#/toybaco/posting-other', '#/toybaco/assistant-other']) {
+    const f = exercise(updaterSource, hash, { page: '1', search: 'old', label: 'retained' }, 3, '');
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].query.page, '3');
+    assert.equal(f.calls[0].query.label, 'retained');
+    assert.equal('search' in f.calls[0].query, false, 'clearing search retains normal contact behavior');
+  }
+  const unguarded = updaterSource.replace(/  const hash = window.location.hash;\n  if \([\s\S]*?\n  }\n/, '');
+  assert.notEqual(unguarded, updaterSource);
+  assert.equal(exercise(unguarded, overlays[0], {}, 1, '').calls.length, 1,
+    'negative control reproduces the old background navigation');
+}
+console.log('TOYBACO_CONTACT_BACKGROUND_ROUTE=PASS 12-overlay 4-native stale-router-cache resume-pagination negative-control');
