@@ -662,7 +662,10 @@ aside nav > ul > *[data-toybaco-post-entry-wrap] {
   order: 2;
 }
 
-/* router-view だけを隠してレイアウトと入力を保つ。子の明示 visibility も背景へ収める。 */
+/* 投稿・AI・アプリ情報の背後の router-view だけを隠し、レイアウトと入力を保つ。
+   inert/aria-hidden だけでは sticky ヘッダーの描画は消えない。 */
+[data-toybaco-post-host]:has(> [data-toybaco-aux-view]) > [data-toybaco-native-route],
+[data-toybaco-post-host]:has(> [data-toybaco-aux-view]) > [data-toybaco-native-route] *,
 [data-toybaco-embedded-background="route"],
 [data-toybaco-embedded-background="route"] * {
   visibility: hidden !important;
