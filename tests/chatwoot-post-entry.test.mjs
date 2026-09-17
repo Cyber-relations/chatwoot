@@ -1036,7 +1036,7 @@ if (fs.existsSync(brandCssPath)) {
   assert.match(brandCss, /order: 5;/);
   assert.doesNotMatch(brandCss, /aside nav > ul > li ul\s*\{\s*display:\s*none\s*!important/,
     'native settings/report children must not be hidden by the blanket subtree rule');
-  assert.match(brandCss, /li:not\(\[data-toybaco-primary-nav="inbox"\]\):not\(\[data-toybaco-primary-nav="settings"\]\):not\(\[data-toybaco-primary-nav="reports"\]\) ul/);
+  assert.match(brandCss, /li:not\(\[data-toybaco-primary-nav="inbox"\]\):not\(\[data-toybaco-primary-nav="settings"\]\):not\(\[data-toybaco-primary-nav="reports"\]\):not\(\[data-toybaco-primary-nav="contacts"\]\) ul/);
   assert.match(brandCss, /aside nav\s*\{\s*min-height:\s*0;/,
     'the native scrolling nav must be able to shrink above the sidebar footer');
   assert.match(brandCss, /aside nav > ul > li\[data-toybaco-nav-duplicate="1"\]\s*\{\s*display: none !important;/);
@@ -1172,12 +1172,13 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   );
   assert.deepEqual(
     hidden.map((row) => row.name),
-    ['連絡先', 'キャンペーン', 'ヘルプセンター', '会話データ', '担当者', 'AIアシスタント']
+    ['キャンペーン', 'ヘルプセンター', '会話データ', '担当者', 'AIアシスタント']
   );
   const visibleNames = [...stocked.body.querySelectorAll('li')]
     .filter((row) => row.getAttribute('data-toybaco-stock-hidden') !== '1')
     .map((row) => row.name);
   assert.ok(visibleNames.includes('inbox'), '会話 row must remain');
+  assert.ok(visibleNames.includes('連絡先'), 'native Contacts entry must remain reachable');
   assert.ok(visibleNames.includes('レポート'), 'レポート is canonical and must remain');
   assert.ok(visibleNames.includes('設定'), '設定 is canonical and must remain');
   const inboxRow = [...stocked.body.querySelectorAll('li')].find((row) => row.name === 'inbox');
@@ -1238,7 +1239,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   const hidden = [...late.body.querySelectorAll('li')].filter(
     (row) => row.getAttribute('data-toybaco-stock-hidden') === '1'
   );
-  assert.ok(hidden.some((row) => row.name === '連絡先'));
+  assert.equal(hidden.some((row) => row.name === '連絡先'), false, 'late-mounted Contacts must stay reachable');
   assert.ok(hidden.some((row) => row.name === '会話データ'));
   assert.ok(hidden.some((row) => row.name === '担当者'));
   assert.ok([...late.body.querySelectorAll('li')].some((row) => row.name === '設定' && row.getAttribute('data-toybaco-stock-hidden') !== '1'));
@@ -1714,9 +1715,9 @@ for (const destination of ['settings', 'reports', 'inbox']) {
     env.api.closePanel();
   }
 
-  // Settings/reports retain their native group behavior, then close the drawer
+  // Contacts/settings/reports retain their native group behavior, then close the drawer
   // only when the current iframe confirms that its discard dialog is shown.
-  for (const kind of ['settings', 'reports']) {
+  for (const kind of ['contacts', 'settings', 'reports']) {
     isMobile.value = true; props.isMobileSidebarOpen = true; events.length = 0;
     env.api.openPanel('/launches', false);
     const panel = env.document.querySelector('[data-toybaco-post-entry-panel]');
@@ -2179,12 +2180,22 @@ function deferred() {
   reportChildren.appendChild(overview);
   settings.appendChild(settingsChildren); reports.appendChild(reportChildren);
   tree.ul.appendChild(reports); tree.ul.appendChild(settings);
-  const stock = createStockRow('連絡先', 'i-lucide-contact', '/app/accounts/4/contacts');
+  const contacts = createStockRow('連絡先', 'i-lucide-contact');
+  const contactChildren = createDomNode('ul');
+  const contactRows = [
+    ['すべての連絡先', '/contacts?page=1'],
+    ['アクティブ', '/contacts/active'],
+    ['ラベル', '/contacts/labels/customer'],
+  ].map(([label, suffix]) => createStockRow(label, 'i-lucide-contact', '/app/accounts/4' + suffix));
+  contactRows.forEach(row => contactChildren.appendChild(row));
+  contacts.appendChild(contactChildren);
+  tree.ul.insertBefore(contacts, reports);
+  const stock = createStockRow('キャンペーン', 'i-lucide-megaphone', '/app/accounts/4/campaigns');
   tree.ul.appendChild(stock);
   const env = loadInjectEntry(() => new Promise(() => {}), '/app/accounts/4/settings/general', { body: tree.body });
   const visits = [];
   let expanded = null;
-  const groups = [[settings, settingsChildren, settingsRows[0]], [reports, reportChildren, overview]];
+  const groups = [[contacts, contactChildren, contactRows[0]], [settings, settingsChildren, settingsRows[0]], [reports, reportChildren, overview]];
   const nativeChevrons = new Map();
   function renderNativeChildren() {
     for (const [row, children] of groups) {
@@ -2212,13 +2223,13 @@ function deferred() {
     });
     control.click = () => fireClick(control, env.docListeners.click || []);
   }
-  for (const row of [...settingsRows, overview]) {
+  for (const row of [...contactRows, ...settingsRows, overview]) {
     const link = row.querySelector('a');
-    link.addEventListener('click', () => { visits.push(link.href); env.window.location.pathname = link.href; env.api.afterNavChange(); });
+    link.addEventListener('click', () => { visits.push(link.href); const next = new URL(link.href, 'https://app.staging.toybaco.jp'); env.window.location.pathname = next.pathname; env.window.location.search = next.search; env.api.afterNavChange(); });
     link.click = () => fireClick(link, env.docListeners.click || []);
   }
   env.api.inject();
-  for (const row of [...settingsRows, overview]) {
+  for (const row of [...contactRows, ...settingsRows, overview]) {
     for (const node of [row, ...row.querySelectorAll('a, span')]) {
       assert.equal(node.getAttribute('data-toybaco-stock-hidden'), null, 'role-allowed settings/report children must stay reachable');
       assert.notEqual(node.style.display, 'none');
@@ -2229,7 +2240,7 @@ function deferred() {
   const settingsControl = settings.querySelector('[role="button"]');
   const reportsControl = reports.querySelector('[role="button"]');
   const primaryCount = () => tree.ul.children.filter((row) => row.getAttribute('data-toybaco-primary-nav') || row.getAttribute('data-toybaco-post-entry-wrap') || row.querySelector('[data-toybaco-billing-entry]')).length;
-  assert.equal(primaryCount(), 5, 'AI is a discoverable primary task; contract details remain inside settings');
+  assert.equal(primaryCount(), 6, 'native Contacts joins the existing primary tasks without a duplicate entry');
   fireClick(postingEntry(env.document), env.docListeners.click || []);
   assert.equal(fireClick(settingsControl, env.docListeners.click || []).prevented, false, 'native settings click must be allowed');
   assert.equal(settingsChildren.style.display, '');
@@ -2273,8 +2284,34 @@ function deferred() {
   settingsRows[1].remove();
   env.api.inject();
   assert.equal(settingsChildren.children.length, 3, 'do not recreate a child removed by role policy');
-  assert.equal(primaryCount(), 5);
+  assert.equal(primaryCount(), 6);
   assert.ok(visits.includes('/app/accounts/4/settings/canned-response/list'));
+  const contactsControl = contacts.querySelector('[role="button"]');
+  assert.equal(contactsControl.getAttribute('data-toybaco-nav-link'), 'contacts');
+  fireClick(contactsControl, env.docListeners.click || []);
+  assert.equal(env.window.location.pathname, '/app/accounts/4/contacts', 'native first child owns Contacts navigation');
+  assert.equal(env.window.location.search, '?page=1', 'preserve the native first-page query');
+  assert.equal(contactsControl.getAttribute('aria-current'), 'page');
+  fireClick(contactRows[2].querySelector('a'), env.docListeners.click || []);
+  assert.equal(env.window.location.pathname, '/app/accounts/4/contacts/labels/customer');
+  fireClick(postingEntry(env.document), env.docListeners.click || []);
+  assert.equal(contactChildren.getAttribute('data-toybaco-embedded-background'), 'nav');
+  assert.equal(contactsControl.getAttribute('aria-current'), null);
+  fireClick(contactsControl, env.docListeners.click || []);
+  assert.equal(expanded, contacts, 'returning from posting preserves the expanded native Contacts group');
+  assert.equal(env.window.location.pathname, '/app/accounts/4/contacts/labels/customer', 'returning preserves the selected Contacts view');
+  assert.equal(contactChildren.getAttribute('data-toybaco-embedded-background'), null);
+  assert.equal(contactsControl.getAttribute('aria-current'), 'page');
+  contactsControl.listeners.keydown[0].call(contactsControl, { ...key, key: ' ' });
+  assert.equal(contactRows[0].style.display, 'none', 'Space collapses native inactive Contacts children');
+  contactsControl.listeners.keydown[0].call(contactsControl, key);
+  assert.equal(contactRows[0].style.display, '', 'Enter expands the permitted Contacts children');
+  contactRows[1].remove();
+  env.api.inject();
+  assert.equal(contactChildren.children.length, 2, 'never recreate role-filtered Contacts children');
+  contacts.remove();
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-primary-nav="contacts"]'), null, 'never manufacture a Contacts group excluded by native policy');
 }
 
 {
@@ -3875,8 +3912,14 @@ function installEntryHistory(env, initialState) {
 function primaryGroupFixture({ base = '/app/accounts/1/dashboard', kind = 'settings', expanded = false,
   active = false, withPanel = true, firstPath, navigationFailure = false, redirectOutsideGroup = false } = {}) {
   const tree = createMenuTree();
-  const destination = firstPath || `/app/accounts/1/${kind}/${kind === 'settings' ? 'general' : 'overview'}`;
-  const row = createStockRow(kind === 'settings' ? '設定' : 'レポート', 'i-lucide-bolt');
+  const groups = {
+    contacts: ['連絡先', 'i-lucide-contact', '/contacts'],
+    settings: ['設定', 'i-lucide-bolt', '/settings/general'],
+    reports: ['レポート', 'i-lucide-chart-spline', '/reports/overview'],
+  };
+  const [label, icon, suffix] = groups[kind];
+  const destination = firstPath || '/app/accounts/1' + suffix;
+  const row = createStockRow(label, icon);
   const children = createDomNode('ul');
   children.appendChild(createStockRow('Allowed first child', 'i-lucide-users', destination));
   row.appendChild(children); tree.ul.appendChild(row);
@@ -3934,6 +3977,7 @@ function primaryGroupFixture({ base = '/app/accounts/1/dashboard', kind = 'setti
   env.api.inject();
   const control = row.querySelector('[data-toybaco-nav-link]');
   assert.ok(control, 'the actual parent annotates the native primary header');
+  assert.equal(control.getAttribute('data-toybaco-nav-link'), kind);
   let collapsed = false;
   control.addEventListener('click', () => collapsed ? handlers.handleCollapsedClick() : handlers.toggleTrigger());
   control.click = () => fireClick(control, env.docListeners.click || []);
@@ -3961,7 +4005,7 @@ function primaryGroupFixture({ base = '/app/accounts/1/dashboard', kind = 'setti
   };
 }
 
-for (const kind of ['settings', 'reports']) {
+for (const kind of ['contacts', 'settings', 'reports']) {
   const f = primaryGroupFixture({ kind });
   const posting = f.env.window.location.href;
   const draft = f.frame.draftFixture;
@@ -3990,6 +4034,7 @@ for (const kind of ['settings', 'reports']) {
 }
 
 for (const variant of [
+  { kind: 'contacts', active: true, expanded: true, base: '/app/accounts/1/contacts', after: true },
   { active: true, expanded: true, base: '/app/accounts/1/settings/general', after: true },
   { active: true, expanded: false, base: '/app/accounts/1/settings/general', after: true },
   { active: false, expanded: true, base: '/app/accounts/1/dashboard', after: false },

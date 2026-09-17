@@ -374,7 +374,7 @@ function validate(workflowSource, gateSource) {
     '.versionInfo == ("sha256:" + $digest)', 'distro=alpine-3.21.3',
     '--config /dev/null image --download-db-only --no-progress',
     '--skip-db-update --skip-java-db-update --offline-scan',
-    'src=$security/db,dst=/root/.cache/trivy/db,readonly',
+    'src=$security/db,dst=/root/.cache/trivy/db"',
     'scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before',
     'scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after',
     'scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate',
@@ -390,6 +390,30 @@ function validate(workflowSource, gateSource) {
     'predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json',
     'predicate-path: ${{ runner.temp }}/chatwoot-source-backport/source-backport-classification.json',
   ]) assert.ok(publish.includes(required), `strict source-backport contract missing: ${required}`);
+  const databaseCopyContracts = [
+    'frozen="$security/frozen-source"',
+    'mkdir -m 0700 "$frozen"',
+    '--mount "type=bind,src=$frozen,dst=/root/.cache/trivy"',
+    '"$frozen" config/chatwoot-ruby-llm-backport.json',
+    'mkdir -m 0700 "$security/db"',
+    'cp -- "$frozen/db/trivy.db" "$frozen/db/metadata.json" "$security/db/"',
+    'cmp -- "$frozen/db-before.json" "$security/db-before.json"',
+    '--mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db"',
+    'cmp -- "$frozen/db-before.json" "$frozen/db-after.json"',
+    'cmp -- "$frozen/db-after.json" "$security/db-after.json"',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate',
+  ];
+  const databaseCopyPositions = databaseCopyContracts.map(contract => publish.indexOf(contract));
+  assert.ok(databaseCopyPositions.every(index => index >= 0), 'frozen original / actual scan copy proof missing');
+  assert.deepEqual([...databaseCopyPositions].sort((a, b) => a - b), databaseCopyPositions,
+    'copy and equality checks must surround the raw scan before classification');
+  const rawScan = publish.slice(publish.indexOf('docker run --rm --network none --workdir /scan'),
+    publish.indexOf('|| scan_status=$?'));
+  assert.ok(rawScan.includes('src=$security/db,dst=/root/.cache/trivy/db"'));
+  assert.ok(!rawScan.includes('$frozen'), 'frozen source must never be mounted into the scanner');
+  assert.ok(!rawScan.includes('dst=/root/.cache/trivy/db,readonly'), 'pinned bbolt requires a writable scan copy');
+  assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-before/g), 2, 'snapshot original and scanned copy before scan');
+  assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-after/g), 2, 'snapshot original and scanned copy after scan');
   assert.equal(count(publish, /--config \/dev\/null sbom/g), 1, 'one raw pinned scanner invocation');
   assert.equal(count(publish, /--download-db-only/g), 1, 'one fresh DB download');
   assert.equal(count(publish, /--cert-oidc-issuer 'https:\/\/token\.actions\.githubusercontent\.com'/g), 4);
@@ -571,7 +595,16 @@ const mutations = [
   [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before', 'scripts/not-run.mjs snapshot-before'), gate],
   [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after', 'scripts/not-run.mjs snapshot-after'), gate],
   [workflow.replace('--network none --workdir /scan', '--workdir /scan'), gate],
-  [workflow.replace('src=$security/db,dst=/root/.cache/trivy/db,readonly', 'src=$security/db,dst=/root/.cache/trivy/db'), gate],
+  [workflow.replace('src=$security/db,dst=/root/.cache/trivy/db"', 'src=$frozen/db,dst=/root/.cache/trivy/db"'), gate],
+  [workflow.replace('src=$security/db,dst=/root/.cache/trivy/db"', 'src=$security/db,dst=/root/.cache/trivy/db,readonly"'), gate],
+  ...[
+    'mkdir -m 0700 "$frozen"',
+    'mkdir -m 0700 "$security/db"',
+    'cp -- "$frozen/db/trivy.db" "$frozen/db/metadata.json" "$security/db/"',
+    'cmp -- "$frozen/db-before.json" "$security/db-before.json"',
+    'cmp -- "$frozen/db-before.json" "$frozen/db-after.json"',
+    'cmp -- "$frozen/db-after.json" "$security/db-after.json"',
+  ].map(contract => [workflow.replace(contract, ': # omitted copy proof'), gate]),
   [workflow.replace('/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/not-run.rb'), gate],
   [workflow.replace('--exit-code 1 --list-all-pkgs', '--exit-code 1'), gate],
   [workflow.replace('predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json', 'predicate-path: /arbitrary.json'), gate],
@@ -693,7 +726,7 @@ function executePolicy(label, change, expected) {
   const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-sbom-policy-'));
   try {
     const fixture = classificationFixture(), sbom = fixture.sbom, report = fixture.raw;
-    const settings = { scannerExit: 1, changedDatabase: false };
+    const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false };
     change(sbom, report, settings, fixture);
     const bin = join(directory, 'bin'); mkdirSync(bin);
     writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
@@ -707,11 +740,21 @@ if (a[0] === 'image' && a[1] === 'inspect') {
 }
 if (a[0] !== 'run') process.exit(97);
 if (a.includes('--download-db-only')) {
- fs.mkdirSync(path.join(security, 'db'));
- fs.writeFileSync(path.join(security, 'db/trivy.db'), 'isolated frozen DB fixture');
- fs.copyFileSync(path.join(dir, 'fixture-db.json'), path.join(security, 'db/metadata.json')); process.exit(0);
+ const frozen = path.join(security, 'frozen-source');
+ if (!a.includes('type=bind,src=' + frozen + ',dst=/root/.cache/trivy')) process.exit(94);
+ fs.mkdirSync(path.join(frozen, 'db'));
+ fs.writeFileSync(path.join(frozen, 'db/trivy.db'), 'isolated frozen DB fixture');
+ fs.copyFileSync(path.join(dir, 'fixture-db.json'), path.join(frozen, 'db/metadata.json')); process.exit(0);
 }
 if (a.includes('sbom')) {
+ if (!a.includes('type=bind,src=' + security + '/db,dst=/root/.cache/trivy/db')) process.exit(95);
+ if (a.some(value => value.includes('frozen-source'))) process.exit(96);
+ if (process.env.TOYBACO_TEST_ORIGINAL_CHANGE === 'true') fs.appendFileSync(path.join(security, 'frozen-source/db/trivy.db'), 'changed');
+ if (process.env.TOYBACO_TEST_METADATA_CHANGE === 'true') {
+  const metadataPath = path.join(security, 'db/metadata.json');
+  const metadata = JSON.parse(fs.readFileSync(metadataPath)); metadata.NextUpdate = '2026-09-18T00:00:00Z';
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata));
+ }
  fs.copyFileSync(path.join(dir, 'fixture-report.json'), path.join(security, 'scan-output/raw-report.json'));
  if (process.env.TOYBACO_TEST_DB_CHANGE === 'true') fs.appendFileSync(path.join(security, 'db/trivy.db'), 'changed');
  process.exit(Number(process.env.TOYBACO_TEST_SCANNER_EXIT));
@@ -732,6 +775,8 @@ process.exit(98);
         GITHUB_WORKSPACE: root, IMAGE_DIGEST: digest, ECR_REPOSITORY: imageName,
         REPOSITORY_COMMIT: fixture.context.source_commit, CONTROL_SHA: fixture.context.control_sha256,
         TRIVY_IMAGE: fixture.context.trivy_image, TOYBACO_TEST_DB_CHANGE: String(settings.changedDatabase),
+        TOYBACO_TEST_ORIGINAL_CHANGE: String(settings.changedOriginal),
+        TOYBACO_TEST_METADATA_CHANGE: String(settings.changedMetadata),
         TOYBACO_TEST_SCANNER_EXIT: String(settings.scannerExit) },
     });
     assert.equal(result.error, undefined, `${label}: ${result.error}`);
@@ -742,6 +787,11 @@ process.exit(98);
       assert.equal(proof.scanner_vex_filtering, false);
       assert.equal(proof.counts.raw_high, 1);
       const security = join(directory, 'chatwoot-source-backport');
+      const originalBefore = readFileSync(join(security, 'frozen-source/db-before.json'));
+      assert.deepEqual(readFileSync(join(security, 'frozen-source/db-after.json')), originalBefore);
+      assert.deepEqual(readFileSync(join(security, 'db-before.json')), originalBefore);
+      assert.deepEqual(readFileSync(join(security, 'db-after.json')), originalBefore);
+      assert.deepEqual(proof.scanner.database, JSON.parse(originalBefore), 'signed snapshot binds the actual scanned copy');
       const vex = JSON.parse(readFileSync(join(security, 'openvex.json')));
       const verified = (predicateType, predicate) => [{ verificationResult: {
         signature: { certificate: {} }, verifiedTimestamps: [{ type: 'tlog' }],
@@ -781,6 +831,8 @@ for (const [label, change] of [
   ['Critical rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL' }]; }],
   ['raw-zero receipt cannot be reused', (_sbom, report, settings) => { report.Results[1].Vulnerabilities = []; settings.scannerExit = 0; }],
   ['source proof failure', (_sbom, _report, _settings, fixture) => { fixture.proof.files[0].sha256 = 'f'.repeat(64); }],
-  ['DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
+  ['actual scanned copy DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
+  ['original DB changed during raw scan', (_sbom, _report, settings) => { settings.changedOriginal = true; }],
+  ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 17 negative controls; Docker stand-in, no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 19 negative controls; Docker stand-in, no external calls)');
