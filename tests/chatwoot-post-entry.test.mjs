@@ -2862,7 +2862,8 @@ function createAiUsageEnv(handler, options = {}) {
   const button = env.usageCard.querySelector('[data-toybaco-ai-usage-refresh]');
   assert.equal(value.textContent, '', 'loading must not invent a zero count or a plan quota');
   assert.equal(env.usageCard.getAttribute('aria-busy'), 'true');
-  assert.equal(button.disabled, true);
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.notEqual(button.disabled, true, 'usage refresh must remain focusable while busy');
   assert.match(collectText(env.usageCard), /利用状況を確認しています/);
   assert.equal(env.usageCalls[0].url, '/toybaco/ai_usage?account_id=1');
   assert.equal(env.usageCalls[0].opts.credentials, 'same-origin');
@@ -2890,7 +2891,8 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(meter.hidden, true);
   assert.match(collectText(env.usageCard), /利用状況を取得できません/);
   assert.equal(button.textContent, '再確認');
-  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute('aria-disabled'), 'false');
+  assert.notEqual(button.disabled, true);
   assert.equal(env.api.currentAiMode(), 'auto', 'usage failure must not change the confirmed mode');
   env.api.inject();
   assert.equal(env.usageCalls.length, 2, 'DOM mutations must not retry unavailable usage in a loop');
@@ -3010,6 +3012,43 @@ for (const invalid of [
   assert.equal(usageReads, 2);
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 0);
   env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
+}
+
+// An explicit usage refresh must not disable the focused native button. Its
+// aria-disabled handler guard keeps repeats inert without async focus stealing.
+for (const outcome of ['ready', 'error']) {
+  for (const focusChange of ['none', 'other-control', 'closed', 'other-account']) {
+    const refresh = deferred();
+    const env = createAiUsageEnv((url, opts, call) => call === 1
+      ? Promise.resolve(usageResponse()) : refresh.promise);
+    await flush();
+    const button = env.usageCard.querySelector('[data-toybaco-ai-usage-refresh]');
+    button.focus = () => { env.document.activeElement = button; };
+    button.focus(); fireClick(button);
+    assert.notEqual(button.disabled, true, 'native disabling would drop focus in Chrome');
+    assert.equal(button.getAttribute('aria-disabled'), 'true');
+    assert.equal(button.textContent, '更新中…');
+    assert.equal(env.document.activeElement, button);
+    fireClick(button); fireClick(button);
+    assert.equal(env.usageCalls.length, 2, 'busy activation must not initiate another usage request');
+    const other = createDomNode('button'); env.body.appendChild(other);
+    if (focusChange !== 'none') env.document.activeElement = other;
+    if (focusChange === 'closed') env.api.closeAiModePanel();
+    if (focusChange === 'other-account') env.window.location.pathname = '/app/accounts/2/inbox';
+    const expectedFocus = env.document.activeElement;
+    if (outcome === 'ready') refresh.resolve(usageResponse());
+    else refresh.reject(new Error('fixture usage unavailable'));
+    await flush();
+    assert.equal(env.document.activeElement, expectedFocus,
+      `usage ${outcome} must preserve the user's focus after ${focusChange}`);
+    if (focusChange !== 'closed' && focusChange !== 'other-account') {
+      assert.equal(button.getAttribute('aria-disabled'), 'false');
+      assert.equal(button.textContent, outcome === 'ready' ? '更新' : '再確認');
+    }
+    assert.equal(env.usageCalls.length, 2);
+    assert.equal(env.fetches.filter(call => call.opts?.method && call.opts.method !== 'GET').length, 0);
+    env.api.closeAiModePanel();
+  }
 }
 
 {

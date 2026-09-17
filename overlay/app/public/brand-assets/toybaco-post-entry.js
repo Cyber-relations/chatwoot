@@ -2420,8 +2420,10 @@
     reset.hidden = !active;
     card.querySelector('[data-toybaco-ai-usage-status]').textContent = message;
     var refresh = card.querySelector('[data-toybaco-ai-usage-refresh]');
-    refresh.textContent = state.phase === 'error' ? '再確認' : '更新';
-    refresh.disabled = busy;
+    refresh.textContent = busy ? '更新中…' : (state.phase === 'error' ? '再確認' : '更新');
+    // Native disabled drops the focused button to BODY in Chrome. Keep its
+    // place in the Tab order while the guarded handler prevents another read.
+    refresh.setAttribute('aria-disabled', busy ? 'true' : 'false');
     var meter = card.querySelector('[data-toybaco-ai-usage-meter]');
     meter.hidden = !active || data.limit === null || data.limit === 0;
     if (!meter.hidden) {
@@ -2482,7 +2484,10 @@
     refresh.type = 'button';
     refresh.setAttribute('data-toybaco-ai-usage-refresh', '1');
     refresh.setAttribute('aria-label', 'AI応答の利用状況を更新');
-    refresh.addEventListener('click', function () { prefetchAiUsage(currentAccountId(), true); });
+    refresh.addEventListener('click', function () {
+      if (refresh.getAttribute('aria-disabled') === 'true') return;
+      prefetchAiUsage(currentAccountId(), true);
+    });
     head.appendChild(refresh);
     card.appendChild(head);
     ['value', 'details', 'reset', 'status'].forEach(function (name) {
