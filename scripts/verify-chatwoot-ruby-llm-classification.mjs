@@ -2,8 +2,8 @@
 // Pure, fail-closed classification policy. This does not replace Trivy scanning.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
+import { basename, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const IMAGE = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
@@ -186,10 +186,43 @@ export function validateVex(vex, binding, context, preparedSha) {
   equal(vex, makeVex(binding, context, preparedSha), 'only generated exact-artifact fixed VEX accepted');
 }
 
-function regular(path, limit = 16777216) {
-  const stat = lstatSync(path); assert.ok(stat.isFile() && !stat.isSymbolicLink());
-  assert.ok(stat.size > 0 && stat.size <= limit);
+function regular(path) {
+  const stat = lstatSync(path), label = JSON.stringify(basename(path));
+  assert.ok(stat.isFile() && !stat.isSymbolicLink(), label + ': expected a regular non-symlink file');
+  assert.ok(stat.size > 0 && stat.size <= 16777216,
+    label + ': size ' + stat.size + ' outside supported range 1..16777216 bytes');
   return readFileSync(path);
+}
+function hashDatabase(path) {
+  const before = lstatSync(path, { bigint: true });
+  assert.ok(before.isFile() && !before.isSymbolicLink(), 'trivy.db: expected a regular non-symlink file');
+  assert.ok(before.size > 0n && before.size <= 4294967296n,
+    'trivy.db: size ' + before.size + ' outside supported range 1..4294967296 bytes');
+  const identity = stat => [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs];
+  const unchanged = stat => {
+    assert.ok(stat.isFile() && !stat.isSymbolicLink(), 'trivy.db: file type changed during hashing');
+    assert.deepEqual(identity(stat), identity(before), 'trivy.db: identity or metadata changed during hashing');
+  };
+  assert.ok(Number.isInteger(constants.O_NOFOLLOW) && constants.O_NOFOLLOW > 0,
+    'trivy.db: platform must support O_NOFOLLOW');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    unchanged(fstatSync(fd, { bigint: true }));
+    const digest = createHash('sha256'), buffer = Buffer.allocUnsafe(1048576);
+    let remaining = Number(before.size);
+    while (remaining > 0) {
+      const length = readSync(fd, buffer, 0, Math.min(buffer.length, remaining), null);
+      assert.ok(length > 0, 'trivy.db: unexpected EOF during hashing');
+      digest.update(buffer.subarray(0, length));
+      remaining -= length;
+    }
+    assert.equal(readSync(fd, buffer, 0, 1, null), 0, 'trivy.db: grew during hashing');
+    unchanged(fstatSync(fd, { bigint: true }));
+    unchanged(lstatSync(path, { bigint: true }));
+    return digest.digest('hex');
+  } finally {
+    closeSync(fd);
+  }
 }
 function json(path) { return JSON.parse(regular(path)); }
 function writeExclusive(path, value) {
@@ -198,7 +231,7 @@ function writeExclusive(path, value) {
   writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
 }
 export function snapshotDatabase(directory) {
-  return { database_sha256: sha(regular(join(directory, 'db', 'trivy.db'), 1073741824)),
+  return { database_sha256: hashDatabase(join(directory, 'db', 'trivy.db')),
     metadata_sha256: sha(regular(join(directory, 'db', 'metadata.json'))),
     metadata: json(join(directory, 'db', 'metadata.json')) };
 }

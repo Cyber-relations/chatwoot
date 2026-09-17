@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import fs, { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { syncBuiltinESMExports } from 'node:module';
 const root = resolve(process.argv[2] || '.');
 const policy = await import(pathToFileURL(join(root, 'scripts/verify-chatwoot-ruby-llm-classification.mjs')));
 const { IMAGE, CVE, GEM_PURL, FIX, TRIVY, VEX_TYPE, PROOF_TYPE, evaluate, validateVex, verifyAttestations } = policy;
@@ -185,3 +186,130 @@ assert.throws(() => verifyAttestations([], VEX_TYPE, result.vex, valid.context))
 console.log('Chatwoot source-backport classifier: PASS (2 positives; ' +
   negatives.length + ' evidence negatives; ' + vexNegatives.length + ' VEX negatives; 11 attestation negatives; no external calls)');
 export { fixture as classificationFixture };
+
+// These disk tests run in the dedicated classifier check, not fixture-only imports.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const directory = mkdtempSync(join(tmpdir(), 'toybaco-db-hash-'));
+  const dbPath = join(directory, 'db', 'trivy.db'), metadataPath = join(directory, 'db', 'metadata.json');
+  const metadataBytes = Buffer.from('{"Version":2}\n');
+  mkdirSync(join(directory, 'db'));
+  const reset = (bytes = Buffer.from('frozen database fixture')) => {
+    rmSync(dbPath, { force: true, recursive: true });
+    writeFileSync(dbPath, bytes);
+    writeFileSync(metadataPath, metadataBytes);
+  };
+  const sparse = size => {
+    const fd = fs.openSync(dbPath, 'r+');
+    try { fs.ftruncateSync(fd, size); } finally { fs.closeSync(fd); }
+  };
+  const replaceFs = (overrides, run) => {
+    const originals = Object.fromEntries(Object.keys(overrides).map(key => [key, fs[key]]));
+    try {
+      for (const [key, factory] of Object.entries(overrides)) fs[key] = factory(originals[key]);
+      syncBuiltinESMExports();
+      return run();
+    } finally {
+      Object.assign(fs, originals);
+      syncBuiltinESMExports();
+    }
+  };
+  const snapshot = () => policy.snapshotDatabase(directory);
+  const duringRead = (mutate, expected) => {
+    let changed = false;
+    replaceFs({ readSync: original => (...args) => {
+      const count = original(...args);
+      if (!changed && count > 0) { changed = true; mutate(); }
+      return count;
+    } }, () => assert.throws(snapshot, expected));
+    assert.equal(changed, true);
+  };
+  try {
+    reset();
+    assert.deepEqual(snapshot(), { database_sha256: hash(Buffer.from('frozen database fixture')),
+      metadata_sha256: hash(metadataBytes), metadata: { Version: 2 } });
+
+    // A real sparse file above the old 1 GiB boundary, with independently known bytes.
+    reset(Buffer.alloc(0));
+    const size = 1073741824 + 4097, head = Buffer.from('database-head'), tail = Buffer.from('database-tail');
+    sparse(size);
+    const fd = fs.openSync(dbPath, 'r+');
+    try {
+      fs.writeSync(fd, head, 0, head.length, 0);
+      fs.writeSync(fd, tail, 0, tail.length, size - tail.length);
+    } finally { fs.closeSync(fd); }
+    const expected = createHash('sha256').update(head), zeros = Buffer.alloc(1048576);
+    let zeroBytes = size - head.length - tail.length;
+    while (zeroBytes > 0) { const length = Math.min(zeros.length, zeroBytes);
+      expected.update(zeros.subarray(0, length)); zeroBytes -= length; }
+    const expectedSha = expected.update(tail).digest('hex');
+    let reads = 0;
+    const large = replaceFs({
+      readFileSync: original => (path, ...args) => {
+        assert.notEqual(path, dbPath, 'database must not be read into a whole-file buffer');
+        return original(path, ...args);
+      },
+      readSync: original => (...args) => {
+        assert.ok(args[3] > 0 && args[3] <= 1048576, 'database reads must be bounded to 1 MiB');
+        reads += 1; return original(...args);
+      },
+    }, snapshot);
+    assert.equal(large.database_sha256, expectedSha);
+    assert.ok(reads > 1024);
+
+    reset();
+    const before = snapshot();
+    writeFileSync(dbPath, 'Frozen database fixture');
+    assert.notEqual(snapshot().database_sha256, before.database_sha256, 'same-size content change must change the hash');
+
+    reset(Buffer.alloc(0));
+    assert.throws(snapshot, /trivy.db: size 0 outside supported range 1\.\.4294967296 bytes/);
+    sparse(4294967297);
+    assert.throws(snapshot, /trivy.db: size 4294967297 outside supported range 1\.\.4294967296 bytes/);
+    reset();
+    rmSync(dbPath); mkdirSync(dbPath);
+    assert.throws(snapshot, /trivy.db: expected a regular non-symlink file/);
+    reset();
+    rmSync(dbPath); fs.symlinkSync(metadataPath, dbPath);
+    assert.throws(snapshot, /trivy.db: expected a regular non-symlink file/);
+    reset();
+    const metadataFd = fs.openSync(metadataPath, 'r+');
+    try { fs.ftruncateSync(metadataFd, 16777217); } finally { fs.closeSync(metadataFd); }
+    assert.throws(snapshot, /"metadata.json": size 16777217 outside supported range 1\.\.16777216 bytes/);
+
+    // Actual file changes around descriptor opening/reading must fail closed.
+    reset();
+    replaceFs({ openSync: original => (path, ...args) => {
+      if (path === dbPath) { fs.renameSync(dbPath, dbPath + '.replaced');
+        writeFileSync(dbPath, 'frozen database fixture'); }
+      return original(path, ...args);
+    } }, () => assert.throws(snapshot, /trivy.db: identity or metadata changed during hashing/));
+    reset();
+    replaceFs({ openSync: original => (path, ...args) => {
+      if (path === dbPath) { rmSync(dbPath); fs.symlinkSync(metadataPath, dbPath); }
+      return original(path, ...args);
+    } }, () => assert.throws(snapshot, error => error.code === 'ELOOP'));
+    reset(Buffer.alloc(2097152));
+    duringRead(() => fs.truncateSync(dbPath, 0), /trivy.db: unexpected EOF during hashing/);
+    reset(Buffer.alloc(2097152));
+    duringRead(() => fs.appendFileSync(dbPath, 'extra'), /trivy.db: grew during hashing/);
+    reset(Buffer.alloc(2097152));
+    duringRead(() => {
+      const mutationFd = fs.openSync(dbPath, 'r+');
+      try { fs.writeSync(mutationFd, Buffer.from('changed'), 0, 7, 0); } finally { fs.closeSync(mutationFd); }
+      fs.utimesSync(dbPath, new Date(0), new Date(0));
+    }, /trivy.db: identity or metadata changed during hashing/);
+    reset(Buffer.alloc(2097152));
+    duringRead(() => { fs.renameSync(dbPath, dbPath + '.during-read'); writeFileSync(dbPath, Buffer.alloc(2097152)); },
+      /trivy.db: identity or metadata changed during hashing/);
+    reset(Buffer.alloc(2097152));
+    duringRead(() => { rmSync(dbPath); fs.symlinkSync(metadataPath, dbPath); },
+      /trivy.db: (identity or metadata changed during hashing|file type changed during hashing)/);
+
+    reset();
+    const partial = replaceFs({ readSync: original => (fd, buffer, offset, length, position) =>
+      original(fd, buffer, offset, Math.min(length, 3), position) }, snapshot);
+    assert.equal(partial.database_sha256, hash(Buffer.from('frozen database fixture')));
+    console.log('Chatwoot database snapshots: PASS (small/over-1-GiB/partial-read hashes; bounded 1 MiB reads; ' +
+      '4 GiB cap; 16 MiB metadata cap; same-size hash change; 12 invalid-file/size/race negatives)');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}
