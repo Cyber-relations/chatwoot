@@ -1018,6 +1018,12 @@ aside nav [data-toybaco-nav-link] > span {
   line-height: inherit;
 }
 
+aside nav [data-toybaco-nav-link] > div > span.truncate {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: inherit;
+}
+
 aside nav [data-toybaco-nav-link]:focus-visible {
   outline: 2px solid var(--toybaco-focus);
   outline-offset: 2px;
