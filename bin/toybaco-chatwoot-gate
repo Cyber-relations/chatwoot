@@ -105,6 +105,13 @@ control_file_list() {
     'config/chatwoot-runtime-gems.json' \
     'scripts/harden-chatwoot-runtime-gems.rb' \
     'tests/verify_chatwoot_runtime_gems.rb' \
+    'config/chatwoot-ruby-llm-backport.json' \
+    'scripts/harden-chatwoot-ruby-llm.rb' \
+    'tests/verify_chatwoot_ruby_llm_backport.rb' \
+    'tests/chatwoot_ruby_llm_backport_test.rb' \
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs' \
+    'tests/chatwoot-ruby-llm-classification.test.mjs' \
+    'docs/chatwoot-ruby-llm-backport-policy.md' \
     'scripts/generate-plan-catalog.py' \
     'tests/toybaco_plan_catalog_test.rb' \
     'tests/toybaco_billing_subscription_test.rb' \
@@ -309,7 +316,8 @@ assert_control_contract() {
     'production Dockerfileが旧libexpat実体を拒否しません'
   grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileがlibexpatの実ロードを検証しません'
-  for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb; do
+  for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
+    scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
     ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
   done
   grep -Fq 'openjpeg-2.5.4-r0' "$CONTROL_ROOT/Dockerfile" || fail \
@@ -741,6 +749,7 @@ run_test_container() {
 production_env_args() {
   printf '%s\n' \
     '--env' 'RAILS_ENV=production' \
+    '--env' 'DISABLE_ENTERPRISE=true' \
     '--env' 'SECRET_KEY_BASE=1111111111111111111111111111111111111111111111111111111111111111' \
     '--env' 'POSTGRES_HOST=postgres' \
     '--env' 'POSTGRES_PORT=5432' \
@@ -914,6 +923,15 @@ build_test_image() {
       "test build contextのoverlay SHA-256が不一致です: $source_relative"
   done < <(control_file_list "$CONTROL_ROOT" | grep '^overlay/app/')
 
+  for relative_path in config/chatwoot-ruby-llm-backport.json scripts/harden-chatwoot-ruby-llm.rb \
+    tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
+    [[ ! -e "$TEST_CONTEXT/$relative_path" ]] || fail "upstreamとのbackport control衝突: $relative_path"
+    mkdir -p "$TEST_CONTEXT/$(dirname "$relative_path")"
+    cp -p "$CONTROL_ROOT/$relative_path" "$TEST_CONTEXT/$relative_path"
+    [[ "$(sha256_file "$CONTROL_ROOT/$relative_path")" == "$(sha256_file "$TEST_CONTEXT/$relative_path")" ]] || fail \
+      "backport test contextのSHA-256が不一致です: $relative_path"
+  done
+
   DOCKER_BUILDKIT=1 docker build --pull --platform linux/amd64 \
     --file "$CONTROL_ROOT/tests/chatwoot-test.Dockerfile" \
     --build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE" \
@@ -930,6 +948,11 @@ build_test_image() {
     fail 'test imageがlinux/amd64ではありません'
   docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
     "$TEST_IMAGE" test ! -e /app/.git
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    "$TEST_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+    "$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb
 }
 
 run_ruby_quality() {
@@ -1086,6 +1109,9 @@ build_and_smoke_production_image() {
     "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_runtime_gems.rb /contract/config/chatwoot-runtime-gems.json
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
+    "$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
     --tmpfs /tmp:rw,noexec,nosuid,size=1m \
     "$PRODUCTION_IMAGE" bundle exec ruby -rrails -rruby-vips -ractive_storage/vips -rtmpdir -e '
       abort unless Rails.version == %q{7.2.3.2}
@@ -1115,6 +1141,12 @@ build_and_smoke_production_image() {
   run_production_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" bundle exec rails runner /contract/tests/chatwoot-production-smoke.rb
+  run_production_container "$PRODUCTION_IMAGE" bundle exec rails runner '
+    abort "expected production CE setting" unless ENV.fetch("DISABLE_ENTERPRISE") == "true"
+    abort "Enterprise was unexpectedly enabled" if ChatwootApp.enterprise?
+    abort "CE Captain task service missing" unless Captain::RewriteService < Captain::BaseTaskService
+    load "/opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb"
+  '
 
   STAGE='production Puma/HTTP/CSP/OIDC smoke'
   start_production_service "$RAILS_NAME" chatwoot bundle exec rails server -p 3000 -b 0.0.0.0 >/dev/null

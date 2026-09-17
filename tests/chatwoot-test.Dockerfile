@@ -9,8 +9,13 @@ ENV BUNDLE_WITHOUT="" \
     RAILS_ENV=test
 
 COPY Gemfile Gemfile.lock /app/
+COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
 RUN bundle config unset without \
-    && bundle install --jobs 4 --retry 3
+    && bundle install --jobs 4 --retry 3 \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
 
 # build contextは固定commitの隔離cloneへoverlayを適用したものだけ。
 ARG TOYBACO_CONTROL_SHA256

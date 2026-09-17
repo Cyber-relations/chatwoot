@@ -10,3 +10,6 @@ overlay/app/spec/**
 !scripts/harden-chatwoot-runtime-gems.rb
 !tests/
 !tests/verify_chatwoot_runtime_gems.rb
+!config/chatwoot-ruby-llm-backport.json
+!scripts/harden-chatwoot-ruby-llm.rb
+!tests/verify_chatwoot_ruby_llm_backport.rb

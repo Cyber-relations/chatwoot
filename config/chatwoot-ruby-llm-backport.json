@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "advisory": "CVE-2026-67991",
+  "gem": {
+    "name": "ruby_llm",
+    "version": "1.15.0",
+    "archive_sha256": "ca207465bca1cca007010a79fce500d4012b1fbe188b025040cd37b884fb98af",
+    "archive_url": "https://rubygems.org/downloads/ruby_llm-1.15.0.gem"
+  },
+  "upstream": {
+    "source_commit": "ff392893bb5366937688fa82bc0841185491f84c",
+    "fix_commit": "9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
+    "fix_url": "https://github.com/crmne/ruby_llm/commit/9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
+    "license": "MIT",
+    "license_sha256": "58c1238e09acf1d713bdf670c98d76ef68bae6e104272d6692215a7fe507a31a"
+  },
+  "files": [
+    {
+      "path": "lib/ruby_llm/agent.rb",
+      "original_sha256": "923e12ea686b877ca14943357e8a4b3d0e6ecdf8b290974d4d00a8e86517df21",
+      "patched_sha256": "32f2c6501aef4dd05f8d2d7306844cf49a099c4b990e2f3f8814dee852843067",
+      "method": "RubyLLM::Agent.prompt_agent_path",
+      "source_line": 324
+    },
+    {
+      "path": "lib/ruby_llm/tool.rb",
+      "original_sha256": "0d70035bc08b932824fd542d0cff1dcd3b8a0205565fd40521406f51b53dcb53",
+      "patched_sha256": "192887b3d72b941d9ce20611d2ccfdca41bea31fb0d6bf4a5e24ef07ab7c44ca",
+      "method": "RubyLLM::Tool#name",
+      "source_line": 68
+    }
+  ],
+  "unchanged_files": [
+    {
+      "path": "lib/ruby_llm.rb",
+      "sha256": "da43577dbe2b5ffb5584e68cd852d881049ec7a29d718f625276e64a4b3c3cd9"
+    },
+    {
+      "path": "lib/ruby_llm/version.rb",
+      "sha256": "5fa17508b02ae198e0286fbc3d75071fdb0c491772266739cd36a990ac1b73aa"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "58c1238e09acf1d713bdf670c98d76ef68bae6e104272d6692215a7fe507a31a"
+    }
+  ],
+  "ruby_source_inventory": {
+    "original": {
+      "count": 130,
+      "sha256": "599d7727b1f697cfc99ce18f2eb0fa96cc314881f4eef69dd48937973726ee1c"
+    },
+    "patched": {
+      "count": 130,
+      "sha256": "4bd75df0cad7bbf7d8098d995a9f7fff48362ccca0fb457387ea6056addbefdb"
+    }
+  },
+  "adaptation": "Official fixed underscore boundary algorithm applied inline at both 1.15.0 pre-extraction call sites; gem version and all other Ruby source unchanged."
+}

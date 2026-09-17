@@ -279,6 +279,8 @@ function validate(workflowSource, gateSource) {
     ACTIONS.sbom,
     ACTIONS.attest,
     ACTIONS.attest,
+    ACTIONS.attest,
+    ACTIONS.attest,
   ]);
   for (const action of usedActions(publish)) {
     assert.match(action, /^[a-z0-9-]+\/[a-z0-9-]+@[0-9a-f]{40}$/);
@@ -358,23 +360,45 @@ function validate(workflowSource, gateSource) {
   }
   assert.doesNotMatch(publish, /start-image-scan/);
 
-  const trivyIndex = publish.indexOf('固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認');
+  const trivyIndex = publish.indexOf('固定Trivyの生結果と実imageのRubyLLM backportを検証');
   assert.ok(publish.indexOf('SPDX SBOMの形式と上限を確認') < trivyIndex &&
     trivyIndex < publish.indexOf('SLSA provenanceを署名してOCIへ保存'),
-    'exact SBOM must pass all-package security scan before either attestation');
+    'exact raw scan and independent backport proof must precede all attestations');
   for (const required of [
     'TRIVY_IMAGE: docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682',
     '--pkg-types os,library', '--severity CRITICAL,HIGH', '--ignore-unfixed=false',
-    '--distro alpine/3.21.3', '--exit-code 1', '--config /dev/null sbom',
-    '--workdir /scan', '"$TRIVY_IMAGE"', 'toybaco-chatwoot.spdx.json',
+    '--distro alpine/3.21.3', '--exit-code 1 --list-all-pkgs', '--config /dev/null sbom',
+    '--network none --workdir /scan', '"$TRIVY_IMAGE"', 'toybaco-chatwoot.spdx.json',
     '.checksumValue == $digest', '.relationshipType == "DESCRIBES"',
     'image: registry:${{ steps.build.outputs.image_uri }}',
-    '.versionInfo == ("sha256:" + $digest)',
-    'distro=alpine-3.21.3', '.Class == "os-pkgs"', '.Class == "lang-pkgs"',
-    '[[ "$scan_status" -eq 0 ]] || exit "$scan_status"',
-  ]) assert.ok(publish.includes(required), `strict Trivy SBOM contract missing: ${required}`);
-  assert.doesNotMatch(publish, /--ignore-unfixed=true|--ignorefile|--ignore-policy|--vex/);
-
+    '.versionInfo == ("sha256:" + $digest)', 'distro=alpine-3.21.3',
+    '--config /dev/null image --download-db-only --no-progress',
+    '--skip-db-update --skip-java-db-update --offline-scan',
+    'src=$security/db,dst=/root/.cache/trivy/db,readonly',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs verify-attestations',
+    'printf \'%s\\n\' "$scan_status" > "$security/raw-exit.txt"',
+    'docker image inspect "$ECR_REPOSITORY@$IMAGE_DIGEST"',
+    '--platform linux/amd64 --network none --read-only',
+    '--cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby',
+    '/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json',
+    '> "$security/installed-proof.json"',
+    'predicate-type: https://openvex.dev/ns/v0.2.0',
+    'predicate-type: https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1',
+    'predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json',
+    'predicate-path: ${{ runner.temp }}/chatwoot-source-backport/source-backport-classification.json',
+  ]) assert.ok(publish.includes(required), `strict source-backport contract missing: ${required}`);
+  assert.equal(count(publish, /--config \/dev\/null sbom/g), 1, 'one raw pinned scanner invocation');
+  assert.equal(count(publish, /--download-db-only/g), 1, 'one fresh DB download');
+  assert.equal(count(publish, /--cert-oidc-issuer 'https:\/\/token\.actions\.githubusercontent\.com'/g), 4);
+  assert.doesNotMatch(publish, /--ignore-unfixed=true|--ignorefile|--ignore-policy|--vex|--skip-files|--skip-dirs|--ignore-status/);
+  for (const name of ['config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md']) {
+    assert.ok(workflowSource.includes("      - '" + name + "'"), 'backport push path missing: ' + name);
+  }
+  assert.ok(quality.includes('node tests/chatwoot-ruby-llm-classification.test.mjs .'));
 
   assert.ok(publish.includes(`uses: ${ACTIONS.sbom}`));
   for (const required of [
@@ -390,26 +414,26 @@ function validate(workflowSource, gateSource) {
   ]) {
     assert.ok(publish.includes(required), `SPDX contract missing: ${required}`);
   }
-  assert.equal(count(publish, new RegExp(`uses: ${ACTIONS.attest}`, 'g')), 2);
-  assert.equal(count(publish, /push-to-registry: true/g), 2);
+  assert.equal(count(publish, new RegExp(`uses: ${ACTIONS.attest}`, 'g')), 4);
+  assert.equal(count(publish, /push-to-registry: true/g), 4);
   assert.equal(
     count(
       publish,
       /subject-name: 951034765053\.dkr\.ecr\.ap-northeast-1\.amazonaws\.com\/toybaco\/chatwoot/g,
     ),
-    2,
+    4,
   );
-  assert.equal(count(publish, /gh attestation verify/g), 2);
-  assert.equal(count(publish, /--cert-identity "\$identity"/g), 2);
-  assert.equal(count(publish, /--source-digest "\$REPOSITORY_COMMIT"/g), 2);
-  assert.equal(count(publish, /--source-ref refs\/heads\/main/g), 2);
-  assert.equal(count(publish, /--deny-self-hosted-runners/g), 2);
+  assert.equal(count(publish, /gh attestation verify/g), 4);
+  assert.equal(count(publish, /--cert-identity "\$identity"/g), 4);
+  assert.equal(count(publish, /--source-digest "\$REPOSITORY_COMMIT"/g), 4);
+  assert.equal(count(publish, /--source-ref refs\/heads\/main/g), 4);
+  assert.equal(count(publish, /--deny-self-hosted-runners/g), 4);
   assert.ok(publish.includes('https://slsa.dev/provenance/v1'));
   assert.ok(publish.includes('https://spdx.dev/Document/v2.3'));
   assert.doesNotMatch(publish, /--signer-workflow|--signer-repo/);
 
   const controlFiles = functionBlock(gateSource, 'control_file_list', 'control_manifest');
-  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb']) {
+  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md']) {
     assert.ok(controlFiles.includes(`'${required}'`), `runtime input missing from quality/export control: ${required}`);
   }
   for (const forbidden of [
@@ -468,6 +492,60 @@ function validate(workflowSource, gateSource) {
   assert.equal(count(gateSource, /docker buildx build/g), 0);
 }
 
+
+function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
+  const copies = [
+    'COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/',
+    'COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/',
+    'COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/',
+  ];
+  for (const text of copies) {
+    assert.ok(dockerfile.includes(text), 'production backport input missing: ' + text);
+    assert.ok(testDockerfile.includes(text), 'test backport input missing: ' + text);
+  }
+  const apply = 'bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply';
+  const verify = 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb';
+  assert.equal(dockerfile.split(apply).length - 1, 1, 'one production gem patch application');
+  assert.equal(testDockerfile.split(apply).length - 1, 1, 'one test gem patch application');
+  assert.equal(dockerfile.split(verify).length - 1, 2, 'bundled and final production proof');
+  assert.equal(testDockerfile.split(verify).length - 1, 1, 'test gem proof');
+  assert.ok(dockerfile.indexOf('bundle clean --force') < dockerfile.indexOf(apply));
+  assert.ok(dockerfile.lastIndexOf(verify) > dockerfile.indexOf('/app/TOYBACO_PUBLIC_REVISION'));
+  for (const path of ['config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb',
+    'tests/verify_chatwoot_ruby_llm_backport.rb']) {
+    assert.ok(ignore.split('\n').includes('!' + path), 'Docker context backport path missing');
+  }
+  for (const text of [
+    '"$TEST_IMAGE" ' + verify, '"$PRODUCTION_IMAGE" ' + verify,
+    '"$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb',
+    'abort "expected production CE setting" unless ENV.fetch("DISABLE_ENTERPRISE") == "true"',
+    'abort "CE Captain task service missing" unless Captain::RewriteService < Captain::BaseTaskService',
+    'load "/opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb"',
+  ]) assert.ok(gateSource.includes(text), 'test/production/CE backport proof missing: ' + text);
+}
+const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerignore'].map(path =>
+  readFileSync(join(root, path), 'utf8'));
+validateBackportBuild(...buildInputs, gate);
+let buildNegativeCount = 0;
+for (const [index, text] of [
+  [0, 'COPY config/chatwoot-ruby-llm-backport.json'], [1, 'COPY config/chatwoot-ruby-llm-backport.json'],
+  [0, 'harden-chatwoot-ruby-llm.rb apply'], [1, 'harden-chatwoot-ruby-llm.rb apply'],
+  [0, 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb'],
+  [1, 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb'],
+  [2, '!scripts/harden-chatwoot-ruby-llm.rb'], [2, '!tests/verify_chatwoot_ruby_llm_backport.rb'],
+  [3, '"$TEST_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb'],
+  [3, '"$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb'],
+  [3, '"$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb'],
+  [3, 'abort "CE Captain task service missing"'],
+]) {
+  const modified = [...buildInputs, gate];
+  assert.ok(modified[index].includes(text));
+  modified[index] = modified[index].replace(text, '# omitted');
+  assert.throws(() => validateBackportBuild(...modified), 'omitted backport build proof must fail');
+  buildNegativeCount++;
+}
+console.log('Chatwoot backport build wiring: PASS (' + buildNegativeCount + ' omission controls)');
+
 validate(workflow, gate);
 validatePostEntryNavigation(postEntry);
 testPostEntryNavigation();
@@ -489,6 +567,18 @@ assert.throws(
 );
 
 const mutations = [
+
+  [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before', 'scripts/not-run.mjs snapshot-before'), gate],
+  [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after', 'scripts/not-run.mjs snapshot-after'), gate],
+  [workflow.replace('--network none --workdir /scan', '--workdir /scan'), gate],
+  [workflow.replace('src=$security/db,dst=/root/.cache/trivy/db,readonly', 'src=$security/db,dst=/root/.cache/trivy/db'), gate],
+  [workflow.replace('/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/not-run.rb'), gate],
+  [workflow.replace('--exit-code 1 --list-all-pkgs', '--exit-code 1'), gate],
+  [workflow.replace('predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json', 'predicate-path: /arbitrary.json'), gate],
+  [workflow.replace('predicate-path: ${{ runner.temp }}/chatwoot-source-backport/source-backport-classification.json', 'predicate-path: /arbitrary.json'), gate],
+  [workflow.replace("--cert-oidc-issuer 'https://token.actions.githubusercontent.com'", "--cert-oidc-issuer 'https://example.com'"), gate],
+  [workflow.replace('--exit-code 1', '--exit-code 1 --skip-files ruby_llm'), gate],
+  [workflow.replace('node tests/chatwoot-ruby-llm-classification.test.mjs .', 'true'), gate],
   [workflow.replace('TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT', 'TOYBACO_PUBLIC_REVISION=main'), gate],
   [workflow.replace('--pkg-types os,library', '--pkg-types os'), gate],
   [workflow.replace('--severity CRITICAL,HIGH', '--severity CRITICAL'), gate],
@@ -501,9 +591,9 @@ const mutations = [
   [workflow.replace('.manifests == null', 'true'), gate],
   [workflow.replace('image: registry:', 'image: '), gate],
   [workflow.replace('.versionInfo == ("sha256:" + $digest)', 'true'), gate],
-  [workflow.replace('.Class == "os-pkgs"', 'true'), gate],
-  [workflow.replace('.Class == "lang-pkgs"', 'true'), gate],
-  [workflow.replace('[[ "$scan_status" -eq 0 ]] || exit "$scan_status"', ':'), gate],
+  [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate', 'scripts/not-run.mjs evaluate'), gate],
+  [workflow.replace('scripts/verify-chatwoot-ruby-llm-classification.mjs verify-attestations', 'scripts/not-run.mjs verify-attestations'), gate],
+  [workflow.replace('--skip-db-update --skip-java-db-update --offline-scan', '--skip-db-update'), gate],
   [workflow.replace('--exit-code 1', '--exit-code 1 --vex /some/vex.json'), gate],
   [workflow.replace("      - 'config/chatwoot-runtime-gems.json'", ''), gate],
   [workflow.replace("      - 'scripts/harden-chatwoot-runtime-gems.rb'", ''), gate],
@@ -594,64 +684,103 @@ function stepRun(source, name) {
     .split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
 }
 const bindingRun = stepRun(workflow, 'SPDX SBOMの形式と上限を確認');
-const scanRun = stepRun(workflow, '固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認');
+const scanRun = stepRun(workflow, '固定Trivyの生結果と実imageのRubyLLM backportを検証');
 const imageName = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
 const digest = 'sha256:' + 'a'.repeat(64);
-function sbomFixture() {
-  return { spdxVersion: 'SPDX-2.3', SPDXID: 'SPDXRef-DOCUMENT',
-    relationships: [{ spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-Image' }],
-    packages: [
-      { SPDXID: 'SPDXRef-Image', name: imageName, primaryPackagePurpose: 'CONTAINER',
-        versionInfo: digest, checksums: [{ algorithm: 'SHA256', checksumValue: 'a'.repeat(64) }] },
-      { SPDXID: 'SPDXRef-Alpine', name: 'alpine-baselayout', externalRefs: [
-        { referenceType: 'purl', referenceLocator: 'pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=x86_64&distro=alpine-3.21.3' },
-      ] },
-    ] };
-}
-function reportFixture() {
-  return { Metadata: { OS: { Family: 'alpine', Name: '3.21.3' } }, Results: [
-    { Class: 'os-pkgs', Packages: [{ Name: 'openjpeg', Version: '2.5.4-r0' }], Vulnerabilities: [] },
-    { Class: 'lang-pkgs', Packages: [{ Name: 'rails', Version: '7.2.3.2' }], Vulnerabilities: [] },
-  ] };
-}
+
+const { classificationFixture } = await import(join(root, 'tests/chatwoot-ruby-llm-classification.test.mjs'));
 function executePolicy(label, change, expected) {
   const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-sbom-policy-'));
   try {
-    const sbom = sbomFixture(), report = reportFixture();
-    const settings = { scannerExit: 0 };
-    change(sbom, report, settings);
+    const fixture = classificationFixture(), sbom = fixture.sbom, report = fixture.raw;
+    const settings = { scannerExit: 1, changedDatabase: false };
+    change(sbom, report, settings, fixture);
     const bin = join(directory, 'bin'); mkdirSync(bin);
-    // GNU stat is used by Ubuntu; the stand-in keeps the exact shell portable.
     writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
-    writeFileSync(join(bin, 'docker'), '#!/bin/sh\nset -eu\ncase "$1" in\n  pull) exit 0 ;;\n  run) cp "$TOYBACO_TEST_REPORT" "$RUNNER_TEMP/chatwoot-trivy-output/report.json"; exit "$TOYBACO_TEST_SCANNER_EXIT" ;;\n  *) exit 97 ;;\nesac\n', { mode: 0o755 });
-    writeFileSync(join(directory, 'toybaco-chatwoot.spdx.json'), JSON.stringify(sbom));
-    const reportPath = join(directory, 'scanner-report.json'); writeFileSync(reportPath, JSON.stringify(report));
+    writeFileSync(join(bin, 'date'), '#!/bin/sh\nprintf "%s\\n" "2026-09-17T07:01:00Z"\n', { mode: 0o755 });
+    writeFileSync(join(bin, 'docker'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path'), a = process.argv.slice(2);
+const dir = process.env.RUNNER_TEMP, security = path.join(dir, 'chatwoot-source-backport');
+if (a[0] === 'pull') process.exit(0);
+if (a[0] === 'image' && a[1] === 'inspect') {
+ process.stdout.write(fs.readFileSync(path.join(dir, 'fixture-image.json'))); process.exit(0);
+}
+if (a[0] !== 'run') process.exit(97);
+if (a.includes('--download-db-only')) {
+ fs.mkdirSync(path.join(security, 'db'));
+ fs.writeFileSync(path.join(security, 'db/trivy.db'), 'isolated frozen DB fixture');
+ fs.copyFileSync(path.join(dir, 'fixture-db.json'), path.join(security, 'db/metadata.json')); process.exit(0);
+}
+if (a.includes('sbom')) {
+ fs.copyFileSync(path.join(dir, 'fixture-report.json'), path.join(security, 'scan-output/raw-report.json'));
+ if (process.env.TOYBACO_TEST_DB_CHANGE === 'true') fs.appendFileSync(path.join(security, 'db/trivy.db'), 'changed');
+ process.exit(Number(process.env.TOYBACO_TEST_SCANNER_EXIT));
+}
+if (a.includes('/contract/tests/verify_chatwoot_ruby_llm_backport.rb')) {
+ process.stdout.write(fs.readFileSync(path.join(dir, 'fixture-proof.json'))); process.exit(0);
+}
+process.exit(98);
+`, { mode: 0o755 });
+    for (const [name, data] of Object.entries({
+      'toybaco-chatwoot.spdx.json': sbom, 'fixture-report.json': report,
+      'fixture-image.json': fixture.imageInspect, 'fixture-proof.json': fixture.proof,
+      'fixture-db.json': fixture.before.metadata,
+    })) writeFileSync(join(directory, name), JSON.stringify(data));
     const result = spawnSync('bash', ['-c', `${bindingRun}\n${scanRun}`], {
-      encoding: 'utf8', timeout: 10000,
+      cwd: root, encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: directory,
-        IMAGE_DIGEST: digest, ECR_REPOSITORY: imageName,
-        TRIVY_IMAGE: 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682',
-        TOYBACO_TEST_REPORT: reportPath, TOYBACO_TEST_SCANNER_EXIT: String(settings.scannerExit) },
+        GITHUB_WORKSPACE: root, IMAGE_DIGEST: digest, ECR_REPOSITORY: imageName,
+        REPOSITORY_COMMIT: fixture.context.source_commit, CONTROL_SHA: fixture.context.control_sha256,
+        TRIVY_IMAGE: fixture.context.trivy_image, TOYBACO_TEST_DB_CHANGE: String(settings.changedDatabase),
+        TOYBACO_TEST_SCANNER_EXIT: String(settings.scannerExit) },
     });
     assert.equal(result.error, undefined, `${label}: ${result.error}`);
     assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
+    if (expected) {
+      const proof = JSON.parse(readFileSync(join(directory, 'chatwoot-source-backport/source-backport-classification.json')));
+      assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
+      assert.equal(proof.scanner_vex_filtering, false);
+      assert.equal(proof.counts.raw_high, 1);
+      const security = join(directory, 'chatwoot-source-backport');
+      const vex = JSON.parse(readFileSync(join(security, 'openvex.json')));
+      const verified = (predicateType, predicate) => [{ verificationResult: {
+        signature: { certificate: {} }, verifiedTimestamps: [{ type: 'tlog' }],
+        statement: { _type: 'https://in-toto.io/Statement/v1',
+          subject: [{ name: imageName, digest: { sha256: digest.slice(7) } }], predicateType, predicate },
+      } }];
+      writeFileSync(join(security, 'verified-openvex.json'),
+        JSON.stringify(verified('https://openvex.dev/ns/v0.2.0', vex)));
+      writeFileSync(join(security, 'verified-source-backport.json'),
+        JSON.stringify(verified('https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1', proof)));
+      const args = [join(root, 'scripts/verify-chatwoot-ruby-llm-classification.mjs'),
+        'verify-attestations', security, join(root, 'config/chatwoot-ruby-llm-backport.json')];
+      const verifiedResult = spawnSync(process.execPath, args, { encoding: 'utf8' });
+      assert.equal(verifiedResult.status, 0, verifiedResult.stderr);
+      const changed = structuredClone(report); changed.CreatedAt = 'tampered after classification';
+      writeFileSync(join(security, 'raw-report.json'), JSON.stringify(changed));
+      const changedResult = spawnSync(process.execPath, args, { encoding: 'utf8' });
+      assert.notEqual(changedResult.status, 0, 'signed predicates cannot accept changed raw evidence');
+    }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
-executePolicy('registry source and cataloged manifest use the exact digest', () => {}, true);
+executePolicy('exact image, raw HIGH and complete source proof authorize only the backport classification', () => {}, true);
 for (const [label, change] of [
   ['wrong manifest checksum', sbom => { sbom.packages[0].checksums[0].checksumValue = 'c'.repeat(64); }],
   ['wrong requested digest', sbom => { sbom.packages[0].versionInfo = 'sha256:' + 'b'.repeat(64); }],
-  ['versionInfo alone cannot bind manifest', sbom => { sbom.packages[0].versionInfo = digest; sbom.packages[0].checksums = []; }],
+  ['version alone cannot bind manifest', sbom => { sbom.packages[0].checksums = []; }],
   ['wrong repository', sbom => { sbom.packages[0].name = 'other/image'; }],
-  ['no described image', sbom => { sbom.relationships = []; }],
-  ['ambiguous described images', sbom => { sbom.relationships.push({ ...sbom.relationships[0], relatedSpdxElement: 'other' }); }],
-  ['wrong distro', sbom => { sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.22'; }],
-  ['distro prefix is not exact identity', sbom => { sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.21.30'; }],
+  ['no described image', sbom => { sbom.relationships.shift(); }],
+  ['ambiguous described image', sbom => { sbom.relationships.push({ ...sbom.relationships[0], relatedSpdxElement: 'other' }); }],
+  ['wrong distro', sbom => { sbom.packages[2].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.22'; }],
+  ['distro prefix is not exact', sbom => { sbom.packages[2].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.21.30'; }],
   ['missing OS coverage', (_sbom, report) => { report.Results.shift(); }],
   ['missing language coverage', (_sbom, report) => { report.Results.pop(); }],
   ['empty package scan', (_sbom, report) => { report.Results[0].Packages = []; }],
-  ['scanner failed despite empty findings', (_sbom, _report, settings) => { settings.scannerExit = 2; }],
-  ['unfixed High is still rejected', (_sbom, report) => { report.Results[1].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
-  ['Critical is rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL', FixedVersion: 'fixed' }]; }],
+  ['scanner failed', (_sbom, _report, settings) => { settings.scannerExit = 2; }],
+  ['additional unfixed High rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
+  ['Critical rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL' }]; }],
+  ['raw-zero receipt cannot be reused', (_sbom, report, settings) => { report.Results[1].Vulnerabilities = []; settings.scannerExit = 0; }],
+  ['source proof failure', (_sbom, _report, _settings, fixture) => { fixture.proof.files[0].sha256 = 'f'.repeat(64); }],
+  ['DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/scan shell: PASS (1 positive / 14 negative controls; no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 17 negative controls; Docker stand-in, no external calls)');
