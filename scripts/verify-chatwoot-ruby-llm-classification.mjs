@@ -105,9 +105,8 @@ export function validateBinding(sbom, context, imageInspect) {
   assert.ok(match, 'versioned image purl with architecture');
   assert.equal(decodeURIComponent(match[1]), IMAGE);
   assert.equal(decodeURIComponent(match[2]), context.image_digest);
-  const qualifiers = new URLSearchParams(match[3]);
-  assert.equal(qualifiers.get('arch'), 'amd64');
-  assert.equal([...qualifiers].length, 1, 'digest source must not use a tag or extra qualifier');
+  // Pinned Syft can leave this metadata empty; actual image OS/CPU is verified above.
+  assert.match(match[3], /^arch=(?:amd64)?$/, 'one architecture qualifier: unknown or amd64');
   const ruby = one(packages.filter(p => p.name === 'ruby_llm' ||
     (p.externalRefs || []).some(r => r.referenceType === 'purl' && /^pkg:gem\/ruby_llm(?:@|$)/.test(r.referenceLocator))),
     'unique ruby_llm SBOM occurrence');
