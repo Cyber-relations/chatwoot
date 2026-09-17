@@ -75,6 +75,14 @@ assert.equal(result.classification.evaluation_kind, 'independent_source_backport
 assert.deepEqual(result.classification.counts, { raw_critical: 0, raw_high: 1, source_verified_fixed: 1,
   unresolved_critical: 0, unresolved_high: 0 });
 assert.equal(result.vex.statements[0].status, 'fixed');
+// Exact root purl shape observed from the pinned registry-digest Syft publisher.
+const observedEmptyArch = fixture();
+const emptyArchPurl = 'pkg:oci/' + IMAGE.replaceAll('/', '%2F') + '@sha256%3A' + hex + '?arch=';
+observedEmptyArch.sbom.packages[0].externalRefs = ref(emptyArchPurl);
+const emptyArchResult = evaluate(observedEmptyArch);
+assert.equal(emptyArchResult.classification.bindings.root_purl, emptyArchPurl);
+assert.equal(emptyArchResult.vex.statements[0].products[0]['@id'], emptyArchPurl);
+assert.deepEqual(emptyArchResult.classification.counts, result.classification.counts);
 const negatives = [
   ['missing proof', x => { x.proof = null; }],
   ['wrong source commit', x => { x.proof.public_revision = '0'.repeat(40); }],
@@ -108,6 +116,15 @@ const negatives = [
   ['wrong OCI purl digest', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = 'pkg:oci/' + IMAGE + '@sha256%3A' + 'f'.repeat(64) + '?arch=amd64'; }],
   ['wrong OCI purl repository', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = 'pkg:oci/other@sha256%3A' + hex + '?arch=amd64'; }],
   ['extra OCI qualifier', x => { x.sbom.packages[0].externalRefs[0].referenceLocator += '&tag=latest'; }],
+  ['explicit wrong OCI architecture', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl + 'arm64'; }],
+  ['invalid OCI architecture', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl + 'unknown'; }],
+  ['duplicate OCI architecture', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl + '&arch=amd64'; }],
+  ['missing OCI architecture', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl.replace('?arch=', ''); }],
+  ['missing OCI architecture key', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl.replace('?arch=', '?other='); }],
+  ['missing OCI architecture assignment', x => { x.sbom.packages[0].externalRefs[0].referenceLocator = emptyArchPurl.slice(0, -1); }],
+  ['blank OCI architecture cannot bypass actual image CPU', x => { x.sbom.packages[0].externalRefs = ref(emptyArchPurl); x.imageInspect[0].Architecture = 'arm64'; }],
+  ['blank OCI architecture cannot bypass actual image OS', x => { x.sbom.packages[0].externalRefs = ref(emptyArchPurl); x.imageInspect[0].Os = 'windows'; }],
+  ['blank OCI architecture cannot bypass runtime CPU', x => { x.sbom.packages[0].externalRefs = ref(emptyArchPurl); x.proof.ruby.platform = 'aarch64-linux-musl'; }],
   ['wrong gem purl', x => { x.sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:gem/ruby_llm@1.16.0'; }],
   ['versionless gem purl', x => { x.sbom.packages[1].externalRefs[0].referenceLocator = 'pkg:gem/ruby_llm'; }],
   ['duplicate gem inventory', x => { x.sbom.packages.push({ ...clone(x.sbom.packages[1]), SPDXID: 'SPDXRef-extra' }); }],
@@ -165,6 +182,6 @@ for (const [type, document] of [[VEX_TYPE, result.vex], [PROOF_TYPE, result.clas
     assert.throws(() => verifyAttestations(rows, type, document, valid.context)); }
 }
 assert.throws(() => verifyAttestations([], VEX_TYPE, result.vex, valid.context));
-console.log('Chatwoot source-backport classifier: PASS (1 positive; ' +
+console.log('Chatwoot source-backport classifier: PASS (2 positives; ' +
   negatives.length + ' evidence negatives; ' + vexNegatives.length + ' VEX negatives; 11 attestation negatives; no external calls)');
 export { fixture as classificationFixture };

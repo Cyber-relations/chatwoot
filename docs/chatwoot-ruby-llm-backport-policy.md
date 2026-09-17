@@ -28,12 +28,13 @@ Pinned Trivy 0.67.2 marks SBOM input as SPDX, then its VEX filter forces BOM reg
 
 Tests execute the actual publisher shell with a Docker stand-in and exercise missing/modified proof, wrong image/source/file hashes, moved methods, duplicate specs/packages/findings, wrong roots/purls/relationships, changed/stale DB, new/unfixed HIGH and CRITICAL findings, arbitrary VEX, extra statements/products/subcomponents, and wrong attestation subjects/predicates. These deterministic tests are not image acceptance. Exact-source CI, real image boot/proof, scanner output and signed-predicate verification are required for each publication.
 
-The existing pinned Syft code constructs its OCI purl from the full source name and manifest digest with an architecture qualifier; it adds a tag only for a tagged input. The publisher uses the registry digest source and validates the observed purl rather than fabricating a gem-only or versionless product. The first actual candidate must satisfy these guards; no acceptance receipt is prefilled.
+The pinned Syft code constructs its OCI purl from the full source name and manifest digest with an architecture qualifier; it adds a tag only for a tagged input. An actual SPDX document from the same pinned registry-digest publisher recorded an empty architecture qualifier. The evaluator therefore accepts exactly one `arch=` or `arch=amd64` qualifier. Empty SBOM metadata means the CPU is unknown in that field; it does not establish image architecture. Independent inspection of the exact image must still prove Linux/amd64, and the loaded Ruby proof must still prove x86_64-linux-musl. Missing, duplicate, extra or other architecture qualifiers fail. The original observed purl remains bound to the exact image name, digest, checksum and image-to-gem relationship; it is not rewritten. The first actual candidate must satisfy all guards; no acceptance receipt is prefilled.
 
 ## Primary source references
 
 - [Official fix](https://github.com/crmne/ruby_llm/commit/9d75b033d7d00c4e1baa9b0afb4828faa8bd6602)
 - [RubySec advisory](https://github.com/rubysec/ruby-advisory-db/blob/master/gems/ruby_llm/CVE-2026-67991.yml)
+- [Pinned Syft image metadata](https://github.com/anchore/syft/blob/v1.51.1/syft/source/stereoscopesource/image_source.go#L132)
 - [Pinned Syft root/purl construction](https://github.com/anchore/syft/blob/v1.51.1/syft/format/common/spdxhelpers/to_format_model.go#L178)
 - [Pinned Trivy SBOM type](https://github.com/aquasecurity/trivy/blob/v0.67.2/pkg/fanal/artifact/sbom/sbom.go#L78)
 - [Pinned Trivy VEX regeneration](https://github.com/aquasecurity/trivy/blob/v0.67.2/pkg/vex/vex.go#L102)
