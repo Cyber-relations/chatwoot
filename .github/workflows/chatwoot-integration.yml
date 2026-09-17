@@ -380,7 +380,7 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts,dst=/contract/scripts,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/contract/tests,readonly" \
             "$ECR_REPOSITORY@$IMAGE_DIGEST" \
-            /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
+            -rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
             > "$security/installed-proof.json"
           jq -n --arg image "$ECR_REPOSITORY" --arg digest "$IMAGE_DIGEST" \
             --arg source "$REPOSITORY_COMMIT" --arg control "$CONTROL_SHA" --arg trivy "$TRIVY_IMAGE" \

@@ -383,7 +383,7 @@ function validate(workflowSource, gateSource) {
     'docker image inspect "$ECR_REPOSITORY@$IMAGE_DIGEST"',
     '--platform linux/amd64 --network none --read-only',
     '--cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby',
-    '/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json',
+    '-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json',
     '> "$security/installed-proof.json"',
     'predicate-type: https://openvex.dev/ns/v0.2.0',
     'predicate-type: https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1',
@@ -606,6 +606,8 @@ const mutations = [
     'cmp -- "$frozen/db-after.json" "$security/db-after.json"',
   ].map(contract => [workflow.replace(contract, ': # omitted copy proof'), gate]),
   [workflow.replace('/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/not-run.rb'), gate],
+  [workflow.replace('-rbundler/setup ', ''), gate],
+  [workflow.replace('-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json -rbundler/setup'), gate],
   [workflow.replace('--exit-code 1 --list-all-pkgs', '--exit-code 1'), gate],
   [workflow.replace('predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json', 'predicate-path: /arbitrary.json'), gate],
   [workflow.replace('predicate-path: ${{ runner.temp }}/chatwoot-source-backport/source-backport-classification.json', 'predicate-path: /arbitrary.json'), gate],
@@ -726,7 +728,7 @@ function executePolicy(label, change, expected) {
   const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-sbom-policy-'));
   try {
     const fixture = classificationFixture(), sbom = fixture.sbom, report = fixture.raw;
-    const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false };
+    const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false, proofStartup: null };
     change(sbom, report, settings, fixture);
     const bin = join(directory, 'bin'); mkdirSync(bin);
     writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
@@ -760,6 +762,11 @@ if (a.includes('sbom')) {
  process.exit(Number(process.env.TOYBACO_TEST_SCANNER_EXIT));
 }
 if (a.includes('/contract/tests/verify_chatwoot_ruby_llm_backport.rb')) {
+ const imageIndex = a.indexOf(process.env.ECR_REPOSITORY + '@' + process.env.IMAGE_DIGEST);
+ const expected = ['-rbundler/setup', '/contract/tests/verify_chatwoot_ruby_llm_backport.rb', '/contract/config/chatwoot-ruby-llm-backport.json'];
+ if (imageIndex < 0 || JSON.stringify(a.slice(imageIndex + 1)) !== JSON.stringify(expected)) {
+  process.stderr.write('BUNDLER_PRELOAD_REQUIRED'); process.exit(93);
+ }
  process.stdout.write(fs.readFileSync(path.join(dir, 'fixture-proof.json'))); process.exit(0);
 }
 process.exit(98);
@@ -769,7 +776,15 @@ process.exit(98);
       'fixture-image.json': fixture.imageInspect, 'fixture-proof.json': fixture.proof,
       'fixture-db.json': fixture.before.metadata,
     })) writeFileSync(join(directory, name), JSON.stringify(data));
-    const result = spawnSync('bash', ['-c', `${bindingRun}\n${scanRun}`], {
+    let executedScan = scanRun;
+    if (settings.proofStartup) {
+      const invocation = '-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json';
+      assert.ok(scanRun.includes(invocation));
+      const scriptArgs = invocation.slice('-rbundler/setup '.length);
+      executedScan = scanRun.replace(invocation, settings.proofStartup === 'missing'
+        ? scriptArgs : scriptArgs + ' -rbundler/setup');
+    }
+    const result = spawnSync('bash', ['-c', `${bindingRun}\n${executedScan}`], {
       cwd: root, encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: directory,
         GITHUB_WORKSPACE: root, IMAGE_DIGEST: digest, ECR_REPOSITORY: imageName,
@@ -781,6 +796,7 @@ process.exit(98);
     });
     assert.equal(result.error, undefined, `${label}: ${result.error}`);
     assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
+    if (settings.proofStartup) assert.match(result.stderr, /BUNDLER_PRELOAD_REQUIRED/, 'startup regression fails at the actual Ruby invocation');
     if (expected) {
       const proof = JSON.parse(readFileSync(join(directory, 'chatwoot-source-backport/source-backport-classification.json')));
       assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
@@ -830,9 +846,11 @@ for (const [label, change] of [
   ['additional unfixed High rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
   ['Critical rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL' }]; }],
   ['raw-zero receipt cannot be reused', (_sbom, report, settings) => { report.Results[1].Vulnerabilities = []; settings.scannerExit = 0; }],
+  ['Bundler preload missing before proof script', (_sbom, _report, settings) => { settings.proofStartup = 'missing'; }],
+  ['Bundler preload after script is only an argument', (_sbom, _report, settings) => { settings.proofStartup = 'late'; }],
   ['source proof failure', (_sbom, _report, _settings, fixture) => { fixture.proof.files[0].sha256 = 'f'.repeat(64); }],
   ['actual scanned copy DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
   ['original DB changed during raw scan', (_sbom, _report, settings) => { settings.changedOriginal = true; }],
   ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 19 negative controls; Docker stand-in, no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 21 negative controls; Docker stand-in, no external calls)');
