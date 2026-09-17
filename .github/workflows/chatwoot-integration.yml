@@ -14,6 +14,10 @@ on:
       - 'infra/terraform/ecs.tf'
       - 'overlay/app/**'
       - 'config/chatwoot-runtime-gems.json'
+      - 'config/chatwoot-ruby-llm-backport.json'
+      - 'scripts/harden-chatwoot-ruby-llm.rb'
+      - 'scripts/verify-chatwoot-ruby-llm-classification.mjs'
+      - 'docs/chatwoot-ruby-llm-backport-policy.md'
       - 'scripts/harden-chatwoot-runtime-gems.rb'
       - 'scripts/generate-chatwoot-active-ja-overrides.rb'
       - 'scripts/generate-chatwoot-ja-overrides.rb'
@@ -53,6 +57,9 @@ jobs:
 
       - name: 秘密なし固定containerでChatwoot品質ゲート
         run: ./bin/toybaco-chatwoot-gate --quality-only
+
+      - name: 実image backport分類の否定契約を検証
+        run: node tests/chatwoot-ruby-llm-classification.test.mjs .
 
       - name: 公開publisher契約を検証
         run: node tests/chatwoot-managed-publisher.test.mjs .
@@ -308,42 +315,71 @@ jobs:
               (.referenceLocator | split("?")[1] // "" | split("&") | index("distro=alpine-3.21.3") != null))
           ' "$sbom" >/dev/null
 
-      - name: 固定Trivyで同digest SBOMのOS・言語 Critical/Highゼロを確認
+      - name: 固定Trivyの生結果と実imageのRubyLLM backportを検証
         id: trivy
         shell: bash
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+          CONTROL_SHA: ${{ steps.source.outputs.control_sha }}
         run: |
           set -Eeuo pipefail
           [[ "$TRIVY_IMAGE" == 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682' ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          sbom="$RUNNER_TEMP/toybaco-chatwoot.spdx.json"
-          trivy_cache="$RUNNER_TEMP/chatwoot-trivy-cache"
-          trivy_output="$RUNNER_TEMP/chatwoot-trivy-output"
-          mkdir -m 0700 "$trivy_cache" "$trivy_output"
+          [[ "$CONTROL_SHA" =~ ^[0-9a-f]{64}$ ]]
+          security="$RUNNER_TEMP/chatwoot-source-backport"
+          mkdir -m 0700 "$security"
+          cp "$RUNNER_TEMP/toybaco-chatwoot.spdx.json" "$security/sbom.spdx.json"
+          mkdir -m 0700 "$security/scan-output"
+          db_download_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker pull "$TRIVY_IMAGE"
+          # A new empty cache is populated once; the scan below is offline and mounts its DB read-only.
+          docker run --rm \
+            --mount "type=bind,src=$security,dst=/root/.cache/trivy" \
+            "$TRIVY_IMAGE" --config /dev/null image --download-db-only --no-progress
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before \
+            "$security" config/chatwoot-ruby-llm-backport.json
+
           scan_status=0
-          # Only this digest-bound SBOM is mounted: no repository config,
-          # ignore list, VEX document, registry credentials, or Docker socket.
-          docker run --rm --workdir /scan \
-            --mount "type=bind,src=$sbom,dst=/scan/sbom.spdx.json,readonly" \
-            --mount "type=bind,src=$trivy_cache,dst=/root/.cache/trivy" \
-            --mount "type=bind,src=$trivy_output,dst=/output" \
+          # Raw scan: no VEX, ignore policy, credentials, repository config, or Docker socket.
+          docker run --rm --network none --workdir /scan \
+            --mount "type=bind,src=$security/sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly" \
+            --mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db,readonly" \
+            --mount "type=bind,src=$security/scan-output,dst=/output" \
             "$TRIVY_IMAGE" --config /dev/null sbom \
             --scanners vuln --pkg-types os,library --distro alpine/3.21.3 \
-            --severity CRITICAL,HIGH --ignore-unfixed=false --exit-code 1 \
-            --format json --output /output/report.json --no-progress /scan/sbom.spdx.json \
+            --severity CRITICAL,HIGH --ignore-unfixed=false --exit-code 1 --list-all-pkgs \
+            --skip-db-update --skip-java-db-update --offline-scan \
+            --format json --output /output/raw-report.json --no-progress /scan/sbom.spdx.json \
             || scan_status=$?
-          report="$trivy_output/report.json"
-          [[ -f "$report" && ! -L "$report" ]]
-          jq -e '.Metadata.OS.Family == "alpine" and .Metadata.OS.Name == "3.21.3" and
-            any(.Results[]; .Class == "os-pkgs" and ((.Packages // []) | length > 0)) and
-            any(.Results[]; .Class == "lang-pkgs" and ((.Packages // []) | length > 0))' "$report" >/dev/null
-          jq --arg digest "$IMAGE_DIGEST" '{digest: $digest, findings:
+          printf '%s\n' "$scan_status" > "$security/raw-exit.txt"
+          mv "$security/scan-output/raw-report.json" "$security/raw-report.json"
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after \
+            "$security" config/chatwoot-ruby-llm-backport.json
+          jq --arg digest "$IMAGE_DIGEST" '{digest: $digest, raw_findings:
             [.Results[].Vulnerabilities[]? | {id: .VulnerabilityID, severity: .Severity,
-              package: .PkgName, version: .InstalledVersion, fixed: .FixedVersion}]}' "$report"
-          [[ "$scan_status" -eq 0 ]] || exit "$scan_status"
-          jq -e '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH")] | length == 0' "$report" >/dev/null
+              package: .PkgName, version: .InstalledVersion, path: .PkgPath, fixed: .FixedVersion}]}' \
+            "$security/raw-report.json"
+
+          docker pull "$ECR_REPOSITORY@$IMAGE_DIGEST"
+          docker image inspect "$ECR_REPOSITORY@$IMAGE_DIGEST" > "$security/image-inspect.json"
+          docker run --rm --platform linux/amd64 --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/config,dst=/contract/config,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts,dst=/contract/scripts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/contract/tests,readonly" \
+            "$ECR_REPOSITORY@$IMAGE_DIGEST" \
+            /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
+            > "$security/installed-proof.json"
+          jq -n --arg image "$ECR_REPOSITORY" --arg digest "$IMAGE_DIGEST" \
+            --arg source "$REPOSITORY_COMMIT" --arg control "$CONTROL_SHA" --arg trivy "$TRIVY_IMAGE" \
+            --arg started "$db_download_started_at" --arg issued "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema_version:1,image:$image,image_digest:$digest,source_commit:$source,
+              source_ref:"refs/heads/main",control_sha256:$control,trivy_image:$trivy,
+              db_download_started_at:$started,issued_at:$issued}' > "$security/context.json"
+          # This is an independent source-backport classification, not a Trivy-filtered scan.
+          # Exactly one proved fixed finding is allowed; every other HIGH/CRITICAL still fails.
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \
+            "$security" config/chatwoot-ruby-llm-backport.json
 
       - name: SLSA provenanceを署名してOCIへ保存
         id: provenance
@@ -366,6 +402,30 @@ jobs:
           create-storage-record: false
           show-summary: false
 
+      - name: exact digestのOpenVEX fixed分類を署名してOCIへ保存
+        id: backport_vex
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.0.0
+        with:
+          subject-name: 951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot
+          subject-digest: ${{ steps.build.outputs.image_digest }}
+          predicate-type: https://openvex.dev/ns/v0.2.0
+          predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json
+          push-to-registry: true
+          create-storage-record: false
+          show-summary: false
+
+      - name: 生scan・実imageの修正証拠・独立分類を署名してOCIへ保存
+        id: backport_proof
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.0.0
+        with:
+          subject-name: 951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot
+          subject-digest: ${{ steps.build.outputs.image_digest }}
+          predicate-type: https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1
+          predicate-path: ${{ runner.temp }}/chatwoot-source-backport/source-backport-classification.json
+          push-to-registry: true
+          create-storage-record: false
+          show-summary: false
+
       - name: GitHub OCI provenance・SBOM署名を標準検証
         shell: bash
         env:
@@ -380,6 +440,7 @@ jobs:
             --repo Cyber-relations/chatwoot \
             --bundle-from-oci \
             --cert-identity "$identity" \
+            --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
             --source-digest "$REPOSITORY_COMMIT" \
             --source-ref refs/heads/main \
             --deny-self-hosted-runners \
@@ -388,10 +449,33 @@ jobs:
             --repo Cyber-relations/chatwoot \
             --bundle-from-oci \
             --cert-identity "$identity" \
+            --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
             --source-digest "$REPOSITORY_COMMIT" \
             --source-ref refs/heads/main \
             --deny-self-hosted-runners \
             --predicate-type 'https://spdx.dev/Document/v2.3' >/dev/null
+          security="$RUNNER_TEMP/chatwoot-source-backport"
+          gh attestation verify "$image" \
+            --repo Cyber-relations/chatwoot \
+            --bundle-from-oci \
+            --cert-identity "$identity" \
+            --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --source-digest "$REPOSITORY_COMMIT" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners \
+            --predicate-type 'https://openvex.dev/ns/v0.2.0' --format json > "$security/verified-openvex.json"
+          gh attestation verify "$image" \
+            --repo Cyber-relations/chatwoot \
+            --bundle-from-oci \
+            --cert-identity "$identity" \
+            --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --source-digest "$REPOSITORY_COMMIT" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners \
+            --predicate-type 'https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1' \
+            --format json > "$security/verified-source-backport.json"
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs verify-attestations \
+            "$security" config/chatwoot-ruby-llm-backport.json
           printf 'Published %s:%s@%s from %s\n' \
             "$ECR_REPOSITORY" "$IMAGE_TAG" "$IMAGE_DIGEST" "$REPOSITORY_COMMIT"
 

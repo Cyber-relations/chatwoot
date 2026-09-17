@@ -14,8 +14,13 @@ RUN apk add --no-cache --virtual .toybaco-gem-build build-base zlib-dev \
     && apk del .toybaco-gem-build \
     && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
 COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile.lock /app/
+COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
 RUN BUNDLE_FROZEN=true bundle install --jobs 4 --retry 3 \
     && bundle clean --force \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
     && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
 
 FROM bundled-gems AS localized-assets
@@ -117,4 +122,5 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
       test "${#TOYBACO_PUBLIC_REVISION}" -eq 40 \
       && ! printf '%s' "$TOYBACO_PUBLIC_REVISION" | grep -q '[^0-9a-f]'; \
     fi \
-    && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION
+    && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
