@@ -239,6 +239,7 @@ export default {
             />
             <a
               :href="contactProfileLink"
+              aria-label="連絡先の詳細を新しいタブで開く"
               target="_blank"
               rel="noopener nofollow noreferrer"
               class="leading-3"

@@ -1238,7 +1238,7 @@
       var rows = document.querySelectorAll('[data-toybaco-primary-nav]');
       for (var n = 0; n < rows.length; n += 1) {
         var kind = rows[n].getAttribute('data-toybaco-primary-nav');
-        if (kind !== 'settings' && kind !== 'reports' && kind !== 'inbox') continue;
+        if (kind !== 'settings' && kind !== 'reports' && kind !== 'inbox' && kind !== 'contacts') continue;
         var children = rows[n].children;
         for (var c = 0; c < children.length; c += 1) {
           if (children[c].tagName === 'UL') targets.push({
@@ -1297,6 +1297,7 @@
       var selected = auxiliaryView ? auxiliaryView.getAttribute('data-toybaco-aux-view') : panel ? 'posting' :
         /\/reports(?:\/|$)/.test(path) ? 'reports' :
         /\/settings(?:\/|$)/.test(path) ? 'settings' :
+        /\/contacts(?:\/|$)/.test(path) ? 'contacts' :
         /\/(dashboard|inbox|inbox-view|conversations)(?:\/|$)/.test(path) ? 'inbox' : '';
       var links = document.querySelectorAll('[data-toybaco-nav-link]');
       for (var i = 0; i < links.length; i += 1) {
@@ -1443,10 +1444,9 @@
     }
   }
 
-  // 会話・レポート・設定の子導線は native の権限と展開状態に任せる。
+  // 会話・連絡先・レポート・設定の子導線は native の権限と展開状態に任せる。
   // トイバコで提供しない独立した在庫グループだけを一次ナビから外す。
   var STOCK_TITLES = {
-    '連絡先': 1,
     'キャンペーン': 1,
     'ヘルプセンター': 1,
     'ヘルプ': 1,
@@ -1467,7 +1467,6 @@
     'ボット': 1,
     'マクロ': 1,
     '定型文': 1,
-    Contacts: 1,
     Campaigns: 1,
     'Help Center': 1,
     Help: 1,
@@ -1490,8 +1489,8 @@
     Macros: 1,
     'Canned Responses': 1
   };
-  var STOCK_ICON_RE = /\b(i-lucide-contact|i-lucide-library-big|i-woot-captain|i-lucide-building-2|i-lucide-phone|i-lucide-sparkles|i-lucide-bot|i-lucide-users|i-lucide-users-round|i-lucide-messages-square)\b/;
-  var STOCK_HREF_RE = /\/(contacts|campaigns|portals|captain|companies|calls|notifications|mentions|participating)(\/|\?|#|$)/;
+  var STOCK_ICON_RE = /\b(i-lucide-library-big|i-woot-captain|i-lucide-building-2|i-lucide-phone|i-lucide-sparkles|i-lucide-bot|i-lucide-users|i-lucide-users-round|i-lucide-messages-square)\b/;
+  var STOCK_HREF_RE = /\/(campaigns|portals|captain|companies|calls|notifications|mentions|participating)(\/|\?|#|$)/;
   var INJECT_RETRY_MS = [0, 16, 50, 100, 200, 400, 800, 1600, 3200, 6000, 10000];
 
   function isToybacoNavRow(row) {
@@ -1608,7 +1607,7 @@
     while (row && row.parentElement !== list) row = row.parentElement;
     if (!row || row === node) return false;
     var kind = primaryNavKind(row);
-    return kind === 'settings' || kind === 'reports' || kind === 'inbox';
+    return kind === 'settings' || kind === 'reports' || kind === 'inbox' || kind === 'contacts';
   }
 
   function hideLeftoverTrees() {
@@ -1619,7 +1618,7 @@
       var nodes = nav.querySelectorAll('li, a, [role="button"], button, div[title], span');
       for (var i = 0; i < nodes.length; i += 1) {
         var node = nodes[i];
-        // 会話・設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
+        // 会話・連絡先・設定・レポートの子は、元のPolicyとSidebarGroupが表示・権限を管理する。
         if (isNativePrimaryChild(node, list)) continue;
         if (isToybacoNavRow(node)) continue;
         if (!nodeTitleOrLeaf(node)) continue;
@@ -1657,6 +1656,7 @@
       if (/^(会話|Conversations|Inbox)$/.test(title || '')) kind = 'inbox';
       else if (/^(レポート|Reports)$/.test(title || '')) kind = 'reports';
       else if (/^(設定|Settings)$/.test(title || '')) kind = 'settings';
+      else if (/^(連絡先|Contacts)$/.test(title || '')) kind = 'contacts';
     });
     return kind;
   }
@@ -2805,7 +2805,7 @@
       var t = e.target || e.srcElement;
       var navLink = closestAttr(t, 'data-toybaco-nav-link');
       var navKind = navLink && navLink.getAttribute('data-toybaco-nav-link');
-      if (navKind === 'reports' || navKind === 'settings' || (navKind === 'inbox' && navLink.tagName !== 'A')) {
+      if (navKind === 'reports' || navKind === 'settings' || navKind === 'contacts' || (navKind === 'inbox' && navLink.tagName !== 'A')) {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         // The native group classifies navigation versus a toggle. Its route
         // guard or explicit base return owns confirmation and history once.

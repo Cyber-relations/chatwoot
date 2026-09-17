@@ -8,7 +8,7 @@ The only accepted outcome is raw CRITICAL=0, raw HIGH=1, source-verified fixed=1
 
 The existing source, quality, digest, ECR OS scan, pinned Syft SPDX and signature gates remain. The private publisher stays disabled. Trivy stays at the pinned 0.67.2 image, scans both OS and library packages at HIGH/CRITICAL including unfixed findings, and never receives --vex, --ignorefile or --ignore-policy.
 
-A new empty cache downloads the DB once. Both database bytes and metadata are hashed before and after the raw scan. The scan runs with network disabled, a read-only database mount, skip-update/offline flags, and complete package listing. DownloadedAt must belong to this run and UpdatedAt must be within 48 hours. The raw exit code and complete JSON report are retained without mutation. There is no effective Trivy scan.
+A new empty cache downloads the DB once into an original source directory that is never mounted into the scanner. A private copy is mounted writable because pinned Trivy opens bbolt read/write even with skip-update. The existing signed database snapshots cover this actual scanned copy. Original and copy database bytes and metadata must match before and after the scan; any difference fails. The scan runs with network disabled, skip-update/offline flags, and complete package listing. DownloadedAt must belong to this run and UpdatedAt must be within 48 hours. The raw exit code and complete JSON report are retained without mutation. There is no effective Trivy scan.
 
 The trusted checkout verifier runs against the exact published image digest with network disabled and filesystem read-only. It checks the unique actual installed ruby_llm and Agents specs, the real method source paths/lines, all 130 installed Ruby source files, the two patched complete-file hashes, the unchanged entrypoint/version/license, naming equivalence, adversarial-length bounds and negative checks. The image's public revision file and control label bind this to reviewed source. No model request is made.
 
@@ -41,4 +41,5 @@ The pinned Syft code constructs its OCI purl from the full source name and manif
 - [Pinned Trivy root reconstruction](https://github.com/aquasecurity/trivy/blob/v0.67.2/pkg/sbom/io/encode.go#L135)
 - [OpenVEX 0.2 specification](https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md)
 - [Pinned generic attestation inputs](https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/action.yml)
-
+- [Pinned vulnerability DB open mode](https://github.com/aquasecurity/trivy-db/blob/eba1ced2340a/pkg/db/db.go#L78)
+- [Pinned bbolt default read/write open](https://github.com/etcd-io/bbolt/blob/v1.4.3/db.go#L200)

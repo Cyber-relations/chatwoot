@@ -940,6 +940,7 @@ REPLACEMENTS = {
                 "      } catch {\n        useAlert(this.$t('CONTACT_FORM.DELETE_AVATAR.API.ERROR_MESSAGE'));\n      }")
   ],
   'app/javascript/dashboard/routes/dashboard/conversation/contact/ContactInfo.vue' => [
+    replacement(':href="contactProfileLink"', ":href=\"contactProfileLink\"\n              aria-label=\"連絡先の詳細を新しいタブで開く\""),
     replacement("          if (detail) {\n            useAlert(detail);", "          if (detail) {\n            useAlert(this.$t('CONTACT_FORM.ERROR_MESSAGE'));"),
     replacement("        } else if (error instanceof ExceptionWithMessage) {\n          useAlert(error.data);\n        } else {\n          useAlert(error.message || this.$t('CONTACT_FORM.ERROR_MESSAGE'));",
                 "        } else if (error instanceof ExceptionWithMessage) {\n          useAlert(this.$t('CONTACT_FORM.ERROR_MESSAGE'));\n        } else {\n          useAlert(this.$t('CONTACT_FORM.ERROR_MESSAGE'));")

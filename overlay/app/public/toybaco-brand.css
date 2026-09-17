@@ -603,10 +603,10 @@ select:focus {
   }
 }
 
-/* 一次ナビ: 会話 / 投稿 / レポート / 設定。
- * 独立した在庫グループ(連絡先/キャンペーン/ヘルプ/Captain/通話/企業)は非表示。
+/* 一次ナビ: 会話 / 投稿 / AI / 連絡先 / レポート / 設定。
+ * 独立した在庫グループ(キャンペーン/ヘルプ/Captain/通話/企業)は非表示。
  * 会話の通知・チーム・チャンネル・ラベル・保存済みフィルターは会話配下に残す。
- * 会話・レポート・設定の子導線は、元の権限判定・展開状態を保って表示する。
+ * 会話・連絡先・レポート・設定の子導線は、元の権限判定・展開状態を保って表示する。
  * グループ親は to が無く title + lucide。href は展開後の子にしか付かない。
  * `ul > li` だけだと Policy の根や入れ子 ul で外れるので aside nav を広く取る。 */
 aside nav {
@@ -622,14 +622,14 @@ aside nav > ul {
 /* 親行自身のラベル・アイコンだけを判定する。
  * 子孫全体への :has() は、配下に担当者や会話レポートを持つ「設定」「レポート」まで隠す。 */
 aside nav > ul > li:not([data-toybaco-ai-nav]):has(> :is(a, [role="button"]):is(
-  [title="連絡先"], [title="キャンペーン"], [title="ヘルプセンター"],
+  [title="キャンペーン"], [title="ヘルプセンター"],
   [title="ヘルプ"], [title="企業"], [title="通話"], [title="AIアシスタント"],
   [title="Captain"], [title="会話データ"], [title="チーム"],
-  [title="Contacts"], [title="Campaigns"], [title="Help Center"],
+  [title="Campaigns"], [title="Help Center"],
   [title="Companies"], [title="Calls"], [title="Conversation Data"], [title="Teams"]
 )),
 aside nav > ul > li:has(> :is(a, [role="button"]) :is(
-  .i-lucide-contact, .i-lucide-library-big, .i-woot-captain,
+  .i-lucide-library-big, .i-woot-captain,
   .i-lucide-building-2, .i-lucide-phone, .i-lucide-messages-square
 )),
 aside nav [data-toybaco-stock-hidden="1"] {
@@ -642,7 +642,7 @@ aside nav > ul > li[data-toybaco-nav-duplicate="1"] {
 }
 
 /* 対象の一次グループ配下は native ナビの開閉を使う。 */
-aside nav > ul > li:not([data-toybaco-primary-nav="inbox"]):not([data-toybaco-primary-nav="settings"]):not([data-toybaco-primary-nav="reports"]) ul {
+aside nav > ul > li:not([data-toybaco-primary-nav="inbox"]):not([data-toybaco-primary-nav="settings"]):not([data-toybaco-primary-nav="reports"]):not([data-toybaco-primary-nav="contacts"]) ul {
   display: none !important;
 }
 
@@ -944,16 +944,20 @@ aside nav > ul > *[data-toybaco-post-entry-wrap] {
 .dark [data-toybaco-ai-usage-state="limited"] [data-toybaco-ai-usage-status] { color: #e6c58d; }
 .dark [data-toybaco-ai-usage-state="error"] [data-toybaco-ai-usage-status] { color: #ffb4a8; }
 
+aside nav > ul > li[data-toybaco-primary-nav="contacts"] {
+  order: 4;
+}
+
 aside nav > ul > li:has(a[href*="/reports"]),
 aside nav > ul > *:has(.i-lucide-chart-spline),
 aside nav > ul > *:has([title="レポート"]) {
-  order: 4;
+  order: 5;
 }
 
 aside nav > ul > li:has(a[href*="/settings"]),
 aside nav > ul > *:has(.i-lucide-bolt),
 aside nav > ul > *:has([title="設定"]) {
-  order: 5;
+  order: 6;
 }
 
 /* 一次ナビ: 選択は wash + ネイビー。小さい文字を極端な太字にしない。 */

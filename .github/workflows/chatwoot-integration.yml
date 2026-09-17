@@ -332,18 +332,26 @@ jobs:
           mkdir -m 0700 "$security/scan-output"
           db_download_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker pull "$TRIVY_IMAGE"
-          # A new empty cache is populated once; the scan below is offline and mounts its DB read-only.
+          # Retain the downloaded source. Trivy opens bbolt read/write even with skip-update.
+          frozen="$security/frozen-source"
+          mkdir -m 0700 "$frozen"
           docker run --rm \
-            --mount "type=bind,src=$security,dst=/root/.cache/trivy" \
+            --mount "type=bind,src=$frozen,dst=/root/.cache/trivy" \
             "$TRIVY_IMAGE" --config /dev/null image --download-db-only --no-progress
           node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before \
+            "$frozen" config/chatwoot-ruby-llm-backport.json
+          mkdir -m 0700 "$security/db"
+          cp -- "$frozen/db/trivy.db" "$frozen/db/metadata.json" "$security/db/"
+          # Existing signed database snapshots bind the actual scanned copy.
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-before \
             "$security" config/chatwoot-ruby-llm-backport.json
+          cmp -- "$frozen/db-before.json" "$security/db-before.json"
 
           scan_status=0
           # Raw scan: no VEX, ignore policy, credentials, repository config, or Docker socket.
           docker run --rm --network none --workdir /scan \
             --mount "type=bind,src=$security/sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly" \
-            --mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db,readonly" \
+            --mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db" \
             --mount "type=bind,src=$security/scan-output,dst=/output" \
             "$TRIVY_IMAGE" --config /dev/null sbom \
             --scanners vuln --pkg-types os,library --distro alpine/3.21.3 \
@@ -355,6 +363,10 @@ jobs:
           mv "$security/scan-output/raw-report.json" "$security/raw-report.json"
           node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after \
             "$security" config/chatwoot-ruby-llm-backport.json
+          node scripts/verify-chatwoot-ruby-llm-classification.mjs snapshot-after \
+            "$frozen" config/chatwoot-ruby-llm-backport.json
+          cmp -- "$frozen/db-before.json" "$frozen/db-after.json"
+          cmp -- "$frozen/db-after.json" "$security/db-after.json"
           jq --arg digest "$IMAGE_DIGEST" '{digest: $digest, raw_findings:
             [.Results[].Vulnerabilities[]? | {id: .VulnerabilityID, severity: .Severity,
               package: .PkgName, version: .InstalledVersion, path: .PkgPath, fixed: .FixedVersion}]}' \
@@ -368,7 +380,7 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/scripts,dst=/contract/scripts,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/contract/tests,readonly" \
             "$ECR_REPOSITORY@$IMAGE_DIGEST" \
-            /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
+            -rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
             > "$security/installed-proof.json"
           jq -n --arg image "$ECR_REPOSITORY" --arg digest "$IMAGE_DIGEST" \
             --arg source "$REPOSITORY_COMMIT" --arg control "$CONTROL_SHA" --arg trivy "$TRIVY_IMAGE" \
