@@ -505,6 +505,7 @@ REPLACEMENTS = {
     replacement("    : note?.user?.name || 'Bot';", "    : note?.user?.name || 'ボット';")
   ],
   'app/javascript/dashboard/components-next/Contacts/ContactsSidebar/components/ContactNoteItem.vue' => [
+    replacement("'/assets/images/chatwoot_bot.png'", "'/brand-assets/toybaco-app-icon-ivory.png'"),
     replacement(":name=\"note?.user?.name || 'Bot'\"", ":name=\"note?.user?.name || 'ボット'\"")
   ],
   'app/javascript/dashboard/components-next/Contacts/ContactsSidebar/ContactCustomAttributeItem.vue' => [
@@ -514,6 +515,9 @@ REPLACEMENTS = {
                 "  } catch {\n    useAlert(t('CONTACTS_LAYOUT.SIDEBAR.ATTRIBUTES.API.UPDATE_ERROR'));")
   ],
   'app/javascript/dashboard/components-next/Campaigns/EmptyState/CampaignEmptyStateContent.js' => [
+    replacement('https://www.chatwoot.com/features/chatbot/', 'https://example.com/support/'),
+    replacement('https://www.chatwoot.com/pricings', 'https://example.com/pricing/'),
+    replacement('https://{*.}?chatwoot.com/apps/account/*/settings/inboxes/new/', 'https://example.com/start/'),
     replacement("title: 'Chatbot Assistance'", "title: 'チャットボットのご案内'"),
     replacement("title: 'Pricing Information Support'", "title: '料金に関するご案内'"),
     replacement("title: 'Product Setup Assistance'", "title: '初期設定のサポート'"),
@@ -654,6 +658,7 @@ REPLACEMENTS = {
     replacement("name: 'Internal Resources'", "name: '社内資料'")
   ],
   'app/javascript/dashboard/components-next/HelpCenter/PortalSwitcher/CreatePortalDialog.vue' => [
+    replacement("color: '#2781F6', // The default color is set to Chatwoot brand color", "color: '#1F3A5F', // トイバコの初期色。作成時に変更できます。"),
     replacement("emit('create', { slug: portal.slug, locale: 'en' });",
                 "emit('create', { slug: portal.slug, locale: 'ja' });"),
     replacement("  } catch (error) {\n    dialogRef.value.close();\n\n    useAlert(\n      error?.message ||\n        t('HELP_CENTER.PORTAL_SETTINGS.API.CREATE_PORTAL.ERROR_MESSAGE')\n    );",
@@ -847,6 +852,7 @@ REPLACEMENTS = {
     replacement('alt="Facebook-logo"', 'alt="Facebookロゴ"')
   ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Website.vue' => [
+    replacement("channelWidgetColor: '#009CE0'", "channelWidgetColor: '#1F3A5F'"),
     replacement("      } catch (error) {\n        useAlert(\n          error.message ||\n            this.$t('INBOX_MGMT.ADD.WEBSITE_CHANNEL.API.ERROR_MESSAGE')\n        );",
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.ADD.WEBSITE_CHANNEL.API.ERROR_MESSAGE'));")
   ],
@@ -1235,6 +1241,16 @@ FORBIDDEN_VISIBLE = {
     ['res.data.message', 'error.response.data.message'],
   'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' => ['error?.message']
 }.freeze
+
+# Product links stay available without relying on installation-name checks.
+REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue').concat([
+  replacement('https://www.chatwoot.com/hc/user-guide/articles/1754940076-whatsapp-templates', '/toybaco-help.html#templates'),
+  replacement("          <a\n            v-else\n            :href=", "          <a\n            :href=")
+])
+REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue').concat([
+  replacement('https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/', '/toybaco-help.html#identity'),
+  replacement("            <a\n              v-else\n              target=", "            <a\n              target=")
+])
 
 abort 'replacement/source file sets differ' unless REPLACEMENTS.keys.sort == SOURCE_SHA256.keys.sort
 

@@ -33,7 +33,7 @@ const FUZZY_SEARCH_KEYS = [
 ];
 
 const TEMPLATE_LEARN_MORE_URL =
-  'https://www.chatwoot.com/hc/user-guide/articles/1754940076-whatsapp-templates';
+  '/toybaco-help.html#templates';
 
 const store = useStore();
 const { t } = useI18n();
@@ -356,7 +356,6 @@ onDeactivated(abortTemplateRequest);
             テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。
           </span>
           <a
-            v-else
             :href="TEMPLATE_LEARN_MORE_URL"
             class="text-sm font-medium text-n-blue-11 hover:underline"
             target="_blank"

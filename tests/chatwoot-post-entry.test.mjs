@@ -1040,8 +1040,10 @@ if (fs.existsSync(brandCssPath)) {
   assert.match(brandCss, /aside nav\s*\{\s*min-height:\s*0;/,
     'the native scrolling nav must be able to shrink above the sidebar footer');
   assert.match(brandCss, /aside nav > ul > li\[data-toybaco-nav-duplicate="1"\]\s*\{\s*display: none !important;/);
-  assert.match(brandCss, /aside \.n-dropdown-item > a\[href="https:\/\/www\.chatwoot\.com\/hc\/user-guide\/en"\]/,
-    'only the profile menu documentation link is removed from product navigation');
+  assert.doesNotMatch(brandCss, /aside \.n-dropdown-item > a\[href="https:\/\/www\.chatwoot\.com\/hc\/user-guide\/en"\]/,
+    'the profile documentation entry must be replaced with Toybaco help, not hidden');
+  const profileMenu = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/dashboard/components-next/sidebar/SidebarProfileMenu.vue'), 'utf8');
+  assert.match(profileMenu, /link: '\/toybaco-help\.html'/);
   assert.doesNotMatch(brandCss, /a\[href\*="(?:help\.chatwoot\.com|www\.chatwoot\.com\/hc)"\]/,
     'conversation and user-authored help links must remain visible');
   assert.match(brandCss, /data-toybaco-canned-name/);
@@ -1056,7 +1058,7 @@ if (fs.existsSync(brandCssPath)) {
     path.join(root, 'overlay/app/app/javascript/dashboard/i18n/locale/ja/whatsappTemplateMgmt.json'),
     'utf8'
   );
-  assert.match(whatsapp, /"KNOW_MORE": ""/);
+  assert.match(whatsapp, /"KNOW_MORE": "操作ガイドを見る"/);
   assert.match(whatsapp, /"EMPTY": "テンプレートは見つかりませんでした。"/);
   assert.doesNotMatch(whatsapp, /WhatsApp テンプレートは見つかりませんでした/);
   assert.doesNotMatch(whatsapp, /WhatsApp 受信トレイから同期された/);
