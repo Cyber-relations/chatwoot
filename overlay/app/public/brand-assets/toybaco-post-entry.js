@@ -1912,6 +1912,13 @@
     var id = currentAccountId();
     if (!id || id !== auxiliaryAccount) return;
     var destination = '/app/accounts/' + id + '/settings/inboxes/list';
+    var group = aiSettingsGroup();
+    if (group) {
+      group.dispatchEvent(new CustomEvent('toybaco-open-inbox-settings', {
+        detail: { path: destination, proceed: function () { closeAuxiliaryView(); } }
+      }));
+      return;
+    }
     var nativeLink = null;
     walkNavNodes(primaryNavList(), function (node) {
       if (!nativeLink && hrefOf(node) === destination && typeof node.click === 'function') nativeLink = node;
@@ -1922,10 +1929,38 @@
   }
 
   function hasAiSettingsLink() {
+    if (aiSettingsGroup()) return true;
     var destination = '/app/accounts/' + currentAccountId() + '/settings/inboxes/list';
     var found = false;
     walkNavNodes(primaryNavList(), function (node) { if (hrefOf(node) === destination) found = true; });
     return found;
+  }
+
+  function aiSettingsGroup() {
+    var destination = '/app/accounts/' + currentAccountId() + '/settings/inboxes/list';
+    var found = null;
+    walkNavNodes(primaryNavList(), function (node) {
+      if (!found && node.getAttribute && node.getAttribute('data-toybaco-inbox-settings-path') === destination) found = node;
+    });
+    return found;
+  }
+
+  function syncReplyAiSettings() {
+    if (!auxiliaryView || auxiliaryAccount !== currentAccountId()) return;
+    var actions = auxiliaryView.querySelector('[data-toybaco-reply-ai-actions]');
+    var note = auxiliaryView.querySelector('[data-toybaco-reply-ai-settings-note]');
+    if (!actions || !note) return;
+    var allowed = hasAiSettingsLink();
+    var entry = actions.querySelector('[data-toybaco-reply-ai-settings]');
+    if (allowed && !entry) {
+      entry = auxiliaryButton('AIを使う受信トレイを設定', visitAiSettings);
+      entry.setAttribute('data-toybaco-reply-ai-settings', '1');
+      actions.insertBefore(entry, actions.lastChild);
+    } else if (!allowed && entry) entry.remove();
+    var text = allowed
+      ? '対象の受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てます。'
+      : 'AIを使う受信トレイの設定は管理者が行います。「受信トレイ → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。';
+    if (note.textContent !== text) note.textContent = text;
   }
 
   function auxiliarySteps(items) {
@@ -1943,8 +1978,8 @@
     host.appendChild(auxiliaryText('p', '問い合わせへの返信を、下書き・自動応答で支援します。'));
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
+    actions.setAttribute('data-toybaco-reply-ai-actions', '1');
     actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { openAiModePanel(); }, true));
-    if (hasAiSettingsLink()) actions.appendChild(auxiliaryButton('AIを使う受信トレイを設定', visitAiSettings));
     actions.appendChild(auxiliaryButton('会話を開く', function () { navigatePrimaryNav('inbox'); }));
     host.appendChild(actions);
     var status = document.createElement('div');
@@ -1956,8 +1991,9 @@
       '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「返信AIの設定を確認」で、現在のモードを確認できます。',
       '下書きを使う場合は、会話内の「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
     ]);
-    if (hasAiSettingsLink()) host.appendChild(auxiliaryText('p', '対象の受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てます。', 'data-toybaco-aux-note'));
-    else host.appendChild(auxiliaryText('p', 'AIを使う受信トレイの設定は管理者が行います。「受信トレイ → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。', 'data-toybaco-aux-note'));
+    var note = auxiliaryText('p', '', 'data-toybaco-aux-note');
+    note.setAttribute('data-toybaco-reply-ai-settings-note', '1');
+    host.appendChild(note);
     host.appendChild(guide);
   }
 
@@ -2072,6 +2108,7 @@
     });
     host.appendChild(view);
     auxiliaryView = view;
+    syncReplyAiSettings();
     syncPostingSelection();
     document.addEventListener('keydown', auxiliaryKeydown, true);
     if (kind === 'ai') { prefetchAiMode(auxiliaryAccount, true); paintAiModeControls(); paintAiUsage(); }
@@ -3421,6 +3458,7 @@
       reconcilePostingAccess(leavingBillingAccount, true);
     }
     inject();
+    syncReplyAiSettings();
     ensurePostingContract();
     if (!panel && (currentHashPath() !== null || isAssistantHash(window.location.hash || '') || hasPendingPath())) {
       onHashMaybeChanged();
@@ -3471,7 +3509,8 @@
         });
       });
       var root = document.documentElement || document.body;
-      if (root) observer.observe(root, { childList: true, subtree: true });
+      if (root) observer.observe(root, { childList: true, subtree: true,
+        attributes: true, attributeFilter: ['data-toybaco-inbox-settings-path'] });
     } catch (e) { /* 使えない環境では再試行だけ */ }
 
     var r = 0;

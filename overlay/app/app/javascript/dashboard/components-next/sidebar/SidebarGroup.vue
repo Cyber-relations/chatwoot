@@ -186,6 +186,26 @@ const hasAccessibleChildren = computed(() => {
   return visibleChildren.value.length > 0;
 });
 
+// The assistant must not infer access from submenu links: those leaves are
+// unmounted in the collapsed sidebar. Keep this bridge on the permitted group.
+const inboxSettingsItem = computed(() => {
+  const accountPath = route.path.match(/^\/app\/accounts\/[1-9]\d*(?=\/|$)/)?.[0];
+  if (!accountPath) return null;
+  return accessibleItems.value.find(
+    item => resolvePath(item.to) === `${accountPath}/settings/inboxes/list`
+  );
+});
+const inboxSettingsPath = computed(() =>
+  inboxSettingsItem.value ? resolvePath(inboxSettingsItem.value.to) : undefined
+);
+const openInboxSettings = event => {
+  const item = inboxSettingsItem.value;
+  if (!item || event.detail?.path !== inboxSettingsPath.value ||
+      typeof event.detail?.proceed !== 'function') return;
+  event.detail.proceed();
+  router.push(item.to);
+};
+
 const isLastVisibleChild = child => {
   const lastChild = visibleChildren.value[visibleChildren.value.length - 1];
   return lastChild === child;
@@ -317,6 +337,8 @@ watch(
     :feature-flag="resolveFeatureFlag(to)"
     as="li"
     class="grid gap-1 text-sm cursor-pointer select-none min-w-0"
+    :data-toybaco-inbox-settings-path="inboxSettingsPath"
+    @toybaco-open-inbox-settings="openInboxSettings"
   >
     <!-- Collapsed State -->
     <template v-if="isCollapsed">

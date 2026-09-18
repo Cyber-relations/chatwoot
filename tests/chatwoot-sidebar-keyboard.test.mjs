@@ -614,6 +614,57 @@ try {
   babelParse(source('app/javascript/dashboard/routes/index.js'), { sourceType: 'module' });
   pass('Sidebar SFC and routes module syntax');
 
+  // Reproduce an assistant entered directly with the settings leaves absent.
+  // Actual parent navigation functions talk to the mounted, permission-filtered
+  // Vue group; only the final close effect and routing destination are recorded.
+  const entry = source('public/brand-assets/toybaco-post-entry.js');
+  const parentNames = ['aiSettingsGroup', 'hasAiSettingsLink', 'visitAiSettings', 'walkNavNodes', 'hrefOf'];
+  const entryAst = babelParse(entry, { sourceType: 'script' });
+  const parentDeclarations = [];
+  const findParentDeclarations = node => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'FunctionDeclaration' && parentNames.includes(node.id?.name)) parentDeclarations.push(node);
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(findParentDeclarations);
+      else if (value && typeof value === 'object') findParentDeclarations(value);
+    }
+  };
+  findParentDeclarations(entryAst.program);
+  assert.equal(parentDeclarations.length, parentNames.length);
+  let assistantAccount = '4'; let assistantCloses = 0;
+  const parentSettings = new Function('primaryNavList', 'currentAccountId', 'closeAuxiliaryView', 'CustomEvent',
+    'var auxiliaryAccount = "4";\n' + parentDeclarations.map(node => entry.slice(node.start, node.end)).join('\n') +
+    '\nreturn {hasAiSettingsLink, visitAiSettings};')(
+    () => host, () => assistantAccount, () => { assistantCloses += 1; }, CustomEvent
+  );
+  const inboxPath = '/app/accounts/4/settings/inboxes/list';
+  for (const collapsed of [true, false]) {
+    await mount({ collapsed, pathname: '/app/accounts/4/dashboard', children: [child('Inbox', inboxPath)] });
+    if (collapsed) assert.equal(host.querySelector('a'), null, 'collapsed leaves are not mounted');
+    assert.equal(parentSettings.hasAiSettingsLink(), true, 'initial assistant discovers the permitted destination');
+    const closesBefore = assistantCloses;
+    parentSettings.visitAiSettings(); await tick();
+    assert.deepEqual(pushes.map(to => to.path), [inboxPath]);
+    assert.equal(assistantCloses, closesBefore + 1);
+    allowed.value = new Set(); await tick();
+    assert.equal(parentSettings.hasAiSettingsLink(), false, 'role revocation removes the capability');
+    parentSettings.visitAiSettings(); await tick(); assert.equal(pushes.length, 1);
+  }
+  await mount({ pathname: '/app/accounts/4/dashboard', children: [child('General'), child('Inbox', inboxPath, 'denied')] });
+  assert.equal(parentSettings.hasAiSettingsLink(), false, 'other allowed settings do not grant inbox access');
+  parentSettings.visitAiSettings(); assert.deepEqual(pushes, []);
+  const grantedProps = await mount({ pathname: '/app/accounts/4/dashboard', children: [child('General')] });
+  assert.equal(parentSettings.hasAiSettingsLink(), false);
+  grantedProps.children.push(child('Inbox', inboxPath)); await tick();
+  assert.equal(parentSettings.hasAiSettingsLink(), true, 'late native menu permission is discoverable');
+  const retiredGroup = host.querySelector('[data-toybaco-inbox-settings-path]');
+  route.path = '/app/accounts/5/dashboard'; await tick();
+  assert.equal(parentSettings.hasAiSettingsLink(), false, 'account change retires the previous account capability');
+  retiredGroup.dispatchEvent(new CustomEvent('toybaco-open-inbox-settings', {detail: {path: inboxPath, proceed: () => {throw new Error('stale account');}}}));
+  assistantAccount = '5'; parentSettings.visitAiSettings(); await tick(); assert.deepEqual(pushes, []);
+  assistantAccount = '4';
+  pass('AI inbox settings: direct entry, collapsed/expanded, native navigation, denied/revoked/late permission and account switch');
+
   await mount();
   assert.equal(trigger().getAttribute('aria-expanded'), 'false');
   assert.equal(event(trigger(), 'ArrowDown').defaultPrevented, true); await tick();
