@@ -1956,7 +1956,7 @@
       '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「返信AIの設定を確認」で、現在のモードを確認できます。',
       '下書きを使う場合は、会話内の「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
     ]);
-    if (hasAiSettingsLink()) host.appendChild(auxiliaryText('p', '受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てると利用を開始できます。', 'data-toybaco-aux-note'));
+    if (hasAiSettingsLink()) host.appendChild(auxiliaryText('p', '対象の受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てます。', 'data-toybaco-aux-note'));
     else host.appendChild(auxiliaryText('p', 'AIを使う受信トレイの設定は管理者が行います。「受信トレイ → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。', 'data-toybaco-aux-note'));
     host.appendChild(guide);
   }
