@@ -4928,6 +4928,29 @@ for (const destination of ['ai', 'about']) {
 }
 console.log('AI/About auxiliary entry, read-only guidance, owned draft and close-decision regressions: PASS');
 
+{
+  const tree = createMenuTree(true);
+  const group = createDomNode('li'); tree.ul.appendChild(group);
+  const destination = '/app/accounts/1/settings/inboxes/list';
+  group.setAttribute('data-toybaco-inbox-settings-path', destination);
+  const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/dashboard', { body: tree.body });
+  env.api.inject(); env.api.openAuxiliaryView('ai');
+  const settingsButton = () => env.document.querySelector('[data-toybaco-reply-ai-settings]');
+  assert.ok(settingsButton(), 'direct entry exposes setup without any rendered submenu link');
+  const initialButton = settingsButton(); env.api.afterNavChange();
+  assert.equal(settingsButton(), initialButton, 'unchanged access preserves the focused button');
+  group.removeAttribute('data-toybaco-inbox-settings-path'); env.api.afterNavChange();
+  assert.equal(settingsButton(), null, 'revocation removes the setup action');
+  assert.match(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /管理者/);
+  group.setAttribute('data-toybaco-inbox-settings-path', '/app/accounts/2/settings/inboxes/list'); env.api.afterNavChange();
+  assert.equal(settingsButton(), null, 'another account destination cannot expose setup');
+  group.setAttribute('data-toybaco-inbox-settings-path', destination); env.api.afterNavChange();
+  assert.ok(settingsButton(), 'late permissions update the open assistant without navigation');
+  assert.doesNotMatch(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /管理者が/);
+  assert.equal(env.document.querySelectorAll('[data-toybaco-reply-ai-settings]').length, 1);
+  env.api.closeAuxiliaryView();
+}
+
 function auxiliaryPostingFixture(postingPath = '/settings', aiIntent) {
   const base = '/app/accounts/1/dashboard';
   const env = loadInjectEntry(aiModeAwareFetch, base);
