@@ -94,7 +94,7 @@ COPY --from=runtime-hardening /toybaco-runtime-root/ /
 # filesystem and APK inventory together, including both linked libraries.
 RUN apk add --no-cache --upgrade 'openssl=3.3.7-r1' 'libcrypto3=3.3.7-r1' 'libssl3=3.3.7-r1' \
     && for package in openssl libcrypto3 libssl3; do \
-      test "$(apk info -v "$package")" = "$package-3.3.7-r1"; \
+      test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r1"; \
     done \
     && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)'
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
