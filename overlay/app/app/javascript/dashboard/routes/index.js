@@ -9,7 +9,12 @@ import { getNotificationLoginURL } from 'v3/helpers/AuthHelper';
 import AnalyticsHelper from '../helper/AnalyticsHelper';
 
 const ONBOARDING_STEPS = ['account_details', 'enrichment', 'inbox_setup'];
-const routes = [...dashboard.routes];
+const routes = [...dashboard.routes, {
+  path: frontendURL('accounts/:accountId/toybaco/start'),
+  name: 'toybaco_growth_start',
+  component: () => import('./dashboard/onboarding/ToybacoStart.vue'),
+  meta: { permissions: ['administrator', 'agent', 'custom_role'] },
+}];
 
 const onboardingPath = step =>
   step === 'inbox_setup' ? 'onboarding/inbox-setup' : 'onboarding';

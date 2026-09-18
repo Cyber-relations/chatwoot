@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'growth_terms'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Versioned product terms. New sales and existing contracts are resolved separately.
@@ -83,7 +84,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       limits = value.fetch('limits')
       raise Invalid, 'invalid feature or limit' unless boolean_features?(features) && valid_limits?(limits)
 
-      validate_complete_entitlements!(value) if complete
+      if complete
+        value['ai_meter'] == GrowthTerms::METER ? GrowthTerms.validate!(value) : validate_complete_entitlements!(value)
+      end
       true
     rescue KeyError
       raise Invalid, 'incomplete entitlements'

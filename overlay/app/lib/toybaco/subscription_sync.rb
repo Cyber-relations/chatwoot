@@ -2,6 +2,7 @@
 
 require_relative 'entitlements'
 require_relative 'checkout'
+require_relative 'growth/paid_period'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Webhooks carry a subscription ID, never authoritative plan or access state.
@@ -25,6 +26,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         previous = previous_contract(account)
         contract, outcome = apply_contract(account, subscription, previous)
         apply_status(account, subscription, contract, outcome)
+        Growth::PaidPeriod.new(account).observe!(subscription) if outcome == 'applied'
         yield subscription, outcome if block_given?
       end
       outcome

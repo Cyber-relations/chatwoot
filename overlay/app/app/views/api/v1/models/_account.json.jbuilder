@@ -1,4 +1,5 @@
 json.settings resource.settings
+json.toybaco_growth_onboarding Toybaco::Growth::Onboarding.available?(resource)
 json.created_at resource.created_at
 if resource.custom_attributes.present?
   json.custom_attributes do

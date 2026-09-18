@@ -2937,6 +2937,18 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(env.usageCalls.length, 2, 'DOM mutations must not retry unavailable usage in a loop');
 }
 
+for (const reset of ['2026-10-19T01:00:00Z', null]) {
+  const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract',
+    resets_at: reset, automatic_enabled: false, automatic_reason: 'automatic_unavailable' })));
+  await flush();
+  assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-heading]').textContent, '現在の共通AI枠');
+  assert.match(collectText(env.usageCard), /返信・投稿で共通のAI枠/);
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.notEqual(env.document.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.match(collectText(env.body), /自動応答の契約・体験・残り枠/);
+  if (reset === null) assert.doesNotMatch(collectText(env.usageCard), /NaN|に更新/);
+}
+
 for (const [reason, expected] of [
   ['disabled', /この店舗ではAI応答をご利用いただけません/],
   ['unknown_contract', /AI応答の利用条件を確認できません/],

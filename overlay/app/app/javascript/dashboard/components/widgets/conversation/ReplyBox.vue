@@ -24,6 +24,7 @@ import { AUDIO_FORMATS } from 'shared/constants/messages';
 import { BUS_EVENTS } from 'shared/constants/busEvents';
 import { CMD_AI_ASSIST } from 'dashboard/helper/commandbar/events';
 import { latestToybacoAiDraft } from 'dashboard/helper/toybacoAiDraft';
+import ToybacoManualDraft from './ToybacoManualDraft.vue';
 import {
   getMessageVariables,
   getUndefinedVariablesInMessage,
@@ -82,6 +83,7 @@ export default {
     ContentTemplates,
     WhatsappTemplates,
     WootMessageEditor,
+    ToybacoManualDraft,
     QuotedEmailPreview,
     CopilotEditorSection,
     CopilotReplyBottomPanel,
@@ -245,6 +247,11 @@ export default {
         getEffectiveChannelType(this.channelType, this.inbox?.medium || '')
       );
       return !!stripped.trim();
+    },
+    toybacoLatestIncomingId() {
+      const incoming = (this.currentChat?.messages || []).filter(message =>
+        message.message_type === 0 && message.private !== true);
+      return incoming.sort((a, b) => Number(b.id) - Number(a.id))[0]?.id || null;
     },
     toybacoAiDraft() {
       return latestToybacoAiDraft(this.currentChat?.messages);
@@ -1084,6 +1091,18 @@ export default {
         this.toybacoImportedAiDraft = { accountId, conversationId, draftId: draft.id };
       }
     },
+    applyToybacoManualDraft(candidate) {
+      if (this.isEditorDisabled || !this.canSendPublicReply || this.isPrivate || this.hasAttachments ||
+          String(this.accountId) !== String(candidate.accountId) ||
+          String(this.currentChat?.id) !== String(candidate.conversationId) ||
+          String(this.toybacoLatestIncomingId) !== String(candidate.incomingId) ||
+          this.message !== candidate.expectedDraft) return;
+      if (!this.messageEditor?.replaceToybacoDraft(candidate.content, candidate.expectedDraft)) {
+        useAlert('入力を残しています。返信案をコピーして利用できます。');
+      } else {
+        candidate.onApplied?.(this.message);
+      }
+    },
     addIntoEditor(content) {
       this.updateEditorSelectionWith = content;
       this.onFocus();
@@ -1391,7 +1410,7 @@ export default {
 
 <template>
   <ReplyBoxBanner :message="message" :is-on-private-note="isOnPrivateNote" />
-  <div ref="replyEditor" class="reply-box" :class="replyBoxClass">
+  <div ref="replyEditor" class="reply-box" :class="replyBoxClass" :data-toybaco-guide-reply="isPrivate ? 'note' : 'public'">
     <ReplyTopPanel
       :mode="replyType"
       :conversation-id="conversationId"
@@ -1475,6 +1494,15 @@ export default {
             />
           </div>
         </div>
+        <ToybacoManualDraft
+          v-if="isDefaultEditorMode && !isPrivate && toybacoLatestIncomingId"
+          :account-id="accountId"
+          :conversation-id="currentChat.id"
+          :incoming-id="toybacoLatestIncomingId"
+          :draft="message"
+          :can-edit="!isEditorDisabled && canSendPublicReply && !hasAttachments"
+          @apply="applyToybacoManualDraft"
+        />
         <div v-if="toybacoAiDraft && isDefaultEditorMode" class="toybaco-ai-draft-result" role="status">
           <div>
             <strong>AIの返信下書きがあります</strong>
@@ -1482,7 +1510,7 @@ export default {
             <p v-else-if="hasMeaningfulEditorContent || (isPrivate && hasAttachments)">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>
             <p v-else>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>
           </div>
-          <button type="button" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
+          <button type="button" data-toybaco-guide-action="reply.ai_draft" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
             AI下書きを使う
           </button>
         </div>

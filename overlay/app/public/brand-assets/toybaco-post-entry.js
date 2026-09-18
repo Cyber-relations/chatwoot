@@ -2197,7 +2197,8 @@
     var readiness = aiReadinessState();
     var usage = aiUsageState();
     return readiness.phase === 'ready' &&
-      readiness.data.connection === 'configured' && usage.phase === 'ready' && usage.data.enabled;
+      readiness.data.connection === 'configured' && usage.phase === 'ready' && usage.data.enabled &&
+      (usage.data.meter !== 'business_generation' || usage.data.automatic_enabled === true);
   }
 
   function prefetchAiReadiness(accountId, force) {
@@ -2263,6 +2264,9 @@
     }
     if (connection === 'unconnected') return { state: 'unconnected', text: 'AI：未接続' };
     if (access && access.remaining === 0) return { state: 'limited', text: 'AI：残り枠なし' };
+    if (access && access.meter === 'business_generation' && !access.automatic_enabled && state.mode === AI_MODE_AUTO) {
+      return { state: 'unavailable', text: 'AI：自動応答を確認' };
+    }
     if (usage.phase === 'error') return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
     if (readiness.phase === 'error' || connection === 'unknown') {
       return { state: 'unconfirmed', text: 'AI：接続を確認' };
@@ -2303,6 +2307,10 @@
     else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
     else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
+    else if (usage.data.meter === 'business_generation' && !usage.data.automatic_enabled) {
+      connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると自動応答を設定できます。' :
+        '自動応答の契約・体験・残り枠を確認してください。下書きは利用できます。';
+    }
     var compactStatus = aiModeCompactStatus(state, readiness, usage);
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
@@ -2391,11 +2399,15 @@
         Math.floor(value) === value && value <= 9007199254740991;
     }
     var reasons = [null, 'unknown_contract', 'account_inactive', 'disabled', 'limit_reached'];
+    var shared = body && body.meter === 'business_generation';
+    var validReset = body && ((shared && body.resets_at === null) ||
+      (typeof body.resets_at === 'string' &&
+       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(body.resets_at) &&
+       isFinite(Date.parse(body.resets_at))));
     if (!body || typeof body.enabled !== 'boolean' || !count(body.used) || !count(body.reserved) ||
-      !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.period) ||
-      typeof body.resets_at !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(body.resets_at) ||
-      !isFinite(Date.parse(body.resets_at)) ||
+      (shared && (typeof body.automatic_enabled !== 'boolean' ||
+        [null, 'account_inactive', 'facts_required', 'automatic_unavailable'].indexOf(body.automatic_reason) < 0)) ||
+      (shared ? body.period !== 'contract' : !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.period)) || !validReset ||
       reasons.indexOf(body.reason) < 0 ||
       (body.limit === null ? body.remaining !== null :
         (!count(body.limit) || !count(body.remaining) || body.remaining > body.limit)) ||
@@ -2437,13 +2449,13 @@
     var busy = state.phase === 'loading' || state.phase === 'idle';
     var message = busy ? '利用状況を確認しています…' : '利用状況を取得できませんでした。再確認してください。';
     if (data) {
-      message = aiUsageAccessMessage(data) || '全自動・下書きで共通の利用枠です。';
+      message = aiUsageAccessMessage(data) || (data.meter === 'business_generation' ? '返信・投稿で共通のAI枠です。' : '全自動・下書きで共通の利用枠です。');
     }
     card.setAttribute('aria-busy', busy ? 'true' : 'false');
     card.setAttribute('data-toybaco-ai-usage-state', state.phase === 'error' ? 'error' :
       (data && (!active || data.remaining === 0) ? 'limited' : state.phase));
     var heading = card.querySelector('[data-toybaco-ai-usage-heading]');
-    heading.textContent = active ? data.period.slice(0, 4) + '年' + Number(data.period.slice(5)) + '月のAI応答' : 'AI応答の利用状況';
+    heading.textContent = active ? (data.meter === 'business_generation' ? '現在の共通AI枠' : data.period.slice(0, 4) + '年' + Number(data.period.slice(5)) + '月のAI応答') : 'AI応答の利用状況';
     var value = card.querySelector('[data-toybaco-ai-usage-value]');
     value.textContent = active ? data.used.toLocaleString('ja-JP') +
       (data.limit === null ? ' 件利用済み' : ' / ' + data.limit.toLocaleString('ja-JP') + ' 件') : '';
@@ -2454,8 +2466,8 @@
       (data.reserved ? ' · 処理中 ' + data.reserved.toLocaleString('ja-JP') + ' 件' : '') : '';
     details.hidden = !active;
     var reset = card.querySelector('[data-toybaco-ai-usage-reset]');
-    reset.textContent = active ? aiUsageResetLabel(data.resets_at) : '';
-    reset.hidden = !active;
+    reset.textContent = active && data.resets_at ? aiUsageResetLabel(data.resets_at) : '';
+    reset.hidden = !active || !data.resets_at;
     card.querySelector('[data-toybaco-ai-usage-status]').textContent = message;
     var refresh = card.querySelector('[data-toybaco-ai-usage-refresh]');
     refresh.textContent = busy ? '更新中…' : (state.phase === 'error' ? '再確認' : '更新');

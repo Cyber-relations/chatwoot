@@ -1,0 +1,15 @@
+#trial { max-width: 840px; }
+.trial-card { margin: 28px 0; padding: 28px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+.trial-card h2 { margin-top: 0; font-size: 22px; }
+.trial-card fieldset { border: 0; padding: 0; margin: 24px 0; }
+.trial-card legend { margin-bottom: 12px; color: var(--muted); }
+.trial-example { display: flex; align-items: start; gap: 12px; margin: 12px 0; padding: 18px; border: 1px solid var(--line); border-radius: 8px; }
+.trial-example:has(input:checked) { border-color: var(--navy); background: #f1f4f7; }
+.trial-example small, .trial-answer { display: block; }
+.trial-example small { margin-bottom: 8px; color: var(--muted); }
+.trial-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.trial-confirm { display: flex; gap: 10px; margin: 24px 0; }
+#trial-start { background: var(--navy); color: #fff; border: 0; border-radius: 8px; padding: 14px 24px; font: inherit; font-weight: 700; cursor: pointer; }
+#trial-start:disabled { opacity: .55; cursor: default; }
+#trial-error { color: #a12835; }
+@media (max-width: 600px) { .trial-card { padding: 20px; } #trial-start { width: 100%; } }

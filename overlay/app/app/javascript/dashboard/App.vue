@@ -1,6 +1,9 @@
 <script>
 import { mapGetters } from 'vuex';
+import { computed } from 'vue';
+import { useConnectionResult } from 'dashboard/composables/useConnectionResult';
 import LoadingState from './components/widgets/ToybacoBootLoading.vue';
+import ToybacoGrowthGuide from './components/widgets/ToybacoGrowthGuide.vue';
 import NetworkNotification from './components/NetworkNotification.vue';
 import UpdateBanner from './components/app/UpdateBanner.vue';
 import StatusBanner from './components/app/StatusBanner.vue';
@@ -27,6 +30,7 @@ export default {
 
   components: {
     LoadingState,
+    ToybacoGrowthGuide,
     NetworkNotification,
     UpdateBanner,
     StatusBanner,
@@ -39,6 +43,9 @@ export default {
     const router = useRouter();
     const store = useStore();
     const { accountId } = useAccount();
+    useConnectionResult(
+      computed(() => !store.getters.getAuthUIFlags.isFetching && !!accountId.value)
+    );
     // Use the font size composable (it automatically sets up the watcher)
     const { currentFontSize } = useFontSize();
     const { uiSettings } = useUISettings();
@@ -142,6 +149,7 @@ export default {
   >
     <UpdateBanner :latest-chatwoot-version="latestChatwootVersion" />
     <StatusBanner />
+    <ToybacoGrowthGuide v-if="currentAccountId" />
     <template v-if="currentAccountId">
       <PendingEmailVerificationBanner v-if="hideOnOnboardingView" />
       <PaymentPendingBanner v-if="hideOnOnboardingView" />
