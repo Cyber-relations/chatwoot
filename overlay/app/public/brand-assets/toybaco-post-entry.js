@@ -1944,6 +1944,7 @@
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
     actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { openAiModePanel(); }, true));
+    if (hasAiSettingsLink()) actions.appendChild(auxiliaryButton('AIを使う受信トレイを設定', visitAiSettings));
     actions.appendChild(auxiliaryButton('会話を開く', function () { navigatePrimaryNav('inbox'); }));
     host.appendChild(actions);
     var status = document.createElement('div');
@@ -1955,8 +1956,8 @@
       '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「返信AIの設定を確認」で、現在のモードを確認できます。',
       '下書きを使う場合は、会話内の「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
     ]);
-    if (hasAiSettingsLink()) guide.appendChild(auxiliaryButton('受信箱の接続設定', visitAiSettings));
-    else guide.appendChild(auxiliaryText('p', '接続先の変更は管理者が行います。「設定 → 受信箱 → 対象の受信箱 → ボット設定」を確認してもらってください。', 'data-toybaco-aux-note'));
+    if (hasAiSettingsLink()) host.appendChild(auxiliaryText('p', '受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てると利用を開始できます。', 'data-toybaco-aux-note'));
+    else host.appendChild(auxiliaryText('p', 'AIを使う受信トレイの設定は管理者が行います。「受信トレイ → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。', 'data-toybaco-aux-note'));
     host.appendChild(guide);
   }
 
