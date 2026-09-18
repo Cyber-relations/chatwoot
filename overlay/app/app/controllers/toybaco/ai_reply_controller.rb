@@ -11,7 +11,9 @@ class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rail
   before_action :load_account
 
   def show
-    render json: Toybaco::AiReplyMode.payload(Toybaco::AiReplyMode.read_from(@account))
+    payload = Toybaco::AiReplyMode.payload(Toybaco::AiReplyMode.read_from(@account))
+    payload[:meter] = Toybaco::GrowthTerms::METER if Toybaco::Entitlements.for_account(@account)&.dig('ai_meter') == Toybaco::GrowthTerms::METER
+    render json: payload
   end
 
   def update

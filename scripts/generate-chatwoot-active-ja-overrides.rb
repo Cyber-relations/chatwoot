@@ -13,6 +13,8 @@ SOURCE_ROOT = Pathname.new(source_argument).realpath
 OUTPUT_ROOT = Pathname.new(output_argument).expand_path
 
 SOURCE_SHA256 = {
+  'app/javascript/dashboard/components/widgets/WootWriter/Editor.vue' =>
+    'bff7426ef7ff37c8d0482759634d0a71adebc790aef66a80998c3c3c5f6cb63c',
   "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue" =>
     "d45770e734a5dc1a50885c5a585e1abeee6539809b34b3fdf92b771256e57e28",
   "app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue" =>
@@ -208,6 +210,7 @@ MAJOR_ROUTE_ANCHORS = {
       'app/javascript/dashboard/components/widgets/conversation/MessagesView.vue',
       'app/javascript/dashboard/components/widgets/conversation/OnboardingView.vue',
       'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue',
+      'app/javascript/dashboard/components/widgets/WootWriter/Editor.vue',
       'app/javascript/dashboard/components/widgets/conversation/ContentTemplates/ContentTemplatesPicker.vue',
       'app/javascript/dashboard/components/widgets/conversation/ShopifyOrderItem.vue',
       'app/javascript/dashboard/components/widgets/conversation/components/GalleryView.vue',
@@ -349,6 +352,26 @@ def replacement(before, after, count = 1)
 end
 
 REPLACEMENTS = {
+  'app/javascript/dashboard/components/widgets/WootWriter/Editor.vue' => [
+    replacement('defineExpose({ focusEditorInputField });', <<~JS.strip)
+      function replaceToybacoDraft(content, expectedValue) {
+        if (!editorView || props.disabled || props.modelValue !== expectedValue ||
+            contentFromEditor() !== expectedValue || typeof content !== 'string' ||
+            !content.trim() || content.length > 1600) return false;
+        let hasMedia = false;
+        editorView.state.doc.descendants(node => { if (node.type.name === 'image') hasMedia = true; });
+        if (hasMedia) return false;
+        const schema = editorView.state.schema;
+        const paragraphs = content.split(/\\r?\\n/).map(line =>
+          schema.nodes.paragraph.create(null, line ? schema.text(line) : null));
+        editorView.dispatch(editorView.state.tr.replaceWith(0, editorView.state.doc.content.size, paragraphs));
+        editorView.focus();
+        return true;
+      }
+
+      defineExpose({ focusEditorInputField, replaceToybacoDraft });
+    JS
+  ],
   "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue" => [
     replacement("      isOnChatwootCloud: 'globalConfig/isOnChatwootCloud',\n", "      isOnChatwootCloud: 'globalConfig/isOnChatwootCloud',\n      globalConfig: 'globalConfig/get',\n"),
     replacement("    isEmbeddedSignupWhatsApp() {\n", "    isToybacoInstance() {\n      return this.globalConfig.installationName === 'トイバコ';\n    },\n    isEmbeddedSignupWhatsApp() {\n"),
@@ -1252,6 +1275,47 @@ REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/templates
 REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue').concat([
   replacement('https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/', '/toybaco-help.html#identity'),
   replacement("            <a\n              v-else\n              target=", "            <a\n              target=")
+])
+
+REPLACEMENTS.fetch('app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue').concat([
+  replacement("import { latestToybacoAiDraft } from 'dashboard/helper/toybacoAiDraft';",
+              "import { latestToybacoAiDraft } from 'dashboard/helper/toybacoAiDraft';\nimport ToybacoManualDraft from './ToybacoManualDraft.vue';"),
+  replacement("    WootMessageEditor,", "    WootMessageEditor,\n    ToybacoManualDraft,"),
+  replacement("    toybacoAiDraft() {", <<~JS.chomp.gsub(/^/, '    ')),
+      toybacoLatestIncomingId() {
+        const incoming = (this.currentChat?.messages || []).filter(message =>
+          message.message_type === 0 && message.private !== true);
+        return incoming.sort((a, b) => Number(b.id) - Number(a.id))[0]?.id || null;
+      },
+      toybacoAiDraft() {
+  JS
+  replacement("    addIntoEditor(content) {", <<~JS.chomp.gsub(/^/, '    ')),
+      applyToybacoManualDraft(candidate) {
+        if (this.isEditorDisabled || !this.canSendPublicReply || this.isPrivate || this.hasAttachments ||
+            String(this.accountId) !== String(candidate.accountId) ||
+            String(this.currentChat?.id) !== String(candidate.conversationId) ||
+            String(this.toybacoLatestIncomingId) !== String(candidate.incomingId) ||
+            this.message !== candidate.expectedDraft) return;
+        if (!this.messageEditor?.replaceToybacoDraft(candidate.content, candidate.expectedDraft)) {
+          useAlert('入力を残しています。返信案をコピーして利用できます。');
+        } else {
+          candidate.onApplied?.(this.message);
+        }
+      },
+      addIntoEditor(content) {
+  JS
+  replacement('        <div v-if="toybacoAiDraft && isDefaultEditorMode"', <<~VUE.chomp.gsub(/^/, '        '))
+          <ToybacoManualDraft
+            v-if="isDefaultEditorMode && !isPrivate && toybacoLatestIncomingId"
+            :account-id="accountId"
+            :conversation-id="currentChat.id"
+            :incoming-id="toybacoLatestIncomingId"
+            :draft="message"
+            :can-edit="!isEditorDisabled && canSendPublicReply && !hasAttachments"
+            @apply="applyToybacoManualDraft"
+          />
+          <div v-if="toybacoAiDraft && isDefaultEditorMode"
+  VUE
 ])
 
 abort 'replacement/source file sets differ' unless REPLACEMENTS.keys.sort == SOURCE_SHA256.keys.sort

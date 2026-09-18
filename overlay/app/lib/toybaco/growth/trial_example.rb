@@ -11,7 +11,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def find(id, revision:)
-        message = @account.messages.find_by(id: id, sender_type: 'AgentBot', message_type: :outgoing, private: true)
+        message = @account.messages.find_by(id: id, sender_type: %w[AgentBot User], message_type: :outgoing, private: true)
         return unless message&.content&.start_with?(ReplyResult::DRAFT_PREFIX)
 
         operation = operation_for(message)
@@ -21,7 +21,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def list(revision:)
-        candidates = @account.messages.where(sender_type: 'AgentBot', message_type: :outgoing, private: true).order(id: :desc).limit(30)
+        candidates = @account.messages.where(sender_type: %w[AgentBot User], message_type: :outgoing, private: true).order(id: :desc).limit(30)
         candidates.filter_map { |message| find(message.id, revision: revision) }.first(3)
       end
 
@@ -38,10 +38,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def matching_input?(message, operation, revision)
         incoming = message.conversation.messages.where(message_type: :incoming, private: false).order(created_at: :desc, id: :desc).first
         return false unless incoming && incoming.source_id.present?
+        return manual_input_matches?(message, operation, incoming, revision) if message.sender_type == 'User'
 
         digest = Digest::SHA256.hexdigest(JSON.generate([incoming.id, incoming.content, revision]))
         key = Digest::SHA256.hexdigest("toybaco-reply:#{@account.id}:#{incoming.id}")
         operation.context_digest == digest && operation.request_key == key
+      end
+
+      def manual_input_matches?(message, operation, incoming, revision)
+        request = Toybaco::GrowthDraftRequest.find_by(id: message.additional_attributes.dig(ReplyResult::KEY, 'request_id'),
+                                                      account_id: @account.id, user_id: message.sender_id, conversation_id: message.conversation_id,
+                                                      operation_id: operation.id, incoming_id: incoming.id,
+                                                      facts_revision: revision, state: 'completed')
+        return false unless request
+
+        digest = Digest::SHA256.hexdigest(JSON.generate([incoming.id, incoming.content, revision, request.draft_digest, request.user_id]))
+        operation.context_digest == digest
       end
     end
   end
