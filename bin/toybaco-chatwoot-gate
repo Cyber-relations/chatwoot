@@ -1093,6 +1093,10 @@ build_and_smoke_production_image() {
       test -f /usr/lib/libexpat.so.1.12.4
       test ! -e /usr/lib/libexpat.so.1.12.3
       ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
+      for package in openssl libcrypto3 libssl3; do
+        test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r1"
+      done
+      ruby -ropenssl -e "abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?(%q{OpenSSL 3.3.7 }); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)"
       test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
       test "$(apk info -v | grep "^openjpeg-")" = "openjpeg-2.5.4-r0"
       test "$(readlink /usr/lib/libopenjp2.so.7)" = "libopenjp2.so.2.5.4"
