@@ -42,8 +42,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         request(:post, '/v1/customers', params)
       end
 
-      def create_checkout_session(params)
-        request(:post, '/v1/checkout/sessions', params)
+      def create_checkout_session(params, idempotency_key: nil)
+        request(:post, '/v1/checkout/sessions', params, idempotency_key: idempotency_key)
+      end
+
+      def retrieve_checkout_session(id)
+        request(:get, checkout_session_path(id))
+      end
+
+      def expire_checkout_session(id, idempotency_key:)
+        request(:post, "#{checkout_session_path(id)}/expire", {}, idempotency_key: idempotency_key)
+      end
+
+      def list_checkout_sessions(created_after:, created_before:, starting_after: nil)
+        params = { 'limit' => 100, 'created[gte]' => created_after, 'created[lte]' => created_before }
+        params['starting_after'] = starting_after if starting_after
+        request(:get, "/v1/checkout/sessions?#{URI.encode_www_form(params)}")
       end
 
       def preview_plan_change(params)
@@ -73,6 +87,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
+
+      def checkout_session_path(id)
+        raise Unavailable, 'invalid checkout session id' unless id.to_s.match?(/\Acs_(?:test_|live_)?[A-Za-z0-9]+\z/)
+
+        "/v1/checkout/sessions/#{id}"
+      end
 
       def schedule_path(id)
         raise Unavailable, 'invalid schedule id' unless id.to_s.match?(/\Asub_sched_[A-Za-z0-9]+\z/)

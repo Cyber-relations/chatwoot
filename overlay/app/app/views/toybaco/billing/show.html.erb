@@ -53,13 +53,22 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 </head>
 <body>
 <div class="wrap" id="billing-content">
+  <% growth = @contract && @contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER %>
+  <% growth_free = growth && @contract['plan_id'] == 'free' %>
   <h1>ご契約内容</h1>
   <p class="lead"><%= @account.name %></p>
+  <% if growth && @admin && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
+    <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">準備が整ってから14日間・100回。カード登録は不要です。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
+  <% end %>
 
   <div class="card">
     <% if @plan %>
       <div class="plan-name"><%= @plan[:name] %> プラン</div>
-      <% if @store_purchase %>
+      <% if growth_free %>
+        <div class="plan-price">¥0<span> / 月</span></div>
+        <p class="note">スタッフの追加料金はかかりません。</p>
+        <% if @admin %><p class="note"><a class="btn btn-navy" href="/toybaco/growth/purchase?account_id=<%= @account.id %>" target="_top">有料プランを見る</a></p><% end %>
+      <% elsif @store_purchase %>
         <p class="note">購入元の追加店舗オプションで開通した店舗です。</p>
         <p class="note">保存した契約版: <%= @contract.fetch('plan_version') %> / <%= @contract['cycle'] == 'year' ? '年払い' : '月払い' %></p>
       <% elsif @billing %>
@@ -97,11 +106,13 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
       <% end %>
     </div>
     <div class="row">
-      <span>AI 自動応答</span>
+      <span><%= growth ? '業務AI（返信・投稿で共通）' : 'AI 自動応答' %></span>
       <% ai_reply = @contract && @contract.dig('entitlements', 'features', 'ai_reply') %>
       <% ai_limits = @contract && @contract.dig('entitlements', 'limits') %>
       <% ai_limit = ai_limits && ai_limits['ai_replies'] %>
-      <% if ai_reply == false %>
+      <% if growth %>
+        <span class="badge on">月<%= number_with_delimiter(ai_limits.fetch('ai_generations')) %>回</span>
+      <% elsif ai_reply == false %>
         <span class="badge off">対象外</span>
       <% elsif ai_reply == true && ai_limit.is_a?(Integer) && ai_limit >= 0 %>
         <span class="badge on">契約に含まれる（月<%= number_with_delimiter(ai_limit) %>件）</span>
@@ -111,8 +122,13 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
         <span class="badge off">確認できません</span>
       <% end %>
     </div>
+    <% if growth %>
+      <div class="row"><span>AI 自動応答</span><span class="badge <%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? 'on' : 'off' %>"><%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? '利用可能（設定後に開始）' : '体験の開始または上位プランで利用' %></span></div>
+    <% end %>
     <p class="note">AI の表示はご契約上の利用枠です。応答の設定・稼働状況は受信箱でご確認ください。</p>
+    <% unless growth %>
     <p class="note">オプションの追加・変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へどうぞ(<a href="https://toybaco.jp/" target="_blank" rel="noopener">toybaco.jp</a> 右下のチャットでも受け付けています)。1営業日以内に反映します。</p>
+    <% end %>
   </div>
 
   <% if @admin && @plan_changes %>
@@ -143,6 +159,8 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
       <button class="btn btn-navy" id="portal">お支払い方法・請求履歴</button>
       <p class="note">カード情報の確認・変更は、決済代行(Stripe)の安全なページで行います。トイバコがカード番号をお預かりすることはありません。</p>
       <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、チャットでお知らせください。</p>
+    <% elsif growth_free %>
+      <p class="note">無料プランでは請求はありません。有料化するときに決済画面でお支払い方法を設定します。</p>
     <% elsif @store_purchase %>
       <p class="note">お支払い・変更は、購入元の契約で管理します。ご不明な点は店舗の管理者へお問い合わせください。</p>
     <% elsif !@admin %>

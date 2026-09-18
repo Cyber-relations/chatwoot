@@ -120,6 +120,20 @@ control_file_list() {
     'tests/toybaco_subscription_sync_test.rb' \
     'tests/toybaco_store_fulfillment_test.rb' \
     'tests/toybaco_ai_usage_test.rb' \
+    'tests/toybaco_connection_release_test.rb' \
+    'tests/toybaco_connection_oauth_test.rb' \
+    'tests/toybaco_gmail_sync_test.rb' \
+    'tests/toybaco_gmail_parts_test.rb' \
+    'tests/toybaco_gmail_runtime_test.rb' \
+    'tests/toybaco_growth_allowance_test.rb' \
+    'tests/toybaco_growth_ledger_runtime_test.rb' \
+    'tests/toybaco_growth_billing_runtime_test.rb' \
+    'tests/toybaco_free_registration_runtime_test.rb' \
+    'tests/toybaco_growth_onboarding_runtime_test.rb' \
+    'tests/toybaco_growth_replies_runtime_test.rb' \
+    'tests/toybaco_growth_trial_runtime_test.rb' \
+    'tests/toybaco-pointer-guide.test.mjs' \
+    'tests/toybaco_growth_purchase_runtime_test.rb' \
     'bin/toybaco-chatwoot-gate' \
     'infra/terraform/ecs.tf' \
     'scripts/generate-chatwoot-active-ja-overrides.rb' \
@@ -151,6 +165,7 @@ control_file_list() {
     'tests/postiz_identity_contract.sql' \
     'tests/verify_chatwoot_auth_cookie.rb' \
     'tests/verify_chatwoot_migration_contract.rb' \
+    'tests/derive_chatwoot_bootstrap_contract.rb' \
     'tests/verify_chatwoot_overlay_manifest.rb' \
     'tests/verify_chatwoot_rspec_result.rb'
 
@@ -183,6 +198,15 @@ integration_ruby_file_list() {
     cd "$source_root"
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
+      find overlay/app/app/jobs/toybaco -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/connections -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/growth -type f -name '*.rb' -print
+      find overlay/app/app/models/toybaco -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/lib/toybaco/growth_terms.rb overlay/app/db/migrate/20260918133000_create_toybaco_growth_ai_ledger.rb overlay/app/config/initializers/toybaco_growth.rb overlay/app/config/initializers/toybaco_growth_onboarding.rb
+      printf '%s\n' overlay/app/config/initializers/toybaco_growth_purchases.rb overlay/app/lib/tasks/toybaco_growth_purchase.rake
+      printf '%s\n' overlay/app/lib/toybaco/connection_release.rb overlay/app/config/initializers/toybaco_connections.rb
+      printf '%s\n' overlay/app/config/initializers/toybaco_growth_replies.rb
+      printf '%s\n' overlay/app/config/initializers/toybaco_growth_trials.rb overlay/app/db/migrate/20260919160000_create_toybaco_growth_trials.rb
       find overlay/app/app/mailers/agent_notifications -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
@@ -593,7 +617,10 @@ verify_toybaco_database_prepare() {
   local bootstrap_database='chatwoot_bootstrap_test'
   local recovery_database='chatwoot_recovery_test'
   local upstream_sha256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
-  local target_sha256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
+  # Derive the target from the fixed upstream and the reviewed overlay inventory.
+  local target_count target_sha256 target_contract
+  target_contract="$(ruby "$CONTROL_ROOT/tests/derive_chatwoot_bootstrap_contract.rb" "$CLEAN_SOURCE" "$CONTROL_ROOT")" || fail 'migration contract derivation failed'
+  read -r target_count target_sha256 <<< "$target_contract"
   local branding_contract config_count locale_default metadata_guard_log metadata_missing_log
 
   STAGE='Chatwoot managed fresh database prepare'
@@ -602,7 +629,7 @@ verify_toybaco_database_prepare() {
     --env "POSTGRES_DATABASE=$bootstrap_database" \
     --env TOYBACO_CHATWOOT_BOOTSTRAP=true \
     "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
-  verify_schema_migration_set "$bootstrap_database" 178 "$target_sha256" 'fresh prepare'
+  verify_schema_migration_set "$bootstrap_database" "$target_count" "$target_sha256" 'fresh prepare'
   config_count="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c 'SELECT count(*) FROM public.installation_configs;')"
   [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
@@ -640,7 +667,7 @@ verify_toybaco_database_prepare() {
     --env "POSTGRES_DATABASE=$recovery_database" \
     --env TOYBACO_CHATWOOT_BOOTSTRAP=true \
     "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
-  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'interrupted bootstrap recovery'
+  verify_schema_migration_set "$recovery_database" "$target_count" "$target_sha256" 'interrupted bootstrap recovery'
   run_test_container \
     --env RAILS_ENV=production \
     --env "POSTGRES_DATABASE=$recovery_database" \
@@ -658,7 +685,7 @@ verify_toybaco_database_prepare() {
     --env "POSTGRES_DATABASE=$recovery_database" \
     --env TOYBACO_CHATWOOT_BOOTSTRAP=false \
     "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
-  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'initialized database rerun'
+  verify_schema_migration_set "$recovery_database" "$target_count" "$target_sha256" 'initialized database rerun'
   run_test_container \
     --env RAILS_ENV=production \
     --env "POSTGRES_DATABASE=$recovery_database" \
@@ -681,7 +708,7 @@ verify_toybaco_database_prepare() {
   [[ "$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$recovery_database" -c 'SELECT marker FROM public.toybaco_preservation_probe;')" == 'preserved' ]] || fail \
     'database metadata拒否時に既存dataが保持されませんでした'
-  verify_schema_migration_set "$recovery_database" 178 "$target_sha256" 'metadata guard preservation'
+  verify_schema_migration_set "$recovery_database" "$target_count" "$target_sha256" 'metadata guard preservation'
 
   docker exec "$POSTGRES_NAME" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$recovery_database" -c \
     'DROP TABLE public.schema_migrations;'
@@ -881,6 +908,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
+  node --test "$CONTROL_ROOT/tests/toybaco-pointer-guide.test.mjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -906,6 +934,12 @@ verify_base_and_frame_contract() {
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_ai_usage_test.rb
+  for connection_test in toybaco_connection_release_test toybaco_connection_oauth_test toybaco_gmail_sync_test; do
+    docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+      --security-opt no-new-privileges \
+      --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+      "$CHATWOOT_IMAGE" ruby "/contract/tests/${connection_test}.rb"
+  done
 }
 
 build_test_image() {
@@ -1003,6 +1037,56 @@ run_ruby_quality() {
     --mount "type=bind,src=$results,dst=/results,readonly" \
     "$TEST_IMAGE" ruby /contract/tests/verify_chatwoot_rspec_result.rb \
     /results/rspec.json /contract/tests/chatwoot-rspec-manifest.json
+
+  STAGE='Gmail MIME・添付分離'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_gmail_parts_test.rb
+
+  STAGE='Gmail REST Rails・店舗境界・実メール描画'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_gmail_runtime_test.rb
+
+  STAGE='新料金・AI期間の契約確認'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_growth_allowance_test.rb
+
+  STAGE='共有AI台帳・店舗境界・原子性'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_ledger_runtime_test.rb
+
+  STAGE='新商品版の支払い・月次AI枠の統合'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_billing_runtime_test.rb
+
+  STAGE='Freeメール確認・開通・一度だけの初回付与'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_free_registration_runtime_test.rb
+
+  STAGE='共有AI枠・返信保存・送信直前の権利照合'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_replies_runtime_test.rb
+
+  STAGE='準備後の自動応答体験・同一接続先・期限と回数'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_trial_runtime_test.rb
+
+  STAGE='初回案内・店舗情報・実接続と実送信の照合'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_onboarding_runtime_test.rb
+  STAGE='無料から同じ店舗のWeb有料化・決済再送と店舗境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_purchase_runtime_test.rb
+
 }
 
 build_and_smoke_production_image() {

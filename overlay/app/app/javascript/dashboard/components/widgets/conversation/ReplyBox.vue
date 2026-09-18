@@ -1391,7 +1391,7 @@ export default {
 
 <template>
   <ReplyBoxBanner :message="message" :is-on-private-note="isOnPrivateNote" />
-  <div ref="replyEditor" class="reply-box" :class="replyBoxClass">
+  <div ref="replyEditor" class="reply-box" :class="replyBoxClass" :data-toybaco-guide-reply="isPrivate ? 'note' : 'public'">
     <ReplyTopPanel
       :mode="replyType"
       :conversation-id="conversationId"
@@ -1482,7 +1482,7 @@ export default {
             <p v-else-if="hasMeaningfulEditorContent || (isPrivate && hasAttachments)">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>
             <p v-else>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>
           </div>
-          <button type="button" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
+          <button type="button" data-toybaco-guide-action="reply.ai_draft" :disabled="isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)" @click="useToybacoAiDraft">
             AI下書きを使う
           </button>
         </div>

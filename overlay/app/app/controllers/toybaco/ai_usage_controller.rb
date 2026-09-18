@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative '../../../lib/toybaco/ai_usage'
+require_relative '../../../lib/toybaco/growth/bot_reply'
+require_relative '../../../lib/toybaco/growth/usage_summary'
 
 # Cookie reads and bot-token writes use the same explicit account boundary as
 # the other Toybaco overlay endpoints, without upstream API-token filters.
@@ -11,10 +13,16 @@ class Toybaco::AiUsageController < ActionController::Base # rubocop:disable Rail
   rescue_from Toybaco::PlanCatalog::Invalid, with: :unavailable
 
   def show
-    render json: Toybaco::AiUsage.new(@account).summary
+    usage = growth? ? Toybaco::Growth::UsageSummary.new(@account).read : Toybaco::AiUsage.new(@account).summary
+    render json: usage
   end
 
   def update
+    if growth?
+      service = Toybaco::Growth::BotReply.new(@account, bot: @bot, conversation: @conversation, message: @message)
+      return render json: service.update(params)
+    end
+
     usage = Toybaco::AiUsage.new(@account)
     case params[:action_type]
     when 'reserve'
@@ -29,6 +37,10 @@ class Toybaco::AiUsageController < ActionController::Base # rubocop:disable Rail
   end
 
   private
+
+  def growth?
+    Toybaco::Entitlements.for_account(@account)&.dig('ai_meter') == Toybaco::GrowthTerms::METER
+  end
 
   def load_account
     response.headers['Cache-Control'] = 'no-store'

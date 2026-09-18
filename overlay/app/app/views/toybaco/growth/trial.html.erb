@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>自動応答を体験する | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-growth-purchase.css">
+  <link rel="stylesheet" href="/brand-assets/toybaco-growth-trial.css">
+  <script src="/brand-assets/toybaco-growth-trial.js" defer></script>
+</head>
+<body>
+<main id="trial" data-account-id="<%= @account.id %>" data-revision="<%= @state['revision'] %>">
+  <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><a href="/app/accounts/<%= @account.id %>/inbox">受信箱へ戻る</a></header>
+  <p class="eyebrow"><%= @account.name %></p>
+  <h1>返信を、AIに任せてみる</h1>
+  <p class="lead">14日間・100回まで。カード登録は不要です。</p>
+  <p id="trial-status" role="status" aria-live="polite"></p>
+  <p id="trial-error" role="alert" hidden></p>
+  <% if @state['state'] == 'included' %>
+    <section class="trial-card"><h2>自動応答はご契約に含まれています</h2><p>受信箱の「AI応答」で設定できます。</p></section>
+  <% elsif @state['state'] == 'active' %>
+    <section class="trial-card"><h2>体験中</h2><p>残り <strong><%= @state['remaining'] %>回</strong></p><p>終了：<time datetime="<%= @state['ends_at'] %>"><%= Time.iso8601(@state['ends_at']).in_time_zone('Asia/Tokyo').strftime('%Y年%-m月%-d日 %-H:%M') %>（日本時間）</time></p><p>一時停止・再開は受信箱の「AI応答」から。終了日時は変わりません。</p></section>
+  <% elsif @state['state'] == 'completed' %>
+    <section class="trial-card"><h2>体験が終了しました</h2><p>下書きと履歴はそのまま使えます。</p><a href="/toybaco/growth/purchase?account_id=<%= @account.id %>">自動応答を続けるプランを見る</a></section>
+  <% elsif @state.fetch('examples', []).empty? %>
+    <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p>接続と店舗情報を設定し、受信箱でAIの下書きを1件作成してください。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
+  <% else %>
+    <form id="trial-form" class="trial-card">
+      <h2>お店の回答として使えますか？</h2>
+      <fieldset><legend>実際の問い合わせへの回答例</legend>
+      <% @state.fetch('examples').each_with_index do |example, index| %>
+        <label class="trial-example"><input type="radio" name="example_id" value="<%= example['id'] %>" <%= 'checked' if index.zero? %>><span><small><%= example['inbox_name'] %></small><span class="trial-answer"><%= example['content'] %></span></span></label>
+      <% end %>
+      </fieldset>
+      <label class="trial-confirm"><input id="trial-confirm" type="checkbox" required>店舗情報と回答例を確認しました</label>
+      <button id="trial-start" type="submit" disabled>自動応答の体験を開始する</button>
+      <p class="note">開始すると、接続済みの対象受信箱でAIが返信します。期間・回数の早い方で終了し、自動課金はありません。</p>
+    </form>
+  <% end %>
+  <p class="note">体験は1店舗につき1回です。接続数や通常のAI枠は変わりません。</p>
+</main>
+</body>
+</html>

@@ -377,6 +377,8 @@ REPLACEMENTS = {
     replacement('image-alt="Labels"', 'image-alt="ラベル"')
   ],
   'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue' => [
+    replacement('<div ref="replyEditor" class="reply-box" :class="replyBoxClass">',
+                '<div ref="replyEditor" class="reply-box" :class="replyBoxClass" :data-toybaco-guide-reply="isPrivate ? \'note\' : \'public\'">'),
     replacement("<script>\nimport { defineAsyncComponent, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n",
                 "<script>\nimport { defineAsyncComponent, useId, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n"),
     replacement("    const replyEditor = useTemplateRef('replyEditor');\n    const messageEditor = useTemplateRef('messageEditor');\n    const copilot = useCopilotReply();\n    const macroExecution = useMacroExecution();\n",
@@ -406,7 +408,7 @@ REPLACEMENTS = {
     replacement("    addIntoEditor(content) {\n",
                 "    async useToybacoAiDraft() {\n      const draft = this.toybacoAiDraft;\n      const conversationId = this.currentChat?.id;\n      if (!draft || this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent ||\n          (this.isPrivate && this.hasAttachments)) return;\n      if (this.isPrivate) this.setReplyMode(REPLY_EDITOR_MODES.REPLY);\n      await this.$nextTick();\n      if (this.currentChat?.id !== conversationId || this.toybacoAiDraft?.id !== draft.id ||\n          this.isEditorDisabled || !this.canSendPublicReply || this.hasMeaningfulEditorContent) return;\n      // WootMessageEditor inserts this as a schema.text node, never as HTML.\n      this.addIntoEditor(draft.content);\n    },\n    addIntoEditor(content) {\n"),
     replacement("        <AudioRecorder\n",
-                "        <div v-if=\"toybacoAiDraft && isDefaultEditorMode\" class=\"toybaco-ai-draft-result\" role=\"status\">\n          <div>\n            <strong>AIの返信下書きがあります</strong>\n            <p>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>\n            <p v-if=\"hasMeaningfulEditorContent || (isPrivate && hasAttachments)\">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>\n          </div>\n          <button type=\"button\" :disabled=\"isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)\" @click=\"useToybacoAiDraft\">\n            AI下書きを使う\n          </button>\n        </div>\n        <AudioRecorder\n"),
+                "        <div v-if=\"toybacoAiDraft && isDefaultEditorMode\" class=\"toybaco-ai-draft-result\" role=\"status\">\n          <div>\n            <strong>AIの返信下書きがあります</strong>\n            <p>内部メモに保存されています。返信欄に入れて確認するまで、お客さまには送信されません。</p>\n            <p v-if=\"hasMeaningfulEditorContent || (isPrivate && hasAttachments)\">入力中の内容を残しています。内部メモから必要な部分をコピーして追加してください。</p>\n          </div>\n          <button type=\"button\" data-toybaco-guide-action=\"reply.ai_draft\" :disabled=\"isEditorDisabled || !canSendPublicReply || hasMeaningfulEditorContent || (isPrivate && hasAttachments)\" @click=\"useToybacoAiDraft\">\n            AI下書きを使う\n          </button>\n        </div>\n        <AudioRecorder\n"),
     replacement("      updateEditorSelectionWith: '',",
                 "      updateEditorSelectionWith: '',\n      toybacoImportedAiDraft: null,"),
     replacement("    isBotOwnedPendingConversation() {",

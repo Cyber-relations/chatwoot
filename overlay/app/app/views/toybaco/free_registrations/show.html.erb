@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>無料ではじめる | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-free-signup.css">
+  <% if @captcha_site_key.present? %>
+    <script src="https://js.hcaptcha.com/1/api.js?hl=ja" async defer></script>
+  <% end %>
+</head>
+<body>
+  <main>
+    <a class="brand" href="https://toybaco.jp/"><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="168"></a>
+    <p class="eyebrow">お店の仕事を、ひとつに。</p>
+    <h1>無料ではじめる</h1>
+    <p class="lead">カード登録不要。店舗を作ったら、使うサービスをつなぎましょう。</p>
+    <% if @error %><p class="error" role="alert"><%= @error %></p><% end %>
+    <form action="/toybaco/free/signup" method="post">
+      <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+      <label for="store">店舗名</label>
+      <input id="store" name="account_name" autocomplete="organization" maxlength="100" value="<%= params[:account_name].to_s.first(100) %>" required>
+      <label for="name">お名前</label>
+      <input id="name" name="user_full_name" autocomplete="name" maxlength="100" value="<%= params[:user_full_name].to_s.first(100) %>" required>
+      <label for="email">メールアドレス</label>
+      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" value="<%= params[:email].to_s.first(254) %>" required>
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="password-help" required>
+      <p id="password-help" class="hint">8文字以上。英大文字・小文字・数字・記号を含めてください。</p>
+      <label class="terms"><input type="checkbox" name="accept_terms" value="1" required <%= 'checked' if params[:accept_terms] == '1' %>><span><a href="https://toybaco.jp/terms/" target="_blank" rel="noopener">利用規約</a>と<a href="https://toybaco.jp/privacy/" target="_blank" rel="noopener">プライバシーポリシー</a>に同意する</span></label>
+      <% if @captcha_site_key.present? %><div class="h-captcha" data-sitekey="<%= @captcha_site_key %>"></div><% end %>
+      <button type="submit">確認メールを送る</button>
+    </form>
+    <p class="login">登録済みの方は <a href="/app/login">ログイン</a></p>
+  </main>
+</body>
+</html>

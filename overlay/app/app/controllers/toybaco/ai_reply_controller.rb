@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../../lib/toybaco/ai_reply_mode'
+require_relative '../../../lib/toybaco/growth/reply_policy'
 
 # 受信箱の AI 一次応答モード(全自動 / 下書き)。客面は日本語のみ。
 # 店舗スタッフはログインcookie、bot は既存の api_access_token で読む。
@@ -15,12 +16,23 @@ class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rail
 
   def update
     return head :forbidden unless @account_user
+    return update_growth if Toybaco::Entitlements.for_account(@account)&.dig('ai_meter') == Toybaco::GrowthTerms::METER
 
     mode = Toybaco::AiReplyMode.write_to!(@account, params[:mode])
     render json: Toybaco::AiReplyMode.payload(mode)
   end
 
   private
+
+  def update_growth
+    allowed_site = [nil, '', 'same-origin'].include?(request.headers['Sec-Fetch-Site'])
+    return head :forbidden unless request.media_type == 'application/json' && request.headers['Origin'] == request.base_url && allowed_site
+
+    mode = Toybaco::Growth::ReplyPolicy.new(@account).write!(params[:mode], membership: @account_user)
+    render json: Toybaco::AiReplyMode.payload(mode)
+  rescue ArgumentError
+    render json: { error: 'AIの利用条件と店舗情報を確認してください。' }, status: :unprocessable_entity
+  end
 
   def load_account
     account_id = params[:account_id].to_s

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>プランを選ぶ | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-growth-purchase.css">
+  <script src="/brand-assets/toybaco-growth-purchase.js" defer></script>
+</head>
+<body>
+<main id="purchase" data-account-id="<%= @account.id %>">
+  <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><a href="/app/accounts/<%= @account.id %>/settings/contract">ご契約内容へ戻る</a></header>
+  <p class="eyebrow"><%= @account.name %></p>
+  <h1>お店の仕事を、もっと任せる</h1>
+  <p class="lead">1店舗ごとの料金です。スタッフの追加料金はかかりません。</p>
+  <p id="purchase-status" role="status" aria-live="polite">決済状況を確認しています。</p>
+  <p id="purchase-error" role="alert" hidden></p>
+  <div id="pending-actions" class="actions" hidden>
+    <button id="purchase-resume" type="button">決済を再開する</button>
+    <button id="purchase-refresh" type="button">支払い状況を確認</button>
+    <button id="purchase-cancel" type="button" class="secondary">この決済を終了する</button>
+  </div>
+  <a id="purchase-complete" class="complete-link" href="/app/accounts/<%= @account.id %>/settings/contract" hidden>ご契約内容を確認する</a>
+  <section id="purchase-selection" hidden>
+    <fieldset class="cycles"><legend>お支払い周期</legend><label><input type="radio" name="cycle" value="month" checked>月払い</label><label><input type="radio" name="cycle" value="year">年払い <span>10%お得</span></label></fieldset>
+    <div class="plans">
+      <% @plans.each do |plan| %>
+      <article class="plan" data-plan-id="<%= plan.fetch('plan_id') %>" data-plan-version="<%= plan.fetch('plan_version') %>">
+        <h2><%= plan.fetch('name') %></h2>
+        <p class="price" data-cycle="month">¥<%= number_with_delimiter(plan.dig('cycles', 'month', 'amount')) %><small> / 月・税抜</small></p>
+        <p class="price" data-cycle="year" hidden>¥<%= number_with_delimiter(plan.dig('cycles', 'year', 'amount')) %><small> / 年・税抜</small></p>
+        <p data-cycle="year" class="annual-note" hidden>1年分を一括でお支払い</p>
+        <ul>
+          <li>業務AI 月<%= number_with_delimiter(plan.dig('entitlements', 'limits', 'ai_generations')) %>回</li>
+          <li><%= plan.dig('entitlements', 'features', 'ai_auto_reply') ? 'AIの自動応答を利用可能' : 'AIが返信・投稿の下書きを作成' %></li>
+          <li>投稿先 <%= plan.dig('entitlements', 'limits', 'posting_accounts') %>アカウント</li>
+          <li>保存容量 <%= plan.dig('entitlements', 'limits', 'storage_bytes') / 1_000_000_000 %>GB</li>
+        </ul>
+        <button type="button" data-purchase-plan>決済へ進む</button>
+      </article>
+      <% end %>
+    </div>
+    <p class="note">AIの枠は返信・投稿で共通です。年払いでも毎月更新します。自動応答は設定後に開始します。</p>
+    <p class="note">お支払い後も、接続・スタッフ・原稿はそのまま使えます。税込の請求額は決済画面で確認できます。</p>
+    <p class="note">解約はご契約内容から手続きでき、現在の契約期間末まで利用できます。</p>
+  </section>
+  <noscript><p>プランを選ぶには、ブラウザーのJavaScriptを有効にしてください。</p></noscript>
+</main>
+</body>
+</html>
