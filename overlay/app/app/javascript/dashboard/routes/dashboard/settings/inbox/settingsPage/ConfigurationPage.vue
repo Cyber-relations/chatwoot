@@ -315,10 +315,9 @@ export default {
               このキーはサイトのサーバー側で使用します。本人確認の動作を確認してから、下の必須設定を有効にしてください。
             </span>
             <a
-              v-else
               target="_blank"
               rel="noopener noreferrer"
-              href="https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/"
+              href="/toybaco-help.html#identity"
               class="text-n-blue-11 hover:underline text-label-small"
             >
               {{

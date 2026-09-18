@@ -106,7 +106,7 @@ const handleDialogConfirm = async () => {
     slug: state.slug,
     custom_domain: state.domain,
     blob_id: state.avatarBlobId || null,
-    color: '#2781F6', // The default color is set to Chatwoot brand color
+    color: '#1F3A5F', // トイバコの初期色。作成時に変更できます。
   };
   await createPortal(portal);
 };

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>使い方・サポート | トイバコ</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/brand-assets/toybaco-help.css">
+</head>
+<body>
+  <a class="skip" href="#main">本文へ移動</a>
+  <header>
+    <a class="brand" href="/app"><img src="/brand-assets/toybaco-app-icon-ivory.png" width="40" height="40" alt="">トイバコ</a>
+    <a class="back" href="/app">アプリを開く</a>
+  </header>
+  <main id="main">
+    <p class="eyebrow">使い方・サポート</p>
+    <h1>毎日の操作を、ここから。</h1>
+    <p class="lead">問い合わせ対応と投稿管理の操作ガイドです。ご契約内容や権限によって、利用できる機能は異なります。</p>
+    <nav aria-label="操作ガイドの目次">
+      <a href="#inbox">会話・受信トレイ</a><a href="#team">担当者・チーム</a>
+      <a href="#contacts">連絡先</a><a href="#automation">自動化・マクロ</a>
+      <a href="#posting">投稿・共有プレビュー</a><a href="#media">メディア</a>
+      <a href="#templates">メッセージテンプレート</a><a href="#identity">Webチャットの本人確認</a>
+      <a href="#help-center">ヘルプセンター</a><a href="#ai">AIの使い方</a>
+      <a href="#connection-status">SNSの接続・制限</a>
+      <a href="#billing">契約・お支払い</a><a href="#updates">お知らせ・サポート</a>
+    </nav>
+    <section id="inbox"><h2>会話・受信トレイ</h2>
+      <ol><li>「会話」からチャンネルや担当者で対象を絞り、会話を開きます。</li>
+      <li>返信欄で宛先・本文・添付を確認して送信します。社内の記録には「プライベートメモ」を使います。</li>
+      <li>対応が終わったら会話を解決済みにします。接続先の追加・変更は「設定 → 受信トレイ」で行います。</li></ol>
+    </section>
+    <section id="team"><h2>担当者・チーム</h2>
+      <p>「設定 → 担当者」でメンバーを管理し、「設定 → チーム」で担当するグループを設定します。受信トレイの担当者設定も確認してください。追加できる人数は契約の利用枠によって異なります。</p>
+    </section>
+    <section id="contacts"><h2>連絡先</h2>
+      <p>「連絡先」で検索し、連絡先の詳細から会話履歴やメモ、カスタム属性を確認します。連絡先の編集と会話への返信は別の操作です。</p>
+    </section>
+    <section id="automation"><h2>自動化・マクロ・定型文</h2>
+      <p>「設定 → 自動化」で実行条件とアクションを指定します。保存前に対象チャンネルと条件を確認してください。「マクロ」は会話で手動実行する一連の処理、「定型文」は返信欄に取り込む文章です。</p>
+    </section>
+    <section id="posting"><h2>投稿・共有プレビュー</h2>
+      <ol><li>「投稿」を開き、必要なSNSを「チャンネルを追加」から接続します。</li>
+      <li>「投稿を作成」で本文・画像・動画を準備し、投稿先ごとのプレビューを確認します。</li>
+      <li>下書き保存と公開・予約は別の操作です。公開できる権限、投稿先、公開日時を確認して実行します。</li>
+      <li>共有プレビューでは内容確認とコメントができます。リンク先でコメントのログインを求められた場合はトイバコIDを利用します。</li></ol>
+      <p>公開に失敗した投稿は、カレンダーの失敗表示から理由と対処を確認します。再実行の前に、SNS側にも投稿済みでないか確認してください。</p>
+    </section>
+    <section id="media"><h2>メディア・投稿設定</h2>
+      <p>「投稿 → メディア」でファイル名による検索、プレビュー、アップロードを行います。「投稿設定」では時刻表記や通知、RSS、投稿テンプレート、署名を設定できます。投稿結果は「分析」で確認します。</p>
+    </section>
+    <section id="templates"><h2>メッセージテンプレート</h2>
+      <p>「設定 → テンプレート」では受信トレイに同期されたテンプレートを確認します。WhatsAppのテンプレートはMetaまたはTwilioで作成・変更し、トイバコで「テンプレートを同期」を押して一覧を確認してください。投稿のテンプレートは「投稿 → 投稿設定」で管理します。</p>
+    </section>
+    <section id="identity"><h2>Webチャットの本人確認</h2>
+      <p>サイトの開発担当者向けの設定です。「設定 → 受信トレイ → 対象のWebチャット → 設定」で本人確認用のキーを確認できます。</p>
+      <ol><li>サイトのサーバー側で、キーとログイン済みユーザーIDからHMAC-SHA256の16進署名を生成します。</li>
+      <li>埋め込みSDKのsetUserに同じIDを渡し、identifier_hashに署名を指定します。名前・メールアドレス・画像URLのうち少なくとも1つも渡してください。</li>
+      <li>キーはブラウザへ渡さず、署名のあるユーザーと署名のないユーザーの動作を確認してから本人確認を必須にします。</li></ol>
+      <p>設置方法が不明な場合は、サイトのURLと希望する動作をトイバコサポートへご連絡ください。キーそのものを送る必要はありません。</p>
+    </section>
+    <section id="help-center"><h2>ヘルプセンター</h2>
+      <p>ヘルプセンターを利用できるアカウントでは、ポータルを作成し、カテゴリと記事を整理して公開します。外観設定ではトイバコの初期色から変更できます。独自ドメインの接続や利用可否はサポートへご相談ください。</p>
+    </section>
+    <section id="ai"><h2>AIの使い方</h2>
+      <p>「AIアシスタント」から問い合わせ返信と投稿文作成の入口を選びます。返信AIの動作は現在の設定に従います。下書きモードと全自動モードを取り違えないよう、設定画面で確認してください。投稿文AIの文案は、本文や投稿先を確認してから保存・公開します。</p>
+    </section>
+    <section id="connection-status"><h2>SNSの接続・制限</h2>
+      <p>接続が制限されている場合は、画面に表示された理由を確認してください。Facebook・Instagram・WhatsAppのサービス状況は<a href="https://metastatus.com/" target="_blank" rel="noopener noreferrer">Metaの公式ステータス</a>で確認できます。接続先SNSの障害とトイバコ側の接続制限は異なります。</p>
+      <p>トイバコでの制限状況・再接続方法は、対象のSNSと画面のエラー内容を添えて<a href="mailto:support@toybaco.jp">トイバコサポート</a>へお問い合わせください。パスワードや認証コードを送る必要はありません。</p>
+    </section>
+    <section id="billing"><h2>契約・お支払い</h2>
+      <p>「設定 → ご契約内容」で契約を確認します。支払い方法や請求履歴の操作は、トイバコのお支払い画面から案内される決済画面で行います。変更できない項目は契約者またはサポートへご相談ください。</p>
+    </section>
+    <section id="updates"><h2>お知らせ・サポート</h2>
+      <p>サービスの案内は<a href="https://toybaco.jp/news/" target="_blank" rel="noopener noreferrer">トイバコのお知らせ</a>で確認できます。機能の更新について不明な点がある場合も、トイバコサポートへお問い合わせください。</p>
+      <a class="support" href="mailto:support@toybaco.jp">サポートに問い合わせる</a>
+    </section>
+  </main>
+  <footer><span>トイバコ</span><a href="/app">アプリを開く</a></footer>
+</body>
+</html>

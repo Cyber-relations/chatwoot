@@ -1,0 +1,26 @@
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; color: #24303F; background: #FAF7F2; }
+* { box-sizing: border-box; }
+body { margin: 0; font-size: 15px; line-height: 1.9; }
+a { color: #1F3A5F; text-underline-offset: 4px; }
+a:focus-visible { outline: 3px solid #FF6B5B; outline-offset: 4px; border-radius: 4px; }
+header, footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px max(24px, calc((100% - 960px) / 2)); border-bottom: 1px solid #E7E4DC; }
+.brand { display: flex; gap: 12px; align-items: center; font-size: 21px; font-weight: 700; text-decoration: none; }
+.brand img { flex-shrink: 0; }
+.back { font-size: 14px; white-space: nowrap; }
+main { max-width: 960px; padding: 48px 24px 64px; margin: auto; }
+.eyebrow { margin: 0 0 12px; color: #6B7684; font-size: 13px; }
+h1 { color: #1F3A5F; font-size: clamp(25px, 4vw, 36px); line-height: 1.5; margin: 0 0 20px; }
+.lead { max-width: 700px; margin-bottom: 32px; color: #6B7684; }
+nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; border-top: 1px solid #E7E4DC; padding: 12px 0; }
+nav a { min-height: 44px; display: flex; align-items: center; padding: 8px 0; font-size: 14px; }
+section { scroll-margin-top: 24px; border-top: 1px solid #E7E4DC; padding: 28px 0; }
+h2 { color: #1F3A5F; font-size: 20px; line-height: 1.6; margin: 0 0 16px; }
+section p, section ol { margin: 0 0 14px; }
+ol { padding-left: 1.6em; }
+li { padding-left: .3em; margin-bottom: 8px; }
+.support { display: inline-flex; min-height: 44px; align-items: center; border-radius: 8px; background: #1F3A5F; color: #FAF7F2; padding: 10px 18px; text-decoration: none; }
+.support:hover { background: #163049; }
+footer { border-top: 1px solid #E7E4DC; border-bottom: 0; font-size: 13px; color: #6B7684; }
+.skip { position: absolute; top: -100px; left: 16px; padding: 10px; background: #FAF7F2; }
+.skip:focus { top: 8px; }
+@media (max-width: 540px) { header, footer { padding: 16px 20px; } main { padding: 32px 20px 40px; } nav { grid-template-columns: 1fr; } }

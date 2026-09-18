@@ -1378,12 +1378,6 @@ aside nav span.inline-grid.rounded-full {
   border-radius: 7px !important;
 }
 
-/* プロフィールメニューにある上流製品の案内だけを非表示にする。
- * 会話・メモ・登録資料の同じURLはユーザーの内容なので隠さない。 */
-aside .n-dropdown-item > a[href="https://www.chatwoot.com/hc/user-guide/en"] {
-  display: none !important;
-}
-
 /* 定型文: ローマ字コマンドは残し、日本語名だけを併記する */
 [data-toybaco-canned-name] {
   display: inline-block;
