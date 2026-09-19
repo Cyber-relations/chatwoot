@@ -6,16 +6,23 @@ export function guidePosition(target, panel, viewport, occupied = []) {
   const top = viewport.top || 0;
   const right = left + viewport.width;
   const bottom = top + viewport.height;
-  const x = Math.min(
-    Math.max(target.left, left + GAP),
-    right - panel.width - GAP
-  );
+  if (panel.width + GAP * 2 > viewport.width || panel.height + GAP * 2 > viewport.height)
+    return null;
+  const clampX = (x) => Math.min(Math.max(x, left + GAP), right - panel.width - GAP);
+  // Wide editors have toolbars near their edges. Try the empty space above or
+  // below the middle/right as well, without covering or scrolling a control.
+  const horizontal = [...new Set([
+    target.left,
+    target.left + (target.width - panel.width) / 2,
+    target.right - panel.width,
+  ].map(clampX))];
   const below = target.bottom + GAP;
   const above = target.top - panel.height - GAP;
   const candidates = [];
   if (below + panel.height <= bottom - GAP)
-    candidates.push({ left: x, top: below });
-  if (above >= top + GAP) candidates.push({ left: x, top: above });
+    horizontal.forEach(x => candidates.push({ left: x, top: below }));
+  if (above >= top + GAP)
+    horizontal.forEach(x => candidates.push({ left: x, top: above }));
   if (target.right + panel.width + GAP * 2 <= right) {
     candidates.push({
       left: target.right + GAP,
