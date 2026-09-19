@@ -105,6 +105,7 @@ control_file_list() {
     'config/chatwoot-runtime-gems.json' \
     'scripts/harden-chatwoot-runtime-gems.rb' \
     'scripts/native-encryption-probe.rb' \
+    'tests/native_encryption_probe_runtime_test.rb' \
     'tests/verify_chatwoot_runtime_gems.rb' \
     'config/chatwoot-ruby-llm-backport.json' \
     'scripts/harden-chatwoot-ruby-llm.rb' \
@@ -150,6 +151,10 @@ control_file_list() {
     'tests/toybaco_growth_payments_runtime_test.rb' \
     'tests/toybaco_growth_post_model_test.rb' \
     'tests/toybaco_growth_post_drafts_runtime_test.rb' \
+    'tests/toybaco_support_runtime_test.rb' \
+    'tests/toybaco_support_model_test.rb' \
+    'tests/toybaco_support_capacity_runtime_test.rb' \
+    'tests/toybaco-support-question.test.mjs' \
     'tests/toybaco_connection_handoff_runtime_test.rb' \
     'tests/toybaco_line_setup_api_test.rb' \
     'tests/toybaco_handoff_line_runtime_test.rb' \
@@ -223,6 +228,8 @@ integration_ruby_file_list() {
       find overlay/app/app/jobs/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/connections -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/growth -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/support -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/config/initializers/toybaco_support.rb
       find overlay/app/app/models/toybaco -type f -name '*.rb' -print
       printf '%s\n' overlay/app/lib/toybaco/growth_terms.rb overlay/app/db/migrate/20260918133000_create_toybaco_growth_ai_ledger.rb overlay/app/config/initializers/toybaco_growth.rb overlay/app/config/initializers/toybaco_growth_onboarding.rb
       printf '%s\n' overlay/app/config/initializers/toybaco_growth_purchases.rb overlay/app/lib/tasks/toybaco_growth_purchase.rake
@@ -1163,6 +1170,17 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_post_drafts_runtime_test.rb
+  STAGE='利用者サポート・現行権限と公開機能に合う手順'
+  node --test "$CONTROL_ROOT/tests/toybaco-support-question.test.mjs"
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_support_model_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_support_capacity_runtime_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_support_runtime_test.rb
   STAGE='接続担当者の限定依頼・一度限りの本人確認と設定権限'
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -1180,6 +1198,12 @@ run_ruby_quality() {
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_line_runtime_test.rb
 
   STAGE='標準キーの旧アプリ読取りprobe・全媒体とMFAの実型変換'
+  run_test_container \
+    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
+    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
+    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/native_encryption_probe_runtime_test.rb
   run_test_container \
     --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
     --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
