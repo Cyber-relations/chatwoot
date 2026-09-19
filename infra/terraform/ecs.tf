@@ -90,6 +90,8 @@ locals {
     { name = "TOYBACO_DEPLOYMENT_ENVIRONMENT", value = var.deployment_environment },
     { name = "TOYBACO_STRIPE_MODE", value = local.is_production ? "live" : "test" },
     { name = "TOYBACO_STRIPE_PORTAL_CONFIGURATION", value = var.stripe_portal_configuration },
+    { name = "TOYBACO_SUPPORT_OPERATIONS_OWNER_ID", value = lookup(var.support_report_owner_ids, "operations", "") },
+    { name = "TOYBACO_SUPPORT_BILLING_OWNER_ID", value = lookup(var.support_report_owner_ids, "billing", "") },
     { name = "DEFAULT_LOCALE", value = "ja" },
     { name = "TZ", value = "Asia/Tokyo" },
     { name = "ENABLE_ACCOUNT_SIGNUP", value = "false" },
