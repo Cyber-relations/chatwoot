@@ -25,4 +25,12 @@ File.foreach(File.join(root, 'tests/chatwoot-overlay-manifest.tsv')) do |line|
 end
 abort 'duplicate overlay migration version' unless overlay.uniq == overlay
 combined = (versions + overlay).uniq.sort
-puts "#{combined.length}\t#{Digest::SHA256.hexdigest(canonical.call(combined))}"
+combined_sha = Digest::SHA256.hexdigest(canonical.call(combined))
+# The deployed preflight must accept the exact schema produced by this source.
+# Deriving a separate CI expectation alone left a stale production guard green.
+preflight = File.read(File.join(root, 'overlay/app/bin/toybaco-chatwoot-schema-preflight'))
+target_count = preflight.scan(/^TARGET_COUNT='([0-9]+)'$/).flatten
+target_sha = preflight.scan(/^TARGET_SHA256='([0-9a-f]{64})'$/).flatten
+abort 'deployed preflight target differs from reviewed migrations' unless
+  target_count == [combined.length.to_s] && target_sha == [combined_sha]
+puts "#{combined.length}\t#{combined_sha}"
