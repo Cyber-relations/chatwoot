@@ -55,6 +55,14 @@ BRAND_REPLACEMENTS = {
   /Chatwoot/i => 'トイバコ'
 }.freeze
 
+# コピーして実行するSDK設定は表示文言ではない。翻訳・ブランド置換の前後で
+# 確認済みのファイル、path、値を固定し、upstream変更時は再確認を要求する。
+EXECUTABLE_LOCALES = {
+  'app/javascript/dashboard/i18n/locale/en/inboxMgmt.json' => {
+    'INBOX_MGMT.WIDGET_BUILDER.SCRIPT_SETTINGS' => "\n      window.chatwootSettings = {options};"
+  }.freeze
+}.freeze
+
 MANUAL_EXACT = {
   'AND' => 'かつ',
   'OR' => 'または',
@@ -314,8 +322,15 @@ add_document = lambda do |source_en, source_ja, output, type, english_root_key =
   english_flat = flatten(english)
   japanese_flat = flatten(japanese)
   existing_flat = existing ? flatten(existing) : {}
+  executable = EXECUTABLE_LOCALES.fetch(source_en.relative_path_from(SOURCE_ROOT).to_s, {})
 
   english_flat.each do |path, english_value|
+    if executable.key?(path)
+      abort "review executable locale before regeneration: #{source_en}:#{path}" unless
+        english_value == executable.fetch(path)
+      deep_store(merged, path, english_value)
+      next
+    end
     current = japanese_flat[path]
     cached = existing_flat[path]
     if MANUAL_EXACT.key?(english_value)
@@ -333,7 +348,8 @@ add_document = lambda do |source_en, source_ja, output, type, english_root_key =
       deep_store(merged, path, current)
     end
   end
-  documents << [merged, output, type, japanese_root_key]
+  abort "missing executable locale: #{source_en}" unless (executable.keys - english_flat.keys).empty?
+  documents << [merged, output, type, japanese_root_key, executable]
 end
 
 dashboard_en = SOURCE_ROOT.join('app/javascript/dashboard/i18n/locale/en')
@@ -392,8 +408,9 @@ unless failures.empty?
   abort "translation failed at #{path}: #{error.message}"
 end
 
-documents.each do |document, output, type, root_key|
+documents.each do |document, output, type, root_key, executable|
   document = normalize_brand(document)
+  executable.each { |path, value| deep_store(document, path, value) }
   FileUtils.mkdir_p(output.dirname)
   payload = if type == :json
               JSON.pretty_generate(document) + "\n"

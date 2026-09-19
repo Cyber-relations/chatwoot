@@ -28,6 +28,13 @@ REVIEWED_PROVIDER_NAMES = {
   'dashboard/inboxMgmt.json:INBOX_MGMT.ADD.SMS.PROVIDERS.BANDWIDTH' => 'Bandwidth'
 }.freeze
 
+# 埋め込みコードの公開SDK識別子は翻訳しない。通常文言を除外せず、このpathと
+# upstreamを含む値の完全一致だけを許可する。
+REVIEWED_EXECUTABLE_SNIPPETS = {
+  'dashboard/inboxMgmt.json:INBOX_MGMT.WIDGET_BUILDER.SCRIPT_SETTINGS' =>
+    "\n      window.chatwootSettings = {options};"
+}.freeze
+
 # これはUI文言ではなく、利用者が入力欄へ貼るliteral例。pathを狭く固定し、通常文言を
 # 例外へ逃がさない。
 TECHNICAL_EXAMPLE_PATHS = %w[
@@ -177,6 +184,12 @@ sets.each do |set_name, english, japanese|
     actual_variables = japanese_value.scan(VARIABLE_PATTERN).uniq.sort
     violations << "#{path}: placeholder mismatch #{actual_variables} != #{expected_variables}" unless
       actual_variables == expected_variables
+    if REVIEWED_EXECUTABLE_SNIPPETS.key?(path)
+      expected = REVIEWED_EXECUTABLE_SNIPPETS.fetch(path)
+      violations << "#{path}: executable locale changed" unless
+        japanese_value == expected && english_value == expected
+      next
+    end
     violations << "#{path}: legacy product name remains" if
       japanese_value.gsub(VARIABLE_PATTERN, '').match?(/Chatwoot|Woot\s*(?:Server|サーバー)|Captain|キャプテン|大尉/i)
     violations << "#{path}: translation marker remains" if

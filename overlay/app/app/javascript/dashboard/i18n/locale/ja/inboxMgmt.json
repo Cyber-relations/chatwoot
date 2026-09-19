@@ -1375,7 +1375,7 @@
         "AGENT_MESSAGE": "こんにちは"
       },
       "BRANDING_TEXT": "提供：トイバコ",
-      "SCRIPT_SETTINGS": "\n      ウィンドウ. トイバコ 設定 = {options};"
+      "SCRIPT_SETTINGS": "\n      window.chatwootSettings = {options};"
     },
     "EMAIL_PROVIDERS": {
       "MICROSOFT": {
