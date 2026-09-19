@@ -64,4 +64,12 @@ class NativeEncryptionProbeRuntimeTest < ActiveSupport::TestCase
     refute_includes errors, corrupted
     assert_equal corrupted, @connection.select_value("SELECT access_token FROM channel_instagram WHERE id = #{@channel_id.to_i}")
   end
+
+  def test_legacy_plaintext_is_read_without_refresh_or_rewriting
+    @connection.execute("UPDATE channel_instagram SET access_token = #{@connection.quote(FIXTURE_TOKEN)} WHERE id = #{@channel_id.to_i}")
+    output, errors = capture_io { probe }
+    assert_equal "TOYBACO_NATIVE_ENCRYPTION_PROBE=PASS\n", output
+    assert_empty errors
+    assert_equal FIXTURE_TOKEN, @connection.select_value("SELECT access_token FROM channel_instagram WHERE id = #{@channel_id.to_i}")
+  end
 end

@@ -5,6 +5,17 @@
 phase = 'default_read_only'
 model_name = 'none'
 field_name = 'none'
+# The migration permits legacy plaintext. Rails may otherwise return a failed
+# ciphertext unchanged through that compatibility path, so recognizable native
+# payloads also require the encryptor's strict authentication/decryption check.
+native_payload = lambda do |value|
+  next false unless value.is_a?(String)
+
+  parsed = JSON.parse(value)
+  parsed.is_a?(Hash) && (parsed.key?('p') || parsed.key?('h'))
+rescue JSON::ParserError
+  false
+end
 begin
   raise 'read-only connection required' unless ActiveRecord::Base.connection.select_value('SHOW default_transaction_read_only') == 'on'
   phase = 'transaction_read_only'
@@ -53,6 +64,11 @@ begin
         field_name = attribute
         # Read the encrypted Active Record type directly. Public getters such as
         # Instagram#access_token may refresh credentials and need unrelated fields.
+        raw = record.read_attribute_before_type_cast(attribute)
+        type = model.type_for_attribute(attribute)
+        if type.encrypted?(raw) || native_payload.call(raw)
+          type.with_context { ActiveRecord::Encryption.encryptor.decrypt(raw, **{ key_provider: type.key_provider }.compact) }
+        end
         record.read_attribute(attribute)
       end
     end
