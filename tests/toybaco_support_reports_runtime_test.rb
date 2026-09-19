@@ -166,6 +166,39 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_queue_pagination_keeps_older_reports_accessible_without_duplicates
+    enabled { submit }
+    first = Toybaco::SupportReport.last
+    attributes = first.attributes.except('id')
+    Toybaco::SupportReport.insert_all!(Array.new(100) { attributes.merge('request_id' => SecureRandom.uuid) })
+    sign_in @operations, scope: :super_admin
+    ViteRuby.instance.stub(:dev_server_running?, true) do
+      get '/super_admin/toybaco_support'
+      assert_response :success
+      page = Nokogiri::HTML(response.body)
+      assert_equal 100, page.css('tbody tr').length
+      refute_includes response.body, "##{first.id}<br>"
+      cursor_url = page.at_css('nav[aria-label="受付のページ"] a[href*="before="]')['href']
+      get cursor_url
+      assert_response :success
+      assert_equal 1, Nokogiri::HTML(response.body).css('tbody tr').length
+      assert_includes response.body, "##{first.id}<br>"
+      refute_includes response.body, '前の100件'
+    end
+  end
+
+  def test_queue_rejects_invalid_cursor_and_keeps_roles_on_following_pages
+    enabled { submit(category: 'billing', article: 'billing') }
+    sign_in @operations, scope: :super_admin
+    get '/super_admin/toybaco_support', params: { before: 'not-an-id' }
+    assert_response :bad_request
+    ViteRuby.instance.stub(:dev_server_running?, true) do
+      get '/super_admin/toybaco_support', params: { before: Toybaco::SupportReport.last.id + 1 }
+    end
+    assert_response :success
+    assert_empty Nokogiri::HTML(response.body).css('tbody tr')
+  end
+
   def test_owner_rotation_revokes_previous_queue_access
     enabled { submit }
     sign_in @operations, scope: :super_admin

@@ -7,7 +7,13 @@ class SuperAdmin::SupportReportsController < SuperAdmin::ApplicationController
   rescue_from ActiveRecord::RecordNotFound, with: -> { head :not_found }
 
   def index
-    @reports = report_scope.order(created_at: :desc).limit(100)
+    cursor = params[:before].presence
+    return head :bad_request if cursor && !cursor.to_s.match?(/\A[1-9]\d{0,17}\z/)
+
+    scope = cursor ? report_scope.where('id < ?', cursor.to_i) : report_scope
+    rows = scope.order(id: :desc).limit(101).to_a
+    @reports = rows.first(100)
+    @next_cursor = @reports.last.id if rows.length > 100
   end
 
   def update
