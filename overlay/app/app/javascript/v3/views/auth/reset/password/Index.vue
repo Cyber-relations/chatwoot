@@ -93,9 +93,14 @@ export default {
       </div>
       <p class="mt-4 -mb-1 text-sm text-n-slate-11">
         {{ $t('RESET_PASSWORD.GO_BACK_TO_LOGIN') }}
-        <router-link to="/auth/login" class="text-link text-n-brand">
+        <router-link to="/app/login" class="text-link text-n-brand">
           {{ $t('COMMON.CLICK_HERE') }}.
         </router-link>
+      </p>
+      <p class="mt-4 text-sm">
+        <a href="/toybaco-help.html#login" class="text-n-brand underline underline-offset-4">
+          ログインで困ったとき
+        </a>
       </p>
     </form>
   </div>

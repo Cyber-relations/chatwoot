@@ -1267,6 +1267,13 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' => ['error?.message']
 }.freeze
 
+# Login recovery uses the actual route and the same public help as login.
+REPLACEMENTS.fetch('app/javascript/v3/views/auth/reset/password/Index.vue').concat([
+  replacement('to="/auth/login"', 'to="/app/login"'),
+  replacement("    </form>\n  </div>",
+              "      <p class=\"mt-4 text-sm\">\n        <a href=\"/toybaco-help.html#login\" class=\"text-n-brand underline underline-offset-4\">\n          ログインで困ったとき\n        </a>\n      </p>\n    </form>\n  </div>")
+])
+
 # Product links stay available without relying on installation-name checks.
 REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue').concat([
   replacement('https://www.chatwoot.com/hc/user-guide/articles/1754940076-whatsapp-templates', '/toybaco-help.html#templates'),

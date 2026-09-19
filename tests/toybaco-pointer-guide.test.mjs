@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -113,3 +115,15 @@ test('right aligned space remains available when left and middle are occupied', 
 test('a prompt wider than the visible mobile viewport never escapes its bounds', () => {
   assert.equal(guidePosition(target(16, 200, 180, 40), panel, { width: 260, height: 700 }), null);
 });
+
+// Reproducible images retain the same Last-Modified timestamp across releases.
+// A new byte sequence must request a new URL instead of revalidating the old one.
+for (const extension of ['mjs', 'css']) {
+  test(`guide ${extension} URL changes with the shipped asset bytes`, () => {
+    const asset = new URL(`../overlay/app/public/brand-assets/toybaco-pointer-guide.${extension}`, import.meta.url);
+    const hash = createHash('sha256').update(readFileSync(asset)).digest('hex');
+    const loader = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
+    assert(loader.includes(`/brand-assets/toybaco-pointer-guide.${extension}?v=${hash}`));
+    assert(!loader.includes(`/brand-assets/toybaco-pointer-guide.${extension}'`));
+  });
+}

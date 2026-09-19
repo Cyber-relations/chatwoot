@@ -78,6 +78,8 @@ test('every product help link resolves to a packaged page and real section', () 
   const guide = read('public/toybaco-help.html');
   const sections = [...guide.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]);
   const ui = [profile,
+    read('app/javascript/v3/views/login/Index.vue'),
+    read('app/javascript/v3/views/auth/reset/password/Index.vue'),
     read('app/javascript/dashboard/constants/globals.js'),
     read('app/javascript/dashboard/components/app/UpdateBanner.vue'),
     read('app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue'),

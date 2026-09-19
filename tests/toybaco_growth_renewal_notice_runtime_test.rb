@@ -4,6 +4,7 @@ require 'rails/test_help'
 require 'minitest/mock'
 require 'factory_bot_rails'
 require Rails.root.join('lib/toybaco/growth/renewal_notice')
+require Rails.root.join('lib/toybaco/growth/renewal_reminder')
 require Rails.root.join('lib/toybaco/checkout/plan_change')
 
 FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
@@ -27,6 +28,8 @@ class ToybacoGrowthRenewalNoticeRuntimeTest < ActionDispatch::IntegrationTest
     @owner = create(:user, :administrator, account: @account)
     @user = @owner
     @old_key = ENV['TOYBACO_STRIPE_KEY']
+    @old_sender = ENV['MAILER_SENDER_EMAIL']
+    ENV['MAILER_SENDER_EMAIL'] = 'Toybaco <notice@example.invalid>'
     ENV['TOYBACO_STRIPE_KEY'] = 'sk_test_fixture_renewal_notice'
     terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_notice', 'subscription_item_id' => 'si_notice')
@@ -36,12 +39,15 @@ class ToybacoGrowthRenewalNoticeRuntimeTest < ActionDispatch::IntegrationTest
       'term_end' => NOW.to_i, 'anchor' => (NOW - 30.days).to_i, 'normal_limit' => 500
     )
     failure = { 'subscription_id' => 'sub_notice', 'term_start' => NOW.to_i, 'term_end' => (NOW + 30.days).to_i,
-                'first_failed_at' => NOW.to_i, 'grace_ends_at' => (NOW + 7.days).to_i, 'event_id' => 'evt_privatefailure' }
+                'first_failed_at' => NOW.to_i, 'grace_ends_at' => (NOW + 7.days).to_i, 'event_id' => 'evt_privatefailure',
+                'invoice_id' => 'in_privaterenewal' }
     @account.update!(internal_attributes: @account.internal_attributes.merge(
-      Toybaco::BillingAccess::OWNER_KEY => @owner.id, Growth::PaidPeriod::KEY => paid, Growth::RenewalGrace::FAILURE_KEY => failure
+      Toybaco::BillingAccess::OWNER_KEY => @owner.id, Growth::PaidPeriod::KEY => paid, Growth::RenewalGrace::FAILURE_KEY => failure,
+      'toybaco_stripe_customer_id' => 'cus_notice'
     ))
     @subscription = {
-      'id' => 'sub_notice', 'status' => 'past_due', 'items' => { 'has_more' => false, 'data' => [{
+      'id' => 'sub_notice', 'customer' => 'cus_notice', 'livemode' => ENV.fetch('TOYBACO_STRIPE_MODE', 'live') == 'live',
+      'status' => 'past_due', 'items' => { 'has_more' => false, 'data' => [{
         'id' => 'si_notice', 'quantity' => 1, 'current_period_end' => (NOW + 30.days).to_i,
         'price' => { 'id' => 'price_notice', 'unit_amount' => 19800, 'currency' => 'jpy',
                      'tax_behavior' => 'exclusive', 'recurring' => { 'interval' => 'month' } }
@@ -53,6 +59,7 @@ class ToybacoGrowthRenewalNoticeRuntimeTest < ActionDispatch::IntegrationTest
 
   def teardown
     @old_key ? ENV['TOYBACO_STRIPE_KEY'] = @old_key : ENV.delete('TOYBACO_STRIPE_KEY')
+    @old_sender ? ENV['MAILER_SENDER_EMAIL'] = @old_sender : ENV.delete('MAILER_SENDER_EMAIL')
     travel_back
     Current.reset
   end
@@ -122,5 +129,138 @@ class ToybacoGrowthRenewalNoticeRuntimeTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_select '.renewal-notice', count: 0
     assert_select '#portal', count: 0
+  end
+
+  def remind(now: Time.current, enabled: true)
+    Growth::RenewalReminder.stub(:enabled?, enabled) do
+      Growth::RenewalReminder.new(@account, client: Client.new(@subscription), now: now).perform
+    end
+  end
+
+  def reminder_state
+    @account.reload.internal_attributes.fetch(Growth::RenewalReminder::KEY, {})
+  end
+
+  def capture_reminders(fail_delivery: false)
+    captured = []
+    delivery = Object.new
+    delivery.define_singleton_method(:deliver_now) { raise 'fixture smtp timeout' if fail_delivery }
+    callback = lambda do |*args|
+      captured << args
+      delivery
+    end
+    Toybaco::GrowthRenewalMailer.stub(:reminder, callback) { yield captured }
+  end
+
+  def test_renewal_reminder_sends_once_per_stage_without_resetting_deadline_or_ai_allowance
+    before = @account.reload.internal_attributes.deep_dup
+    capture_reminders do |sent|
+      2.times { remind }
+      assert_equal 1, sent.length
+      assert_equal [@account.id, @owner.id, 'initial', '2026-10-10T12:00:00Z'], sent.first
+      assert_equal 'attempted', reminder_state.dig('stages', 'initial', 'state')
+      2.times { remind(now: NOW + 7.days) }
+      assert_equal 2, sent.length
+      assert_equal 'expired', sent.last[2]
+      assert_equal 'attempted', reminder_state.dig('stages', 'expired', 'state')
+    end
+    assert_equal before, @account.reload.internal_attributes.except(Growth::RenewalReminder::KEY)
+    assert_empty Toybaco::GrowthAiGrant.where(account_id: @account.id)
+  end
+
+  def test_renewal_reminder_with_unknown_smtp_result_is_never_automatically_resent
+    capture_reminders(fail_delivery: true) do |sent|
+      2.times { remind }
+      assert_equal 1, sent.length
+      assert_equal 'uncertain', reminder_state.dig('stages', 'initial', 'state')
+      refute reminder_state.dig('stages', 'initial').key?('token')
+    end
+  end
+
+  def test_disabled_renewal_reminders_do_not_read_stripe_or_write_receipts
+    @subscription = nil
+    before = @account.reload.internal_attributes.deep_dup
+    capture_reminders do |sent|
+      remind(enabled: false)
+      assert_empty sent
+    end
+    assert_equal before, @account.reload.internal_attributes
+  end
+
+  def test_renewal_reminder_outage_can_recover_without_claiming_a_delivery
+    @subscription, original = nil, @subscription
+    capture_reminders do |sent|
+      remind
+      assert_empty sent
+      assert_empty reminder_state
+      @subscription = original
+      remind
+      assert_equal 1, sent.length
+    end
+  end
+
+  def test_paid_or_replaced_invoice_cancels_old_renewal_reminders
+    @subscription['latest_invoice']['status'] = 'paid'
+    capture_reminders do |sent|
+      remind
+      remind(now: NOW + 7.days)
+      assert_empty sent
+    end
+    assert_equal 'cancelled', reminder_state.dig('stages', 'initial', 'state')
+    assert_equal 'cancelled', reminder_state.dig('stages', 'expired', 'state')
+  end
+
+  def test_replaced_invoice_and_wrong_customer_or_mode_never_receive_a_reminder
+    [[:invoice, 'in_other'], [:customer, 'cus_other'], [:mode, !@subscription['livemode']]].each do |kind, value|
+      original = @subscription.deep_dup
+      case kind
+      when :invoice then @subscription['latest_invoice']['id'] = value
+      when :customer then @subscription['customer'] = value
+      when :mode then @subscription['livemode'] = value
+      end
+      @account.update!(internal_attributes: @account.internal_attributes.except(Growth::RenewalReminder::KEY))
+      capture_reminders { |sent| remind; assert_empty sent }
+      @subscription = original
+    end
+  end
+
+  def test_recipient_must_still_be_confirmed_and_hold_the_billing_access
+    @owner.update!(confirmed_at: nil)
+    capture_reminders do |sent|
+      remind
+      assert_empty sent
+      assert_empty reminder_state.fetch('stages')
+      assert_equal (NOW + 1.hour).to_i, reminder_state.fetch('next_check_at')
+      @owner.update!(confirmed_at: NOW)
+      remind(now: NOW + 1.hour)
+      assert_equal 1, sent.length
+    end
+  end
+
+  def test_old_process_dispatching_state_never_requeues_an_unknown_email
+    record = { 'renewal' => "sub_notice:#{NOW.to_i}", 'stages' => { 'initial' => { 'state' => 'dispatching', 'token' => 'fixture' } } }
+    @account.update!(internal_attributes: @account.internal_attributes.merge(Growth::RenewalReminder::KEY => record))
+    capture_reminders { |sent| remind; assert_empty sent }
+    assert_equal record, reminder_state
+  end
+
+  def test_first_reminder_after_deadline_sends_only_the_expired_notice
+    capture_reminders do |sent|
+      remind(now: NOW + 7.days)
+      assert_equal ['expired'], sent.map { |item| item[2] }
+      refute reminder_state.fetch('stages').key?('initial')
+    end
+  end
+
+  def test_mailer_rechecks_recipient_before_using_current_email_and_has_only_the_billing_link
+    mail = Toybaco::GrowthRenewalMailer.reminder(@account.id, @owner.id, 'initial', '2026-10-10T12:00:00Z').message
+    assert_equal [@owner.email], mail.to
+    assert_includes mail.text_part.decoded, '2026年10月10日 21:00'
+    assert_includes mail.html_part.decoded, "/toybaco/billing?account_id=#{@account.id}"
+    refute_includes mail.encoded, 'in_privaterenewal'
+    @account.account_users.where(user_id: @owner.id).delete_all
+    assert_raises(RuntimeError) do
+      Toybaco::GrowthRenewalMailer.reminder(@account.id, @owner.id, 'initial', '2026-10-10T12:00:00Z').message
+    end
   end
 end
