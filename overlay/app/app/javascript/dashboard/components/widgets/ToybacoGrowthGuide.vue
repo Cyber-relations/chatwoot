@@ -8,6 +8,10 @@ import {
   watch,
 } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import {
+  supportGuideArticles,
+  supportGuideStep,
+} from 'dashboard/helper/toybacoSupportQuestion';
 import { useAccount } from 'dashboard/composables/useAccount';
 import {
   growthGuideState as state,
@@ -21,6 +25,11 @@ const { accountId, currentAccount } = useAccount();
 const route = useRoute();
 const router = useRouter();
 const paused = ref(false);
+let supportStep = null;
+let availability = '';
+const supportEnabled = computed(
+  () => currentAccount.value?.toybaco_support === true
+);
 const inSetup = computed(() => route.name === 'toybaco_growth_start');
 const enabled = computed(
   () => currentAccount.value?.toybaco_growth_onboarding === true
@@ -56,13 +65,22 @@ const setupSteps = {
 };
 
 function wantedStep() {
+  if (
+    supportStep &&
+    supportEnabled.value &&
+    supportStep.accountId === String(accountId.value)
+  )
+    return supportGuideStep(supportStep.articleId);
   if (!state.value || paused.value || state.value.preference.dismissed)
     return null;
   if (inSetup.value && state.value.phase === 'connect') {
     if (!state.value.administrator) return null;
     if (state.value.gmail_available) return setupSteps.connect;
     if (state.value.microsoft_available)
-      return ['connection.microsoft', 'Microsoftのアカウントを選んで接続します。'];
+      return [
+        'connection.microsoft',
+        'Microsoftのアカウントを選んで接続します。',
+      ];
     return ['connection.line', 'LINE公式の接続設定を開きます。'];
   }
   if (inSetup.value) return setupSteps[state.value.phase] || null;
@@ -99,6 +117,25 @@ function scan() {
       elements.map(el => ({ el, remove: registry.register(id, el) }))
     );
   }
+  const available = supportEnabled.value
+    ? supportGuideArticles().filter(id =>
+        registry.find(supportGuideStep(id)[0], document)
+      )
+    : [];
+  const keyOfAvailability = JSON.stringify([
+    String(accountId.value),
+    available,
+  ]);
+  if (availability !== keyOfAvailability) {
+    availability = keyOfAvailability;
+    window.dispatchEvent(
+      new CustomEvent('toybaco:support-guide-availability', {
+        detail: { accountId: String(accountId.value), articles: available },
+      })
+    );
+  }
+  if (supportStep && !available.includes(supportStep.articleId))
+    supportStep = null;
   const step = wantedStep();
   if (!step || !registry.find(step[0], document)) {
     guide.hide();
@@ -118,6 +155,7 @@ function scheduleScan() {
 }
 
 async function resume() {
+  supportStep = null;
   paused.value = false;
   await updateGrowthGuide({ dismissed: false });
   if (state.value)
@@ -127,10 +165,53 @@ async function resume() {
     });
 }
 
+function refreshSupportAvailability() {
+  availability = '';
+  scheduleScan();
+}
+function requestSupportGuide(event) {
+  const detail = event.detail;
+  const step = supportGuideStep(detail?.articleId);
+  if (
+    !supportEnabled.value ||
+    String(detail?.accountId) !== String(accountId.value) ||
+    !step ||
+    !registry?.find(step[0], document)
+  )
+    return;
+  paused.value = true;
+  supportStep = {
+    accountId: String(accountId.value),
+    articleId: detail.articleId,
+  };
+  scheduleScan();
+}
+function finishSupportGuide(event) {
+  if (!supportStep) return;
+  const step = supportGuideStep(supportStep.articleId);
+  const target = registry?.find(step[0], document);
+  if (target?.contains(event.target)) {
+    supportStep = null;
+    guide?.hide();
+    lastStep = null;
+  }
+}
+watch(supportEnabled, () => {
+  supportStep = null;
+  scheduleScan();
+});
+watch(
+  () => route.fullPath,
+  () => {
+    supportStep = null;
+  }
+);
 watch(
   [accountId, enabled],
   async ([id, available]) => {
     guide?.hide();
+    supportStep = null;
+    availability = '';
     lastStep = null;
     paused.value = false;
     selectGrowthGuideAccount(available ? id : null);
@@ -184,6 +265,10 @@ onMounted(async () => {
     registry,
     onDismiss: () => {
       paused.value = true;
+      if (supportStep) {
+        supportStep = null;
+        return;
+      }
       updateGrowthGuide({ dismissed: true });
     },
   });
@@ -203,6 +288,13 @@ onMounted(async () => {
     ],
   });
   document.addEventListener('input', scheduleScan, true);
+  document.addEventListener('click', finishSupportGuide, true);
+  document.addEventListener('input', finishSupportGuide, true);
+  window.addEventListener('toybaco:support-guide', requestSupportGuide);
+  window.addEventListener(
+    'toybaco:support-guide-refresh',
+    refreshSupportAvailability
+  );
   poll = window.setInterval(() => {
     if (
       document.visibilityState === 'visible' &&
@@ -222,6 +314,13 @@ onBeforeUnmount(() => {
   guide?.destroy();
   targets.forEach(entries => entries.forEach(entry => entry.remove()));
   document.removeEventListener('input', scheduleScan, true);
+  document.removeEventListener('click', finishSupportGuide, true);
+  document.removeEventListener('input', finishSupportGuide, true);
+  window.removeEventListener('toybaco:support-guide', requestSupportGuide);
+  window.removeEventListener(
+    'toybaco:support-guide-refresh',
+    refreshSupportAvailability
+  );
   selectGrowthGuideAccount(null);
 });
 </script>

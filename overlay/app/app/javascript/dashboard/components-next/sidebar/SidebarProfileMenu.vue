@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import Auth from 'dashboard/api/auth';
 import { useMapGetter } from 'dashboard/composables/store';
+import { useAccount } from 'dashboard/composables/useAccount';
 import { useI18n } from 'vue-i18n';
 import Avatar from 'next/avatar/Avatar.vue';
 import SidebarProfileMenuStatus from './SidebarProfileMenuStatus.vue';
@@ -27,9 +28,20 @@ defineOptions({
 const { t } = useI18n();
 
 const currentUser = useMapGetter('getCurrentUser');
+const { currentAccount } = useAccount();
 const currentUserAvailability = useMapGetter('getCurrentUserAvailability');
 const menuItems = computed(() => {
   return [
+    {
+      show: currentAccount.value?.toybaco_support === true,
+      showOnCustomBrandedInstance: true,
+      label: '使い方を調べる',
+      icon: 'i-lucide-life-buoy',
+      click: () => {
+        emit('close');
+        window.dispatchEvent(new Event('toybaco:open-support'));
+      },
+    },
     {
       show: true,
       showOnCustomBrandedInstance: true,

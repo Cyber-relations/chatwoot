@@ -2,9 +2,14 @@
 
 # Execute on the exact previous Rails image with PGOPTIONS enforcing a read-only
 # connection before Rails boots. No secrets or record contents are printed.
+phase = 'default_read_only'
+model_name = 'none'
+field_name = 'none'
 begin
   raise 'read-only connection required' unless ActiveRecord::Base.connection.select_value('SHOW default_transaction_read_only') == 'on'
+  phase = 'transaction_read_only'
   raise 'read-only transaction required' unless ActiveRecord::Base.connection.select_value('SHOW transaction_read_only') == 'on'
+  phase = 'encryption_configuration'
   raise 'native encryption unavailable' unless Chatwoot.encryption_configured?
 
   expected = {
@@ -25,22 +30,38 @@ begin
     'User' => %w[otp_secret otp_backup_codes]
   }
   expected.each do |class_name, attributes|
+    model_name = class_name
+    field_name = 'none'
+    phase = 'model_lookup'
     model = class_name.constantize
+    phase = 'encrypted_fields'
     raise 'native field missing' unless (attributes - model.encrypted_attributes.to_a.map(&:to_s)).empty?
 
     attributes.each do |attribute|
+      field_name = attribute
+      phase = 'round_trip'
       value = attribute == 'otp_backup_codes' ? ['native-encryption-probe'] : 'native-encryption-probe'
       type = model.type_for_attribute(attribute)
       serialized = type.serialize(value)
       raise 'encryption round trip failed' unless serialized.is_a?(String) && !serialized.include?('native-encryption-probe') &&
                                                  type.deserialize(serialized) == value
     end
+    phase = 'existing_records'
+    field_name = 'none'
     model.unscoped.select(model.primary_key, *attributes).find_each(batch_size: 100) do |record|
-      attributes.each { |attribute| record.public_send(attribute) }
+      attributes.each do |attribute|
+        field_name = attribute
+        # Read the encrypted Active Record type directly. Public getters such as
+        # Instagram#access_token may refresh credentials and need unrelated fields.
+        record.read_attribute(attribute)
+      end
     end
   end
   puts 'TOYBACO_NATIVE_ENCRYPTION_PROBE=PASS'
-rescue StandardError
-  warn 'TOYBACO_NATIVE_ENCRYPTION_PROBE=DENY; existing connection or MFA data cannot be read with the retained keys'
+rescue StandardError => error
+  # Phase and identifiers come only from the static registry above. Never print
+  # exception messages, record IDs, attribute values, ciphertext or key material.
+  kind = error.class.name.to_s.match?(/\A[A-Za-z][A-Za-z0-9_:]*\z/) ? error.class.name : 'Error'
+  warn "TOYBACO_NATIVE_ENCRYPTION_PROBE=DENY; phase=#{phase}; model=#{model_name}; field=#{field_name}; error_type=#{kind}"
   exit 1
 end

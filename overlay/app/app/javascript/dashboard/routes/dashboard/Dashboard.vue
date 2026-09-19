@@ -2,6 +2,7 @@
 import { defineAsyncComponent, ref, computed } from 'vue';
 
 import NextSidebar from 'next/sidebar/Sidebar.vue';
+import ToybacoSupport from 'dashboard/components/widgets/ToybacoSupport.vue';
 import WootKeyShortcutModal from 'dashboard/components/widgets/modal/WootKeyShortcutModal.vue';
 import AddAccountModal from 'dashboard/components/app/AddAccountModal.vue';
 import UpgradePage from 'dashboard/routes/dashboard/upgrade/UpgradePage.vue';
@@ -29,6 +30,7 @@ import { useCallsStore } from 'dashboard/stores/calls';
 
 export default {
   components: {
+    ToybacoSupport,
     NextSidebar,
     CommandBar,
     WootKeyShortcutModal,
@@ -142,6 +144,7 @@ export default {
     <main
       class="flex flex-1 h-full w-full min-h-0 px-0 overflow-hidden bg-n-surface-1"
     >
+      <ToybacoSupport />
       <UpgradePage
         v-show="showUpgradePage"
         ref="upgradePageRef"

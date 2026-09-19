@@ -10,7 +10,7 @@ const app = resolve(root, 'overlay/app');
 const read = path => readFileSync(resolve(app, path), 'utf8');
 const profile = read('app/javascript/dashboard/components-next/sidebar/SidebarProfileMenu.vue');
 
-function profileMenu(type) {
+function profileMenu(type, supportEnabled = false) {
   const events = [];
   const start = profile.indexOf('const menuItems = computed');
   const end = profile.indexOf('</script>', start);
@@ -18,6 +18,9 @@ function profileMenu(type) {
   const items = vm.runInNewContext(`${profile.slice(start, end)}; allowedMenuItems.value`, {
     computed: fn => ({ value: fn() }),
     currentUser: { value: { type } },
+    currentAccount: { value: { toybaco_support: supportEnabled } },
+    window: { dispatchEvent: event => events.push(event.type) },
+    Event,
     t: key => key,
     emit: event => events.push(event),
     Auth: { logout: () => events.push('logout') },
@@ -41,6 +44,15 @@ test('all customer roles retain help, support and update links within Toybaco', 
     }
     assert.equal(items.some(item => item.link === '/super_admin'), type === 'SuperAdmin');
   }
+});
+
+test('in-product support is available only when released and opens beside the current work', () => {
+  assert.equal(profileMenu('User').items.some(item => item.label === '使い方を調べる'), false);
+  const { items, events } = profileMenu('User', true);
+  const support = items.find(item => item.label === '使い方を調べる');
+  assert.equal(support.link, undefined);
+  support.click();
+  assert.deepEqual(events, ['close', 'toybaco:open-support']);
 });
 
 test('profile, shortcuts, appearance and logout remain operable', () => {
