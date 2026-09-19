@@ -3,6 +3,7 @@
 require_relative 'entitlements'
 require_relative 'checkout'
 require_relative 'growth/paid_period'
+require_relative 'growth/paid_transition'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Webhooks carry a subscription ID, never authoritative plan or access state.
@@ -83,6 +84,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     def apply_contract(account, subscription, previous)
       contract = resolve(subscription, previous: previous)
+      return [previous, 'payment_pending'] unless Growth::PaidTransition.allowed?(subscription, contract, previous)
+
       Entitlements.apply!(account, contract, subscription_id: subscription.fetch('id'), catalog: @catalog)
       [contract, 'applied']
     rescue Unresolved, PlanCatalog::Invalid
@@ -189,7 +192,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       updates = {
         'toybaco_subscription_status' => status,
         'toybaco_cancel_at_period_end' => subscription['cancel_at_period_end'] == true,
-        'toybaco_billing_review' => outcome == 'needs_review'
+        'toybaco_billing_review' => outcome == 'needs_review',
+        'toybaco_billing_payment_pending' => outcome == 'payment_pending'
       }
       state = access_state(account, attrs, updates, policy)
       account.update!(state.merge(internal_attributes: attrs.merge(updates)))
@@ -216,7 +220,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     end
 
     def resume_billing?(policy, status, attrs, updates)
-      Array(policy['grace_statuses']).include?(status) && !updates['toybaco_billing_review'] && attrs['toybaco_billing_suspended'] == true
+      Array(policy['grace_statuses']).include?(status) && !updates['toybaco_billing_review'] &&
+        !updates['toybaco_billing_payment_pending'] && attrs['toybaco_billing_suspended'] == true
     end
   end
 end

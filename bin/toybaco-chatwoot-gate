@@ -104,6 +104,7 @@ control_file_list() {
     'config/toybaco-plans.json' \
     'config/chatwoot-runtime-gems.json' \
     'scripts/harden-chatwoot-runtime-gems.rb' \
+    'scripts/native-encryption-probe.rb' \
     'tests/verify_chatwoot_runtime_gems.rb' \
     'config/chatwoot-ruby-llm-backport.json' \
     'scripts/harden-chatwoot-ruby-llm.rb' \
@@ -124,6 +125,11 @@ control_file_list() {
     'tests/toybaco_connection_oauth_test.rb' \
     'tests/toybaco_gmail_sync_test.rb' \
     'tests/toybaco_gmail_parts_test.rb' \
+    'tests/toybaco_microsoft_api_test.rb' \
+    'tests/toybaco_microsoft_sync_test.rb' \
+    'tests/toybaco_microsoft_parts_test.rb' \
+    'tests/toybaco_microsoft_outgoing_test.rb' \
+    'tests/toybaco_microsoft_runtime_test.rb' \
     'tests/toybaco_gmail_runtime_test.rb' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
@@ -132,11 +138,24 @@ control_file_list() {
     'tests/toybaco_growth_onboarding_runtime_test.rb' \
     'tests/toybaco_growth_replies_runtime_test.rb' \
     'tests/toybaco_growth_trial_runtime_test.rb' \
+    'tests/toybaco_growth_trial_notices_runtime_test.rb' \
+    'tests/toybaco_growth_trial_compensation_runtime_test.rb' \
     'tests/toybaco_growth_drafts_runtime_test.rb' \
     'tests/toybaco_growth_draft_model_test.rb' \
     'tests/toybaco-manual-draft.test.mjs' \
     'tests/toybaco-pointer-guide.test.mjs' \
     'tests/toybaco_growth_purchase_runtime_test.rb' \
+    'tests/toybaco_growth_packs_runtime_test.rb' \
+    'tests/toybaco_growth_pack_stripe_fixture.rb' \
+    'tests/toybaco_growth_payments_runtime_test.rb' \
+    'tests/toybaco_growth_post_model_test.rb' \
+    'tests/toybaco_growth_post_drafts_runtime_test.rb' \
+    'tests/toybaco_connection_handoff_runtime_test.rb' \
+    'tests/toybaco_line_setup_api_test.rb' \
+    'tests/toybaco_handoff_line_runtime_test.rb' \
+    'tests/toybaco_handoff_mail_state_test.rb' \
+    'tests/toybaco_handoff_mail_runtime_test.rb' \
+    'tests/toybaco-connection-handoff-ui.test.mjs' \
     'bin/toybaco-chatwoot-gate' \
     'infra/terraform/ecs.tf' \
     'scripts/generate-chatwoot-active-ja-overrides.rb' \
@@ -211,6 +230,14 @@ integration_ruby_file_list() {
       printf '%s\n' overlay/app/config/initializers/toybaco_growth_replies.rb
       printf '%s\n' overlay/app/config/initializers/toybaco_growth_trials.rb overlay/app/db/migrate/20260919160000_create_toybaco_growth_trials.rb
       printf '%s\n' overlay/app/config/initializers/toybaco_growth_drafts.rb overlay/app/db/migrate/20260919163000_create_toybaco_growth_draft_requests.rb
+      printf '%s\n' overlay/app/db/migrate/20260919173000_create_toybaco_growth_trial_notices.rb
+      printf '%s\n' overlay/app/db/migrate/20260919180000_bind_toybaco_microsoft_mailboxes.rb
+      printf '%s\n' overlay/app/db/migrate/20260919190000_record_toybaco_trial_outages.rb overlay/app/lib/tasks/toybaco_trial_compensation.rake
+      printf '%s\n' overlay/app/db/migrate/20260919200000_create_toybaco_growth_pack_orders.rb overlay/app/config/initializers/toybaco_growth_packs.rb overlay/app/lib/tasks/toybaco_growth_packs.rake
+      printf '%s\n' overlay/app/db/migrate/20260919210000_create_toybaco_growth_payment_events.rb overlay/app/config/initializers/toybaco_growth_payments.rb overlay/app/lib/tasks/toybaco_growth_payments.rake
+      printf '%s\n' overlay/app/db/migrate/20260919220000_create_toybaco_growth_post_drafts.rb overlay/app/config/initializers/toybaco_growth_post_drafts.rb
+      printf '%s\n' overlay/app/db/migrate/20260919230000_create_toybaco_connection_handoffs.rb overlay/app/config/initializers/toybaco_connection_handoffs.rb
+      find overlay/app/app/mailers/toybaco -type f -name '*.rb' -print
       find overlay/app/app/mailers/agent_notifications -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
         \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
@@ -887,7 +914,7 @@ verify_base_and_frame_contract() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     --workdir /contract "$CHATWOOT_IMAGE" ruby tests/chatwoot_frame_policy_test.rb)"
   printf '%s\n' "$frame_output"
-  grep -Eq '5 runs, 36 assertions, 0 failures, 0 errors, 0 skips' <<< "$frame_output" || fail \
+  grep -Eq '6 runs, 42 assertions, 0 failures, 0 errors, 0 skips' <<< "$frame_output" || fail \
     'frame-policy contractのrun/assertion数または結果が不正です'
 
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
@@ -914,6 +941,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-pointer-guide.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-manual-draft.test.mjs"
+  node --test "$CONTROL_ROOT/tests/toybaco-connection-handoff-ui.test.mjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -1053,6 +1081,18 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_gmail_runtime_test.rb
 
+  STAGE='Microsoft Graph・認可・差分受信・送信契約'
+  for microsoft_test in toybaco_microsoft_api_test toybaco_microsoft_sync_test toybaco_microsoft_parts_test toybaco_microsoft_outgoing_test; do
+    run_test_container \
+      --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+      "$TEST_IMAGE" bundle exec ruby "/contract/tests/$microsoft_test.rb"
+  done
+
+  STAGE='Microsoft Graph Rails・店舗境界・実メールと初回案内'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_microsoft_runtime_test.rb
+
   STAGE='新料金・AI期間の契約確認'
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -1087,6 +1127,14 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_growth_draft_model_test.rb
+  STAGE='体験終了の案内・一度だけの通知と契約者境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_trial_notices_runtime_test.rb
+  STAGE='確認済み自社障害・体験期間の補填と重複防止'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_trial_compensation_runtime_test.rb
   STAGE='返信欄の手動AI・明示操作・原子性と権限'
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -1100,6 +1148,53 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_purchase_runtime_test.rb
+  STAGE='AI追加パック・実入金照合と重複付与・返金の店舗境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_packs_runtime_test.rb
+  STAGE='署名済み入金受付・永続化・再起動と自動復旧'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_payments_runtime_test.rb
+  STAGE='投稿AI・国内モデル出力と署名された店舗境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_growth_post_model_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_post_drafts_runtime_test.rb
+  STAGE='接続担当者の限定依頼・一度限りの本人確認と設定権限'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_connection_handoff_runtime_test.rb
+
+  STAGE='既存LINE接続・本人確認画面と暗号化した設定の保存'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_line_setup_api_test.rb
+  run_test_container \
+    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
+    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
+    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_line_runtime_test.rb
+
+  STAGE='標準キーの旧アプリ読取りprobe・全媒体とMFAの実型変換'
+  run_test_container \
+    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
+    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
+    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
+    --env 'PGOPTIONS=-c default_transaction_read_only=on' \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec rails runner /contract/scripts/native-encryption-probe.rb
+
+  STAGE='メール接続依頼・PKCEと実OAuth callbackの店舗境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_handoff_mail_state_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_mail_runtime_test.rb
 
 }
 

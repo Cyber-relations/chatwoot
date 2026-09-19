@@ -2,7 +2,11 @@
 
 require_relative '../entitlements'
 require_relative '../connections/gmail'
+require_relative '../connections/microsoft'
+require_relative '../connections/handoff/line_setup'
+require_relative '../connections/handoff/mail_gateway'
 require_relative 'store_facts'
+require_relative 'onboarding_inboxes'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -30,13 +34,16 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def read
-        mailboxes = gmail_inboxes
+        mailboxes = guide_inboxes.visible
         chosen = mailboxes.find { |inbox| inbox.id == preference['inbox_id'] } || (mailboxes.first if mailboxes.length == 1)
         state = progress(chosen)
         state.merge('version' => VERSION, 'account_id' => @account.id, 'administrator' => administrator?, 'preference' => preference,
                     'facts' => StoreFacts.new(@account).read,
                     'gmail_available' => Connections::Gmail.allowed?(@account),
-                    'inboxes' => mailboxes.map { |inbox| { 'id' => inbox.id, 'name' => inbox.name, 'email' => inbox.channel.email } })
+                    'microsoft_available' => Connections::Microsoft.allowed?(@account),
+                    'handoff_line_available' => administrator? && Connections::Handoff::LineSetup.available?,
+                    'handoff_mail_available' => handoff_mail_providers,
+                    'inboxes' => mailboxes.map { |inbox| guide_inboxes.describe(inbox) })
       end
 
       def update!(attributes)
@@ -53,6 +60,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       private
 
+      def handoff_mail_providers
+        return [] unless administrator? && Connections::Handoff::Access.enabled?
+
+        Connections::Handoff::MailGateway::PROVIDERS.select { |provider| Connections::Handoff::MailGateway.new(provider).allowed?(@account) }
+      end
+
       def preference
         saved = @user.custom_attributes&.dig(PREFERENCES, @account.id.to_s)
         saved.is_a?(Hash) && saved['version'] == VERSION ? saved.slice('purpose', 'inbox_id', 'dismissed') : {}
@@ -62,19 +75,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         return false unless (attributes.keys - %w[purpose inbox_id dismissed]).empty?
         return false unless optional_value?(attributes, 'purpose', %w[inbox posting]) && optional_value?(attributes, 'dismissed', [true, false])
 
-        !attributes.key?('inbox_id') || gmail_inboxes.any? { |inbox| inbox.id == attributes['inbox_id'] }
+        !attributes.key?('inbox_id') || guide_inboxes.visible.any? { |inbox| inbox.id == attributes['inbox_id'] }
       end
 
       def optional_value?(attributes, key, allowed)
         !attributes.key?(key) || allowed.include?(attributes[key])
       end
 
-      def gmail_inboxes
-        return [] unless Connections::Gmail.allowed?(@account)
-
-        visible = @account.inboxes.where(channel_type: 'Channel::Email').includes(:channel)
-        visible = visible.joins(:inbox_members).where(inbox_members: { user_id: @user.id }) unless administrator?
-        visible.select { |inbox| Connections::Gmail.connected?(inbox.channel) && !inbox.channel.reauthorization_required? }
+      def guide_inboxes
+        OnboardingInboxes.new(@account, @user, administrator: administrator?)
       end
 
       def progress(inbox)
@@ -94,14 +103,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # Read the decoded receipt through the model rather than assuming a
         # particular SQL representation of content_attributes.
         replies = incoming.conversation.messages.where(message_type: :outgoing, private: false, sender_type: 'User')
-                          .where('created_at >= ?', incoming.created_at).where.not(source_id: [nil, ''])
-        accepted = replies.select(:id, :content_attributes).find_each(batch_size: 100).any? { |reply| accepted_reply?(reply) }
+                          .where('created_at >= ?', incoming.created_at)
+        accepted = replies.select(:id, :source_id, :status, :content_attributes).find_each(batch_size: 100).any? do |reply|
+          guide_inboxes.accepted_reply?(reply, inbox)
+        end
         { 'phase' => accepted ? 'complete' : 'reply', 'inbox_id' => inbox.id, 'conversation_id' => incoming.conversation.display_id }
-      end
-
-      def accepted_reply?(reply)
-        receipt = reply.content_attributes['toybaco_gmail_send']
-        receipt.is_a?(Hash) && receipt['state'] == 'accepted' && receipt['provider_id'].present? && receipt['accepted_at'].present?
       end
     end
   end

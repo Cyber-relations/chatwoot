@@ -139,18 +139,19 @@ locals {
     { name = "TOYBACO_POSTIZ_SECRET_VERSION", value = aws_secretsmanager_secret_version.postiz.version_id },
   ]
 
-  app_secrets = [
+  app_secrets = concat([
     { name = "SECRET_KEY_BASE", valueFrom = "${aws_secretsmanager_secret.app.arn}:SECRET_KEY_BASE::" },
     { name = "POSTGRES_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:POSTGRES_PASSWORD::" },
     { name = "SMTP_USERNAME", valueFrom = "${aws_secretsmanager_secret.app.arn}:SMTP_USERNAME::" },
     { name = "SMTP_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:SMTP_PASSWORD::" },
     # ご契約内容画面(カスタマーポータルのセッション発行)用の Stripe 制限付きキー
     { name = "TOYBACO_STRIPE_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_KEY::" },
+    { name = "TOYBACO_STRIPE_PACK_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_PACK_WEBHOOK_SECRET::" },
 
     # トイバコID の合言葉と、投稿画面側へ会社・利用者を作るための接続情報
     { name = "TOYBACO_OIDC_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.postiz.arn}:OIDC_CLIENT_SECRET::" },
     { name = "TOYBACO_POSTIZ_DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.postiz.arn}:SYNC_DATABASE_URL::" },
-  ]
+  ], local.native_encryption_secrets)
 
   log_config = {
     logDriver = "awslogs"

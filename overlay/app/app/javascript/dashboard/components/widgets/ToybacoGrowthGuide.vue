@@ -37,6 +37,8 @@ const launched = new Set();
 const selectors = {
   'purpose.inbox': '[data-toybaco-guide-action="purpose.inbox"]',
   'connection.google': '[data-toybaco-guide-action="connection.google"]',
+  'connection.microsoft': '[data-toybaco-guide-action="connection.microsoft"]',
+  'connection.line': '[data-toybaco-guide-action="connection.line"]',
   'facts.confirm': '[data-toybaco-guide-action="facts.confirm"]',
   'reply.open': '[data-toybaco-guide-action="reply.open"]',
   'reply.ai_draft': '[data-toybaco-guide-action="reply.ai_draft"]',
@@ -56,6 +58,13 @@ const setupSteps = {
 function wantedStep() {
   if (!state.value || paused.value || state.value.preference.dismissed)
     return null;
+  if (inSetup.value && state.value.phase === 'connect') {
+    if (!state.value.administrator) return null;
+    if (state.value.gmail_available) return setupSteps.connect;
+    if (state.value.microsoft_available)
+      return ['connection.microsoft', 'Microsoftのアカウントを選んで接続します。'];
+    return ['connection.line', 'LINE公式の接続設定を開きます。'];
+  }
   if (inSetup.value) return setupSteps[state.value.phase] || null;
   if (
     state.value.phase !== 'reply' ||
@@ -84,10 +93,10 @@ function scan() {
       elements.every((el, index) => el === previous[index].el)
     )
       continue;
-    previous.forEach((entry) => entry.remove());
+    previous.forEach(entry => entry.remove());
     targets.set(
       id,
-      elements.map((el) => ({ el, remove: registry.register(id, el) }))
+      elements.map(el => ({ el, remove: registry.register(id, el) }))
     );
   }
   const step = wantedStep();
@@ -178,8 +187,8 @@ onMounted(async () => {
       updateGrowthGuide({ dismissed: true });
     },
   });
-  observer = new MutationObserver((records) => {
-    if (records.some((record) => !record.target.closest?.('.toybaco-guide')))
+  observer = new MutationObserver(records => {
+    if (records.some(record => !record.target.closest?.('.toybaco-guide')))
       scheduleScan();
   });
   observer.observe(document.body, {
@@ -211,7 +220,7 @@ onBeforeUnmount(() => {
   if (scanFrame !== undefined) cancelAnimationFrame(scanFrame);
   observer?.disconnect();
   guide?.destroy();
-  targets.forEach((entries) => entries.forEach((entry) => entry.remove()));
+  targets.forEach(entries => entries.forEach(entry => entry.remove()));
   document.removeEventListener('input', scheduleScan, true);
   selectGrowthGuideAccount(null);
 });

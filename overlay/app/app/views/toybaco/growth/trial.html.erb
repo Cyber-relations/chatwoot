@@ -19,9 +19,12 @@
   <% if @state['state'] == 'included' %>
     <section class="trial-card"><h2>自動応答はご契約に含まれています</h2><p>受信箱の「AI応答」で設定できます。</p></section>
   <% elsif @state['state'] == 'active' %>
+    <% if @state.fetch('notices', []).any? %>
+      <section class="trial-card" aria-label="体験終了のお知らせ"><h2>自動応答を、このまま続けますか？</h2><p>体験の終了が近づいています。Standard以上で継続できます。</p><a href="/toybaco/billing?account_id=<%= @account.id %>">プランと料金を確認</a></section>
+    <% end %>
     <section class="trial-card"><h2>体験中</h2><p>残り <strong><%= @state['remaining'] %>回</strong></p><p>終了：<time datetime="<%= @state['ends_at'] %>"><%= Time.iso8601(@state['ends_at']).in_time_zone('Asia/Tokyo').strftime('%Y年%-m月%-d日 %-H:%M') %>（日本時間）</time></p><p>一時停止・再開は受信箱の「AI応答」から。終了日時は変わりません。</p></section>
   <% elsif @state['state'] == 'completed' %>
-    <section class="trial-card"><h2>体験が終了しました</h2><p>下書きと履歴はそのまま使えます。</p><a href="/toybaco/growth/purchase?account_id=<%= @account.id %>">自動応答を続けるプランを見る</a></section>
+    <section class="trial-card"><h2>体験が終了しました</h2><p>下書きと履歴はそのまま使えます。</p><a href="/toybaco/billing?account_id=<%= @account.id %>">自動応答を続けるプランを見る</a></section>
   <% elsif @state.fetch('examples', []).empty? %>
     <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p>接続と店舗情報を設定し、受信箱でAIの下書きを1件作成してください。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
   <% else %>
@@ -36,6 +39,9 @@
       <button id="trial-start" type="submit" disabled>自動応答の体験を開始する</button>
       <p class="note">開始すると、接続済みの対象受信箱でAIが返信します。期間・回数の早い方で終了し、自動課金はありません。</p>
     </form>
+  <% end %>
+  <% if @state['compensated_seconds'].to_i.positive? %>
+    <p class="note">トイバコの障害による停止時間を、体験期限に補填しました。使用済み回数は変わりません。</p>
   <% end %>
   <p class="note">体験は1店舗につき1回です。接続数や通常のAI枠は変わりません。</p>
 </main>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>接続設定 | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-connection-handoff.css">
+  <script src="/brand-assets/toybaco-connection-handoff.js" defer></script>
+</head>
+<body>
+<main id="handoff" data-mode="portal" data-request-id="<%= params[:id] %>">
+  <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><span class="note">接続設定</span></header>
+  <section class="card">
+    <p id="store" class="eyebrow">接続設定</p>
+    <h1 id="heading">本人確認から始めましょう</h1>
+    <ol class="steps" aria-label="設定の流れ"><li id="identity-step" aria-current="step">1 本人確認</li><li id="setup-step">2 接続設定</li></ol>
+    <div id="identity" hidden>
+      <p>依頼時に指定されたメールアドレスへ、確認コードを送ります。</p>
+      <button id="send-code" type="button">確認コードを送る</button>
+      <form id="verify-form" hidden>
+        <label for="verification-code">6桁の確認コード</label>
+        <input id="verification-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+        <button id="verify" type="submit">確認して進む</button>
+      </form>
+      <button id="login" type="button" class="text-button">ログイン済みのアカウントで確認</button>
+    </div>
+    <div id="mail-connect" hidden>
+      <p>メールアカウントを選び、接続を許可してください。</p>
+      <button id="connect-mail" type="button">メールを接続</button>
+    </div>
+    <div id="mail-saved" hidden>
+      <p>接続設定が完了しました。依頼元のお店でメールの受信を確認してください。</p>
+    </div>
+    <form id="line-form" hidden autocomplete="off">
+      <p>対象のチャネルから、次の3項目をコピーしてください。</p>
+      <p><a href="https://developers.line.biz/console/" target="_blank" rel="noopener noreferrer">LINE Developersを開く ↗</a></p>
+      <label for="line-channel-id">チャネルID</label><input id="line-channel-id" inputmode="numeric" pattern="[0-9]{5,20}" maxlength="20" required autocomplete="off">
+      <label for="line-channel-secret">チャネルシークレット</label><input id="line-channel-secret" type="password" pattern="[0-9a-fA-F]{32}" maxlength="32" required autocomplete="new-password">
+      <label for="line-channel-token">チャネルアクセストークン（長期）</label><input id="line-channel-token" type="password" minlength="20" maxlength="4096" required autocomplete="new-password">
+      <p class="note">ID・シークレットは「チャネル基本設定」、トークンは「Messaging API設定」にあります。</p>
+      <button id="save-line" type="submit">確認して保存</button>
+    </form>
+    <div id="saved" hidden>
+      <p>LINE Developersの「Messaging API設定」で、次のURLをWebhook URLに設定し、「Webhookの利用」をオンにしてください。</p>
+      <label for="webhook-url">Webhook URL</label><input id="webhook-url" readonly>
+      <button id="copy-webhook" type="button">URLをコピー</button>
+      <p><a href="https://developers.line.biz/console/" target="_blank" rel="noopener noreferrer">LINE Developersを開く ↗</a></p>
+      <p class="note">最後に、このLINE公式アカウントへメッセージを送り、依頼元のお店で受信を確認してください。</p>
+    </div>
+    <button id="check-save" type="button" class="secondary" hidden>保存状況を確認</button>
+    <p id="status" role="status" aria-live="polite">依頼を確認しています…</p>
+    <p id="error" role="alert" hidden></p>
+  </section>
+</main>
+</body>
+</html>

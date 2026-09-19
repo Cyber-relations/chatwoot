@@ -35,6 +35,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      def sendable?
+        saved.is_a?(Hash) && saved['state'] == 'dispatching' && allowed?(saved)
+      end
+
       private
 
       def saved

@@ -24,6 +24,30 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         value.is_a?(Hash) ? value : nil
       end
 
+      def saved
+        self.class.saved(@account)
+      end
+
+      def creation_key(saved)
+        "toybaco-purchase:#{saved.fetch('nonce')}"
+      end
+
+      def expiration_key(saved)
+        "toybaco-expire:#{saved.fetch('nonce')}"
+      end
+
+      def nonce_metadata_key
+        'toybaco_purchase_nonce'
+      end
+
+      def terminal_states
+        %w[complete expired]
+      end
+
+      def verify_session!(session, saved)
+        PurchaseIdentity.verify!(session, saved, account_id: @account.id)
+      end
+
       def prepare!(selection)
         @account.with_lock do
           authorize!
@@ -41,6 +65,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         access = BillingAccess.permissions(@account, @user)
         allowed = @user&.confirmed? && access[:can_manage_billing] && free_store?
         raise Unavailable, 'この店舗では新規購入を開始できません。' unless allowed
+      end
+
+      def authorize_cancel!
+        authorize!
       end
 
       def save!(intent)

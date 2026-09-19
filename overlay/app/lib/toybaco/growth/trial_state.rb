@@ -20,7 +20,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         grant = Toybaco::GrowthAiGrant.find_by(account_id: @account.id, source: 'trial', source_key: "trial:#{trial.id}")
         used = grant&.used || TrialStart::UNITS
         { 'state' => trial.completed_at ? 'completed' : 'active', 'ends_at' => trial.ends_at.utc.iso8601,
-          'remaining' => [TrialStart::UNITS - used, 0].max, 'used' => used, 'reason' => trial.completion_reason }
+          'remaining' => [TrialStart::UNITS - used, 0].max, 'used' => used, 'reason' => trial.completion_reason,
+          'notices' => TrialNotice.notices(@account), 'compensated_seconds' => trial.compensated_seconds }
       end
 
       private

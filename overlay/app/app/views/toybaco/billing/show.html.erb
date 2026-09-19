@@ -124,6 +124,9 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </div>
     <% if growth %>
       <div class="row"><span>AI 自動応答</span><span class="badge <%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? 'on' : 'off' %>"><%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? '利用可能（設定後に開始）' : '体験の開始または上位プランで利用' %></span></div>
+      <% if @admin && (Toybaco::Growth::PackCatalog.available? || Toybaco::GrowthPackOrder.exists?(account_id: @account.id)) %>
+        <p class="note"><a class="btn btn-back" href="/toybaco/growth/packs?account_id=<%= @account.id %>" target="_top">AI追加パック・残り回数を確認</a></p>
+      <% end %>
     <% end %>
     <p class="note">AI の表示はご契約上の利用枠です。応答の設定・稼働状況は受信箱でご確認ください。</p>
     <% unless growth %>

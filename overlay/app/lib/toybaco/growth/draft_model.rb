@@ -75,7 +75,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def valid_block?(block)
-        block.is_a?(Hash) && block.keys.sort == %w[id input name type] && block['type'] == 'tool_use' && block['name'] == 'reply_draft'
+        block.is_a?(Hash) && block.keys.sort == %w[id input name type] && block['type'] == 'tool_use' && block['name'] == tool_name
+      end
+
+      def tool_name
+        'reply_draft'
       end
 
       def valid_text?(text)
