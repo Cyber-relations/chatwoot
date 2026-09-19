@@ -152,6 +152,7 @@ control_file_list() {
     'tests/toybaco_growth_post_model_test.rb' \
     'tests/toybaco_growth_post_drafts_runtime_test.rb' \
     'tests/toybaco_support_runtime_test.rb' \
+    'tests/toybaco_support_reports_runtime_test.rb' \
     'tests/toybaco_support_model_test.rb' \
     'tests/toybaco_support_capacity_runtime_test.rb' \
     'tests/toybaco-support-question.test.mjs' \
@@ -225,6 +226,7 @@ integration_ruby_file_list() {
     cd "$source_root"
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/app/controllers/super_admin/support_reports_controller.rb overlay/app/db/migrate/20260920000000_create_toybaco_support_reports.rb
       find overlay/app/app/jobs/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/connections -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/growth -type f -name '*.rb' -print
@@ -1063,6 +1065,11 @@ run_ruby_quality() {
     'for file do ruby -c "$file" >/dev/null || exit; done' sh "${ruby_files[@]}"
   run_test_container --env RUBOCOP_CACHE_ROOT=/tmp/rubocop-cache "$TEST_IMAGE" \
     bundle exec rubocop --force-exclusion --format progress "${ruby_files[@]}"
+
+  STAGE='未解決報告・担当者管理画面と役割境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_support_reports_runtime_test.rb
 
   STAGE='全Toybaco RSpec'
   run_test_container \

@@ -10,7 +10,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Support
     class Context
       REQUIREMENTS = {
-        'member' => :member?, 'administrator' => :settings?, 'growth' => :growth?, 'growth_admin' => :growth_admin?,
+        'member' => :member?, 'active_member' => :active_member?, 'administrator' => :settings?,
+        'growth' => :growth?, 'growth_admin' => :growth_admin?,
         'gmail' => :gmail?, 'microsoft' => :microsoft?, 'posting' => :posting?, 'drafts' => :drafts?, 'billing' => :billing?
       }.freeze
       def initialize(account, user)
@@ -39,6 +40,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
+
+      def active_member?
+        member? && @account.active?
+      end
 
       def settings?
         administrator? && @account.active?

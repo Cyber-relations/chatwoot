@@ -1,0 +1,33 @@
+<% content_for(:title) { '利用者からの報告' } %>
+<header class="main-content__header">
+  <h1 class="main-content__page-title">利用者からの報告</h1>
+</header>
+<section class="main-content__body">
+  <p>担当する報告の最新100件です。対応内容を確認してから「対応済み」にしてください。請求や契約はこの画面では変更されません。</p>
+  <table>
+    <thead><tr><th>受付</th><th>店舗・利用者</th><th>内容</th><th>診断</th><th>状態</th><th>操作</th></tr></thead>
+    <tbody>
+      <% @reports.each do |report| %>
+        <tr>
+          <td>#<%= report.id %><br><%= report.created_at.in_time_zone('Asia/Tokyo').strftime('%m/%d %H:%M') %></td>
+          <td>店舗 <%= report.account_id %> / 利用者 <%= report.user_id %></td>
+          <td><%= Toybaco::Support::Reports::CATEGORIES.fetch(report.category) %><br><%= report.article_id %></td>
+          <td>
+            <% if report.diagnostics_expires_at > Time.now.utc %>
+              <% report.diagnostics.each do |check| %><div><%= check['id'] %>: <%= check['state'] %></div><% end %>
+            <% end %>
+          </td>
+          <td><%= Toybaco::Support::Reports::STATES.fetch(report.state) %></td>
+          <td>
+            <% if report.state == 'received' %>
+              <%= button_to '確認を開始', "/super_admin/toybaco_support/#{report.id}", method: :patch, params: { state: 'reviewing' } %>
+            <% end %>
+            <% unless report.state == 'resolved' %>
+              <%= button_to '対応済み', "/super_admin/toybaco_support/#{report.id}", method: :patch, params: { state: 'resolved' }, form: { data: { turbo_confirm: '実際の対応が完了しましたか？' } } %>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>

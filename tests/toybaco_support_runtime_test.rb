@@ -236,7 +236,10 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
       read_support
       assert_response :success
       assert_includes ids, 'reply'
-      %w[connection line gmail microsoft facts staff billing].each { |id| refute_includes ids, id }
+      %w[conversation_search conversation_assign conversation_snooze conversation_reopen conversation_labels canned_reply mail_recipients].each do |id|
+        assert_includes ids, id
+      end
+      %w[connection line gmail microsoft facts staff billing inbox_access line_credentials].each { |id| refute_includes ids, id }
     end
   end
 
@@ -259,7 +262,10 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
       assert_includes ids, 'security'
       assert_includes ids, 'login'
       refute response.parsed_body.dig('status', 'account_active')
-      %w[first_steps connection gmail microsoft staff posting ai].each { |id| refute_includes ids, id }
+      assert_includes ids, 'support_usage'
+      %w[first_steps connection gmail microsoft staff posting ai reply private_note resolve attachments reply_failed
+         conversation_search conversation_assign conversation_snooze conversation_reopen conversation_labels canned_reply
+         mail_recipients inbox_access line_credentials].each { |id| refute_includes ids, id }
     end
   end
 
@@ -279,7 +285,9 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
       refute_includes response.body, secret
       refute_includes response.body, 'internal_attributes'
       refute_includes response.body, 'stripe'
-      assert_equal %w[account_id ai_available articles status version], response.parsed_body.keys.sort
+      assert_equal %w[account_id ai_available articles billing_report reports_available status version], response.parsed_body.keys.sort
+      assert_equal false, response.parsed_body.fetch('reports_available')
+      assert_equal false, response.parsed_body.fetch('billing_report')
       response.parsed_body.fetch('articles').each do |article|
         assert_equal Toybaco::Support::Knowledge::VERSION, article.fetch('version')
         assert_equal %w[action answer id title version], article.keys.sort

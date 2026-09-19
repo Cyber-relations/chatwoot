@@ -10,6 +10,7 @@ import {
 } from "vue";
 import { useRouter } from "vue-router";
 import { useAccount } from "dashboard/composables/useAccount";
+import ToybacoSupportReports from "./ToybacoSupportReports.vue";
 import {
   createSupportQuestion,
   createSupportDiagnostics,
@@ -26,6 +27,8 @@ const selected = ref(null);
 const field = ref(null);
 const question = ref("");
 const aiAvailable = ref(false);
+const reportsAvailable = ref(false);
+const billingReport = ref(false);
 const answer = reactive({ busy: false, slow: false, error: "", retryAt: null });
 const diagnosis = reactive({ busy: false, checks: [], error: "" });
 const guideArticles = ref([]);
@@ -40,7 +43,7 @@ const diagnosticArticles = [
   "ai",
   "billing",
 ];
-const VERSION = "2026-09-19.1";
+const VERSION = "2026-09-19.2";
 const targets = {
   start: ["toybaco_growth_start", "初回案内を開く"],
   inboxes: ["settings_inbox_list", "受信箱を開く"],
@@ -133,6 +136,7 @@ function close() {
   question.value = "";
   answer.error = "";
   aiAvailable.value = false;
+  reportsAvailable.value = false;
   if (previousFocus?.isConnected) previousFocus.focus();
 }
 
@@ -148,6 +152,7 @@ async function load() {
   error.value = "";
   busy.value = true;
   aiAvailable.value = false;
+  reportsAvailable.value = false;
   answer.error = "";
   answer.retryAt = null;
   try {
@@ -170,6 +175,8 @@ async function load() {
       throw new Error("support version mismatch");
     articles.value = data.articles;
     aiAvailable.value = data.ai_available === true;
+    reportsAvailable.value = data.reports_available === true;
+    billingReport.value = data.billing_report === true;
   } catch (failure) {
     if (attempt === epoch && failure.name !== "AbortError")
       error.value = "手順を読み込めませんでした。";
@@ -369,6 +376,13 @@ onBeforeUnmount(() => {
     <p v-if="!busy && !error && !results.length">
       別の言葉で検索してください。
     </p>
+    <ToybacoSupportReports
+      v-if="reportsAvailable"
+      :key="String(accountId)"
+      :account-id="accountId"
+      :article-id="selected?.id || ''"
+      :billing="billingReport"
+    />
     <footer>
       <a href="/toybaco-help.html" target="_blank" rel="noopener">操作ガイド</a>
     </footer>

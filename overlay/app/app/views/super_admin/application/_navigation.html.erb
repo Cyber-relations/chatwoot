@@ -32,7 +32,7 @@
     <ul class="my-4">
       <%= render partial: "nav_item", locals: { icon: 'icon-grid-line', url: super_admin_root_url, label: 'ダッシュボード' } %>
       <% Administrate::Namespace.new(namespace).resources.each do |resource| %>
-        <% next if ["account_users", "access_tokens", "installation_configs", "dashboard", "devise/sessions", "app_configs", "instance_statuses", "settings", "push_diagnostics"].include?  resource.resource %>
+        <% next if ["account_users", "access_tokens", "installation_configs", "dashboard", "devise/sessions", "app_configs", "instance_statuses", "settings", "push_diagnostics", "support_reports"].include?  resource.resource %>
         <% next if resource.resource == "platform_banners" && !ChatwootApp.chatwoot_cloud? %>
         <%= render partial: "nav_item", locals: {
             icon: sidebar_icons[resource.resource.to_sym],
@@ -41,6 +41,9 @@
           }
         %>
 
+      <% end %>
+      <% if defined?(Toybaco::Support::Reports) && Toybaco::Support::Reports::CATEGORIES.keys.any? { |category| Toybaco::Support::Reports.owner(category)&.id == current_super_admin.id } %>
+        <%= render partial: 'nav_item', locals: { icon: 'icon-chat-1-line', url: '/super_admin/toybaco_support', label: '利用者からの報告' } %>
       <% end %>
       <%= render 'settings_menu', open: settings_open? %>
     </ul>
