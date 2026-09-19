@@ -8,8 +8,10 @@ BASE_COUNT='158'
 BASE_SHA256='8ecbf17886bbdb41fcff953b3a792d9fc8635b3ee5aea399898b7bb2ed370074'
 UPSTREAM_COUNT='177'
 UPSTREAM_SHA256='dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
-TARGET_COUNT='178'
-TARGET_SHA256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
+LEGACY_COUNT='178'
+LEGACY_SHA256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
+TARGET_COUNT='189'
+TARGET_SHA256='d1363da71938f52c40df06763c2937b06dabbf33a01688894a48df857de8b198'
 
 deny() {
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=NO-GO reason=%s\n' "$1" >&2
@@ -127,6 +129,10 @@ if [ "$count" = "$BASE_COUNT" ] && [ "$sha256" = "$BASE_SHA256" ]; then
 elif [ "$count" = "$UPSTREAM_COUNT" ] && [ "$sha256" = "$UPSTREAM_SHA256" ]; then
   [ "$require_target" = 'false' ] || deny 'target_schema_required'
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=upstream count=%s sha256=%s\n' \
+    "$count" "$sha256"
+elif [ "$count" = "$LEGACY_COUNT" ] && [ "$sha256" = "$LEGACY_SHA256" ]; then
+  [ "$require_target" = 'false' ] || deny 'target_schema_required'
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=legacy count=%s sha256=%s\n' \
     "$count" "$sha256"
 elif [ "$count" = "$TARGET_COUNT" ] && [ "$sha256" = "$TARGET_SHA256" ]; then
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=target count=%s sha256=%s\n' \

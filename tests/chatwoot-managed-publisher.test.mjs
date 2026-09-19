@@ -506,6 +506,8 @@ function validate(workflowSource, gateSource) {
     assert.ok(gateSource.includes(required), `essential quality gate missing: ${required}`);
   }
   assert.match(gateSource, /^  verify_toybaco_database_prepare$/m);
+  assert.ok(gateSource.includes('"$TEST_IMAGE" /app/bin/toybaco-chatwoot-schema-preflight'));
+  assert.ok(gateSource.includes('--env TOYBACO_CHATWOOT_SCHEMA_REQUIRE_TARGET=true'));
   assert.match(gateSource, /^  run_ruby_quality$/m);
   assert.match(gateSource, /^  build_and_smoke_production_image$/m);
   assert.ok(

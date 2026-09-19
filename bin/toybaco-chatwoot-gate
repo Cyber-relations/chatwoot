@@ -670,6 +670,14 @@ verify_toybaco_database_prepare() {
     --env TOYBACO_CHATWOOT_BOOTSTRAP=true \
     "$TEST_IMAGE" bundle exec rails db:toybaco_prepare
   verify_schema_migration_set "$bootstrap_database" "$target_count" "$target_sha256" 'fresh prepare'
+  # Exercise the actual deployed guard against the freshly migrated database.
+  # Matching a separately derived version list does not verify this executable.
+  run_test_container \
+    --env PGHOST=postgres --env PGUSER=postgres \
+    --env "PGDATABASE=$bootstrap_database" --env "PGPASSWORD=$POSTGRES_TEST_PASSWORD" \
+    --env TOYBACO_CHATWOOT_SCHEMA_BOOTSTRAP=false \
+    --env TOYBACO_CHATWOOT_SCHEMA_REQUIRE_TARGET=true \
+    "$TEST_IMAGE" /app/bin/toybaco-chatwoot-schema-preflight
   config_count="$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$bootstrap_database" -c 'SELECT count(*) FROM public.installation_configs;')"
   [[ "$config_count" =~ ^[1-9][0-9]*$ ]] || fail "fresh prepare後のinstallation config件数が不正です: $config_count"
