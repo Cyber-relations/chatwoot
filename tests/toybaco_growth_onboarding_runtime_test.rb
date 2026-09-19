@@ -133,4 +133,188 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       refute_includes response.body, '非公開の店舗名'
     end
   end
+
+  class LineClient
+    attr_accessor :response
+    attr_reader :pushes
+
+    def initialize
+      @response = OpenStruct.new(code: '200', body: '{}')
+      @pushes = []
+    end
+
+    def get_profile(_id)
+      OpenStruct.new(body: JSON.generate('userId' => "U#{'a' * 32}", 'displayName' => '案内確認'))
+    end
+
+    def push_message(recipient, payload)
+      @pushes << [recipient, payload]
+      response
+    end
+  end
+
+  def line_inbox(account = @account)
+    channel = Channel::Line.create!(account: account, line_channel_id: SecureRandom.random_number(10**10).to_s,
+                                   line_channel_secret: 'a' * 32, line_channel_token: 'lineFixtureToken')
+    account.inboxes.create!(channel: channel, name: 'テスト店舗 LINE')
+  end
+
+  def with_line_client(client)
+    factory = lambda do |&configure|
+      configure.call(OpenStruct.new)
+      client
+    end
+    Line::Bot::Client.stub(:new, factory) { yield }
+  end
+
+  def receive_line(inbox, client: LineClient.new, valid: true)
+    payload = { 'events' => [{ 'type' => 'message', 'source' => { 'type' => 'user', 'userId' => "U#{'a' * 32}" },
+                              'message' => { 'type' => 'text', 'id' => '1234567890', 'text' => '営業時間を教えてください' } }] }
+    body = JSON.generate(payload)
+    signature = Base64.strict_encode64(OpenSSL::HMAC.digest('SHA256', inbox.channel.line_channel_secret, body))
+    with_line_client(client) do
+      Webhooks::LineEventsJob.perform_now(params: { line_channel_id: inbox.channel.line_channel_id, line: payload }.with_indifferent_access,
+                                         signature: valid ? signature : 'invalid', post_body: body)
+    end
+    inbox.messages.incoming.order(:id).last
+  end
+
+  def prepare_line(inbox)
+    update_preference({ purpose: 'inbox', inbox_id: inbox.id })
+    assert_response :success
+    Facts.new(@account).save!({ 'name' => 'テスト店舗' }, user: @user)
+  end
+
+  def line_reply(incoming, sender: @user, private_note: false)
+    create(:message, account: @account, inbox: incoming.inbox, conversation: incoming.conversation,
+                     message_type: :outgoing, private: private_note, sender: sender, content: '本日は18時までです。', status: :sent)
+  end
+
+  def test_line_setup_continues_through_signed_receipt_and_native_api_acceptance
+    authenticated do
+      inbox = line_inbox
+      update_preference({ purpose: 'inbox' })
+      assert_equal 'facts', read_guide['phase']
+      prepare_line(inbox)
+      state = read_guide
+      assert_equal 'receive', state['phase']
+      assert_equal 'line', state['inboxes'].first['provider']
+      assert_nil state['inboxes'].first['email']
+      refute_includes response.body, inbox.channel.line_channel_secret
+      refute_includes response.body, inbox.channel.line_channel_token
+      client = LineClient.new
+      incoming = receive_line(inbox, client: client)
+      assert_equal 'reply', read_guide['phase']
+      reply = line_reply(incoming)
+      assert_equal 'reply', read_guide['phase']
+      with_line_client(client) { Line::SendOnLineService.new(message: Message.find(reply.id)).perform }
+      assert_equal 1, client.pushes.size
+      assert reply.reload.delivered?
+      assert_nil reply.source_id
+      assert_equal 'complete', read_guide['phase']
+      assert_equal incoming.conversation.display_id, read_guide['conversation_id']
+    end
+  end
+
+  def test_line_invalid_webhook_and_private_or_bot_replies_do_not_finish_the_guide
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      assert_nil receive_line(inbox, valid: false)
+      assert_equal 'receive', read_guide['phase']
+      incoming = receive_line(inbox)
+      note = line_reply(incoming, private_note: true)
+      note.update!(status: :delivered)
+      bot = create(:agent_bot, account: @account)
+      line_reply(incoming, sender: bot).update!(status: :delivered)
+      assert_equal 'reply', read_guide['phase']
+    end
+  end
+
+  def test_line_failed_or_empty_provider_response_never_completes_the_guide
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      incoming = receive_line(inbox)
+      [OpenStruct.new(code: '403', body: '{"message":"not permitted"}'), nil].each do |response|
+        client = LineClient.new
+        client.response = response
+        reply = line_reply(incoming)
+        with_line_client(client) { Line::SendOnLineService.new(message: Message.find(reply.id)).perform }
+        assert_equal 1, client.pushes.size
+        refute reply.reload.delivered?
+        assert_equal 'reply', read_guide['phase']
+      end
+    end
+  end
+
+  def test_line_status_cannot_be_forged_through_message_creation_or_update
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      incoming = receive_line(inbox)
+      path = "/api/v1/accounts/#{@account.id}/conversations/#{incoming.conversation.display_id}/messages"
+      post path, params: { content: '返信', status: 'delivered', message_type: 'outgoing' }, headers: @user.create_new_auth_token, as: :json
+      assert_response :success
+      reply = inbox.messages.outgoing.order(:id).last
+      refute reply.delivered?
+      patch "#{path}/#{reply.id}", params: { status: 'delivered' }, headers: @user.create_new_auth_token, as: :json
+      assert_response :forbidden
+      assert_equal 'reply', read_guide['phase']
+    end
+  end
+
+  def test_line_requires_current_inbox_membership_for_staff
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      @account.account_users.find_by!(user: @user).update!(role: 'agent')
+      inbox.inbox_members.where(user: @user).delete_all
+      assert_empty read_guide['inboxes']
+      assert_equal 'connect', read_guide['phase']
+      member = inbox.inbox_members.create!(user: @user)
+      assert_equal [inbox.id], read_guide['inboxes'].pluck('id')
+      member.destroy!
+      assert_empty read_guide['inboxes']
+    end
+  end
+
+  def test_line_and_mail_can_be_selected_without_exposing_another_store
+    authenticated do
+      mail = connect
+      line = line_inbox
+      foreign = line_inbox(create(:account))
+      update_preference({ purpose: 'inbox' })
+      assert_equal 'connect', read_guide['phase']
+      assert_equal [mail.id, line.id], read_guide['inboxes'].pluck('id')
+      update_preference({ inbox_id: line.id })
+      assert_equal line.id, read_guide['inbox_id']
+      update_preference({ inbox_id: foreign.id })
+      assert_response :unprocessable_entity
+      assert_equal line.id, read_guide['inbox_id']
+      update_preference({ inbox_id: mail.id })
+      assert_equal mail.id, read_guide['inbox_id']
+    end
+  end
+
+  def test_removed_line_configuration_returns_to_connection_without_reusing_stored_preference
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      inbox.channel.update_columns(line_channel_token: '')
+      assert_equal 'connect', read_guide['phase']
+      assert_empty read_guide['inboxes']
+    end
+  end
+
+  def test_deleted_line_reply_does_not_claim_usable_first_reply
+    authenticated do
+      inbox = line_inbox
+      prepare_line(inbox)
+      reply = line_reply(receive_line(inbox))
+      reply.update!(status: :delivered, content_attributes: { deleted: true })
+      assert_equal 'reply', read_guide['phase']
+    end
+  end
+
 end

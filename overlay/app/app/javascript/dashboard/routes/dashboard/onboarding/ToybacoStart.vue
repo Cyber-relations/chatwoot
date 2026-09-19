@@ -1,8 +1,9 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAccount } from 'dashboard/composables/useAccount';
-import googleClient from 'dashboard/api/channel/googleClient';
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { useAccount } from "dashboard/composables/useAccount";
+import googleClient from "dashboard/api/channel/googleClient";
+import microsoftClient from "dashboard/api/channel/microsoftClient";
 import {
   growthGuideState as state,
   growthGuideError as error,
@@ -10,78 +11,112 @@ import {
   refreshGrowthGuide,
   updateGrowthGuide,
   saveGrowthFacts,
-} from 'dashboard/composables/toybacoGrowthGuide';
+} from "dashboard/composables/toybacoGrowthGuide";
 
 const { accountId } = useAccount();
 const router = useRouter();
-const brandLogoPath = '/brand-assets/toybaco-logo-c4.png';
-const connecting = ref(false);
+const brandLogoPath = "/brand-assets/toybaco-logo-c4.png";
+const connecting = ref(null);
+let connectionEpoch = 0;
+const providers = {
+  google: {
+    client: googleClient,
+    origin: "https://accounts.google.com",
+    available: "gmail_available",
+  },
+  microsoft: {
+    client: microsoftClient,
+    origin: "https://login.microsoftonline.com",
+    available: "microsoft_available",
+  },
+};
+onBeforeUnmount(() => {
+  connectionEpoch += 1;
+});
 const fields = reactive({
-  name: '',
-  hours: '',
-  address: '',
-  phone: '',
-  services: '',
-  booking: '',
-  cancellation: '',
+  name: "",
+  hours: "",
+  address: "",
+  phone: "",
+  services: "",
+  booking: "",
+  cancellation: "",
 });
 const edited = ref(false);
 const selectedInbox = computed(() =>
-  state.value?.inboxes.find((inbox) => inbox.id === state.value.inbox_id)
+  state.value?.inboxes.find((inbox) => inbox.id === state.value.inbox_id),
 );
 const extras = [
-  { key: 'address', label: '住所', max: 500 },
-  { key: 'phone', label: '電話番号', max: 100 },
-  { key: 'services', label: 'サービス・メニュー', max: 2000 },
-  { key: 'booking', label: '予約方法', max: 1000 },
-  { key: 'cancellation', label: 'キャンセル条件', max: 1000 },
+  { key: "address", label: "住所", max: 500 },
+  { key: "phone", label: "電話番号", max: 100 },
+  { key: "services", label: "サービス・メニュー", max: 2000 },
+  { key: "booking", label: "予約方法", max: 1000 },
+  { key: "cancellation", label: "キャンセル条件", max: 1000 },
 ];
 watch(
   () => String(accountId.value),
   () => {
+    connectionEpoch += 1;
+    connecting.value = null;
     edited.value = false;
     Object.keys(fields).forEach((key) => {
-      fields[key] = '';
+      fields[key] = "";
     });
-  }
+  },
 );
 watch(
   () => state.value?.facts,
   (facts) => {
     if (facts && !edited.value) Object.assign(fields, facts.fields);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
-async function connectGoogle() {
+async function connectProvider(provider) {
+  const selected = providers[provider];
   if (
     connecting.value ||
-    !state.value?.gmail_available ||
+    !selected ||
+    !state.value?.[selected.available] ||
     !state.value?.administrator
   )
     return;
-  connecting.value = true;
+  connecting.value = provider;
+  const originalEpoch = ++connectionEpoch;
   const originalAccount = String(accountId.value);
   try {
-    const { data } = await googleClient.generateAuthorization({
-      return_to: 'growth',
+    const { data } = await selected.client.generateAuthorization({
+      return_to: "growth",
     });
-    if (originalAccount !== String(accountId.value)) return;
+    if (
+      originalEpoch !== connectionEpoch ||
+      originalAccount !== String(accountId.value)
+    )
+      return;
     const url = new URL(data.url);
-    if (url.origin !== 'https://accounts.google.com')
-      throw new Error('invalid authorization');
+    if (url.origin !== selected.origin || url.username || url.password)
+      throw new Error("invalid authorization");
     window.location.assign(url.href);
   } catch {
-    error.value = '接続を始められませんでした。もう一度お試しください。';
+    if (originalEpoch === connectionEpoch)
+      error.value = "接続を始められませんでした。もう一度お試しください。";
   } finally {
-    connecting.value = false;
+    if (originalEpoch === connectionEpoch) connecting.value = null;
   }
+}
+
+function openLine() {
+  if (!state.value?.administrator) return;
+  router.push({
+    name: "settings_inboxes_page_channel",
+    params: { accountId: accountId.value, sub_page: "line" },
+  });
 }
 
 function openConversation() {
   if (!state.value?.conversation_id) return;
   router.push({
-    name: 'conversation_through_inbox',
+    name: "conversation_through_inbox",
     params: {
       accountId: accountId.value,
       inbox_id: state.value.inbox_id,
@@ -97,9 +132,9 @@ async function saveFacts() {
 
 function openPosting() {
   router.push({
-    name: 'home',
+    name: "home",
     params: { accountId: accountId.value },
-    hash: '#/toybaco/posting',
+    hash: "#/toybaco/posting",
   });
 }
 </script>
@@ -159,19 +194,63 @@ function openPosting() {
             :disabled="
               !state.gmail_available || !state.administrator || connecting
             "
-            @click="connectGoogle"
+            @click="connectProvider('google')"
           >
             <strong>{{
-              connecting ? '接続画面を開いています…' : 'Googleで接続'
+              connecting === "google"
+                ? "接続画面を開いています…"
+                : "Googleで接続"
             }}</strong
             ><span>Gmail・Google Workspace</span
             ><span v-if="!state.gmail_available">準備中</span>
           </button>
+          <button
+            type="button"
+            data-toybaco-guide-action="connection.microsoft"
+            :disabled="
+              !state.microsoft_available || !state.administrator || connecting
+            "
+            @click="connectProvider('microsoft')"
+          >
+            <strong>{{
+              connecting === "microsoft"
+                ? "接続画面を開いています…"
+                : "Microsoftで接続"
+            }}</strong
+            ><span>Outlook・Microsoft 365</span
+            ><span v-if="!state.microsoft_available">準備中</span>
+          </button>
+          <button
+            type="button"
+            data-toybaco-guide-action="connection.line"
+            :disabled="!state.administrator || connecting"
+            @click="openLine"
+          >
+            <strong>LINE公式</strong><span>管理者による初期設定が必要です</span>
+          </button>
           <div class="unavailable">
-            <strong>Microsoft・LINE・Instagram</strong
-            ><span>簡単に接続できる方式を準備しています。</span>
+            <strong>Instagram</strong><span>接続方式を準備しています。</span>
           </div>
         </div>
+        <p v-if="state.administrator && state.handoff_mail_available?.length">
+          設定を任せる：
+          <a
+            v-if="state.handoff_mail_available.includes('gmail')"
+            :href="`/toybaco/connections/handoff?account_id=${accountId}&provider=gmail`"
+            >Google</a
+          >
+          <span v-if="state.handoff_mail_available.length > 1"> / </span>
+          <a
+            v-if="state.handoff_mail_available.includes('microsoft')"
+            :href="`/toybaco/connections/handoff?account_id=${accountId}&provider=microsoft`"
+            >Microsoft</a
+          >
+        </p>
+        <p v-if="state.administrator && state.handoff_line_available">
+          <a :href="`/toybaco/connections/handoff?account_id=${accountId}`"
+            >LINEの設定を担当者に依頼</a
+          >
+        </p>
         <p v-if="!state.administrator">窓口の接続は店舗の管理者が行えます。</p>
       </template>
       <template v-else-if="state?.phase === 'facts'">
@@ -225,8 +304,15 @@ function openPosting() {
       </template>
       <template v-else-if="state?.phase === 'receive'">
         <h1>メッセージを受け取ってみましょう</h1>
-        <p>別のメールアドレスから、次の窓口にテストメールを送ってください。</p>
-        <p class="mailbox">{{ selectedInbox?.email }}</p>
+        <p v-if="selectedInbox?.provider === 'line'">
+          ご自身のLINEから、この公式アカウントにメッセージを送ってください。
+        </p>
+        <p v-else>
+          別のメールアドレスから、次の窓口にテストメールを送ってください。
+        </p>
+        <p class="mailbox">
+          {{ selectedInbox?.label || selectedInbox?.email }}
+        </p>
         <p role="status">届いたら、自動で次の案内に進みます。</p>
       </template>
       <template v-else-if="state?.phase === 'reply'">
@@ -273,7 +359,7 @@ function openPosting() {
             :key="inbox.id"
             :value="inbox.id"
           >
-            {{ inbox.email }}
+            {{ inbox.label || inbox.email }}
           </option>
         </select>
       </div>
@@ -290,9 +376,9 @@ function openPosting() {
         "
       >
         {{
-          state.preference.purpose === 'inbox'
-            ? '投稿から始める'
-            : '問い合わせ対応から始める'
+          state.preference.purpose === "inbox"
+            ? "投稿から始める"
+            : "問い合わせ対応から始める"
         }}
       </button>
     </main>
@@ -305,8 +391,8 @@ function openPosting() {
   overflow: auto;
   background: #faf7f2;
   color: #24303f;
-  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN',
-    'Noto Sans JP', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", sans-serif;
   line-height: 1.7;
 }
 .toybaco-start header {

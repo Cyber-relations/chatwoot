@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../lib/toybaco/growth/trial_state'
+require_relative '../../lib/toybaco/growth/trial_notice_delivery'
 
 Rails.application.routes.append do
   get '/toybaco/growth/trial', to: 'toybaco/growth_trials#show'

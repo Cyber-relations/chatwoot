@@ -19,8 +19,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       return [status, headers, body] unless protected_path?(env['PATH_INFO'])
 
       secured_headers = headers.dup
-      secured_headers['Content-Security-Policy'] = merge_policy(headers['Content-Security-Policy'])
-      secured_headers['X-Frame-Options'] = 'SAMEORIGIN'
+      deny_parent = headers['Content-Security-Policy'].to_s.match?(/(?:\A|;)\s*frame-ancestors\s+'none'\s*(?:;|\z)/i)
+      secured_headers['Content-Security-Policy'] = merge_policy(headers['Content-Security-Policy'], deny_parent: deny_parent)
+      secured_headers['X-Frame-Options'] = deny_parent ? 'DENY' : 'SAMEORIGIN'
       [status, secured_headers, body]
     end
 
@@ -35,12 +36,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
     end
 
-    def merge_policy(existing)
+    def merge_policy(existing, deny_parent:)
       directives = existing.to_s.split(';').map(&:strip).reject(&:empty?)
       directives.reject! do |directive|
         %w[frame-ancestors frame-src].include?(directive_name(directive))
       end
-      directives << "frame-ancestors 'self'"
+      directives << "frame-ancestors #{deny_parent ? "'none'" : "'self'"}"
       # upstream/別middlewareが緩いframe-srcを足していても継承しない。dashboardが
       # 子frameへ読める先は自身とPostizの2 originだけ、親frameは自身だけに固定する。
       directives << "frame-src 'self' #{@postiz_origin}"

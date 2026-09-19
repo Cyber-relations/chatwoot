@@ -127,4 +127,76 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
     assert_not_nil buckets.find_by!(source_key: 'free:fixture:anchor').revoked_at
     assert_nil buckets.find_by!(source_key: 'pack:fixture').revoked_at
   end
+
+  def test_unpaid_initial_invoice_keeps_free_features_and_does_not_start_automatic_replies
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
+    before = Toybaco::Entitlements.contract_for(@account)
+    data = subscription
+    data['latest_invoice']['status'] = 'open'
+    data['latest_invoice']['amount_remaining'] = 19800
+    assert_equal 'payment_pending', synchronize(data)
+    assert_equal before, Toybaco::Entitlements.contract_for(@account.reload)
+    refute Toybaco::Entitlements.for_account(@account).dig('features', 'ai_auto_reply')
+    assert_equal 20, Toybaco::Entitlements.for_account(@account).dig('limits', 'ai_generations')
+    assert_empty buckets
+  end
+
+  def test_active_subscription_with_unpaid_upgrade_keeps_paid_rights_and_usage_until_payment
+    synchronize(subscription)
+    buckets.first.update!(used: 400)
+    data = subscription(plan: 'pro', paid_at: NOW, invoice_id: 'in_upgrade')
+    data['latest_invoice']['status'] = 'open'
+    data['latest_invoice']['amount_remaining'] = 7500
+    2.times { assert_equal 'payment_pending', synchronize(data) }
+    assert_equal 'standard', Toybaco::Entitlements.contract_for(@account.reload)['plan_id']
+    assert_equal 100, remaining
+    assert_equal 500, buckets.sum(:units)
+    assert_equal 400, buckets.sum(:used)
+    data['latest_invoice']['status'] = 'paid'
+    data['latest_invoice']['amount_remaining'] = 0
+    assert_equal 'applied', synchronize(data)
+    assert_equal 'pro', Toybaco::Entitlements.contract_for(@account.reload)['plan_id']
+    assert_equal 850, remaining
+    assert_equal 400, buckets.sum(:used)
+  end
+
+  def test_changed_paid_rights_require_an_invoice_for_the_same_subscription_and_current_period
+    synchronize(subscription)
+    before = Toybaco::Entitlements.contract_for(@account)
+    invalid = subscription(plan: 'pro', paid_at: NOW, invoice_id: 'in_upgrade')
+    invalid['latest_invoice']['parent']['subscription_details']['subscription'] = 'sub_other'
+    future = subscription(plan: 'pro', start_at: NOW + 86400, end_at: NOW + 40 * 86400)
+    expired = subscription(plan: 'pro', start_at: NOW - 40 * 86400, end_at: NOW)
+    future_payment = subscription(plan: 'pro', paid_at: NOW + 60, invoice_id: 'in_upgrade')
+    [invalid, future, expired, future_payment].each do |data|
+      assert_equal 'payment_pending', synchronize(data)
+      assert_equal before, Toybaco::Entitlements.contract_for(@account.reload)
+      assert_equal 500, remaining
+    end
+  end
+
+  def test_same_contract_renewal_failure_keeps_existing_rights_without_granting_a_new_period
+    synchronize(subscription)
+    before = Toybaco::Entitlements.contract_for(@account)
+    boundary = Time.utc(2026, 10, 3, 12)
+    data = subscription(start_at: boundary, end_at: Time.utc(2026, 11, 3, 12), invoice_id: 'in_renewal')
+    data['status'] = 'past_due'
+    data['latest_invoice'].merge!('status' => 'open', 'amount_remaining' => 19800, 'billing_reason' => 'subscription_cycle')
+    assert_equal 'applied', synchronize(data, now: boundary)
+    assert_equal before, Toybaco::Entitlements.contract_for(@account.reload)
+    assert @account.active?
+    assert_equal 0, remaining(boundary)
+    assert_equal 1, buckets.count
+  end
+
+  def test_payment_pending_does_not_restore_a_suspended_account
+    synchronize(subscription)
+    @account.update!(status: :suspended, internal_attributes: @account.internal_attributes.merge('toybaco_billing_suspended' => true))
+    data = subscription(plan: 'pro', paid_at: NOW, invoice_id: 'in_upgrade')
+    data['latest_invoice']['status'] = 'open'
+    assert_equal 'payment_pending', synchronize(data)
+    assert @account.reload.suspended?
+    assert_equal 'standard', Toybaco::Entitlements.contract_for(@account)['plan_id']
+  end
 end

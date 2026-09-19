@@ -64,4 +64,14 @@ class ChatwootFramePolicyTest < Minitest::Test
     end
   end
 
+  def test_explicit_no_parent_policy_is_preserved_for_sensitive_pages
+    _status, headers, = response('/toybaco/connections/help/request', headers: {
+      'Content-Security-Policy' => "default-src 'self'; frame-ancestors 'none'; connect-src 'self'"
+    })
+    assert_includes headers['Content-Security-Policy'], "frame-ancestors 'none'"
+    assert_equal 'DENY', headers['X-Frame-Options']
+    assert_equal 1, headers['Content-Security-Policy'].scan(/frame-ancestors/).length
+    assert_includes headers['Content-Security-Policy'], "connect-src 'self'"
+  end
+
 end

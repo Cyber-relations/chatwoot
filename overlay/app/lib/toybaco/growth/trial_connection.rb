@@ -2,6 +2,7 @@
 
 require 'openssl'
 require_relative '../connections/gmail'
+require_relative '../connections/microsoft'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -9,17 +10,27 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def self.identity(inbox)
         return unless ready?(inbox)
 
-        email = normalized_email(inbox.channel.email)
-        return unless email
+        provider, external_id = external_identity(inbox.channel)
+        return unless external_id
 
         key = Rails.application.key_generator.generate_key('toybaco-trial-identity-v1', 32)
-        { provider: 'gmail', identity_digest: OpenSSL::HMAC.hexdigest('SHA256', key, email) }
+        { provider: provider, identity_digest: OpenSSL::HMAC.hexdigest('SHA256', key, external_id) }
+      end
+
+      def self.external_identity(channel)
+        return ['microsoft', Connections::Microsoft.config(channel)['subject_id']] if Connections::Microsoft.connected?(channel)
+
+        ['gmail', normalized_email(channel.email)]
       end
 
       def self.ready?(inbox)
         channel = inbox.channel
-        Connections::Gmail.connected?(channel) && Connections::Gmail.allowed?(inbox.account) &&
-          !channel.reauthorization_required? && inbox.agent_bot_inbox&.active?
+        return false unless channel.respond_to?(:reauthorization_required?)
+        return false if channel.reauthorization_required? || !inbox.agent_bot_inbox&.active?
+
+        return Connections::Gmail.allowed?(inbox.account) if Connections::Gmail.connected?(channel)
+
+        Connections::Microsoft.application_current?(channel) && Connections::Microsoft.allowed?(inbox.account)
       end
 
       def self.normalized_email(value)

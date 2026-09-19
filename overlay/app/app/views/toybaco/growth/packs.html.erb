@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI追加パック | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-growth-purchase.css">
+  <link rel="stylesheet" href="/brand-assets/toybaco-growth-trial.css">
+  <script src="/brand-assets/toybaco-growth-packs.js" defer></script>
+</head>
+<body>
+<main id="packs" data-account-id="<%= @account.id %>" data-request-key="<%= @state['request_key'] %>" data-state="<%= @state['state'] %>">
+  <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><a href="/toybaco/billing?account_id=<%= @account.id %>">ご契約内容へ戻る</a></header>
+  <p class="eyebrow"><%= @account.name %></p>
+  <h1>AIを、もう少し使いたいときに</h1>
+  <section class="trial-card">
+    <h2>追加 <%= @state.dig('pack', 'generations') %>回</h2>
+    <p><strong><%= number_with_delimiter(@state.dig('pack', 'amount')) %>円（税抜）</strong>・購入ごとのお支払い</p>
+    <p>決済成功から<%= @state.dig('pack', 'expires_after_days') %>日間。自動購入はありません。</p>
+    <p class="note">通常枠から先に使います。Free／Lightへ変更後も、残りは返信案・投稿文の作成に使えます。</p>
+    <p id="pack-status" role="status" aria-live="polite"></p>
+    <p id="pack-error" role="alert" hidden></p>
+    <% if @state['can_purchase'] && %w[none prepared open].include?(@state['state']) %>
+      <button type="button" id="pack-buy"><%= @state['state'] == 'none' ? '決済画面へ進む' : '決済を続ける' %></button>
+    <% elsif @state['state'] == 'none' && !@state['sale_available'] %>
+      <p class="note">追加パックは現在準備中です。</p>
+    <% elsif @state['state'] == 'none' %>
+      <p class="note">追加購入はStandard・Proで利用できます。</p>
+      <a href="/toybaco/billing?account_id=<%= @account.id %>">プランと料金を確認</a>
+    <% end %>
+    <button type="button" class="secondary" id="pack-refresh" <%= 'hidden' if @state['state'] == 'none' %>>購入状況を確認</button>
+    <button type="button" class="secondary" id="pack-cancel" <%= 'hidden' unless %w[prepared open].include?(@state['state']) %>>この決済を終了する</button>
+    <% if @state['can_purchase'] && %w[complete expired refunded].include?(@state['state']) %>
+      <p><a href="/toybaco/growth/packs?account_id=<%= @account.id %>">新しい追加パックを購入する</a></p>
+    <% end %>
+  </section>
+  <% unless @state['grants'].empty? %>
+    <section class="trial-card"><h2>購入済みの追加枠</h2>
+      <% @state['grants'].each do |grant| %>
+        <p>残り <strong><%= [grant['limit'] - grant['used'] - grant['reserved'], 0].max %>回</strong> ／ <time datetime="<%= grant['expires_at'] %>"><%= Time.iso8601(grant['expires_at']).in_time_zone('Asia/Tokyo').strftime('%Y年%-m月%-d日 %-H:%M') %>まで（日本時間）</time></p>
+      <% end %>
+    </section>
+  <% end %>
+  <p class="note">自動応答にはStandard以上のご契約が必要です。税額と合計は決済画面で確認できます。</p>
+</main>
+</body>
+</html>

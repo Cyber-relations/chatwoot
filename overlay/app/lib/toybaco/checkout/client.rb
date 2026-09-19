@@ -50,6 +50,28 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         request(:get, checkout_session_path(id))
       end
 
+      def checkout_session_line_items(id)
+        request(:get, "#{checkout_session_path(id)}/line_items?limit=100")
+      end
+
+      def retrieve_payment_intent(id)
+        raise Unavailable, 'invalid payment intent id' unless id.to_s.match?(/\Api_[A-Za-z0-9]+\z/)
+
+        request(:get, "/v1/payment_intents/#{id}?expand[]=latest_charge")
+      end
+
+      def retrieve_event(id)
+        raise Unavailable, 'invalid event id' unless id.to_s.match?(/\Aevt_[A-Za-z0-9]+\z/)
+
+        request(:get, "/v1/events/#{id}")
+      end
+
+      def retrieve_charge(id)
+        raise Unavailable, 'invalid charge id' unless id.to_s.match?(/\Ach_[A-Za-z0-9]+\z/)
+
+        request(:get, "/v1/charges/#{id}")
+      end
+
       def expire_checkout_session(id, idempotency_key:)
         request(:post, "#{checkout_session_path(id)}/expire", {}, idempotency_key: idempotency_key)
       end

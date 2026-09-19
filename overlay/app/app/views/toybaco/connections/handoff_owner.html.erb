@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>接続設定 | トイバコ</title>
+  <link rel="stylesheet" href="/brand-assets/toybaco-connection-handoff.css">
+  <script src="/brand-assets/toybaco-connection-handoff.js" defer></script>
+</head>
+<body>
+<main id="handoff" data-mode="owner" data-account-id="<%= @account.id %>" data-provider="<%= @provider %>" data-inbox-id="<%= @inbox_id %>" data-create-available="<%= @create_available %>">
+  <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><a href="/app/accounts/<%= @account.id %>/toybaco/start">お店の準備に戻る</a></header>
+  <section class="card">
+    <p class="eyebrow"><%= @account.name %> · <%= @provider_label %></p>
+    <h1>設定を担当者に依頼する</h1>
+    <p>担当者のメールアドレスを指定して、依頼リンクを渡します。</p>
+    <form id="request-form">
+      <label for="recipient">担当者のメールアドレス</label>
+      <input id="recipient" type="email" autocomplete="off" inputmode="email" maxlength="254" required placeholder="name@example.jp">
+      <button id="issue" type="submit">依頼リンクを作成</button>
+    </form>
+    <div id="request-result" hidden>
+      <p id="request-state" class="state" role="status"></p>
+      <p class="note">有効期限：<time id="request-expiry"></time></p>
+      <div id="link-box" hidden>
+        <label for="request-link">依頼リンク</label><input id="request-link" readonly autocomplete="off">
+        <button id="copy-link" type="button">リンクをコピー</button>
+        <p class="note">指定した担当者に、普段の連絡手段で渡してください。</p>
+      </div>
+      <div class="actions"><button id="refresh" type="button" class="secondary">状況を確認</button><button id="revoke" type="button" class="text-button">依頼を取り消す</button></div>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p id="error" role="alert" hidden></p>
+    <p class="note footnote">リンクは24時間有効です。担当者は<%= @provider_label %>の接続設定だけを行えます。</p>
+  </section>
+</main>
+</body>
+</html>

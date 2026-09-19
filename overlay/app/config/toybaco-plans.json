@@ -859,7 +859,19 @@
           "standard",
           "pro"
         ],
-        "retained_draft_use_after_downgrade": true
+        "retained_draft_use_after_downgrade": true,
+        "sellable": false,
+        "product_name": "トイバコ AI追加パック500回",
+        "stripe": {
+          "live": {
+            "lookup_key": "ai-pack-500-v20260918",
+            "price_env": "TOYBACO_PRICE_AI_PACK_V20260918"
+          },
+          "test": {
+            "lookup_key": "ai-pack-500-v20260918",
+            "price_env": "TOYBACO_PRICE_AI_PACK_V20260918"
+          }
+        }
       }
     }
   }

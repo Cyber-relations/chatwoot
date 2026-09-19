@@ -2,6 +2,7 @@
 
 require_relative '../entitlements'
 require_relative '../ai_reply_mode'
+require_relative 'trial_notice'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -19,6 +20,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           grant = Toybaco::GrowthAiGrant.find_by(account_id: @account.id, source: 'trial', source_key: "trial:#{trial.id}")
           reason = completion_reason(trial, grant)
           complete!(trial, grant, reason) if reason
+          TrialNotice.issue!(@account, trial, grant, now: @now) unless reason
         end
       end
 
