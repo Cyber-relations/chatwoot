@@ -17,6 +17,10 @@ class NativeEncryptionProbeRuntimeTest < ActiveSupport::TestCase
     @adapter = ActiveJob::Base.queue_adapter
     ActiveJob::Base.queue_adapter = :test
     assert Chatwoot.encryption_configured?
+    # Capture probe diagnostics, not one-time Rails model-loading deprecations.
+    %w[Channel::Line Channel::Email Channel::FacebookPage Channel::Instagram Channel::TwitterProfile
+       Channel::Tiktok Channel::Telegram Channel::TwilioSms Channel::Whatsapp Channel::Api
+       Webhook AgentBot DataImport Integrations::Hook User].each(&:constantize)
     assert_equal 'off', @connection.select_value('SHOW default_transaction_read_only')
     @account = FactoryBot.create(:account)
     # Insert without channel callbacks: this test must never contact Instagram.
