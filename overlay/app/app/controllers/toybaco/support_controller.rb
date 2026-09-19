@@ -4,21 +4,36 @@ require_relative '../../../lib/toybaco/support/context'
 require_relative '../../../lib/toybaco/support/knowledge'
 require_relative '../../../lib/toybaco/support/answer'
 require_relative '../../../lib/toybaco/support/diagnostics'
+require_relative '../../../lib/toybaco/support/reports'
 
 class Toybaco::SupportController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
   before_action :load_context
-  before_action :require_same_origin_json, only: :create
+  before_action :require_same_origin_json, only: %i[create report]
   rescue_from Toybaco::Support::Answer::Forbidden, Toybaco::Support::Diagnostics::Forbidden, with: :forbidden
   rescue_from Toybaco::Support::Answer::Unavailable, with: :unavailable
   rescue_from Toybaco::Support::Capacity::Limited, with: :limited
   rescue_from Toybaco::Support::Question::Invalid, with: :invalid
   rescue_from Toybaco::Support::Question::PrivateData, with: :private_data
+  rescue_from Toybaco::Support::Reports::Forbidden, with: :forbidden
+  rescue_from Toybaco::Support::Reports::Invalid, with: :invalid_report
+  rescue_from Toybaco::Support::Reports::Limited, with: :limited_reports
 
   def show
     render json: { version: Toybaco::Support::Knowledge::VERSION, account_id: @account.id,
                    articles: Toybaco::Support::Knowledge.articles(@context), status: @context.status,
-                   ai_available: GlobalConfigService.load('TOYBACO_SUPPORT_AI_ENABLED', false) == true }
+                   ai_available: GlobalConfigService.load('TOYBACO_SUPPORT_AI_ENABLED', false) == true,
+                   reports_available: Toybaco::Support::Reports.available?, billing_report: @context.allowed?('billing') }
+  end
+
+  def reports
+    render json: { account_id: @account.id, reports: Toybaco::Support::Reports.new(@account, @user).list }
+  end
+
+  def report
+    result = Toybaco::Support::Reports.new(@account, @user).create!(request_id: params[:request_id], category: params[:category],
+                                                                    article_id: params[:article_id].to_s)
+    render json: { account_id: @account.id, report: result }
   end
 
   def diagnostics
@@ -30,6 +45,14 @@ class Toybaco::SupportController < ActionController::Base # rubocop:disable Rail
   end
 
   private
+
+  def invalid_report
+    render json: { error: '内容を選び直して報告してください。' }, status: :unprocessable_entity
+  end
+
+  def limited_reports
+    render json: { error: '本日の受付上限です。受付済みの内容は確認を続けます。' }, status: :too_many_requests
+  end
 
   def require_same_origin_json
     valid = request.media_type == 'application/json' && request.headers['Origin'] == request.base_url &&

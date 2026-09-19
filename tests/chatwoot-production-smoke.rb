@@ -48,4 +48,11 @@ abort 'Postiz DB boundary is not configured' unless Toybaco::PostizSync.configur
 abort 'FORCE_SSL must be true in production' unless ENV['FORCE_SSL'] == 'true'
 abort 'Account locale default must be Japanese' unless Account.columns_hash.fetch('locale').default.to_i == 7
 
+admin_assets = ViteRuby.instance.manifest.resolve_entries('superadmin', 'superadmin_pages', type: :javascript)
+abort 'super admin entrypoints are missing' unless admin_assets.fetch(:scripts).length == 2
+admin_assets.values.flatten.uniq.each do |path|
+  abort 'super admin compiled asset is missing' unless path.start_with?('/vite/') &&
+                                                     Rails.public_path.join(path.delete_prefix('/')).file?
+end
+
 puts 'TOYBACO_CHATWOOT_PRODUCTION_SMOKE=PASS post-entry=automatic locale-default=ja ses-ingress=drawn'
