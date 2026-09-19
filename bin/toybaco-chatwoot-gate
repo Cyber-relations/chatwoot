@@ -135,6 +135,7 @@ control_file_list() {
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
+    'tests/toybaco_growth_renewal_notice_runtime_test.rb' \
     'tests/toybaco_free_registration_runtime_test.rb' \
     'tests/toybaco_growth_onboarding_runtime_test.rb' \
     'tests/toybaco_growth_replies_runtime_test.rb' \
@@ -152,6 +153,7 @@ control_file_list() {
     'tests/toybaco_growth_post_model_test.rb' \
     'tests/toybaco_growth_post_drafts_runtime_test.rb' \
     'tests/toybaco_support_runtime_test.rb' \
+    'scripts/support_staging_flags.rb' \
     'tests/toybaco_support_reports_runtime_test.rb' \
     'tests/toybaco_support_model_test.rb' \
     'tests/toybaco_support_capacity_runtime_test.rb' \
@@ -1129,6 +1131,10 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_billing_runtime_test.rb
+  STAGE='更新失敗の契約者案内・期限と支払い方法の表示'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_renewal_notice_runtime_test.rb
 
   STAGE='Freeメール確認・開通・一度だけの初回付与'
   run_test_container \

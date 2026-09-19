@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 Rails.application.config.filter_parameters += %i[stripe_signature customer_details billing_details shipping_details snapshot]
+# Stripe invoices can contain names, addresses, email and arbitrary metadata.
+Rails.application.config.filter_parameters += ['data.object']
 
 Rails.application.routes.append do
   post '/toybaco/webhooks/stripe/packs', to: 'toybaco/growth_payment_webhooks#create'

@@ -50,9 +50,18 @@ test('in-product support is available only when released and opens beside the cu
   assert.equal(profileMenu('User').items.some(item => item.label === '使い方を調べる'), false);
   const { items, events } = profileMenu('User', true);
   const support = items.find(item => item.label === '使い方を調べる');
+  assert.equal(items.some(item => item.link?.startsWith?.('mailto:')), false);
   assert.equal(support.link, undefined);
   support.click();
   assert.deepEqual(events, ['close', 'toybaco:open-support']);
+});
+
+test('every released role starts with self service without a direct email shortcut', () => {
+  for (const type of ['User', 'Administrator', 'SuperAdmin']) {
+    const { items } = profileMenu(type, true);
+    assert.equal(items.filter(item => item.label === '使い方を調べる').length, 1);
+    assert.equal(items.some(item => typeof item.link === 'string' && item.link.startsWith('mailto:')), false);
+  }
 });
 
 test('profile, shortcuts, appearance and logout remain operable', () => {

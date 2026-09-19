@@ -4,6 +4,7 @@ require_relative 'payment_client'
 require_relative 'pack_fulfillment'
 require_relative 'pack_refund'
 require_relative 'payment_dispatch'
+require_relative 'renewal_failure_receipt'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -42,6 +43,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def reconcile
         client = @client || Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', ''))
+        return RenewalFailureReceipt.new(@event, client: client, now: @now).record! if @event.action == 'renewal_failure'
+
         if @event.action == 'pack_checkout'
           verified = PaymentClient.new(client, @event.snapshot)
           PackFulfillment.new(client: verified).complete!(@event.reference_id, @event.event_id)

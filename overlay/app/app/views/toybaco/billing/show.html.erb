@@ -12,6 +12,8 @@ body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--surf
 h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 .lead{color:var(--muted);font-size:12px;margin-bottom:16px}
 .card{background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.renewal-notice{border-left:4px solid var(--coral)}
+.renewal-notice .btn{margin-top:12px;text-decoration:none}
 .plan-name{font-size:15px;font-weight:600;color:var(--navy)}
 .plan-price{margin:6px 0 2px;font-size:22px;font-weight:600;color:var(--navy)}
 .plan-price span{font-size:12px;color:var(--muted);font-weight:400}
@@ -57,6 +59,20 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
   <% growth_free = growth && @contract['plan_id'] == 'free' %>
   <h1>ご契約内容</h1>
   <p class="lead"><%= @account.name %></p>
+  <% if @renewal_notice %>
+    <section class="card renewal-notice" aria-labelledby="renewal-heading" role="status">
+      <h2 class="change-title" id="renewal-heading">更新のお支払いをご確認ください</h2>
+      <% if @renewal_notice[:expired] %>
+        <p class="note">支払いの確認期限を過ぎました。</p>
+      <% else %>
+        <p class="note">確認期限：<time datetime="<%= @renewal_notice[:deadline] %>"><%= Time.iso8601(@renewal_notice[:deadline]).in_time_zone('Tokyo').strftime('%Y年%-m月%-d日 %-H:%M') %>（日本時間）</time></p>
+      <% end %>
+      <% if @contract.dig('entitlements', 'features', 'ai_auto_reply') %>
+        <p class="note"><%= @renewal_notice[:expired] ? '自動応答を一時停止しています。' : '期限を過ぎると自動応答が停止します。' %></p>
+      <% end %>
+      <% if @portal_ready %><a class="btn btn-navy" href="#portal">支払い方法を確認</a><% end %>
+    </section>
+  <% end %>
   <% if growth && @admin && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
     <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">準備が整ってから14日間・100回。カード登録は不要です。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
   <% end %>
@@ -123,7 +139,9 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
       <% end %>
     </div>
     <% if growth %>
-      <div class="row"><span>AI 自動応答</span><span class="badge <%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? 'on' : 'off' %>"><%= @contract.dig('entitlements', 'features', 'ai_auto_reply') ? '利用可能（設定後に開始）' : '体験の開始または上位プランで利用' %></span></div>
+      <% automatic_reply = @contract.dig('entitlements', 'features', 'ai_auto_reply') %>
+      <% payment_stop = automatic_reply && @renewal_notice && @renewal_notice[:expired] %>
+      <div class="row"><span>AI 自動応答</span><span class="badge <%= automatic_reply && !payment_stop ? 'on' : 'off' %>"><%= payment_stop ? '支払い確認まで停止' : (automatic_reply ? '利用可能（設定後に開始）' : '体験の開始または上位プランで利用') %></span></div>
       <% if @admin && (Toybaco::Growth::PackCatalog.available? || Toybaco::GrowthPackOrder.exists?(account_id: @account.id)) %>
         <p class="note"><a class="btn btn-back" href="/toybaco/growth/packs?account_id=<%= @account.id %>" target="_top">AI追加パック・残り回数を確認</a></p>
       <% end %>

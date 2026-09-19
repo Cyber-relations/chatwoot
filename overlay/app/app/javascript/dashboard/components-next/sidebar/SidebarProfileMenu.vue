@@ -43,7 +43,7 @@ const menuItems = computed(() => {
       },
     },
     {
-      show: true,
+      show: currentAccount.value?.toybaco_support !== true,
       showOnCustomBrandedInstance: true,
       label: t('SIDEBAR_ITEMS.CONTACT_SUPPORT'),
       icon: 'i-lucide-life-buoy',

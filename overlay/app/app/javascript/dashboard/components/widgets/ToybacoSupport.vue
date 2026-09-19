@@ -192,8 +192,10 @@ function choose(article) {
   selected.value = article;
 }
 
-async function open() {
+async function open(event) {
   if (!enabled.value) return;
+  if (event?.detail?.accountId && String(event.detail.accountId) !== String(accountId.value)) return;
+  event?.preventDefault();
   previousFocus = document.activeElement;
   opened.value = true;
   window.dispatchEvent(new Event("toybaco:support-guide-refresh"));
@@ -318,6 +320,7 @@ onBeforeUnmount(() => {
     <p v-if="busy" role="status">確認しています…</p>
     <p v-if="error" role="alert">
       {{ error }} <button type="button" @click="load">再読み込み</button>
+      <a href="/toybaco-help.html" target="_blank" rel="noopener noreferrer">操作ガイド</a>
     </p>
     <section v-if="selected" class="answer" aria-live="polite">
       <h3>{{ selected.title }}</h3>

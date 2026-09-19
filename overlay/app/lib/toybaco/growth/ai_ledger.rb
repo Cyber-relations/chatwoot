@@ -26,6 +26,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account.with_lock do
           FreePeriod.new(@account, now: @now).refresh!
           PaidPeriod.new(@account, now: @now).refresh!
+          RenewalGrace.new(@account, now: @now).refresh!
           previous = operations.find_by(request_key: request_key)
           return duplicate(previous, kind, context_digest) if previous
 
@@ -59,6 +60,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account.with_lock do
           FreePeriod.new(@account, now: @now).refresh!
           PaidPeriod.new(@account, now: @now).refresh!
+          RenewalGrace.new(@account, now: @now).refresh!
           grants = active_grants(allowed_sources(kind)).to_a
           reservations = reservation_counts(grants.map(&:id))
           remaining = grants.sum { |grant| [grant.units - grant.used - reservations.fetch(grant.id, 0), 0].max }
@@ -84,17 +86,32 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def allowed_sources(kind)
         terms = Toybaco::Entitlements.for_account(@account)
-        return [] unless @account.active? && terms && terms['ai_meter'] == Toybaco::GrowthTerms::METER
-        return [] unless terms.dig('features', 'ai_reply') == true
-        return %w[included grace pack] unless kind == 'automatic_reply'
+        return [] unless generation_enabled?(terms)
 
-        terms.dig('features', 'ai_auto_reply') == true ? %w[included grace pack] : ['trial']
+        grace = RenewalGrace.new(@account, now: @now)
+        return kind == 'automatic_reply' ? [] : ['pack'] if grace.expired?
+
+        sources = paid_sources(grace)
+        return sources unless kind == 'automatic_reply'
+
+        terms.dig('features', 'ai_auto_reply') == true ? sources : ['trial']
+      end
+
+      def generation_enabled?(terms)
+        @account.active? && terms && terms['ai_meter'] == Toybaco::GrowthTerms::METER && terms.dig('features', 'ai_reply') == true
+      end
+
+      def paid_sources(grace)
+        sources = %w[included pack]
+        sources << 'grace' if grace.active?
+        sources
       end
 
       def active_grants(sources)
         Toybaco::GrowthAiGrant.where(account_id: @account.id, source: sources, revoked_at: nil)
                               .where('starts_at <= ? AND ends_at > ?', @now, @now)
                               .order(Arel.sql("CASE source WHEN 'pack' THEN 1 ELSE 0 END"), :ends_at, :id)
+                              .select { |grant| grant.source != 'grace' || RenewalGrace.new(@account, now: @now).permits?(grant) }
       end
 
       def reservation_counts(ids)
@@ -134,6 +151,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         grant = operation.grant
         return false if grant.revoked_at || allowed_sources(operation.kind).exclude?(grant.source)
         return false if grant.source == 'trial' && grant.ends_at <= @now
+        return false if grant.source == 'grace' && !RenewalGrace.new(@account, now: @now).permits?(grant)
 
         # A request begun before the monthly boundary may finish within its
         # five-minute lease, using the bucket it actually reserved.
