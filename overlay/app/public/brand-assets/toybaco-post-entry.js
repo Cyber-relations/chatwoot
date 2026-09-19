@@ -2020,19 +2020,28 @@
       '作りたい文案・雰囲気・文字数をAIに伝えます。画像・動画のAI生成は提供していません。',
       '文案を編集して下書き保存。公開・予約は、内容と投稿先を確認してから操作します。'
     ]);
-    var support = document.createElement('a');
-    support.href = 'mailto:support@toybaco.jp?subject=' + encodeURIComponent('投稿文AIの接続設定について');
-    support.textContent = '接続設定について相談する';
-    support.setAttribute('data-toybaco-aux-link', '1'); guide.appendChild(support);
+    guide.appendChild(supportGuideLink('投稿AIの使い方を調べる', 'ai'));
     host.appendChild(guide);
   }
 
-  function appendAboutGuide(host) {
+  function supportGuideLink(label, section) {
     var support = document.createElement('a');
-    support.href = 'mailto:support@toybaco.jp';
-    support.textContent = 'サポートに問い合わせる';
+    var accountId = currentAccountId();
+    support.href = '/toybaco-help.html#' + section;
+    support.target = '_blank'; support.rel = 'noopener noreferrer';
+    support.textContent = label;
     support.setAttribute('data-toybaco-aux-link', '1');
-    host.appendChild(support);
+    support.addEventListener('click', function (click) {
+      if (currentAccountId() !== accountId || !isLoggedInView()) { click.preventDefault(); return; }
+      var request = new CustomEvent('toybaco:open-support', { cancelable: true, detail: { accountId: accountId } });
+      window.dispatchEvent(request);
+      if (request.defaultPrevented) click.preventDefault();
+    });
+    return support;
+  }
+
+  function appendAboutGuide(host) {
+    host.appendChild(supportGuideLink('使い方を調べる', 'inbox'));
     var details = document.createElement('details');
     details.setAttribute('data-toybaco-about-licenses', '1');
     details.appendChild(auxiliaryText('summary', 'ライセンス情報'));
@@ -2427,9 +2436,9 @@
   }
 
   function aiUsageAccessMessage(data) {
-    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。契約者またはトイバコサポートにご確認ください。';
-    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。契約者またはトイバコサポートにご確認ください。';
-    if (data.reason === 'disabled') return 'この店舗ではAI応答をご利用いただけません。契約者またはトイバコサポートにご確認ください。';
+    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。契約者にご確認ください。';
+    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。契約者にご確認ください。';
+    if (data.reason === 'disabled') return 'この店舗ではAI応答をご利用いただけません。契約者にご確認ください。';
     if (data.remaining === 0) return '現在、利用できる残り枠がありません。';
     return '';
   }

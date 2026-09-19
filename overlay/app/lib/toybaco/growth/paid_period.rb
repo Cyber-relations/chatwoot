@@ -6,6 +6,7 @@ require_relative 'ai_grants'
 require_relative 'allowance'
 require_relative 'paid_coverage'
 require_relative 'trial_lifecycle'
+require_relative 'renewal_grace'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -95,7 +96,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def issue_base!(coverage, period, limit)
-        issue!("#{prefix(coverage, period)}base", period, limit)
+        key = "#{prefix(coverage, period)}base"
+        RenewalGrace.promote!(@account, key: key, period: period, limit: limit)
+        issue!(key, period, limit)
       end
 
       def issue_upgrade!(coverage, previous, period)

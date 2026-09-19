@@ -295,3 +295,75 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 end
+
+require File.expand_path('../scripts/support_staging_flags', __dir__)
+
+class ToybacoSupportStagingFlagsRuntimeTest < ActiveSupport::TestCase
+  self.use_transactional_tests = true
+  FLAGS = ToybacoSupportStagingFlags::KEYS
+
+  def setup
+    (FLAGS + [ToybacoSupportStagingFlags::REPORTS]).each do |name|
+      record = InstallationConfig.find_or_initialize_by(name: name)
+      record.value = false
+      record.save!
+    end
+    GlobalConfig.clear_cache
+  end
+
+  def teardown
+    GlobalConfig.clear_cache
+  end
+
+  def apply(enabled, environment = 'staging')
+    ToybacoSupportStagingFlags.apply!(enabled: enabled, environment: { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => environment })
+  end
+
+  def test_enable_changes_only_the_two_flags_and_readers_see_boolean_true
+    others = InstallationConfig.where.not(name: FLAGS).order(:id).map(&:attributes)
+    apply(true)
+    FLAGS.each { |key| assert_equal true, GlobalConfigService.load(key, false) }
+    assert_equal others, InstallationConfig.where.not(name: FLAGS).order(:id).map(&:attributes)
+    assert_equal false, InstallationConfig.find_by!(name: ToybacoSupportStagingFlags::REPORTS).value
+  end
+
+  def test_repeated_enable_preserves_the_configuration_records
+    apply(true)
+    before = InstallationConfig.where(name: FLAGS).order(:id).map(&:attributes)
+    apply(true)
+    assert_equal before, InstallationConfig.where(name: FLAGS).order(:id).map(&:attributes)
+  end
+
+  def test_disable_closes_both_gates_without_model_or_report_mutations
+    apply(true)
+    before = InstallationConfig.find_by!(name: ToybacoSupportStagingFlags::REPORTS).attributes
+    apply(false)
+    FLAGS.each { |key| refute_equal true, GlobalConfigService.load(key, false) }
+    assert_equal before, InstallationConfig.find_by!(name: ToybacoSupportStagingFlags::REPORTS).attributes
+  end
+
+  def test_production_and_invalid_flag_value_never_change_configuration
+    before = InstallationConfig.where(name: FLAGS).order(:id).map(&:attributes)
+    %w[production test].each { |environment| assert_raises(ToybacoSupportStagingFlags::Invalid) { apply(true, environment) } }
+    assert_raises(ToybacoSupportStagingFlags::Invalid) { apply('true') }
+    assert_equal before, InstallationConfig.where(name: FLAGS).order(:id).map(&:attributes)
+  end
+
+  def test_unexpected_existing_state_aborts_without_partially_opening
+    record = InstallationConfig.find_by!(name: FLAGS.last)
+    record.value = { 'unsupported' => true }
+    record.save!
+    assert_raises(ToybacoSupportStagingFlags::Invalid) { apply(true) }
+    assert_equal false, InstallationConfig.find_by!(name: FLAGS.first).value
+  end
+
+  def test_enabling_never_inherits_an_open_report_queue_but_disable_remains_available
+    record = InstallationConfig.find_by!(name: ToybacoSupportStagingFlags::REPORTS)
+    record.value = true
+    record.save!
+    assert_raises(ToybacoSupportStagingFlags::Invalid) { apply(true) }
+    apply(false)
+    assert_equal true, record.reload.value
+    FLAGS.each { |key| assert_equal false, InstallationConfig.find_by!(name: key).value }
+  end
+end

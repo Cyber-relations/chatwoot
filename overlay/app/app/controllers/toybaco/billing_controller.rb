@@ -7,6 +7,7 @@ require_relative '../../../lib/toybaco/checkout'
 require_relative '../../../lib/toybaco/billing_subscription'
 require_relative '../../../lib/toybaco/billing_access'
 require_relative '../../../lib/toybaco/checkout/plan_change'
+require_relative '../../../lib/toybaco/growth/renewal_notice'
 
 # トイバコ内の「ご契約内容」画面。
 # プラン変更は版付きカタログの条件を確認して実行する。カード変更・
@@ -126,7 +127,9 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     return unless @subscription_id && ENV['TOYBACO_STRIPE_KEY'].present?
 
     client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY'))
-    @billing = Toybaco::BillingSubscription.summarize(client.retrieve_subscription(@subscription_id), expected_id: @subscription_id)
+    subscription = client.retrieve_subscription(@subscription_id)
+    @billing = Toybaco::BillingSubscription.summarize(subscription, expected_id: @subscription_id)
+    @renewal_notice = Toybaco::Growth::RenewalNotice.new(@account, subscription: subscription).summary
   rescue Toybaco::Checkout::Error, Toybaco::BillingSubscription::Unavailable
     @billing_error = true
   end

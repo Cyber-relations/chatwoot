@@ -5444,3 +5444,27 @@ console.log('TOYBACO_PARENT_SESSION_RENEWAL=PASS owner-pinned actor-bound one-hi
     'negative control reproduces the old background navigation');
 }
 console.log('TOYBACO_CONTACT_BACKGROUND_ROUTE=PASS 12-overlay 4-native stale-router-cache resume-pagination negative-control');
+
+// Help opens beside the current work. An unavailable gate retains the packaged
+// guide in another tab; a stale store link never opens help for the new store.
+for (const kind of ['ai', 'about']) {
+  const env = loadInjectEntry(aiModeAwareFetch);
+  env.api.inject(); env.api.openAuxiliaryView(kind);
+  const view = env.document.querySelector(`[data-toybaco-aux-view="${kind}"]`);
+  const help = [...view.querySelectorAll('a')].find(a => a.href.startsWith('/toybaco-help.html#'));
+  assert.ok(help, `${kind}: self service entry`);
+  assert.equal(help.target, '_blank');
+  assert.equal(help.rel, 'noopener noreferrer');
+  assert.ok([...view.querySelectorAll('a')].every(a => !a.href.startsWith('mailto:')));
+  assert.equal(fireClick(help).prevented, false, 'closed gate keeps the guide fallback');
+  let seen = 0;
+  env.window.addEventListener('toybaco:open-support', event => {
+    seen += 1; assert.equal(event.detail.accountId, '1'); event.preventDefault();
+  });
+  assert.equal(fireClick(help).prevented, true, 'accepted help stays in the same work screen');
+  assert.equal(seen, 1);
+  env.window.location.pathname = '/app/accounts/2/inbox';
+  assert.equal(fireClick(help).prevented, true, 'old store link is inert');
+  assert.equal(seen, 1);
+}
+console.log('TOYBACO_SELF_SERVICE_ENTRY=PASS released fallback store-change no-email');

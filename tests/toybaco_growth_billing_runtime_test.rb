@@ -4,6 +4,7 @@ require 'rails/test_help'
 require 'factory_bot_rails'
 require Rails.root.join('lib/toybaco/subscription_sync')
 require Rails.root.join('lib/toybaco/growth/ai_ledger')
+require Rails.root.join('lib/toybaco/growth/renewal_failure_receipt')
 
 FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
@@ -198,5 +199,204 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
     assert_equal 'payment_pending', synchronize(data)
     assert @account.reload.suspended?
     assert_equal 'standard', Toybaco::Entitlements.contract_for(@account)['plan_id']
+  end
+
+  def prepare_renewal(cycle: 'month')
+    boundary = Time.utc(2026, 10, 3, 12)
+    old_start = cycle == 'month' ? Time.utc(2026, 9, 3, 12) : Time.utc(2025, 10, 3, 12)
+    synchronize(subscription(cycle: cycle, start_at: old_start, end_at: boundary))
+    @account.update!(internal_attributes: @account.reload.internal_attributes.merge('toybaco_stripe_customer_id' => 'cus_growth'))
+    ending = cycle == 'month' ? boundary + 30.days : Time.utc(2027, 10, 3, 12)
+    data = subscription(cycle: cycle, start_at: boundary, end_at: ending, invoice_id: 'in_renewal')
+    data.merge!('customer' => 'cus_growth', 'livemode' => false, 'status' => 'past_due', 'billing_cycle_anchor' => old_start.to_i)
+    data['latest_invoice'].merge!('status' => 'open', 'amount_remaining' => 19800, 'billing_reason' => 'subscription_cycle')
+    synchronize(data, now: boundary)
+    [boundary, data]
+  end
+
+  def record_failure(data, created:, now: created, attempt: 1, event_id: 'evt_gracefirst')
+    event = { 'created' => created.to_i, 'livemode' => false, 'data' => { 'object' => {
+      'id' => data['latest_invoice']['id'], 'subscription' => data['id'], 'customer' => 'cus_growth', 'attempt_count' => attempt
+    } } }
+    receipt = Struct.new(:snapshot, :event_id).new(event, event_id)
+    old_mode = ENV['TOYBACO_STRIPE_MODE']
+    ENV['TOYBACO_STRIPE_MODE'] = 'test'
+    @client.data = data
+    Toybaco::Growth::RenewalFailureReceipt.new(receipt, client: @client, now: now).record!
+  ensure
+    old_mode ? ENV['TOYBACO_STRIPE_MODE'] = old_mode : ENV.delete('TOYBACO_STRIPE_MODE')
+  end
+
+  def grace_bucket
+    buckets.find_by!(source: 'grace')
+  end
+
+  def reserve_at(now, kind: 'reply_draft')
+    Ledger.new(@account, now: now).reserve(request_key: SecureRandom.hex(16), kind: kind, context_digest: 'a' * 64)
+  end
+
+  def consume_at(reservation, now, &block)
+    Ledger.new(@account, now: now).settle(operation_id: reservation.fetch('operation_id'), token: reservation.fetch('token'),
+                                        outcome: 'consumed', &(block || -> { 'draft:grace' }))
+  end
+
+  def mark_paid(data, at:)
+    data['status'] = 'active'
+    data['latest_invoice'].merge!('status' => 'paid', 'amount_remaining' => 0, 'status_transitions' => { 'paid_at' => at.to_i })
+    synchronize(data, now: at)
+  end
+
+  def test_renewal_grace_is_117_of_500_for_thirty_days_and_is_not_reissued
+    boundary, data = prepare_renewal
+    assert_equal 'first_failure_recorded', record_failure(data, created: boundary)
+    3.times { assert_equal 117, remaining(boundary) }
+    original_id = grace_bucket.id
+    assert_equal 'consumed', consume_at(reserve_at(boundary), boundary)['result']
+    assert_equal 'first_failure_already_recorded', record_failure(data, created: boundary, now: boundary + 2.days)
+    assert_equal 116, remaining(boundary + 2.days)
+    assert_equal original_id, grace_bucket.id
+    assert_equal boundary + 7.days, grace_bucket.ends_at
+  end
+
+  def test_grace_requires_previous_paid_coverage_and_a_known_first_attempt
+    boundary, data = prepare_renewal
+    assert_equal 'awaiting_first_failure', record_failure(data, created: boundary, attempt: 2)
+    assert_equal 0, remaining(boundary)
+    record_failure(data, created: boundary)
+    @account.update!(internal_attributes: @account.reload.internal_attributes.except(Toybaco::Growth::PaidPeriod::KEY))
+    assert_equal 0, remaining(boundary)
+    assert_equal 0, buckets.where(source: 'grace').count
+  end
+
+  def test_grace_does_not_start_at_late_delivery_or_repeat_in_an_unpaid_month
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary, now: boundary + 8.days)
+    assert_equal 0, remaining(boundary + 8.days)
+    item = data['items']['data'].first
+    item['current_period_start'] = (boundary + 30.days).to_i
+    item['current_period_end'] = (boundary + 60.days).to_i
+    data['latest_invoice']['id'] = 'in_nextunpaid'
+    assert_equal 'first_failure_already_recorded', record_failure(data, created: boundary + 30.days)
+    assert_equal 0, remaining(boundary + 30.days)
+    assert_equal 0, buckets.where(source: 'grace').count
+  end
+
+  def test_grace_payment_promotes_same_bucket_preserving_used_and_reserved_units
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    consumed = reserve_at(boundary)
+    consume_at(consumed, boundary)
+    pending = reserve_at(boundary)
+    original_id = grace_bucket.id
+    mark_paid(data, at: boundary + 60)
+    assert_equal 498, remaining(boundary + 60)
+    promoted = buckets.find(original_id)
+    assert_equal ['included', 500, 1, boundary + 30.days], [promoted.source, promoted.units, promoted.used, promoted.ends_at]
+    assert_equal 'consumed', consume_at(pending, boundary + 60)['result']
+    2.times { mark_paid(data, at: boundary + 60) }
+    assert_equal 498, remaining(boundary + 60)
+    assert_equal 1, buckets.where(source_key: promoted.source_key).count
+  end
+
+  def test_grace_expiry_stops_an_in_flight_automatic_reply_before_its_lease_ends
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    request = reserve_at(boundary + 7.days - 1, kind: 'automatic_reply')
+    published = false
+    result = consume_at(request, boundary + 7.days) { published = true; 'reply:must-not-send' }
+    assert_equal 'released', result['result']
+    refute published
+    assert_equal 0, remaining(boundary + 7.days)
+    assert_equal 0, grace_bucket.used
+  end
+
+  def test_payment_after_grace_expiry_still_keeps_grace_usage_in_paid_allowance
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    consume_at(reserve_at(boundary), boundary)
+    assert_equal 0, remaining(boundary + 7.days)
+    mark_paid(data, at: boundary + 8.days)
+    assert_equal 499, remaining(boundary + 8.days)
+    assert_equal 1, buckets.where(source: 'included').sum(:used)
+  end
+
+  def test_earlier_first_failure_tightens_existing_grace_without_resetting_usage
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary + 1.day)
+    consume_at(reserve_at(boundary + 1.day), boundary + 1.day)
+    original_id = grace_bucket.id
+    record_failure(data, created: boundary, now: boundary + 2.days, event_id: 'evt_graceearlier')
+    assert_equal 116, remaining(boundary + 2.days)
+    assert_equal [original_id, boundary, boundary + 7.days, 1], [grace_bucket.id, grace_bucket.starts_at, grace_bucket.ends_at, grace_bucket.used]
+    assert_equal 0, remaining(boundary + 7.days)
+  end
+
+  def test_yearly_renewal_grace_uses_one_month_not_a_year_and_never_rolls_over
+    boundary, data = prepare_renewal(cycle: 'year')
+    record_failure(data, created: boundary)
+    assert_equal 113, remaining(boundary)
+    assert_equal 113, grace_bucket.units
+    assert_equal 0, remaining(boundary + 7.days)
+    assert_equal 0, remaining(Time.utc(2026, 11, 3, 12))
+    assert_equal 1, buckets.where(source: 'grace').count
+  end
+
+  def test_grace_precedes_packs_and_expiry_keeps_previously_purchased_draft_units
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    Toybaco::Growth::AiGrants.new(@account).issue!(source: 'pack', source_key: 'pack:kept', units: 500,
+                                                 starts_at: boundary - 1.day, ends_at: boundary + 20.days)
+    consume_at(reserve_at(boundary), boundary)
+    assert_equal 1, grace_bucket.used
+    assert_equal 0, buckets.find_by!(source: 'pack').used
+    assert_equal 500, remaining(boundary + 7.days)
+    assert_equal 'denied', reserve_at(boundary + 7.days, kind: 'automatic_reply')['result']
+    assert_equal 'reserved', reserve_at(boundary + 7.days)['result']
+  end
+
+  def test_suspended_or_changed_contract_cannot_spend_an_existing_grace_bucket
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    assert_equal 117, remaining(boundary)
+    @account.update!(status: :suspended)
+    assert_equal 0, remaining(boundary)
+    @account.update!(status: :active)
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
+    assert_equal 0, remaining(boundary)
+    assert_equal 1, buckets.where(source: 'grace').count
+  end
+
+  def test_other_subscription_or_noncontiguous_paid_period_cannot_receive_grace
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    attrs = @account.reload.internal_attributes
+    paid = attrs.fetch(Toybaco::Growth::PaidPeriod::KEY)
+    [{ 'subscription_id' => 'sub_other' }, { 'term_end' => boundary.to_i - 1 }, { 'paid_at' => boundary.to_i + 1 }].each do |change|
+      @account.update!(internal_attributes: attrs.merge(Toybaco::Growth::PaidPeriod::KEY => paid.merge(change)))
+      assert_equal 0, remaining(boundary)
+    end
+    assert_equal 0, buckets.where(source: 'grace').count
+  end
+
+  def test_missing_previous_paid_record_does_not_bypass_seven_day_automatic_reply_stop
+    boundary, data = prepare_renewal
+    record_failure(data, created: boundary)
+    @account.update!(internal_attributes: @account.reload.internal_attributes.except(Toybaco::Growth::PaidPeriod::KEY))
+    Toybaco::Growth::AiGrants.new(@account).issue!(source: 'pack', source_key: 'pack:retained', units: 500,
+                                                 starts_at: boundary, ends_at: boundary + 30.days)
+    assert_equal 500, remaining(boundary + 7.days)
+    assert_equal 'denied', reserve_at(boundary + 7.days, kind: 'automatic_reply')['result']
+  end
+
+  def test_yearly_first_attempt_later_than_first_ai_month_does_not_create_another_grace_bucket
+    boundary, data = prepare_renewal(cycle: 'year')
+    late = Time.utc(2026, 11, 4, 12)
+    record_failure(data, created: late)
+    assert_equal 0, remaining(late)
+    assert_equal 0, buckets.where(source: 'grace').count
+    Toybaco::Growth::AiGrants.new(@account).issue!(source: 'pack', source_key: 'pack:late', units: 500,
+                                                 starts_at: boundary, ends_at: boundary + 90.days)
+    assert_equal 'denied', reserve_at(late + 7.days, kind: 'automatic_reply')['result']
   end
 end

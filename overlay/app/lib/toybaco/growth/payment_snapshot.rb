@@ -23,6 +23,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         return checkout(object) if @event['type'] == 'checkout.session.completed'
         return refund(object) if REFUNDS.include?(@event['type'])
+        return renewal_failure(object) if @event['type'] == 'invoice.payment_failed'
 
         nil
       end
@@ -54,6 +55,25 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         raise PaymentSignature::Invalid unless reference.to_s.match?(/\Ach_[A-Za-z0-9]+\z/)
 
         build('pack_refund', reference, { 'id' => object['id'], 'charge' => reference })
+      end
+
+      def renewal_failure(object)
+        return unless object['billing_reason'] == 'subscription_cycle'
+
+        subscription = object['subscription'] || object.dig('parent', 'subscription_details', 'subscription')
+        return unless subscription
+
+        verify_renewal_identity!(object, subscription)
+
+        selected = object.slice('id', 'object', 'customer', 'billing_reason', 'attempt_count').merge('subscription' => subscription)
+        build('renewal_failure', object['id'], selected)
+      end
+
+      def verify_renewal_identity!(object, subscription)
+        valid = object['object'] == 'invoice' && object['id'].to_s.match?(/\Ain_[A-Za-z0-9]+\z/) &&
+                subscription.to_s.match?(/\Asub_[A-Za-z0-9]+\z/) && object['customer'].to_s.match?(/\Acus_[A-Za-z0-9]+\z/) &&
+                object['attempt_count'].is_a?(Integer) && object['attempt_count'].positive?
+        raise PaymentSignature::Invalid unless valid
       end
 
       def build(action, reference, object)

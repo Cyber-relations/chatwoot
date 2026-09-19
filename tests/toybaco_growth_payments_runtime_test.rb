@@ -281,4 +281,230 @@ class ToybacoGrowthPaymentsRuntimeTest < ActionDispatch::IntegrationTest
     assert_empty receipt.recovery_log
     assert_empty grants
   end
+  def renewal_event(attempt: 1, created: NOW.to_i - 30, event_id: 'evt_renewalfirst')
+    contract = Toybaco::Entitlements.contract_for(@account).merge('stripe_price_id' => 'price_renewal', 'subscription_item_id' => 'si_renewal')
+    Toybaco::Entitlements.apply!(@account, contract, subscription_id: 'sub_renewal')
+    @renewal_subscription = {
+      'id' => 'sub_renewal', 'customer' => 'cus_packstore', 'livemode' => false, 'status' => 'past_due',
+      'items' => { 'has_more' => false, 'data' => [{ 'id' => 'si_renewal', 'quantity' => 1,
+        'current_period_start' => NOW.to_i - 60, 'current_period_end' => (NOW + 30.days).to_i,
+        'price' => { 'id' => 'price_renewal' } }] },
+      'latest_invoice' => { 'id' => 'in_renewal', 'status' => 'open', 'amount_remaining' => 19800,
+        'currency' => 'jpy', 'billing_reason' => 'subscription_cycle', 'subscription' => 'sub_renewal' }
+    }
+    owner = self
+    @client.define_singleton_method(:retrieve_subscription) { |_id| owner.instance_variable_get(:@renewal_subscription).deep_dup }
+    @event_id = event_id
+    { 'id' => event_id, 'object' => 'event', 'type' => 'invoice.payment_failed', 'created' => created, 'livemode' => false,
+      'data' => { 'object' => { 'id' => 'in_renewal', 'object' => 'invoice', 'customer' => 'cus_packstore',
+        'parent' => { 'subscription_details' => { 'subscription' => 'sub_renewal' } },
+        'billing_reason' => 'subscription_cycle', 'attempt_count' => attempt,
+        'customer_email' => 'private@example.invalid', 'metadata' => { 'unneeded' => 'do not save' } } } }
+  end
+
+  def renewal_clock
+    @account.reload.internal_attributes[Growth::RenewalFailureReceipt::KEY]
+  end
+
+  def test_signed_first_failure_is_durable_minimal_and_does_not_grant_any_rights
+    event = renewal_event
+    contract = Toybaco::Entitlements.contract_for(@account)
+    deliver(event)
+    assert_response :ok
+    refute_includes receipt.snapshot.to_json, 'private@example.invalid'
+    refute_includes receipt.snapshot.to_json, 'do not save'
+    assert_equal 'renewal_failure', receipt.action
+    assert_nil renewal_clock
+    execute
+    assert_equal 'completed', receipt.reload.state
+    assert_equal event['created'], renewal_clock['first_failed_at']
+    assert_equal event['created'] + 7.days, renewal_clock['grace_ends_at']
+    assert_equal contract, Toybaco::Entitlements.contract_for(@account)
+    assert_empty Toybaco::GrowthAiGrant.where(account_id: @account.id)
+    assert @account.active?
+  end
+
+  def test_duplicate_first_failure_uses_event_time_even_when_retried_days_later
+    event = renewal_event
+    deliver(event)
+    execute
+    original = renewal_clock.deep_dup
+    travel_to NOW + 3.days
+    deliver(event)
+    execute
+    assert_equal original, renewal_clock
+    assert_equal 1, Toybaco::GrowthPaymentEvent.where(reference_id: 'in_renewal').count
+  end
+
+  def test_later_attempt_arriving_first_never_invents_the_initial_failure_time
+    event = renewal_event(attempt: 3)
+    deliver(event)
+    execute
+    assert_equal 'awaiting_first_failure', receipt.reload.result
+    assert_nil renewal_clock
+    @event_id = 'evt_firstarriveslate'
+    event['id'] = @event_id
+    event['created'] -= 10
+    event['data']['object']['attempt_count'] = 1
+    deliver(event)
+    execute
+    assert_equal event['created'], renewal_clock['first_failed_at']
+  end
+
+  def test_replacement_invoice_in_same_period_cannot_restart_seven_days
+    event = renewal_event
+    deliver(event)
+    execute
+    original = renewal_clock.deep_dup
+    @event_id = 'evt_replacement'
+    event['id'] = @event_id
+    event['created'] += 10
+    event['data']['object']['id'] = 'in_replacement'
+    @renewal_subscription['latest_invoice']['id'] = 'in_replacement'
+    @renewal_subscription['items']['data'].first['current_period_end'] += 1.day
+    deliver(event)
+    execute
+    assert_equal original, renewal_clock
+    assert_equal 'first_failure_already_recorded', receipt.reload.result
+  end
+
+  def test_earlier_first_failure_can_shorten_but_not_extend_the_deadline
+    event = renewal_event
+    deliver(event)
+    execute
+    @event_id = 'evt_earlierfirst'
+    event['id'] = @event_id
+    event['created'] -= 10
+    deliver(event)
+    execute
+    assert_equal event['created'], renewal_clock['first_failed_at']
+    assert_equal event['created'] + 7.days, renewal_clock['grace_ends_at']
+  end
+
+  def test_paid_or_replaced_invoice_does_not_create_a_new_failure_clock
+    event = renewal_event
+    @renewal_subscription['latest_invoice']['status'] = 'paid'
+    deliver(event)
+    execute
+    assert_equal 'invoice_already_resolved', receipt.reload.result
+    assert_nil renewal_clock
+  end
+
+  def test_wrong_live_mode_or_customer_is_attention_and_cannot_change_a_store
+    event = renewal_event
+    @renewal_subscription['customer'] = 'cus_other'
+    deliver(event)
+    execute
+    assert_equal 'attention', receipt.reload.state
+    assert_nil renewal_clock
+    @event_id = 'evt_wrongmode'
+    event['id'] = @event_id
+    @renewal_subscription['customer'] = 'cus_packstore'
+    @renewal_subscription['livemode'] = true
+    deliver(event)
+    execute
+    assert_equal 'attention', receipt.reload.state
+    assert_nil renewal_clock
+  end
+
+  def test_initial_and_upgrade_failures_are_not_regular_renewal_receipts
+    event = renewal_event
+    %w[subscription_create subscription_update manual].each do |reason|
+      event['data']['object']['billing_reason'] = reason
+      deliver(event)
+      assert_response :ok
+    end
+    assert_empty Toybaco::GrowthPaymentEvent.where(action: 'renewal_failure')
+    assert_nil renewal_clock
+  end
+
+  def test_invalid_attempt_or_event_identity_cannot_be_saved_as_a_failure
+    event = renewal_event
+    [0, -1, nil, '1'].each do |attempt|
+      event['data']['object']['attempt_count'] = attempt
+      deliver(event)
+      assert_response :bad_request
+    end
+    assert_empty Toybaco::GrowthPaymentEvent.where(action: 'renewal_failure')
+  end
+
+  def advance_failed_invoice!(event)
+    @event_id = 'evt_nextunpaidmonth'
+    event['id'] = @event_id
+    event['created'] = (NOW + 31.days).to_i
+    event['data']['object']['id'] = 'in_nextunpaidmonth'
+    @renewal_subscription['latest_invoice']['id'] = 'in_nextunpaidmonth'
+    item = @renewal_subscription['items']['data'].first
+    item['current_period_start'] = (NOW + 30.days).to_i
+    item['current_period_end'] = (NOW + 60.days).to_i
+    travel_to NOW + 31.days
+  end
+
+  def test_next_unpaid_month_and_changed_period_end_do_not_restart_the_clock
+    event = renewal_event
+    deliver(event)
+    execute
+    original = renewal_clock.deep_dup
+    advance_failed_invoice!(event)
+    deliver(event)
+    execute
+    assert_equal original, renewal_clock
+    assert_equal 'first_failure_already_recorded', receipt.reload.result
+  end
+
+  def test_verified_paid_coverage_between_failures_permits_the_next_normal_renewal_clock
+    event = renewal_event
+    deliver(event)
+    execute
+    paid = { 'subscription_id' => 'sub_renewal', 'invoice_id' => 'in_renewal', 'paid_at' => NOW.to_i,
+             'term_start' => NOW.to_i - 60, 'term_end' => (NOW + 30.days).to_i }
+    @account.update!(internal_attributes: @account.reload.internal_attributes.merge(Growth::PaidPeriod::KEY => paid))
+    advance_failed_invoice!(event)
+    deliver(event)
+    execute
+    assert_equal event['created'], renewal_clock['first_failed_at']
+    assert_equal event['created'] + 7.days, renewal_clock['grace_ends_at']
+  end
+
+  def test_earlier_or_foreign_paid_period_cannot_reset_an_unpaid_renewal
+    event = renewal_event
+    deliver(event)
+    execute
+    original = renewal_clock.deep_dup
+    paid = { 'subscription_id' => 'sub_other', 'paid_at' => NOW.to_i,
+             'term_start' => NOW.to_i - 60, 'term_end' => (NOW + 30.days).to_i }
+    @account.update!(internal_attributes: @account.reload.internal_attributes.merge(Growth::PaidPeriod::KEY => paid))
+    advance_failed_invoice!(event)
+    deliver(event)
+    execute
+    assert_equal original, renewal_clock
+    paid.merge!('subscription_id' => 'sub_renewal', 'paid_at' => (NOW - 60).to_i)
+    @account.update!(internal_attributes: @account.reload.internal_attributes.merge(Growth::PaidPeriod::KEY => paid))
+    @event_id = 'evt_precedingpayment'
+    event['id'] = @event_id
+    deliver(event)
+    execute
+    assert_equal original, renewal_clock
+  end
+
+  def test_invoice_body_is_filtered_from_real_request_instrumentation
+    captured = []
+    listener = ActiveSupport::Notifications.subscribe('process_action.action_controller') do |*args|
+      payload = args.last
+      captured << payload[:params] if payload[:controller] == 'Toybaco::GrowthPaymentWebhooksController'
+    end
+    event = renewal_event
+    event['data']['object']['customer_address'] = { 'line1' => 'private address fixture' }
+    event['data']['object']['description'] = 'private customer note'
+    deliver(event)
+    assert_response :ok
+    assert_equal 1, captured.size
+    assert_equal '[FILTERED]', captured.first.dig('data', 'object')
+    refute_includes captured.to_json, 'private@example.invalid'
+    refute_includes captured.to_json, 'private address fixture'
+    refute_includes captured.to_json, 'private customer note'
+  ensure
+    ActiveSupport::Notifications.unsubscribe(listener) if listener
+  end
+
 end
