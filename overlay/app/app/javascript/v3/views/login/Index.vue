@@ -420,6 +420,11 @@ export default {
       <div v-else class="flex items-center justify-center">
         <Spinner color-scheme="primary" size="" />
       </div>
+      <p class="mt-6 text-center text-sm">
+        <a href="/toybaco-help.html#login" class="text-n-brand underline underline-offset-4">
+          ログインで困ったとき
+        </a>
+      </p>
     </section>
   </main>
 </template>

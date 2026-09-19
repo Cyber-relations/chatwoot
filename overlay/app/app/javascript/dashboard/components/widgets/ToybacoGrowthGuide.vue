@@ -243,7 +243,7 @@ onMounted(async () => {
   let module;
   try {
     const moduleUrl = new URL(
-      '/brand-assets/toybaco-pointer-guide.mjs',
+      '/brand-assets/toybaco-pointer-guide.mjs?v=354fb2dac804544992dc00cc2c62fd6cbf782405f2f681c6afdf5be58760bf15',
       window.location.origin
     ).href;
     module = await import(/* @vite-ignore */ moduleUrl);
@@ -256,7 +256,7 @@ onMounted(async () => {
   if (!document.querySelector('link[data-toybaco-guide-style]')) {
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = '/brand-assets/toybaco-pointer-guide.css';
+    style.href = '/brand-assets/toybaco-pointer-guide.css?v=b2a1f2cc7a6a5cfe046982a73bb386f2edb9af206e4b29c67b6a7fed72a31de6';
     style.dataset.toybacoGuideStyle = 'true';
     document.head.append(style);
   }

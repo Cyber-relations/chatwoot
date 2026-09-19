@@ -136,6 +136,7 @@ control_file_list() {
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
     'tests/toybaco_growth_renewal_notice_runtime_test.rb' \
+    'tests/toybaco_growth_annual_renewal_runtime_test.rb' \
     'tests/toybaco_free_registration_runtime_test.rb' \
     'tests/toybaco_growth_onboarding_runtime_test.rb' \
     'tests/toybaco_growth_replies_runtime_test.rb' \
@@ -154,6 +155,8 @@ control_file_list() {
     'tests/toybaco_growth_post_drafts_runtime_test.rb' \
     'tests/toybaco_support_runtime_test.rb' \
     'scripts/support_staging_flags.rb' \
+    'scripts/staging_growth_webhook_probe.rb' \
+    'tests/staging_growth_webhook_probe_test.rb' \
     'tests/toybaco_support_reports_runtime_test.rb' \
     'tests/toybaco_support_model_test.rb' \
     'tests/toybaco_support_capacity_runtime_test.rb' \
@@ -1081,6 +1084,11 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_support_reports_runtime_test.rb
 
+  STAGE='固定Stripe test通知の境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/staging_growth_webhook_probe_test.rb
+
   STAGE='全Toybaco RSpec'
   run_test_container \
     --mount "type=bind,src=$results,dst=/results" \
@@ -1135,6 +1143,10 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_renewal_notice_runtime_test.rb
+  STAGE='年払い更新30日前・7日前の契約者通知'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_annual_renewal_runtime_test.rb
 
   STAGE='Freeメール確認・開通・一度だけの初回付与'
   run_test_container \
