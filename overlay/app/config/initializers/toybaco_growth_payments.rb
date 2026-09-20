@@ -12,5 +12,9 @@ Rails.application.config.after_initialize do
   if defined?(Sidekiq::Cron::Job) && Sidekiq.server?
     Sidekiq::Cron::Job.create(name: 'toybaco_growth_payment_sweep', cron: '* * * * *',
                               class: 'Toybaco::GrowthPaymentSweepJob', active_job: true, queue: 'scheduled_jobs', source: 'toybaco')
+    Sidekiq::Cron::Job.create(name: 'toybaco_growth_renewal_reminders', cron: '17 * * * *',
+                              class: 'Toybaco::GrowthRenewalReminderSweepJob', active_job: true, queue: 'scheduled_jobs', source: 'toybaco')
+    Sidekiq::Cron::Job.create(name: 'toybaco_growth_annual_renewal_reminders', cron: '43 * * * *',
+                              class: 'Toybaco::GrowthAnnualRenewalReminderJob', active_job: true, queue: 'scheduled_jobs', source: 'toybaco')
   end
 end
