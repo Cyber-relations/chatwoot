@@ -177,6 +177,7 @@ control_file_list() {
     'tests/chatwoot-notification-login.test.mjs' \
     'tests/chatwoot-post-entry.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
+    'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
     'tests/chatwoot_ai_reply_mode_test.rb' \
@@ -961,6 +962,10 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/chatwoot_locale_generator_test.rb
   node --test "$CONTROL_ROOT/tests/toybaco-pointer-guide.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-manual-draft.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-connection-handoff-ui.test.mjs"

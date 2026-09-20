@@ -10,6 +10,18 @@ const app = resolve(root, 'overlay/app');
 const read = path => readFileSync(resolve(app, path), 'utf8');
 const profile = read('app/javascript/dashboard/components-next/sidebar/SidebarProfileMenu.vue');
 
+function executeWidgetSettings(locale) {
+  const options = { position: 'right', locale: 'ja', type: 'expanded_bubble', launcherTitle: 'お問い合わせ' };
+  const snippet = locale.INBOX_MGMT.WIDGET_BUILDER.SCRIPT_SETTINGS.replace('{options}', JSON.stringify(options));
+  const window = {};
+  new vm.Script(snippet).runInNewContext({ window }, { timeout: 1000 });
+  assert.deepEqual(JSON.parse(JSON.stringify(window.chatwootSettings)), options);
+}
+
+test('Japanese widget embed code executes with the public SDK settings intact', () => {
+  executeWidgetSettings(JSON.parse(read('app/javascript/dashboard/i18n/locale/ja/inboxMgmt.json')));
+});
+
 function profileMenu(type, supportEnabled = false) {
   const events = [];
   const start = profile.indexOf('const menuItems = computed');

@@ -115,7 +115,7 @@ a9179b35309ccb12afb19f19525ab6873131e675972317d521b4611ffcba3118	0644	file	overl
 ffd1ea0686a0aa5f50fc0efa68a5d59c119a31370b8eaa06fdeea9a63346bc7c	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/generalSettings.json
 008baf8a75e46e788c3b70edec7e77b1f220df74ac31434cfa792e5039c854e6	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/helpCenter.json
 221beb22f1883193d518bc84948cb1dc11ed432cac48255b0af32324c6e6c217	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inbox.json
-378dbcbcc8994a16104c7c893f60defaa9944d7b82c28fe34ed55c9d0e8c2561	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inboxMgmt.json
+e4b22a561703e7254be63fd2dccc397f9f1978ef433139aa36fe43dcaa0f2224	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/inboxMgmt.json
 3d2d63e581322c93cf01cbbe7bcef94e5ff145e15876ef964cbb91dbe6832616	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/index.js
 872aabb9d188b82ac5688b2be756e7ef1c0bc17261777ab488dd658a6793bc59	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/integrationApps.json
 0ce3441b7164e22e44cec3147ceda01162fab898a7b49935c01d03ac85ae4409	0644	file	overlay/app/app/javascript/dashboard/i18n/locale/ja/integrations.json
