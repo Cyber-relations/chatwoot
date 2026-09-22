@@ -28,7 +28,8 @@ ENV HUSKY=0 \
     PNPM_HOME=/usr/local/share/pnpm \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
-RUN test "$(node --version)" = 'v24.19.0' \
+RUN node --version \
+    && test "$(node --version)" = 'v24.21.0' \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && npm install --global --ignore-scripts 'pnpm@10.2.0' \
     && test "$(pnpm --version)" = '10.2.0' \
