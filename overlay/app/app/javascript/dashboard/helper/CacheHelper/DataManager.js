@@ -11,23 +11,24 @@ export class DataManager {
   }
 
   async initDb() {
-    if (this.cacheDisabled) throw new Error('Browser cache upgrade is blocked');
+    if (this.cacheDisabled) throw new Error('Browser cache is unavailable');
     if (this.db) return this.db;
     if (this.dbOpening) return this.dbOpening;
     const dbName = `cw-store-${this.accountId}`;
     let connection;
-    let rejectBlocked;
-    const blocked = new Promise((_, reject) => {
-      rejectBlocked = reject;
+    let rejectUnavailable;
+    const unavailable = new Promise((_, reject) => {
+      rejectUnavailable = reject;
     });
+    const disableCache = () => {
+      this.cacheDisabled = true;
+      rejectUnavailable(new Error('Browser cache is unavailable'));
+    };
     const opening = openDB(dbName, DATA_VERSION, {
       // An older tab may hold this database open indefinitely. The API client
       // already falls back to the network when initDb rejects; never read the
       // obsolete cache or make the user close their other tabs to keep working.
-      blocked: () => {
-        this.cacheDisabled = true;
-        rejectBlocked(new Error('Browser cache upgrade is blocked'));
-      },
+      blocked: disableCache,
       blocking: () => {
         connection?.close();
         if (this.db === connection) this.db = null;
@@ -68,7 +69,11 @@ export class DataManager {
       },
       () => {}
     );
-    this.dbOpening = Promise.race([opening, blocked]);
+    // Chromium can queue this request behind another blocked open without
+    // dispatching a blocked event to it. Bound every open, not only that event.
+    // The account-scoped network fallback remains usable while old tabs stay open.
+    const timeout = setTimeout(disableCache, 1000);
+    this.dbOpening = Promise.race([opening, unavailable]);
     try {
       this.db = await this.dbOpening;
       // Store the database name in LocalStorage
@@ -79,6 +84,7 @@ export class DataManager {
       }
       return this.db;
     } finally {
+      clearTimeout(timeout);
       this.dbOpening = null;
     }
   }

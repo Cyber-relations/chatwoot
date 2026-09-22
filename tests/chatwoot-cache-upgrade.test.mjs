@@ -21,8 +21,14 @@ class ApiClient {
   constructor(resource, { accountId }) { this.resource = resource; this.accountIdFromRoute = accountId; }
   get url() { return `/api/v1/accounts/${this.accountIdFromRoute}/${this.resource}`; }
 }
+let resolveSilentOpen;
 const context = vm.createContext({
-  openDB, DATA_VERSION: version, INBOX_CACHE_INVALIDATION_VERSION: version,
+  // fake-indexeddb dispatches blocked for queued opens more eagerly than Chrome.
+  // Model Chrome's no-event queue here; a real-browser fixture covers that queue.
+  openDB: (name, ...args) => name === 'cw-store-silent-queued'
+    ? new Promise(resolveOpen => { resolveSilentOpen = resolveOpen; })
+    : openDB(name, ...args),
+  setTimeout, clearTimeout, DATA_VERSION: version, INBOX_CACHE_INVALIDATION_VERSION: version,
   localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v) },
   ApiClient,
   axios: { get: async url => {
@@ -50,7 +56,7 @@ const legacy = async account => remember(await openDB(`cw-store-${account}`, ver
     for (const name of ['inbox', 'label', 'team', 'canned_response']) db.createObjectStore(name, { keyPath: 'id' });
   },
 }));
-const accounts = ['blocked', 'concurrent', 'invalidation', 'future', 'other'];
+const accounts = ['blocked', 'queued', 'concurrent', 'invalidation', 'future', 'other'];
 try {
   // Real IDB blocked events, keeping a pre-update connection open throughout.
   const old = await legacy('blocked');
@@ -80,6 +86,29 @@ try {
   old.close();
   await bounded(deleteDB('cw-store-blocked'));
 
+  // Separate API clients for one account queue behind the first blocked open.
+  // Chromium does not dispatch blocked on those queued requests until the
+  // request in front completes, so every client still needs a bounded fallback.
+  const queuedOld = await legacy('queued');
+  await queuedOld.put('inbox', { id: 'queued-stale-secret' });
+  const frontClient = new Inboxes('inboxes', { accountId: 'queued' });
+  assert.equal((await bounded(frontClient.get(true))).data.payload[0].id, 'network-result');
+  const queuedClients = Array.from({ length: 2 }, () => new Inboxes('inboxes', { accountId: 'queued' }));
+  const queuedResults = await bounded(Promise.all(queuedClients.map(value => value.get(true))));
+  assert(queuedResults.every(value => value.data.payload[0].id === 'network-result'));
+  assert(queuedClients.every(value => value.dataManager.cacheDisabled && value.dataManager.db === null));
+  queuedOld.close();
+  await bounded(deleteDB('cw-store-queued'));
+
+  const silentClient = new Inboxes('inboxes', { accountId: 'silent-queued' });
+  assert.equal((await bounded(silentClient.get(true))).data.payload[0].id, 'network-result');
+  assert.equal(silentClient.dataManager.cacheDisabled, true);
+  assert.equal(silentClient.dataManager.db, null);
+  let lateSilentClosed = false;
+  resolveSilentOpen({ close() { lateSilentClosed = true; } });
+  await tick();
+  assert.equal(lateSilentClosed, true, 'timed-out openings must close when they eventually settle');
+
   const concurrent = new DataManager('concurrent');
   const [first, second] = await bounded(Promise.all([concurrent.initDb(), concurrent.initDb()]));
   remember(first);
@@ -106,7 +135,7 @@ try {
   await assert.rejects(bounded(future.initDb()), { name: 'VersionError' });
   assert.equal(future.dbOpening, null);
   await tick();
-  console.log('TOYBACO_CACHE_UPGRADE=PASS blocked-network-fallback repeated-read write-fallback account-isolation valid-cache late-close concurrent-open security-invalidation versionchange');
+  console.log('TOYBACO_CACHE_UPGRADE=PASS blocked-network-fallback queued-open silent-open-timeout repeated-read write-fallback account-isolation valid-cache late-close concurrent-open security-invalidation versionchange');
 } finally {
   try {
     for (const db of connections) db.close();
