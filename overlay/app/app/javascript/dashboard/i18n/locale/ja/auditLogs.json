@@ -30,7 +30,8 @@
         "WEBHOOKS": "ウェブフック",
         "AUTOMATION_RULES": "自動化ルール",
         "MACROS": "マクロ",
-        "CONVERSATION_DELETIONS": "会話の削除"
+        "CONVERSATION_DELETIONS": "会話の削除",
+        "MESSAGE_DELETIONS": "メッセージ削除"
       },
       "SORT": {
         "NEWEST": "最新のものが最初",
@@ -44,6 +45,7 @@
       "TABLE_HEADER": {
         "ACTIVITY": "ユーザー",
         "TIME": "アクション",
+        "LOCATION": "ロケーション",
         "IP_ADDRESS": "IPアドレス"
       }
     },
@@ -102,6 +104,9 @@
     },
     "CONVERSATION": {
       "DELETE": "{agentName} スレッドを削除しました #{id}"
+    },
+    "MESSAGE": {
+      "DELETE": "{agentName} が会話 #{conversationId} のメッセージを削除しました"
     }
   }
 }

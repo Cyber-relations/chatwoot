@@ -1,7 +1,7 @@
-ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a
+ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de
 FROM ${CHATWOOT_IMAGE}
 
-ARG CHATWOOT_SOURCE_COMMIT=b354a9550e1fb59fa537a9c384232cb076213e72
+ARG CHATWOOT_SOURCE_COMMIT=9f920b549c14491a4e587687a3eed5d21c6ccc7d
 
 # 公式production imageにはtest/development gemが無い。固定sourceへoverlayを
 # 適用したGemfile/lockを先に渡し、本番と同じRails修正版でtest groupを追加する。

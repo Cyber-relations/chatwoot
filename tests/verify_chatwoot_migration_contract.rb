@@ -45,11 +45,11 @@ expected_sources = {
     'schema_version' => '2026_07_18_000000'
   },
   'to' => {
-    'tag' => 'v4.17.1',
-    'tag_object' => 'e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1',
-    'commit' => 'b354a9550e1fb59fa537a9c384232cb076213e72',
-    'tree' => '9a17426900d328a6acc2bdaecba0533e8b401120',
-    'schema_version' => '2026_08_14_000000'
+    'tag' => 'v4.18.0',
+    'tag_object' => '5c1487713ff2ea407188855211533a1e30e24589',
+    'commit' => '9f920b549c14491a4e587687a3eed5d21c6ccc7d',
+    'tree' => '16432eeeef9153f7aff66be382e04a20e6f5683a',
+    'schema_version' => '2026_08_31_000000'
   }
 }
 expected_sources.each do |side, expected|
@@ -81,7 +81,7 @@ abort 'forward compatibility basis must have exactly five reviewed statements' u
 summary = contract.fetch('summary')
 exact_keys!(summary, %w[added modified_historical removed renamed total], 'migration summary')
 abort 'migration summary mismatch' unless
-  summary == { 'added' => 19, 'modified_historical' => 1, 'removed' => 0, 'renamed' => 0, 'total' => 20 }
+  summary == { 'added' => 22, 'modified_historical' => 1, 'removed' => 0, 'renamed' => 0, 'total' => 23 }
 
 sets = contract.fetch('schema_migration_sets')
 exact_keys!(sets, %w[base candidate canonicalization target], 'schema migration sets')
@@ -90,16 +90,16 @@ abort 'schema migration canonicalization contract mismatch' unless
 expected_sets = {
   'base' => { 'tag' => 'v4.16.2', 'count' => 158,
               'sha256' => '8ecbf17886bbdb41fcff953b3a792d9fc8635b3ee5aea399898b7bb2ed370074' },
-  'candidate' => { 'count' => 19,
-                   'sha256' => 'eb7a7213c9ee34f118c33aed90fd93a9fc4042acaa4bce2f759f9dd00615e32c',
+  'candidate' => { 'count' => 22,
+                   'sha256' => 'd390f4d909cf681e873aa65d7ae17c9ad5846db3d71818705ddf777e3ab1d9ea',
                    'versions' => %w[
                      20260709060000 20260709060100 20260709060200 20260715000000 20260724000100
                      20260728000001 20260729051500 20260731140853 20260803000000 20260803130000
                      20260804000000 20260804000001 20260804000002 20260804000003 20260806000000
-                     20260807101420 20260807133000 20260811000000 20260814000000
+                     20260807101420 20260807133000 20260811000000 20260811000001 20260813000000 20260814000000 20260831000000
                    ] },
-  'target' => { 'tag' => 'v4.17.1', 'count' => 177,
-                'sha256' => 'dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425' }
+  'target' => { 'tag' => 'v4.18.0', 'count' => 180,
+                'sha256' => '206a09ec50a7ca7bd4e6ef569b0bda0f12db7d994eee598a5a663c5871c6cbd7' }
 }
 abort 'schema migration set metadata mismatch' unless sets.slice(*expected_sets.keys) == expected_sets
 
@@ -119,7 +119,7 @@ version_sets = {}
 end
 
 migrations = contract.fetch('migrations')
-abort 'migration list must contain exactly 20 entries' unless migrations.is_a?(Array) && migrations.length == 20
+abort 'migration list must contain exactly 23 entries' unless migrations.is_a?(Array) && migrations.length == 23
 paths = migrations.map { |entry| entry.fetch('path') }
 abort 'migration paths must be unique and bytewise sorted' unless paths == paths.sort && paths.uniq == paths
 abort 'migration path escapes db/migrate' unless paths.all? { |path| path.match?(%r{\Adb/migrate/[0-9]{14}_[a-z0-9_]+[.]rb\z}) }
@@ -137,6 +137,12 @@ expected_object_names = %w[
   column:public.agent_sessions.cited_document_ids
   column:public.agent_sessions.used_faq_ids
   column:public.applied_slas.completed_at
+  column:public.audits.city
+  column:public.audits.country
+  column:public.audits.country_code
+  column:public.channel_facebook_pages.provider_name
+  column:public.channel_instagram.provider_name
+  column:public.channel_tiktok.provider_name
   column:public.automation_rules.execution_delay
   column:public.campaigns.completed_at
   column:public.campaigns.started_at
@@ -161,7 +167,7 @@ abort 'candidate object base fingerprint mismatch' unless objects['base'] == {
 }
 object_canonical = expected_object_names.join("\n") + "\n"
 abort 'candidate object target fingerprint mismatch' unless objects['target'] == {
-  'count' => 18, 'sha256' => Digest::SHA256.hexdigest(object_canonical)
+  'count' => 24, 'sha256' => Digest::SHA256.hexdigest(object_canonical)
 }
 
 expected_index_definitions = [
@@ -222,6 +228,7 @@ allowed_classes = %w[
   additive_nonnull_default_column
   additive_nullable_column
   additive_nullable_column_and_backfill
+  backfill_existing_nullable_discriminator
   concurrent_index_on_existing_table
   enterprise_job_disabled_by_runtime_contract
   historical_applied_migration_source_change
@@ -285,11 +292,11 @@ old_job_files, old_job_found = git(source, 'grep', '-l', 'CopyCaptainAutoResolve
 abort 'v4.16.2 unexpectedly contains the candidate enterprise migration job' if old_job_found || !old_job_files.empty?
 new_job_files = git(source, 'grep', '-l', 'CopyCaptainAutoResolveModeToAssistantsJob',
                     expected_sources['to']['commit'], '--')
-abort 'v4.17.1 enterprise migration job evidence is incomplete' unless new_job_files.lines.length == 3
+abort 'v4.18.0 enterprise migration job evidence is incomplete' unless new_job_files.lines.length == 3
 
 ecs = File.binread(ecs_path)
 runtime_line = '{ name = "DISABLE_ENTERPRISE", value = "true" },'
 abort 'DISABLE_ENTERPRISE=true runtime prerequisite must appear exactly once' unless ecs.lines.count { |line| line.strip == runtime_line } == 1
 
 contract_sha = Digest::SHA256.file(contract_path).hexdigest
-puts "TOYBACO_CHATWOOT_MIGRATIONS=PASS count=20 from=v4.16.2 to=v4.17.1 contract=#{contract_sha} forward_compatible=true"
+puts "TOYBACO_CHATWOOT_MIGRATIONS=PASS count=23 from=v4.16.2 to=v4.18.0 contract=#{contract_sha} forward_compatible=true"

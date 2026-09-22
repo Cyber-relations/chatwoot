@@ -332,11 +332,11 @@ function validate(workflowSource, gateSource) {
   }
 
   for (const required of [
-    'CHATWOOT_SOURCE_TAG: v4.17.1',
-    'CHATWOOT_SOURCE_TAG_OBJECT: e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1',
-    'CHATWOOT_SOURCE_COMMIT: b354a9550e1fb59fa537a9c384232cb076213e72',
-    'CHATWOOT_SOURCE_TREE: 9a17426900d328a6acc2bdaecba0533e8b401120',
-    'CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a',
+    'CHATWOOT_SOURCE_TAG: v4.18.0',
+    'CHATWOOT_SOURCE_TAG_OBJECT: 5c1487713ff2ea407188855211533a1e30e24589',
+    'CHATWOOT_SOURCE_COMMIT: 9f920b549c14491a4e587687a3eed5d21c6ccc7d',
+    'CHATWOOT_SOURCE_TREE: 16432eeeef9153f7aff66be382e04a20e6f5683a',
+    'CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de',
     'ruby tests/verify_chatwoot_overlay_manifest.rb verify . tests/chatwoot-overlay-manifest.tsv',
     './bin/toybaco-chatwoot-gate --control-sha-only',
     "REQUEST_REF: ${{ github.ref }}",
@@ -471,10 +471,10 @@ function validate(workflowSource, gateSource) {
     assert.ok(!controlFiles.includes(forbidden), `parked release input remains in quality hash: ${forbidden}`);
   }
   for (const required of [
-    "readonly CHATWOOT_SOURCE_TAG='v4.17.1'",
-    "readonly CHATWOOT_SOURCE_TAG_OBJECT='e194a693e2dbf4ebae5f78a4d3b9bf6dd8b53ff1'",
-    "readonly CHATWOOT_SOURCE_COMMIT='b354a9550e1fb59fa537a9c384232cb076213e72'",
-    "readonly CHATWOOT_SOURCE_TREE='9a17426900d328a6acc2bdaecba0533e8b401120'",
+    "readonly CHATWOOT_SOURCE_TAG='v4.18.0'",
+    "readonly CHATWOOT_SOURCE_TAG_OBJECT='5c1487713ff2ea407188855211533a1e30e24589'",
+    "readonly CHATWOOT_SOURCE_COMMIT='9f920b549c14491a4e587687a3eed5d21c6ccc7d'",
+    "readonly CHATWOOT_SOURCE_TREE='16432eeeef9153f7aff66be382e04a20e6f5683a'",
     'assert_overlay_application',
     'find "$CONTROL_ROOT" -type d -exec chmod 0755 {} +',
     'find "$CONTROL_ROOT" -type f -exec chmod u=rwX,go=rX {} +',

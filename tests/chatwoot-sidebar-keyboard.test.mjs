@@ -125,7 +125,7 @@ const routerApi = { useRoute: () => route, useRouter: () => router };
 const empty = Vue.defineComponent({ setup: () => () => null });
 const icon = Vue.defineComponent({ inheritAttrs: false, setup: (_props, context) => () => Vue.h('span', { ...context.attrs, 'aria-hidden': 'true' }) });
 const policy = Vue.defineComponent({ props: ['as', 'permissions', 'featureFlag'], setup: (props, context) => () => Vue.h(props.as || 'div', context.attrs, context.slots.default?.()) });
-const leaf = Vue.defineComponent({ props: ['label', 'to'], setup: (props, context) => () => Vue.h('a', { ...context.attrs, href: props.to?.path, onClick: event => { event.preventDefault(); router.push(props.to); } }, props.label) });
+const leaf = Vue.defineComponent({ props: ['label', 'to'], setup: (props, context) => () => Vue.h('a', { ...context.attrs, href: props.to?.path, onClick: event => { event.preventDefault(); router.push(props.to); } }, context.slots.default?.() || props.label) });
 const compiled = new Map();
 const modules = new Map();
 const dropdownBase = 'app/javascript/dashboard/components-next/dropdown-menu/base/';

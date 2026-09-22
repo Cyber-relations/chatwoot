@@ -88,6 +88,7 @@ ALLOWED_EMBEDDED_LATIN_PATHS = %w[
   rails:errors.dyte.realtimekit_credentials_required
   rails:errors.openai.invalid_api_key
   rails:errors.saml.sso_not_enabled
+  rails:errors.whatsapp.contact_info_request.unsupported_provider
   rails:integration_apps.leadsquared.description
   rails:integration_apps.leadsquared.short_description
 ].to_set.freeze
@@ -119,6 +120,7 @@ def technical_literal?(value)
 
   shell = value.gsub(VARIABLE_PATTERN, '').strip
   return true if shell.empty? || shell.match?(/\A[A-Z0-9_.:%\/()+<>\- ]+\z/)
+  return true if shell.match?(/\A[\p{P}\p{S}\d\s]+\z/)
 
   tokens = value.split(%r{[\s/,+()\-]+}).reject(&:empty?)
   tokens.any? && tokens.all? { |token| TECHNICAL_TERMS.include?(token) }

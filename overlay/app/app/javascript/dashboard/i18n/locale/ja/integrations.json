@@ -11,8 +11,13 @@
         "LABEL": "URL を保存",
         "PLACEHOLDER": "your-store.myshopify.com",
         "HELP": "Shopify ストアの myshopify.com URL を入力してください",
+        "INVALID_URL": "有効な Shopify ストア URL を入力してください (例:your-store.myshopify.com)",
         "CANCEL": "キャンセル",
         "SUBMIT": "コネクトストア"
+      },
+      "HELP_TEXT": {
+        "TITLE": "Shopify インテグレーションの使い方は？",
+        "BODY": "この統合により、Shopifyストア **{storeDomain}** は トイバコ ワークスペースに接続されます。できることは次のとおりです。\n\n**会話中の注文を追跡する:** 会話を開くと、Shopify サイドバーに、メールアドレスに基づいて顧客の最近の注文が自動的に表示されます。これにより、サポートチームはタブを切り替えなくてもすぐにコンテキストを確認できます。\n\n**注文詳細へのアクセス:** 注文状況、出荷状況、合計金額を会話パネルで直接確認できます。"
       },
       "ERROR": "Shopify への接続中にエラーが発生しました。もう一度試すか、問題が解決しない場合はサポートに連絡してください。"
     },
@@ -135,7 +140,23 @@
       "HELP_TEXT": {
         "TITLE": "Slack連携の使用方法",
         "BODY": "この連携を使用すると、すべての受信会話がSlackワークスペースの***{selectedChannelName}***チャンネルに同期されます。チャンネル内で顧客の会話を管理し、メッセージを見逃すことはありません。\n\n連携の主な機能は次のとおりです:\n\n**Slackから会話に返信:** ***{selectedChannelName}*** Slackチャンネルで会話に返信するには、メッセージを入力してスレッドとして送信するだけです。これにより、トイバコを通じて顧客に返信が作成されます。とても簡単です！\n\n**プライベートノートの作成:** 返信ではなくプライベートノートを作成したい場合は、メッセージの先頭に***`note:`***と入力してください。これにより、メッセージがプライベートに保たれ、顧客には表示されません。\n\n**担当者プロファイルの関連付け:** Slackで返信した人が同じメールアドレスでトイバコに担当者プロファイルを持っている場合、返信は自動的にその担当者プロファイルに関連付けられます。これにより、誰がいつ何を言ったかを簡単に追跡できます。一方、返信者に関連付けられた担当者プロファイルがない場合、返信は顧客に対してボットプロファイルからのものとして表示されます。",
+        "BODY_ALERT": "この統合により、受信した会話はすべて Slack ワークスペースの*** {selectedChannelName} ***チャンネルに同期されるので、チームは会話が入ってきたらすぐに取り掛かることができます。\n\nこのインテグレーションは**アラートのみ**に設定されています。つまり、Slack スレッドは社内の議論に安全なスペースです。チームが投稿したものは Slack に残り、顧客には送信されません。\n\n**お客様に トイバコ から返信する:** スレッドで共有されているリンクから会話を開き、トイバコ ダッシュボードから返信してください。トイバコ に追加された返信やプライベートメモは Slack スレッドに表示され続けるため、全員が最新情報を把握できます。",
         "SELECTED": "選択済み"
+      },
+      "MESSAGE_MODE": {
+        "TITLE": "Slack スレッドの動作",
+        "DESCRIPTION": "Slack スレッドの返信を顧客に届けるか、社内に留めておくかを決めてください。",
+        "OPTIONS": {
+          "TWO_WAY": {
+            "LABEL": "双方向同期",
+            "DESCRIPTION": "Slack スレッドの返信がお客様に送信されます。メッセージを社内にとどめるには `note:` で始めましょう。"
+          },
+          "ALERT": {
+            "LABEL": "アラートのみ",
+            "DESCRIPTION": "会話は Slack に投稿され、社内ディスカッションのみを目的としています。スレッド内の内容は顧客には届きません。"
+          }
+        },
+        "UPDATE_SUCCESS": "Slack スレッドの動作は正常に更新されました"
       },
       "SELECT_CHANNEL": {
         "OPTION_LABEL": "チャンネルを選択",
@@ -416,6 +437,9 @@
         "DISMISS": "閉じる"
       },
       "RANGES": {
+        "INSUFFICIENT_HISTORY": "まだ十分なレポート履歴がありません",
+        "THIS_WEEK": "今週",
+        "LAST_WEEK": "過去 1 週間",
         "LAST_DAYS": "過去 {count} 日間",
         "THIS_MONTH": "今月",
         "LAST_MONTH": "過去 1 か月"
@@ -496,6 +520,7 @@
           },
           "DURABLE": {
             "LABEL": "AIアシスタント決議は未解決のまま",
+            "NOT_APPLICABLE_HINT": "この期間の決議には、まだ7日間のフォローアップはありません。耐久性はありません。",
             "HINT": "AIアシスタントが解決した会話のうち、7日経ってもまだ終了していたものの割合。",
             "NOTE": "7日間観察できるほど古い決議のみが含まれます。"
           },
@@ -535,6 +560,9 @@
         },
         "RESOLUTION_TREND": {
           "TITLE": "解像度トレンド",
+          "COMPARISON_LABEL": "平日対応比較",
+          "COMPARISON_HINT": "月曜日と月曜日など、一致する平日の解決率を比較します。",
+          "COMPARISON_NOTE": "今日を同じ時間帯と比較します。",
           "CONVERSATION_COUNT": "会話数",
           "RESOLUTION_RATE": "解決率",
           "CURRENT_PERIOD": "現在の期間",
@@ -562,6 +590,7 @@
           "BUY_MORE": "クレジットをさらに購入"
         },
         "KNOWLEDGE": {
+          "SUGGESTED": "よくある質問の提案",
           "REVIEW": "レビューに関するよくある質問"
         }
       }
@@ -612,9 +641,93 @@
       "USER": "あなた",
       "ASSISTANT": "アシスタント",
       "MESSAGE_PLACEHOLDER": "メッセージを入力...",
+      "SEND_MESSAGE": "メッセージを送信",
       "HEADER": "プレイグラウンド",
       "DESCRIPTION": "このプレイグラウンドを使ってアシスタントへメッセージを送り、正確かつ迅速に、期待したトーンで応答するかを確認してください。",
-      "CREDIT_NOTE": "ここで送信したメッセージはAIアシスタントのクレジットにカウントされます。"
+      "CREDIT_NOTE": "ここで送信したメッセージはAIアシスタントのクレジットにカウントされます。",
+      "CLEAR_CONVERSATION": "クリアな会話",
+      "RESPONSE_ERROR": "AIアシスタントはこの試運転を完了できませんでした。設定を確認して、もう一度試してください。",
+      "SETUP": {
+        "TITLE": "テストセットアップ",
+        "DESCRIPTION": "ここでの変更は、アイテムを明示的に保存しない限り、この Playground セッションにのみ適用されます。",
+        "TOGGLE": "テスト設定の切り替え",
+        "CLOSE": "テストセットアップを閉じる",
+        "RESET": "テスト設定をリセット",
+        "TEMPORARY": "一時的",
+        "SESSION_ONLY": "セッションのみ",
+        "INCLUDE_IN_TEST": "このテストに含める",
+        "ADD_TO_TEST": "テストに追加 ()",
+        "LOAD_ERROR": "保存したアシスタント設定を読み込めませんでした。",
+        "INVALID_CONFIGURATION": "メッセージを送信する前に、含まれている一時的なシナリオを完成させるか削除してください。",
+        "SAVE_SCENARIO_SUCCESS": "シナリオは保存され、このテストには引き続き含まれています。",
+        "SAVE_SCENARIO_ERROR": "シナリオを保存できませんでした。",
+        "SAVE_RULE_SUCCESS": "ルールは保存され、このテストには引き続き含まれます。",
+        "SAVE_RULE_ERROR": "ルールを保存できませんでした。",
+        "RULE_ALREADY_SAVED": "その正確なルールはすでに保存されているので、重複は作成されませんでした。",
+        "SCENARIOS": {
+          "TAB_TITLE": "シナリオ",
+          "CREATE_TITLE": "一時的なシナリオを追加",
+          "CREATE_HINT": "アシスタントの構成を変更せずに新しい動作を試してください。",
+          "SAVED_SUMMARY": "既存のシナリオ ({count})",
+          "ADD_PERMANENTLY": "シナリオを恒久的に追加",
+          "DISABLED": "無効",
+          "EMPTY": "このアシスタントには保存されたシナリオはありません。",
+          "COMPOSER_PLACEHOLDER": "仮のシナリオタイトルを入力...",
+          "COLLAPSE": "崩壊仮シナリオ",
+          "EXPAND": "仮シナリオを拡張",
+          "REMOVE": "一時的なシナリオを削除"
+        },
+        "GUIDELINES": {
+          "TAB_TITLE": "ガイドライン",
+          "CREATE_TITLE": "一時的なガイドラインを追加",
+          "CREATE_HINT": "アシスタントに追加する前に、応答設定をテストしてください。",
+          "SAVED_SUMMARY": "既存のガイドライン ({count})",
+          "ADD_PERMANENTLY": "ガイドラインを恒久的に追加",
+          "EMPTY": "このアシスタントには回答ガイドラインが保存されていません。",
+          "COMPOSER_PLACEHOLDER": "一時的なガイドラインを入力...",
+          "PLACEHOLDER": "対応ガイドラインの追加",
+          "REMOVE": "臨時対応ガイドラインの削除"
+        },
+        "GUARDRAILS": {
+          "TAB_TITLE": "ガードレール",
+          "CREATE_TITLE": "仮設ガードレールの追加",
+          "CREATE_HINT": "アシスタントに追加する前に安全境界をテストしてください。",
+          "SAVED_SUMMARY": "既存のガードレール ({count})",
+          "ADD_PERMANENTLY": "ガードレールを恒久的に追加",
+          "EMPTY": "このアシスタントには保存されたガードレールがありません。",
+          "COMPOSER_PLACEHOLDER": "仮設ガードレールを入力...",
+          "PLACEHOLDER": "ガードレールの追加",
+          "REMOVE": "仮設ガードレールの取り外し"
+        },
+        "KNOWLEDGE": {
+          "TAB_TITLE": "知識",
+          "AVAILABLE_TITLE": "船長が入手できる知識",
+          "AVAILABLE_DESCRIPTION": "保存されたソースはここにまとめられ、プレイグラウンドの外で管理されます。",
+          "DOCUMENTS": "文書",
+          "FAQS": "よくある質問",
+          "TEMPORARY_TITLE": "一時的な知識",
+          "ADD_PERMANENTLY": "ドキュメントを永久に追加",
+          "LABEL": "リファレンステキスト",
+          "PLACEHOLDER": "このテストの新しい知識を貼り付けるか書いてください",
+          "HINT": "このテキストは、ドキュメントとして追加しない限り、Playground リクエストにのみ添付されます。"
+        },
+        "SAVE_KNOWLEDGE_SUCCESS": "ナレッジはドキュメントとして追加されました。",
+        "SAVE_KNOWLEDGE_ERROR": "ナレッジをドキュメントとして追加できません。"
+      },
+      "RUN_DETAILS": {
+        "SUMMARY": "実行の詳細·{duration} ミリ秒",
+        "HANDLER_VALUE": "処理者:{handler}",
+        "SCENARIOS": "シナリオなし | 1 つのシナリオ | {count} シナリオ",
+        "RULES": "{count} ルール",
+        "KNOWLEDGE_ATTACHED": "このランには一時的な知識が付いていました。",
+        "NO_EVENTS": "ツールコールやシナリオハンドオフは記録されていません。",
+        "HANDOFF": "{from} → {to}",
+        "STATUS": {
+          "RUNNING": "実行中",
+          "COMPLETED": "完了しました",
+          "FAILED": "失敗"
+        }
+      }
     },
     "PAYWALL": {
       "TITLE": "アップグレードしてAIアシスタントを利用する",
@@ -967,6 +1080,11 @@
           "CANCEL": "キャンセル",
           "UPDATE": "更新変更"
         },
+        "STATUS": {
+          "ENABLED": "有効です",
+          "DISABLED": "無効です",
+          "TOGGLE": "{title} の切り替え"
+        },
         "LIST": {
           "SEARCH_PLACEHOLDER": "検索..."
         },
@@ -980,6 +1098,11 @@
           "UPDATE": {
             "SUCCESS": "シナリオは正常に更新されました",
             "ERROR": "シナリオの更新中にエラーが発生しました。もう一度試してください。"
+          },
+          "TOGGLE": {
+            "ENABLED": "シナリオは正常に有効化されました",
+            "DISABLED": "シナリオは正常に無効化されました",
+            "ERROR": "シナリオステータスの更新中にエラーが発生しました。もう一度試してください。"
           },
           "DELETE": {
             "SUCCESS": "シナリオは正常に削除されました",
@@ -1147,6 +1270,22 @@
       "OPTIONS": {
         "EDIT_TOOL": "編集ツール",
         "DELETE_TOOL": "削除ツール"
+      },
+      "STATUS": {
+        "ENABLED": "有効です",
+        "DISABLED": "無効です",
+        "TOGGLE": "{title} の切り替え"
+      },
+      "TOGGLE": {
+        "ENABLED": "ツールは正常に有効化されました",
+        "DISABLED": "ツールは正常に無効化されました",
+        "ERROR": "ツールステータスの更新に失敗しました"
+      },
+      "DISABLE_CONFIRMATION": {
+        "TITLE": "{title} を無効にする?",
+        "DESCRIPTION_ONE": "このツールは {count} 対応のシナリオで使用されます。無効にすると、そのシナリオが期待どおりに動作しなくなる可能性があります。",
+        "DESCRIPTION_OTHER": "このツールは {count} 対応のシナリオで使用されます。これを無効にすると、これらのシナリオが期待どおりに動作しなくなる可能性があります。",
+        "CONFIRM": "無効化ツール"
       },
       "CREATE": {
         "TITLE": "カスタムツールを作成",

@@ -14,11 +14,11 @@ OUTPUT_ROOT = Pathname.new(output_argument).expand_path
 
 SOURCE_SHA256 = {
   'app/javascript/dashboard/components/widgets/WootWriter/Editor.vue' =>
-    'bff7426ef7ff37c8d0482759634d0a71adebc790aef66a80998c3c3c5f6cb63c',
+    '22fd2e95411f9f5e1af9eaec0b11d0b954cf65ea81ffe865bf1794f8713bb99d',
   "app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue" =>
-    "d45770e734a5dc1a50885c5a585e1abeee6539809b34b3fdf92b771256e57e28",
+    "a33c3d2b8a4955196cbee95d68a32ce5351ff06851c8b4f85c262d64960f003f",
   "app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue" =>
-    "7020844ea92e1217e828969bb095f4a942331b52e34005de3a219bdda0f0113b",
+    "286a31a3b2135fa873eb3a26f62d70ae7bab6ba838ebfaf7390a6df425281c39",
   'app/javascript/dashboard/components-next/Contacts/EmptyState/contactEmptyStateContent.js' =>
     '4542ea4bca42064b84ae10928432a67fb3a9ea288090cd2c0008cdbf1ee6aa2f',
   'app/javascript/dashboard/components/auth/SessionLimitOverlay.vue' =>
@@ -30,11 +30,11 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/components/widgets/conversation/EmptyState/EmptyStateMessage.vue' =>
     '6b055decd0c9b40424d54801d4c36b6ee68c37786397848be09b675f8ebfbe56',
   'app/javascript/dashboard/components/widgets/conversation/MessagesView.vue' =>
-    '511ba24496b380f8b713e1e25b7079c611a4f0e6768bffc8c0c49b71dd687a7a',
+    '3b1dee59114fa3717d44c5df6953f482c995cbdb0648b0ee300067018d31ffaf',
   'app/javascript/dashboard/components/widgets/conversation/OnboardingView.vue' =>
     'c44813b643f4490a18ecb4bc46ae835ff3ebdace1ed42a6b1e813277c3bec355',
   'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue' =>
-    'b3a6593fea16bee0728f8bf5690ace93ea121f5774b6c5331f40ed0e8be3002d',
+    'd3d2a4f396a49aa3a66675256828257e5f4296f787927e8ee2c58398dc0417bd',
   'app/javascript/dashboard/components/widgets/conversation/ContentTemplates/ContentTemplatesPicker.vue' =>
     'b7d9c12d56403d8aee53abf9eec928aae1d6245149b3c457f25c814fdffb5d05',
   'app/javascript/dashboard/components/widgets/conversation/ShopifyOrderItem.vue' =>
@@ -50,11 +50,11 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/components-next/Contacts/ContactsHeader/ContactListHeaderWrapper.vue' =>
     '8b8d8245616a23754bf32b77d6a7039fa9edf2d29cf44da59b95653510c9d7a3',
   'app/javascript/dashboard/components-next/Contacts/Pages/ContactDetails.vue' =>
-    '8b58422d744f96438d12418d022cf9ef9ebe103c78dd9507b4339c3cc0ecf44c',
+    'a0074c3e59a2829a5f5fed93fc914276fd595b91a2eba4aea252787e2e90ef77',
   'app/javascript/dashboard/components-next/Contacts/Pages/ContactsList.vue' =>
     'fa688afc3d4686d9ebc4f38e223906c3aceeef213a67e3bad3b2c8033f9c1b26',
   'app/javascript/dashboard/components-next/Contacts/VoiceCallButton.vue' =>
-    '0d0db17e4752f310dec8403dee5f0407d02b2e17fae2bdff9b4f5f653818e489',
+    'bee030071ef1c533afbf1f6e690821501877c99b8c8322845c08df05e1a9c6e5',
   'app/javascript/dashboard/components-next/NewConversation/ComposeConversation.vue' =>
     '4aab987306e10909f38b624e7c1414c709003a0eed17c0d412ebd3a1b34b8122',
   'app/javascript/dashboard/components/widgets/FilterInput/FilterOperatorTypes.js' =>
@@ -62,7 +62,7 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/components-next/Contacts/ContactsSidebar/ContactNotes.vue' =>
     '548a2301bf714e160f19425aebc2a719435fb3df4a19a8ab84e7b9a5384a3013',
   'app/javascript/dashboard/components-next/Contacts/ContactsSidebar/components/ContactNoteItem.vue' =>
-    '24e0dff75eaeb806296605869d938766d31bf283db967ca2c0844aee65033ed8',
+    '5fd17db45c3aa3891cad1f3eaa90e0965e9537c0efe6fb61229a4f64139de402',
   'app/javascript/dashboard/components-next/Contacts/ContactsSidebar/ContactCustomAttributeItem.vue' =>
     '4932c386fde253abb90d760bb5b185b793db2d237c4f0e704af97b18098e7e16',
   'app/javascript/dashboard/components-next/Campaigns/EmptyState/CampaignEmptyStateContent.js' =>
@@ -84,9 +84,9 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/modules/conversations/components/MessageContextMenu.vue' =>
     'cd598606d926e92d8147fc6d2d8d297a2035ceb83ac713506c3d3c64cdd037d5',
   'app/javascript/dashboard/routes/dashboard/conversation/contact/ContactInfo.vue' =>
-    'bb7c4b1efa93aed6ce7f45c235ef5bf439a9539e710e342d51d276ce3669acf7',
+    '1eefe318761efcb5c5b2924ba4b0eb35cb117cfc47c6d0493a0fc08689ec9a79',
   'app/javascript/dashboard/routes/dashboard/conversation/contact/ContactForm.vue' =>
-    'b9368a71b7c8165f2c1622a21d69999f4bd4aa8d9efef5e3f485ed78f0986f2a',
+    '9ec0e06420bdd363f410181e7ae27e0e6f3e2bfe31b819d8da6dc304f82884df',
   'app/javascript/dashboard/routes/dashboard/conversation/customAttributes/CustomAttributes.vue' =>
     'defc23890660a318771437a2043fb72394357c664b0ba7a78e94e7ef04cdd8b1',
   'app/javascript/dashboard/routes/dashboard/onboarding/inbox-setup/InboxChannelForm.vue' =>
@@ -102,15 +102,15 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/routes/dashboard/helpcenter/pages/PortalsSettingsIndexPage.vue' =>
     '84970c8b1058f2769f00c923fe36b7972f278fec98cf2c10eff8dae271eb9a0c',
   'app/javascript/dashboard/routes/dashboard/settings/automation/Index.vue' =>
-    '055e786a867a04a03e6beeb13938e5c4580d5c1c2e0699d84d3cbef898c35d7a',
+    '30c5f90705d3b392399c2bfc04c3421b3c16e60a92736590510fbeb728895eab',
   'app/javascript/dashboard/routes/dashboard/settings/automation/operators.js' =>
     'f6b263af8575fc558180b6450dc7b4221daffe21bfd149268d5d310f0fda7c90',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/AddAgents.vue' =>
     'ab356610b811a468b729670ad68b334edaeadc88f4b62f5e0b8cbef84183bf6d',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue' =>
-    '53fdda9764a12b67b70cf5461e30bd6e39a965b046abb21a818afb1931c9cb93',
+    'dd64baf6f3ecbe6c02cc46447726746002f6fc18cdb9ab33e3ea4546b38d2717',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/Settings.vue' =>
-    '4de6dd47c70682fb826f3a02c04adcff47f05315415504a487abe8051691a743',
+    'e7158397da0966280eefbf509bfa479be9d32f01d195738b49bfe79b584ec423',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Twitter.vue' =>
     'c8363f001343329368f3c9fbad5b39374331ebf7e980b5bcde6100e28f3bd56f',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Facebook.vue' =>
@@ -118,7 +118,7 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Website.vue' =>
     'fd44dc04267ed542d0cf4fbdb589e75a18b5e46e983954acde1846eebb582c2d',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/ImapSettings.vue' =>
-    '7e95bd5b0ea6ba00d44471a8ad3a518e4e657559f15903eea8001eb13c271f35',
+    '675d380ca87a3e37211fbe6a1ed0f7ab38fb5bd0c4fddcf884b867654074ee20',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/SmtpSettings.vue' =>
     '2a7b4e88abfff768a89304950653764ea470977b89447afd52df2402c2b22c17',
   'app/javascript/dashboard/routes/dashboard/settings/inbox/components/BusinessDay.vue' =>
@@ -130,7 +130,7 @@ SOURCE_SHA256 = {
   'app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/CustomerSatisfactionPage.vue' =>
     '826de74ae2be850469de9d5ac2bbecb65df604941745353a96260c6cb62c9bb0',
   'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue' =>
-    '4ce8cfba39c4a82d0f0e0003e4cd86bd179644f73370bfd1441fee3b6368352d',
+    '45fcf58ad970e6fe48f316dc0a638349558f7aa486bc972395d2b59ed33c1dbf',
   'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue' =>
     '825fd61c613ba1b232edc677bed3bd724725d20621b692a42cfe82035d58f831',
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
@@ -160,7 +160,7 @@ SOURCE_SHA256 = {
   'app/javascript/v3/views/auth/reset/password/Index.vue' =>
     'b8b231e22b5fb848dd66b4ee8620887bc69658b628656102595a438fa4361637',
   'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' =>
-    '808918cea4c075e9804c85687930a446366bb4849ba94938651bafab928a2448',
+    'c219fad0eecdac6338ad40b9bc71e59c17ead960b0e40a248ecbcdb2b8d36a60',
   'app/javascript/v3/components/Form/Input.vue' =>
     '1cc3610b9b55ccb8cf9013d6449a2d4acebee29f7df38513365c90dc84c170bd',
   'public/assets/images/dashboard/profile/hot-key-enter.svg' =>
@@ -379,7 +379,8 @@ REPLACEMENTS = {
   ],
   "app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue" => [
     replacement("const store = useStore();\nconst { t } = useI18n();\n", "const store = useStore();\nconst { t } = useI18n();\nconst globalConfig = useMapGetter('globalConfig/get');\nconst isToybacoInstance = computed(\n  () => globalConfig.value.installationName === 'トイバコ'\n);\n"),
-    replacement("          <a\n            :href=\"TEMPLATE_LEARN_MORE_URL\"\n            class=\"text-sm font-medium text-n-blue-11 hover:underline\"\n            target=\"_blank\"\n            rel=\"noopener noreferrer\"\n          >\n            {{ $t('WHATSAPP_TEMPLATE_MGMT.KNOW_MORE') }}\n          </a>\n", "          <span v-if=\"isToybacoInstance\" class=\"block mt-1\">\n            テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。\n          </span>\n          <a\n            v-else\n            :href=\"TEMPLATE_LEARN_MORE_URL\"\n            class=\"text-sm font-medium text-n-blue-11 hover:underline\"\n            target=\"_blank\"\n            rel=\"noopener noreferrer\"\n          >\n            {{ $t('WHATSAPP_TEMPLATE_MGMT.KNOW_MORE') }}\n          </a>\n")
+    replacement(":description=\"$t('WHATSAPP_TEMPLATE_MGMT.DESCRIPTION')\"", ":description=\"isToybacoInstance ? 'テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。' : $t('WHATSAPP_TEMPLATE_MGMT.DESCRIPTION')\""),
+    replacement(":link-text=\"$t('WHATSAPP_TEMPLATE_MGMT.LEARN_MORE')\"", ":link-text=\"isToybacoInstance ? '' : $t('WHATSAPP_TEMPLATE_MGMT.LEARN_MORE')\"")
   ],
   'app/javascript/dashboard/components/ModalHeader.vue' => [
     replacement('alt="No image"', 'alt=""')
@@ -400,28 +401,28 @@ REPLACEMENTS = {
     replacement('image-alt="Labels"', 'image-alt="ラベル"')
   ],
   'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue' => [
-    replacement('<div ref="replyEditor" class="reply-box" :class="replyBoxClass">',
-                '<div ref="replyEditor" class="reply-box" :class="replyBoxClass" :data-toybaco-guide-reply="isPrivate ? \'note\' : \'public\'">'),
-    replacement("<script>\nimport { defineAsyncComponent, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n",
-                "<script>\nimport { defineAsyncComponent, useId, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n"),
-    replacement("    const replyEditor = useTemplateRef('replyEditor');\n    const messageEditor = useTemplateRef('messageEditor');\n    const copilot = useCopilotReply();\n    const macroExecution = useMacroExecution();\n",
-                "    const replyEditor = useTemplateRef('replyEditor');\n    const messageEditor = useTemplateRef('messageEditor');\n    const emailRecipientsId = useId();\n    const copilot = useCopilotReply();\n    const macroExecution = useMacroExecution();\n"),
-    replacement("      replyEditor,\n      messageEditor,\n      copilot,\n      shortcutKey,\n",
-                "      replyEditor,\n      messageEditor,\n      emailRecipientsId,\n      copilot,\n      shortcutKey,\n"),
+    replacement('<div class="reply-box" :class="replyBoxClass">',
+                '<div class="reply-box" :class="replyBoxClass" :data-toybaco-guide-reply="isPrivate ? \'note\' : \'public\'">'),
+    replacement("<script>\nimport { defineAsyncComponent, getCurrentInstance, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n",
+                "<script>\nimport { defineAsyncComponent, getCurrentInstance, useId, useTemplateRef } from 'vue';\nimport { mapGetters } from 'vuex';\nimport { useAlert } from 'dashboard/composables';\n"),
+    replacement("    const messageEditor = useTemplateRef('messageEditor');\n    const copilot = useCopilotReply();\n    const macroExecution = useMacroExecution();\n",
+                "    const messageEditor = useTemplateRef('messageEditor');\n    const emailRecipientsId = useId();\n    const copilot = useCopilotReply();\n    const macroExecution = useMacroExecution();\n"),
+    replacement("      messageEditor,\n      copilot,\n      shortcutKey,\n",
+                "      messageEditor,\n      emailRecipientsId,\n      copilot,\n      shortcutKey,\n"),
     replacement("      ccEmails: '',\n      toEmails: '',\n      doAutoSaveDraft: () => {},\n      showWhatsAppTemplatesModal: false,\n",
                 "      ccEmails: '',\n      toEmails: '',\n      emailRecipientsExpanded: false,\n      doAutoSaveDraft: () => {},\n      showWhatsAppTemplatesModal: false,\n"),
     replacement("      return !this.isOnPrivateNote && this.isAnEmailChannel;\n    },\n    enableMultipleFileUpload() {\n      return (\n",
                 "      return !this.isOnPrivateNote && this.isAnEmailChannel;\n    },\n    emailRecipientSummary() {\n      return (this.toEmails || '').trim() || '宛先未入力';\n    },\n    emailCopySummary() {\n      const copies = [];\n      if ((this.ccEmails || '').trim()) copies.push('CC');\n      if ((this.bccEmails || '').trim()) copies.push('BCC');\n      return copies.length ? `${copies.join('・')}あり` : '';\n    },\n    enableMultipleFileUpload() {\n      return (\n"),
     replacement("    currentChat(conversation, oldConversation) {\n      if (oldConversation && oldConversation.id !== conversation.id) {\n        // Only update email fields when switching to a completely different conversation (by ID)\n        // This prevents overwriting user input (e.g., CC/BCC fields) when performing actions\n",
                 "    currentChat(conversation, oldConversation) {\n      if (oldConversation && oldConversation.id !== conversation.id) {\n        this.emailRecipientsExpanded = false;\n        // Only update email fields when switching to a completely different conversation (by ID)\n        // This prevents overwriting user input (e.g., CC/BCC fields) when performing actions\n"),
-    replacement("  },\n  methods: {\n    getDraftKey(\n      conversationId = this.conversationIdByRoute,\n",
-                "  },\n  methods: {\n    toggleEmailRecipients() {\n      this.emailRecipientsExpanded = !this.emailRecipientsExpanded;\n    },\n    getDraftKey(\n      conversationId = this.conversationIdByRoute,\n"),
+    replacement("  },\n  methods: {\n    openContactInfoTemplateModal() {\n",
+                "  },\n  methods: {\n    toggleEmailRecipients() {\n      this.emailRecipientsExpanded = !this.emailRecipientsExpanded;\n    },\n    openContactInfoTemplateModal() {\n"),
     replacement("          @select=\"addIntoEditor($event.value)\"\n        />\n        <ReplyEmailHead\n          v-if=\"showReplyHead && isDefaultEditorMode\"\n          v-model:cc-emails=\"ccEmails\"\n          v-model:bcc-emails=\"bccEmails\"\n          v-model:to-emails=\"toEmails\"\n        />\n        <AudioRecorder\n          v-if=\"showAudioRecorderEditor\"\n",
                 "          @select=\"addIntoEditor($event.value)\"\n        />\n        <div\n          v-if=\"showReplyHead && isDefaultEditorMode\"\n          class=\"toybaco-reply-email\"\n          :class=\"{ 'is-expanded': emailRecipientsExpanded }\"\n        >\n          <button\n            type=\"button\"\n            class=\"toybaco-reply-email__toggle\"\n            :aria-expanded=\"emailRecipientsExpanded\"\n            :aria-controls=\"emailRecipientsId\"\n            @click=\"toggleEmailRecipients\"\n          >\n            <span class=\"toybaco-reply-email__label\">宛先</span>\n            <span\n              class=\"toybaco-reply-email__recipient\"\n              :title=\"emailRecipientSummary\"\n            >\n              {{ emailRecipientSummary }}\n            </span>\n            <span v-if=\"emailCopySummary\" class=\"toybaco-reply-email__copies\">\n              {{ emailCopySummary }}\n            </span>\n            <span class=\"toybaco-reply-email__action\">\n              {{ emailRecipientsExpanded ? '閉じる' : '詳細' }}\n            </span>\n          </button>\n          <div :id=\"emailRecipientsId\" class=\"toybaco-reply-email__details\">\n            <ReplyEmailHead\n              v-model:cc-emails=\"ccEmails\"\n              v-model:bcc-emails=\"bccEmails\"\n              v-model:to-emails=\"toEmails\"\n            />\n          </div>\n        </div>\n        <AudioRecorder\n          v-if=\"showAudioRecorderEditor\"\n"),
-    replacement("        Enter: {\n          action: e => {\n            if (this.isAValidEvent('enter')) {",
-                "        Enter: {\n          action: e => {\n            // Safari may report isComposing=false on the IME confirmation key.\n            if (e.isComposing || e.keyCode === 229) return;\n            if (this.isAValidEvent('enter')) {"),
-    replacement("        '$mod+Enter': {\n          action: () => {\n            if (this.copilot.isActive.value && this.isFocused) {",
-                "        '$mod+Enter': {\n          action: e => {\n            if (e.isComposing || e.keyCode === 229) return;\n            if (this.copilot.isActive.value && this.isFocused) {"),
+    replacement("      Enter: {\n        action: e => {\n          if (proxy.isAValidEvent('enter')) {",
+                "      Enter: {\n        action: e => {\n          // Safari may report isComposing=false on the IME confirmation key.\n          if (e.isComposing || e.keyCode === 229) return;\n          if (proxy.isAValidEvent('enter')) {"),
+    replacement("      '$mod+Enter': {\n        action: () => {\n          if (copilot.isActive.value && proxy.isFocused) {",
+                "      '$mod+Enter': {\n        action: e => {\n          if (e.isComposing || e.keyCode === 229) return;\n          if (copilot.isActive.value && proxy.isFocused) {"),
     replacement("      } catch (error) {\n        const errorMessage =\n          error?.response?.data?.error || this.$t('CONVERSATION.MESSAGE_ERROR');\n        useAlert(errorMessage);",
                 "      } catch {\n        useAlert(this.$t('CONVERSATION.MESSAGE_ERROR'));"),
     replacement("import { CMD_AI_ASSIST } from 'dashboard/helper/commandbar/events';\n",
@@ -495,7 +496,7 @@ REPLACEMENTS = {
                 "  } catch {\n    useAlert(t('CONTACTS_LAYOUT.DETAILS.AVATAR.DELETE.ERROR_MESSAGE'));")
   ],
   'app/javascript/dashboard/components-next/Contacts/VoiceCallButton.vue' => [
-    replacement("    } catch (error) {\n      useAlert(error?.message || t('CONTACT_PANEL.CALL_FAILED'));\n    }",
+    replacement("    } catch (error) {\n      useAlert(\n        error?.response?.data?.error ||\n          error?.message ||\n          t('CONTACT_PANEL.CALL_FAILED')\n      );\n    }",
                 "    } catch {\n      useAlert(t('CONTACT_PANEL.CALL_FAILED'));\n    }"),
     replacement("  } catch (error) {\n    const apiError = error?.message;\n    useAlert(apiError || t('CONTACT_PANEL.CALL_FAILED'));\n  }",
                 "  } catch {\n    useAlert(t('CONTACT_PANEL.CALL_FAILED'));\n  }")
@@ -898,7 +899,7 @@ REPLACEMENTS = {
     replacement("return parts.join(' on ') || t('SESSION_LIMIT.UNKNOWN_DEVICE');", "return parts.join(' / ') || t('SESSION_LIMIT.UNKNOWN_DEVICE');")
   ],
   'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue' => [
-    replacement("import { formatDistanceToNow, parseISO } from 'date-fns';", "import { formatDistanceToNow, parseISO } from 'date-fns';\nimport { ja } from 'date-fns/locale';"),
+    replacement("import { formatDistanceToNow, getUnixTime, parseISO } from 'date-fns';", "import { formatDistanceToNow, getUnixTime, parseISO } from 'date-fns';\nimport { ja } from 'date-fns/locale';"),
     replacement("return formatDistanceToNow(parseISO(dateStr), { addSuffix: true });", "return formatDistanceToNow(parseISO(dateStr), { addSuffix: true, locale: ja });"),
     replacement("parts.join(' on ')", "parts.join(' / ')")
   ],
@@ -1043,7 +1044,7 @@ REPLACEMENTS = {
   ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/Settings.vue' => [
     replacement("message: apiError || error.message,", "message: this.$t('INBOX_MGMT.ACCOUNT_HEALTH.ERRORS.GENERIC_DESCRIPTION'),"),
-    replacement("      } catch (error) {\n        useAlert(\n          error.response?.data?.error ||\n            error.message ||\n            this.$t('INBOX_MGMT.ACCOUNT_HEALTH.WEBHOOK.REGISTER_ERROR')\n        );",
+    replacement("      } catch (error) {\n        // Same as the health fetch: the provider's own message is the actionable part.\n        useAlert(\n          error.response?.data?.error ||\n            error.message ||\n            this.$t('INBOX_MGMT.ACCOUNT_HEALTH.WEBHOOK.REGISTER_ERROR')\n        );",
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.ACCOUNT_HEALTH.WEBHOOK.REGISTER_ERROR'));"),
     replacement("      } catch (error) {\n        useAlert(error.message || this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));\n      }",
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.EDIT.API.ERROR_MESSAGE'));\n      }"),
@@ -1276,8 +1277,7 @@ REPLACEMENTS.fetch('app/javascript/v3/views/auth/reset/password/Index.vue').conc
 
 # Product links stay available without relying on installation-name checks.
 REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue').concat([
-  replacement('https://www.chatwoot.com/hc/user-guide/articles/1754940076-whatsapp-templates', '/toybaco-help.html#templates'),
-  replacement("          <a\n            v-else\n            :href=", "          <a\n            :href=")
+  replacement("        <template v-if=\"lastSyncAttemptAt\" #meta>\n          <span class=\"text-xs text-n-slate-10\">", "        <template #meta>\n          <a href=\"/toybaco-help.html#templates\" class=\"text-sm font-medium text-n-blue-11 hover:underline\">テンプレートの使い方</a>\n          <span v-if=\"lastSyncAttemptAt\" class=\"text-xs text-n-slate-10\">")
 ])
 REPLACEMENTS.fetch('app/javascript/dashboard/routes/dashboard/settings/inbox/settingsPage/ConfigurationPage.vue').concat([
   replacement('https://www.chatwoot.com/docs/product/channels/live-chat/sdk/identity-validation/', '/toybaco-help.html#identity'),

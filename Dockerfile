@@ -1,5 +1,5 @@
-# amd64本番で実行するChatwoot v4.17.1 manifestとsourceを不変値で固定する。
-ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a
+# amd64本番で実行するChatwoot v4.18.0 manifestとsourceを不変値で固定する。
+ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de
 
 FROM ${CHATWOOT_IMAGE} AS overlay-normalizer
 COPY overlay/app/ /toybaco-overlay/
@@ -116,10 +116,10 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
     && test ! -e /usr/lib/libexpat.so.1.12.3 \
     && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
 ARG TOYBACO_CONTROL_SHA256
-LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:0dcaaacc41ba5219b48af80b236f7707dbd5d58228320950af71a4309c349a7a" \
+LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de" \
       org.opencontainers.image.source="https://github.com/Cyber-relations/chatwoot" \
-      org.opencontainers.image.revision="b354a9550e1fb59fa537a9c384232cb076213e72" \
-      jp.toybaco.source.tree="9a17426900d328a6acc2bdaecba0533e8b401120" \
+      org.opencontainers.image.revision="9f920b549c14491a4e587687a3eed5d21c6ccc7d" \
+      jp.toybaco.source.tree="16432eeeef9153f7aff66be382e04a20e6f5683a" \
       jp.toybaco.gate.control-sha256="${TOYBACO_CONTROL_SHA256}"
 COPY --from=overlay-normalizer /toybaco-overlay/ /app/
 # The publisher supplies its checked-out public source revision. Local/non-public

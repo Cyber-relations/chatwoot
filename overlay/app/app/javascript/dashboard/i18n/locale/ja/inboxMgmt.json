@@ -140,7 +140,6 @@
       },
       "TWILIO": {
         "TITLE": "Twilio SMS/WhatsApp チャンネル",
-        "DESC": "Twilioを統合し、SMSまたはWhatsAppを通じて顧客をサポートし始めましょう。",
         "ACCOUNT_SID": {
           "LABEL": "アカウント SID",
           "PLACEHOLDER": "Twilio アカウント SIDを入力してください",
@@ -182,13 +181,13 @@
           "PLACEHOLDER": "送信先の電話番号を入力してください。",
           "ERROR": "有効な電話番号を提供してください。`+`記号で始まり、スペースを含まない必要があります。"
         },
-        "API_CALLBACK": {
-          "TITLE": "コールバック URL",
-          "SUBTITLE": "Twilio のメッセージコールバックURLをここで指定する必要があります。"
-        },
         "SUBMIT_BUTTON": "Twilio チャンネルを作成",
         "API": {
           "ERROR_MESSAGE": "Twilio の認証ができませんでした。もう一度やり直してください。"
+        },
+        "API_CALLBACK": {
+          "TITLE": "コールバック URL",
+          "SUBTITLE": "Twilio のメッセージコールバックURLをここで指定する必要があります。"
         }
       },
       "SMS": {
@@ -197,7 +196,7 @@
         "PROVIDERS": {
           "LABEL": "APIプロバイダー",
           "TWILIO": "Twilio",
-          "BANDWIDTH": "Bandwidth"
+          "BANDWIDTH": "帯域幅"
         },
         "API": {
           "ERROR_MESSAGE": "SMSチャンネルを保存できませんでした"
@@ -298,6 +297,102 @@
           "WEBHOOK_URL": "ウェブフック URL",
           "WEBHOOK_VERIFICATION_TOKEN": "Webhook検証トークン"
         },
+        "MANUAL_SETUP": {
+          "HEADER": {
+            "TITLE": "WhatsApp を手動で接続",
+            "DESCRIPTION": "次の手順に従って Meta アカウントを準備し、電話番号を トイバコ に接続します。"
+          },
+          "APP": {
+            "TITLE": "Meta アプリを作成または選択する",
+            "DESCRIPTION": "WhatsApp 番号は、WhatsApp ユースケースが有効になっている Meta アプリに属している必要があります。",
+            "ITEM_1": "{metaDevelopers} を開き、管理者アカウントでサインインします。",
+            "META_DEVELOPERS": "Meta 開発者",
+            "ITEM_2": "新しいアプリを作成するか、この WhatsApp 番号ですでに使用しているアプリを選択してください。",
+            "ITEM_3": "WhatsApp を通じてお客様とつながるオプションを選択してください。",
+            "ITEM_4": "WhatsApp 番号を所有している、または所有する予定のビジネスポートフォリオを選択してください。",
+            "VIDEO_TITLE": "動画:Meta アプリを作成",
+            "VIDEO_DESCRIPTION": "この簡単なチュートリアルでは、Meta Developersのどこから新しいアプリを開始すればよいかを説明します。"
+          },
+          "NUMBER": {
+            "TITLE": "電話番号を追加してIDを取得",
+            "DESCRIPTION": "Meta アプリにプロダクション番号を追加して確認し、API セットアップに表示されている 2 つの識別子をコピーします。",
+            "ITEM_1": "Meta アプリで WhatsApp ユースケースを開き、API セットアップを選択します。",
+            "ITEM_2": "「メッセージの送受信」セクションで、「差出人」セレクターを開きます。",
+            "ITEM_3": "既存の製造番号を選択するか、[電話番号を追加] を選択します。",
+            "ITEM_4": "Meta からリクエストされた WhatsApp ビジネスプロフィールを完成させてください。",
+            "ITEM_5": "SMS から送信された OTP または音声通話を使用して電話番号を確認してください。",
+            "ITEM_6": "API 設定に表示されている電話番号 ID と WhatsApp のビジネスアカウント ID をコピーします。",
+            "VIDEO_TITLE": "視聴:電話番号を追加してその ID を検索する",
+            "VIDEO_DESCRIPTION": "このチュートリアルでは、製造番号を追加または選択し、Meta から ID をコピーする方法を示します。"
+          },
+          "TOKEN": {
+            "TITLE": "パーマネントアクセストークンを生成する",
+            "DESCRIPTION": "アプリへのアクセス権を持つ Meta システムユーザーと WhatsApp ビジネスアカウントを作成します。",
+            "ITEM_1": "Meta ビジネス設定を開き、ユーザ → システムユーザに移動します。",
+            "ITEM_2": "管理者システムユーザーを作成するか、既存のシステムユーザーを選択します。",
+            "ITEM_3": "Meta アプリと WhatsApp ビジネスアカウントをシステムユーザーに割り当てます。",
+            "ITEM_4": "割り当てられた WhatsApp アセットのフルコントロールを付与します。",
+            "ITEM_5": "Meta アプリのトークンを生成し、有効期限を Never に設定します。",
+            "ITEM_6": "whatsapp _business_management と whatsapp _business_messaging を選択し、トークンをコピーします。",
+            "VIDEO_TITLE": "ウォッチ:パーマネントアクセストークンの生成",
+            "VIDEO_DESCRIPTION": "このチュートリアルでは、Meta アプリを選択し、有効期限のないトークンを選択し、必要な WhatsApp 権限を付与する方法を示します。",
+            "WARNING": "Meta はトークンを一度だけ表示します。ダイアログを閉じる前にコピーしてください。"
+          },
+          "DETAILS": {
+            "WABA_LABEL": "WhatsApp ビジネスアカウント ID",
+            "WABA_PLACEHOLDER": "WhatsAppビジネスアカウントのIDを入力",
+            "PHONE_ID_LABEL": "電話番号 ID",
+            "PHONE_ID_PLACEHOLDER": "電話番号を入力 ID",
+            "TOKEN_LABEL": "パーマネントアクセストークン",
+            "TOKEN_PLACEHOLDER": "アクセストークンを貼り付け"
+          },
+          "REVIEW": {
+            "TITLE": "WhatsApp インボックスを作成",
+            "DESCRIPTION": "番号の詳細を確認して、受信トレイの名前を選択します。",
+            "VERIFIED": "Meta 番号とアクセストークンは有効です。",
+            "BUSINESS_NAME": "ビジネス名",
+            "PHONE_NUMBER": "電話番号",
+            "PHONE_ID": "電話番号 ID",
+            "WABA_ID": "WhatsApp ビジネスアカウント ID",
+            "INBOX_NAME": "受信トレイ名",
+            "INBOX_NAME_HELP": "この名前は、検証済みの Meta ビジネス名から生成されました。この名前は変更できます。"
+          },
+          "VERIFY": {
+            "TITLE": "接続を確認",
+            "DESCRIPTION": "トイバコ は番号アクセスを確認し、Meta ウェブフックを設定しています。",
+            "NUMBER_ACCESS": "番号アクセス",
+            "TEMPLATE_ACCESS": "テンプレートへのアクセス",
+            "CALLBACK": "ウェブフックコールバック",
+            "SUBSCRIPTION": "ウェブフックサブスクリプション",
+            "WEBHOOK_URL": "ウェブフック URL",
+            "COPY": "コピー",
+            "COPY_SUCCESS": "WebhookのURLをクリップボードにコピーしました",
+            "COMPLETE": "確認済み",
+            "PENDING": "保留中",
+            "SUCCESS": "WhatsApp 番号が接続され、エージェントを割り当てる準備ができました。",
+            "RETRY_SUCCESS": "Webhook のセットアップが正常に再試行されました。",
+            "RETRY_ERROR": "Webhook の設定を再試行できませんでした。もう一度試してください。"
+          },
+          "ACTIONS": {
+            "BACK": "戻る",
+            "OPEN_META_APPS": "Meta アプリを開く",
+            "APP_READY": "私の Meta アプリの準備が整いました",
+            "NEXT": "[次へ]",
+            "OPEN_BUSINESS_SETTINGS": "Meta ビジネス設定を開く",
+            "SHOW_TOKEN": "トークンを表示",
+            "HIDE_TOKEN": "トークンを非表示にする",
+            "VERIFY_DETAILS": "詳細を確認",
+            "CONNECT": "受信トレイを作成",
+            "RETRY_WEBHOOK": "ウェブフックのセットアップを再試行",
+            "CONTINUE": "エージェントの追加を続ける"
+          },
+          "ERRORS": {
+            "IDS_REQUIRED": "電話番号 ID と WhatsApp のビジネスアカウント ID を入力します。",
+            "REQUIRED": "電話番号 ID、WhatsApp ビジネスアカウント ID、およびパーマネントアクセストークンを入力します。",
+            "INVALID_TOKEN": "このアクセストークンは無効または期限切れです。新しいパーマネントトークンを生成してやり直してください。",
+            "GENERIC": "WhatsApp のセットアップを完了できませんでした。詳細を確認して、もう一度試してください。"
+          }
+        },
         "SUBMIT_BUTTON": "WhatsAppチャンネルを作成",
         "EMBEDDED_SIGNUP": {
           "TITLE": "Meta によるクイックセットアップ",
@@ -322,6 +417,7 @@
           "SUCCESS_TITLE": "WhatsApp ビジネスアカウントが接続されました！",
           "WAITING_FOR_AUTH": "認証を待っています...",
           "INVALID_BUSINESS_DATA": "Facebook から受け取ったビジネスデータは無効です。もう一度試してください。",
+          "UNSUPPORTED_COMPLETION": "接続可能な WhatsApp 電話番号がない状態で Meta セットアップが終了しました。セットアップをもう一度実行し、電話番号を追加してください。",
           "SIGNUP_ERROR": "サインアップエラーが発生しました",
           "AUTH_NOT_COMPLETED": "認証は完了していません。プロセスを再開してください。",
           "SUCCESS_FALLBACK": "WhatsApp ビジネスアカウントは正常に設定されました",
@@ -330,8 +426,12 @@
           "ACCESS_REQUEST": {
             "TITLE": "Meta によるクイックセットアップ",
             "DESCRIPTION": "手動設定なしで、WhatsApp ビジネスアプリから新しい番号または既存の番号を接続します。このオプションをリクエストするには、お客様の事業内容、WhatsApp の使用方法、アクセスが必要な トイバコ アカウントを、弊社チームにお知らせください。",
-            "FOOTNOTE": "リクエストを確認して、このオプションを有効にできるかどうかをお知らせします。以下の手動設定を続けることもできます。",
-            "BUTTON": "アクセスをリクエストする"
+            "BUTTON": "アクセスをリクエストする",
+            "FORM_DESCRIPTION": "あなたのビジネスと WhatsApp をどのように使う予定か教えてください。ユースケースを送信して、アカウントのクイックセットアップを可能にしてください。",
+            "USE_CASE_LABEL": "ビジネスユースケース",
+            "USE_CASE_PLACEHOLDER": "たとえば、私たちは家具を販売しており、WhatsApp を使用して製品に関する質問に答えたり、お客様の注文を支援したりしています。",
+            "SUBMIT": "送信",
+            "ERROR": "アクセスを有効にできませんでした。もう一度試してください。"
           },
           "RESTRICTED_WARNING": "WhatsAppの埋め込みサインアップは、Meta側のAPIレベルの問題により一時的に利用できません。トイバコ側の問題ではありません。対象となるCloud API番号は手動で設定できます。できるだけ早い解決に向けてMetaと連携しています。",
           "STATUS_LINK": "ステータス更新を表示",
@@ -515,7 +615,8 @@
           },
           "TIKTOK": {
             "TITLE": "TikTok",
-            "DESCRIPTION": "TikTok アカウントを接続してください"
+            "DESCRIPTION": "TikTok アカウントを接続してください",
+            "ACCESS_REQUEST_DESCRIPTION": "TikTok アクセスをリクエストするには、サポートチームにお問い合わせください"
           },
           "VOICE": {
             "TITLE": "ボイス",
@@ -578,6 +679,9 @@
       "MORE_SETTINGS": "その他の設定",
       "WEBSITE_SUCCESS": "ウェブサイトチャンネルの作成が正常に完了しました。以下のコードをコピーしてウェブサイトに貼り付けてください。次回、お客様がライブチャットを使用すると、会話は自動的に受信トレイに表示されます。",
       "WHATSAPP_QR_INSTRUCTION": "上記のQRコードをスキャンして、WhatsApp受信ボックスをすばやくテストしてください",
+      "SMS_QR_INSTRUCTION": "上記の QR コードをスキャンして、SMS 受信ボックスをすばやくテストしてください",
+      "SMS_QR_ALT": "SMS 受信ボックスをテストするための QR コード",
+      "TWILIO_CALLBACK_FALLBACK": "Webhook は自動的に設定されます。受信メッセージが届かない場合は、Twilio のコールバック URL を使用してください。",
       "MESSENGER_QR_INSTRUCTION": "上記のQRコードをスキャンして、Facebookメッセンジャーの受信トレイをすばやくテストしてください",
       "TELEGRAM_QR_INSTRUCTION": "上記のQRコードをスキャンして、Telegram受信ボックスをすばやくテストしてください"
     },
@@ -676,6 +780,14 @@
       "INBOUND": {
         "LABEL": "着信を許可",
         "DESCRIPTION": "お客様にこの番号に電話をかけてもらいましょう。オフにすると、着信コールは自動的に拒否され、エージェントには通知されず、会話も作成されません。エージェントは引き続き電話をかけることができます。"
+      },
+      "RECORDING": {
+        "LABEL": "通話を録音",
+        "DESCRIPTION": "通話を録音し、その録音を会話に添付します。通話の録音が許可されていない場合はオフにしてください。"
+      },
+      "TRANSCRIPTION": {
+        "LABEL": "録音の文字起こし",
+        "DESCRIPTION": "各録音をテキストトランスクリプトに変換します。AIアシスタント を使用し、アカウントで音声文字起こしを有効にする必要があります。"
       }
     },
     "WHATSAPP_CALLING": {
@@ -700,6 +812,98 @@
     },
     "CHANNEL_PREFERENCES": "チャンネル設定",
     "WIDGET_FEATURES": "ウィジェット機能",
+    "TWILIO_HEALTH": {
+      "TITLE": "Twilio 番号を管理",
+      "DESCRIPTION": "この受信トレイの Twilio アカウント、送信者、ウェブフックを確認してください。トイバコ が受信できないものには、ここにフラグが付けられます。",
+      "GO_TO_SETTINGS": "Twilio コンソールに移動",
+      "NO_DATA": "健康データはありません",
+      "LOADING": "Twilio からヘルスデータを取得中...",
+      "ERROR_TITLE": "Twilio にアクセスできませんでした",
+      "STATUS": {
+        "HEALTHY": "すべてのチェックに合格",
+        "MISCONFIGURED": "注意が必要"
+      },
+      "FIELDS": {
+        "ACCOUNT_NAME": {
+          "LABEL": "Twilio アカウント",
+          "TOOLTIP": "これらの認証情報が属する Twilio アカウント"
+        },
+        "ACCOUNT_STATUS": {
+          "LABEL": "アカウントステータス",
+          "TOOLTIP": "凍結または閉鎖された Twilio アカウントは何も送受信できません"
+        },
+        "ACCOUNT_TYPE": {
+          "LABEL": "口座タイプ",
+          "TOOLTIP": "トライアルアカウントでは、Twilio で確認した電話番号にのみメッセージを送ったり電話をかけたりできます"
+        },
+        "SENDER": {
+          "LABEL": "送信者",
+          "TOOLTIP": "この受信トレイを配信する電話番号またはメッセージングサービス"
+        },
+        "CAPABILITIES": {
+          "LABEL": "数値機能",
+          "TOOLTIP": "この番号では機能 Twilio が有効になっています。この受信トレイには必要でもない機能は決して機能しません。"
+        },
+        "VOICE_CALLING": {
+          "LABEL": "音声通話",
+          "TOOLTIP": "この受信トレイの通話がオンになっているかどうか"
+        }
+      },
+      "VALUES": {
+        "ACCOUNT_STATUSES": {
+          "ACTIVE": "アクティブ",
+          "SUSPENDED": "一時停止",
+          "CLOSED": "クローズド"
+        },
+        "ACCOUNT_TYPES": {
+          "TRIAL": "トライアル",
+          "FULL": "フル"
+        },
+        "CAPABILITIES": {
+          "SMS": "SMS",
+          "VOICE": "ボイス"
+        },
+        "SENDER_TYPES": {
+          "PHONE_NUMBER": "電話番号",
+          "MESSAGING_SERVICE": "メッセージサービス"
+        },
+        "ENABLED": "有効",
+        "DISABLED": "無効"
+      },
+      "WEBHOOKS": {
+        "TITLE": "ウェブフック",
+        "DESCRIPTION": "Twilio は、メッセージまたは通話が到着したときにこれらの URL を呼び出します。インストールを変更したら、これらを再度登録してください URL",
+        "REGISTER_ALL": "ウェブフックの登録",
+        "MESSAGING": "メッセージング Web フック",
+        "VOICE": "音声ウェブフック",
+        "VOICE_STATUS": "音声ステータスコールバック",
+        "VOICE_APP": "アウトバウンドコール (TwiML アプリ)"
+      },
+      "WEBHOOK": {
+        "CONFIGURED_SUCCESS": "ウェブフックは正常に設定されました",
+        "NOT_SET": "設定なし",
+        "EXPECTED": "期待",
+        "CURRENT": "現在設定されているのは",
+        "REASONS": {
+          "NOT_SET": "ウェブフックが設定されていません",
+          "URL_MISMATCH": "ウェブフック URL ミスマッチ",
+          "WRONG_HTTP_METHOD": "ウェブフックが間違った HTTP メソッドを使っている",
+          "OVERRIDDEN_BY_NUMBER": "メッセージサービスは番号によって異なります",
+          "OVERRIDDEN_BY_APPLICATION": "TwiML アプリによってオーバーライドされました",
+          "OVERRIDDEN_BY_TRUNK": "SIP トランクによってオーバーライドされました",
+          "MISSING_TWIML_APP": "TwiML アプリが作成されていません"
+        },
+        "HINTS": {
+          "NOT_SET": "Twilio にはこの送信者にウェブフックがないため、トイバコ には何も届きません。",
+          "URL_MISMATCH": "Twilio は別の URL を呼び出しているので、トラフィックは別の場所に行きます。",
+          "WRONG_HTTP_METHOD": "URL は正しいですが、Twilio は POST の代わりに {method} を付けて呼び出し、トイバコ は POST にしか応答しません。",
+          "OVERRIDDEN_BY_NUMBER": "このメッセージングサービスでは「番号にウェブフックを使う」が有効になっているため、Twilio はサービス Webhook を無視します。",
+          "OVERRIDDEN_BY_APPLICATION": "この番号には TwiML アプリが添付されており、Twilio は番号の URL の代わりにアプリの URL を使用します。Twilio コンソールでデタッチします。",
+          "OVERRIDDEN_BY_TRUNK": "この番号は SIP トランクに接続されているため、Twilio はコールをトランクにルーティングし、音声 Webhook を完全に無視します。Twilio コンソールでトランクを切り離します。",
+          "MISSING_TWIML_APP": "トイバコ にはこの番号に対応する TwiML アプリがないため、アウトバウンドコールはできません。"
+        }
+      }
+    },
     "ACCOUNT_HEALTH": {
       "TITLE": "WhatsApp アカウントを管理してください",
       "DESCRIPTION": "WhatsAppの電話番号の状態、メッセージ容量、リンク先のMetaのビジネス詳細を確認してください。",
@@ -893,7 +1097,18 @@
         "SECRET_KEY": "シークレットキー",
         "VIEW_DOCS": "ドキュメンテーションを見る",
         "REQUIRE_LABEL": "すべての会話に本人確認を必須にする",
-        "REQUIRE_DESCRIPTION": "有効にすると、ユーザーは会話を開始するために有効なIDトークンを入力する必要があります。有効なトークンがないリクエストは拒否されます。"
+        "REQUIRE_DESCRIPTION": "有効にすると、ユーザーは会話を開始するために有効なIDトークンを入力する必要があります。有効なトークンがないリクエストは拒否されます。",
+        "ROTATE": {
+          "BUTTON": "キーを回転",
+          "TITLE": "シークレットキーをローテーションしますか?",
+          "WARNING": "現在のキーは、回転させた瞬間に無効になります。",
+          "WARNING_DETAIL": "重複期間はなく、元に戻すこともできません。",
+          "IMPACT": "サーバーは新しいキーでユーザーを署名する必要があります。まだ古いもので署名しているユーザーは検証に失敗します。本人確認が必要な場合、会話を始めることはできません。",
+          "CONFIRM": "キーを回転",
+          "CANCEL": "[キャンセル]",
+          "SUCCESS": "シークレットキーは正常にローテーションされました",
+          "ERROR": "シークレットキーをローテーションできませんでした。もう一度試してください"
+        }
       },
       "INBOX_AGENTS": "担当者",
       "INBOX_AGENTS_SUB_TEXT": "この受信トレイから担当者を追加または削除する",

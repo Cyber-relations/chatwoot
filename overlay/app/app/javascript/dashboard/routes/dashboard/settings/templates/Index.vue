@@ -32,9 +32,6 @@ const FUZZY_SEARCH_KEYS = [
   'searchableContent',
 ];
 
-const TEMPLATE_LEARN_MORE_URL =
-  '/toybaco-help.html#templates';
-
 const store = useStore();
 const { t } = useI18n();
 const globalConfig = useMapGetter('globalConfig/get');
@@ -346,27 +343,16 @@ onDeactivated(abortTemplateRequest);
       <BaseSettingsHeader
         v-model:search-query="searchQuery"
         :title="$t('WHATSAPP_TEMPLATE_MGMT.TITLE')"
+        :description="isToybacoInstance ? 'テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。' : $t('WHATSAPP_TEMPLATE_MGMT.DESCRIPTION')"
+        :link-text="isToybacoInstance ? '' : $t('WHATSAPP_TEMPLATE_MGMT.LEARN_MORE')"
+        feature-name="whatsapp_templates"
         :search-placeholder="
           showSearch ? $t('WHATSAPP_TEMPLATE_MGMT.SEARCH_PLACEHOLDER') : ''
         "
       >
-        <template #description>
-          {{ $t('WHATSAPP_TEMPLATE_MGMT.DESCRIPTION') }}
-          <span v-if="isToybacoInstance" class="block mt-1">
-            テンプレートはMetaまたはTwilioで作成・変更します。変更後は「テンプレートを同期」を押し、一覧の内容を確認してください。
-          </span>
-          <a
-            :href="TEMPLATE_LEARN_MORE_URL"
-            class="text-sm font-medium text-n-blue-11 hover:underline"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {{ $t('WHATSAPP_TEMPLATE_MGMT.KNOW_MORE') }}
-          </a>
-          <span
-            v-if="lastSyncAttemptAt"
-            class="block mt-1 text-xs text-n-slate-10"
-          >
+        <template #meta>
+          <a href="/toybaco-help.html#templates" class="text-sm font-medium text-n-blue-11 hover:underline">テンプレートの使い方</a>
+          <span v-if="lastSyncAttemptAt" class="text-xs text-n-slate-10">
             {{
               $t('WHATSAPP_TEMPLATE_MGMT.LAST_SYNC_ATTEMPT', {
                 date: formatTemplateDate(lastSyncAttemptAt),
