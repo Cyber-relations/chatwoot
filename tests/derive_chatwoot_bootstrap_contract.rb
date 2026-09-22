@@ -7,8 +7,8 @@ abort 'usage: derive_chatwoot_bootstrap_contract.rb FIXED_SOURCE CONTROL_ROOT' u
 versions = Dir.glob(File.join(source, 'db/migrate/*.rb')).map { |path| File.basename(path)[/\A([0-9]{14})_[a-z0-9_]+\.rb\z/, 1] }.sort
 abort 'invalid upstream migration names' if versions.any?(&:nil?)
 canonical = ->(values) { values.join("\n") + "\n" }
-upstream_sha = 'dbf23fa8f37acf498ac221d9b49bd81fbf73fa48c0cbeeb07813f3a0d4973425'
-abort 'fixed upstream migration versions changed' unless versions.length == 177 && Digest::SHA256.hexdigest(canonical.call(versions)) == upstream_sha
+upstream_sha = '206a09ec50a7ca7bd4e6ef569b0bda0f12db7d994eee598a5a663c5871c6cbd7'
+abort 'fixed upstream migration versions changed' unless versions.length == 180 && Digest::SHA256.hexdigest(canonical.call(versions)) == upstream_sha
 
 overlay = []
 File.foreach(File.join(root, 'tests/chatwoot-overlay-manifest.tsv')) do |line|
