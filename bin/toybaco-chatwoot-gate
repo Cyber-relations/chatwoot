@@ -1494,7 +1494,7 @@ publish_release_artifacts() {
         sha256: migration_contract_sha,
         from: "v4.16.2",
         to: "v4.18.0",
-        total: 20,
+        total: 23,
         forward_compatible_services: ["rails", "sidekiq"],
         automatic_database_rollback: false
       },
