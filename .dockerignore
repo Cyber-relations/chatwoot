@@ -13,3 +13,4 @@ overlay/app/spec/**
 !config/chatwoot-ruby-llm-backport.json
 !scripts/harden-chatwoot-ruby-llm.rb
 !tests/verify_chatwoot_ruby_llm_backport.rb
+!tests/chatwoot-cache-upgrade.test.mjs
