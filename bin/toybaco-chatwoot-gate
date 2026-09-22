@@ -662,11 +662,13 @@ verify_schema_migration_set() {
 verify_toybaco_database_prepare() {
   local bootstrap_database='chatwoot_bootstrap_test'
   local recovery_database='chatwoot_recovery_test'
-  local upstream_sha256='206a09ec50a7ca7bd4e6ef569b0bda0f12db7d994eee598a5a663c5871c6cbd7'
   # Derive the target from the fixed upstream and the reviewed overlay inventory.
   local target_count target_sha256 target_contract
   target_contract="$(ruby "$CONTROL_ROOT/tests/derive_chatwoot_bootstrap_contract.rb" "$CLEAN_SOURCE" "$CONTROL_ROOT")" || fail 'migration contract derivation failed'
   read -r target_count target_sha256 <<< "$target_contract"
+  local loaded_count loaded_sha256 loaded_contract
+  loaded_contract="$(ruby "$CONTROL_ROOT/tests/derive_chatwoot_bootstrap_contract.rb" "$CLEAN_SOURCE" "$CONTROL_ROOT" schema-loaded)" || fail 'schema-loaded contract derivation failed'
+  read -r loaded_count loaded_sha256 <<< "$loaded_contract"
   local branding_contract config_count locale_default metadata_guard_log metadata_missing_log
 
   STAGE='Chatwoot managed fresh database prepare'
@@ -707,7 +709,7 @@ verify_toybaco_database_prepare() {
     --env RAILS_ENV=production \
     --env "POSTGRES_DATABASE=$recovery_database" \
     "$TEST_IMAGE" bundle exec rails db:schema:load
-  verify_schema_migration_set "$recovery_database" 180 "$upstream_sha256" 'schema-only recovery fixture'
+  verify_schema_migration_set "$recovery_database" "$loaded_count" "$loaded_sha256" 'schema-only recovery fixture'
   [[ "$(docker exec "$POSTGRES_NAME" psql -X -q -A -t -v ON_ERROR_STOP=1 \
     -U postgres -d "$recovery_database" -c 'SELECT count(*) FROM public.installation_configs;')" == '0' ]] || fail \
     'schema-only recovery fixtureにinstallation configが混入しました'
