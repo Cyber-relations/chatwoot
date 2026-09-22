@@ -28,12 +28,14 @@ ENV HUSKY=0 \
     PNPM_HOME=/usr/local/share/pnpm \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
+COPY tests/chatwoot-cache-upgrade.test.mjs /opt/toybaco/tests/cache-upgrade.test.mjs
 RUN node --version \
     && test "$(node --version)" = 'v24.21.0' \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && npm install --global --ignore-scripts 'pnpm@10.2.0' \
     && test "$(pnpm --version)" = '10.2.0' \
     && pnpm install --frozen-lockfile \
+    && node /opt/toybaco/tests/cache-upgrade.test.mjs /app /app /app \
     && rm -rf /app/public/vite \
     && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \
