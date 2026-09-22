@@ -69,9 +69,14 @@
     "DIVIDER": "ディバイダー"
   },
   "VIDEO_EMBED": {
+    "TAB_EMBED": "リンクを埋め込む",
+    "TAB_UPLOAD": "アップロード",
     "PLACEHOLDER": "動画リンクを貼り付ける",
     "HINT": "YouTube、Vimeo、Loom、Wistia、アーケード、バニー、CodePen、GuideJar、mp4リンクに対応",
     "ERROR": "対応している動画リンクではないようです",
+    "UPLOAD_LABEL": "ビデオファイルを選択",
+    "UPLOAD_HINT": "MP4 · {size} MB まで·またはここにドロップしてください",
+    "UPLOAD_ERROR": "アップロードできるのは MP4 ファイルのみです",
     "ADD": "埋め込む",
     "CANCEL": "キャンセル"
   }

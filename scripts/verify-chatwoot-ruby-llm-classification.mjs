@@ -87,7 +87,7 @@ export function validateBinding(sbom, context, imageInspect) {
   assert.equal(image.Os, 'linux'); assert.equal(image.Architecture, 'amd64');
   assert.ok(array(image.RepoDigests).includes(IMAGE + '@' + context.image_digest));
   assert.equal(image.Config.Labels['jp.toybaco.gate.control-sha256'], context.control_sha256);
-  assert.equal(image.Config.Labels['org.opencontainers.image.revision'], 'b354a9550e1fb59fa537a9c384232cb076213e72');
+  assert.equal(image.Config.Labels['org.opencontainers.image.revision'], '9f920b549c14491a4e587687a3eed5d21c6ccc7d');
   assert.equal(sbom.spdxVersion, 'SPDX-2.3');
   assert.equal(sbom.SPDXID, 'SPDXRef-DOCUMENT');
   const packages = array(sbom.packages), relationships = array(sbom.relationships);

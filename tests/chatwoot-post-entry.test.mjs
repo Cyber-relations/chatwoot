@@ -1058,7 +1058,7 @@ if (fs.existsSync(brandCssPath)) {
     path.join(root, 'overlay/app/app/javascript/dashboard/i18n/locale/ja/whatsappTemplateMgmt.json'),
     'utf8'
   );
-  assert.match(whatsapp, /"KNOW_MORE": "操作ガイドを見る"/);
+  assert.match(whatsapp, /"LEARN_MORE": "操作ガイドを見る"/);
   assert.match(whatsapp, /"EMPTY": "テンプレートは見つかりませんでした。"/);
   assert.doesNotMatch(whatsapp, /WhatsApp テンプレートは見つかりませんでした/);
   assert.doesNotMatch(whatsapp, /WhatsApp 受信トレイから同期された/);

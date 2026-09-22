@@ -109,8 +109,9 @@ test('every product help link resolves to a packaged page and real section', () 
   assert.match(guide, /href="https:\/\/metastatus\.com\/"/);
   assert.doesNotMatch(guide, /Chatwoot|Postiz|Gitroom|https?:\/\/(?!toybaco\.jp|metastatus\.com)/i);
   assert.match(guide, /href="\/app"/);
-  const templates = JSON.parse(read('app/javascript/dashboard/i18n/locale/ja/whatsappTemplateMgmt.json'));
-  assert.equal(templates.WHATSAPP_TEMPLATE_MGMT.KNOW_MORE, '操作ガイドを見る');
+  const templates = read('app/javascript/dashboard/routes/dashboard/settings/templates/Index.vue');
+  assert.match(templates, /href="\/toybaco-help\.html#templates"[^>]*>テンプレートの使い方<\/a>/);
+  assert.match(templates, /:link-text="isToybacoInstance \? '' : \$t\('WHATSAPP_TEMPLATE_MGMT.LEARN_MORE'\)"/);
 });
 
 test('bot fallbacks and the logo fallback use the approved asset without changing custom avatars', () => {

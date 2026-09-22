@@ -34,6 +34,10 @@
     },
     "UNREAD_MESSAGES": "未読メッセージ",
     "UNREAD_MESSAGE": "未読メッセージ",
+    "CONTACT_HISTORY": {
+      "OLDER": "このお客様との前回のチャット",
+      "NEWER": "このお客様との次のチャット"
+    },
     "CLICK_HERE": "ここをクリック",
     "LOADING_INBOXES": "受信トレイを読み込み中",
     "LOADING_CONVERSATIONS": "会話データを読み込んでいます",
@@ -80,6 +84,15 @@
     "SUCCESS_DELETE_MESSAGE": "メッセージの削除に成功",
     "FAIL_DELETE_MESSSAGE": "メッセージを削除できませんでした！もう一度お試しください",
     "NO_RESPONSE": "返信なし",
+    "REQUEST_CONTACT_INFO": {
+      "ACTION": "お客様に WhatsApp の電話番号を教えてもらう",
+      "PENDING_ACTION": "連絡先情報のリクエストは保留中です",
+      "STATES": {
+        "PENDING": "連絡先情報を待っています",
+        "SHARED": "電話番号の共有",
+        "IDENTITY_CONFLICT": "電話番号は確認が必要"
+      }
+    },
     "RESPONSE": "回答",
     "RATING_TITLE": "評価",
     "FEEDBACK_TITLE": "フィードバック",

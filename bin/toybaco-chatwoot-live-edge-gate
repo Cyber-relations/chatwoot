@@ -27,7 +27,10 @@ max_age="$(sed -nE 's/.*max-age=([0-9]+).*/\1/ip' <<<"$hsts")"
 [[ "$max_age" =~ ^[0-9]+$ && "$max_age" -ge "$MIN_HSTS" ]] || fail "HSTS max-ageが不足しています: $hsts"
 grep -Eqi '(^|;)[[:space:]]*includeSubDomains([[:space:]]*;|$)' <<<"$hsts" || fail 'HSTS includeSubDomainsがありません'
 ! grep -Eqi '(^|;)[[:space:]]*preload([[:space:]]*;|$)' <<<"$hsts" || fail '未承認のHSTS preloadが有効です'
-grep -Eqi '^x-content-type-options:[[:space:]]*nosniff\r?$' "$headers" || fail 'nosniffがありません'
+# GNU grep treats \\r in an ERE as a literal r, unlike BSD grep. Strip the
+# HTTP line ending before matching so the same strict value works on Linux.
+awk '{sub(/\r$/, ""); print}' "$headers" |
+  grep -Eqi '^x-content-type-options:[[:space:]]*nosniff$' || fail 'nosniffがありません'
 
 http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-redirs 0 \
   --dump-header "$http_headers" "$HTTP_URL")"

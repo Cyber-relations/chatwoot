@@ -26,8 +26,17 @@ class ChatwootLocaleGeneratorTest < Minitest::Test
       write(File.join(@source, "app/javascript/#{application}/i18n/locale/#{language}.json"), {})
     end
     %w[en ja].each { |language| write(File.join(@source, "config/locales/#{language}.yml"), "#{language}: {}\n") }
-    write(File.join(@fixture, 'bin/aws'), "#!/bin/sh\necho UNEXPECTED_TRANSLATION >&2\nexit 1\n")
-    File.chmod(0o700, File.join(@fixture, 'bin/aws'))
+    # The Linux gate deliberately mounts /tmp noexec. Intercept the child
+    # process boundary in Ruby so the fixture cannot invoke a real translator.
+    write(File.join(@fixture, 'translator_stub.rb'), <<~RUBY)
+      require 'open3'
+      module Open3
+        def self.capture3(*args)
+          raise 'unexpected subprocess' unless args.first(3) == %w[aws translate translate-text]
+          raise 'UNEXPECTED_TRANSLATION'
+        end
+      end
+    RUBY
   end
 
   def teardown
@@ -50,6 +59,25 @@ class ChatwootLocaleGeneratorTest < Minitest::Test
     assert_includes stderr, 'review executable locale before regeneration'
   end
 
+  def test_placeholder_only_handoff_does_not_request_translation
+    locale = document(SETTINGS)
+    locale['HANDOFF'] = '{from} → {to}'
+    write(File.join(@source, LOCALE, 'en/inboxMgmt.json'), locale)
+    _stdout, stderr, status = generate
+    assert status.success?, stderr
+    result = JSON.parse(File.read(File.join(@output, LOCALE, 'ja/inboxMgmt.json')))
+    assert_equal '{from} → {to}', result.fetch('HANDOFF')
+  end
+
+  def test_handoff_sentence_still_requires_translation
+    locale = document(SETTINGS)
+    locale['HANDOFF'] = 'Hand off {from} to {to}'
+    write(File.join(@source, LOCALE, 'en/inboxMgmt.json'), locale)
+    _stdout, stderr, status = generate
+    refute status.success?
+    assert_includes stderr, 'UNEXPECTED_TRANSLATION'
+  end
+
   def test_missing_upstream_code_is_rejected
     write(File.join(@source, LOCALE, 'en/inboxMgmt.json'), { 'INBOX_MGMT' => { 'TITLE' => 'Title' } })
     _stdout, stderr, status = generate
@@ -69,8 +97,7 @@ class ChatwootLocaleGeneratorTest < Minitest::Test
   end
 
   def generate
-    Open3.capture3({ 'PATH' => "#{@fixture}/bin:#{ENV.fetch('PATH')}",
-                     'TOYBACO_TRANSLATION_CACHE' => File.join(@fixture, 'cache.json') },
-                   RbConfig.ruby, SCRIPT, @source, @output)
+    Open3.capture3({ 'TOYBACO_TRANSLATION_CACHE' => File.join(@fixture, 'cache.json') },
+                   RbConfig.ruby, '-r', File.join(@fixture, 'translator_stub.rb'), SCRIPT, @source, @output)
   end
 end

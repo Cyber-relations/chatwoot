@@ -275,6 +275,10 @@ const handleCollapsedClick = () => {
 };
 
 const toggleTrigger = () => {
+  if (!hasChildren.value && props.to) {
+    router.push(props.to);
+    return;
+  }
   const firstItem = hasAccessibleChildren.value &&
     !isExpanded.value && !hasActiveChild.value
     ? accessibleItems.value[0] : null;

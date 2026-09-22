@@ -64,7 +64,7 @@ function fixture() {
     before, after: clone(before), imageInspect: [{ Os: 'linux', Architecture: 'amd64',
       RepoDigests: [IMAGE + '@' + imageDigest], Config: { Labels: {
         'jp.toybaco.gate.control-sha256': context.control_sha256,
-        'org.opencontainers.image.revision': 'b354a9550e1fb59fa537a9c384232cb076213e72' } } }],
+        'org.opencontainers.image.revision': '9f920b549c14491a4e587687a3eed5d21c6ccc7d' } } }],
     hashes: { sbom: '1'.repeat(64), raw_report: '2'.repeat(64), installed_proof: '3'.repeat(64),
       image_inspect: '4'.repeat(64), evaluator: '5'.repeat(64) } };
 }

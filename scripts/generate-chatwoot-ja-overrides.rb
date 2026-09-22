@@ -212,6 +212,7 @@ def nontranslatable_literal?(value)
 
   technical_shell = value.gsub(Regexp.union(PLACEHOLDER_PATTERNS), '').strip
   return true if technical_shell.empty? || technical_shell.match?(/\A[A-Z0-9_.:\/()+\- ]+\z/)
+  return true if technical_shell.match?(/\A[\p{P}\p{S}\d\s]+\z/)
   return true if value.match?(ALLOWED_TECHNICAL_VALUE)
 
   false

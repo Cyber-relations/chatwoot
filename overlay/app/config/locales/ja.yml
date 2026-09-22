@@ -127,6 +127,17 @@ ja:
       phone_info_fetch_failed: 電話番号情報を取得できませんでした。もう一度試してください。
       phone_number_already_exists: この電話番号のチャネルは既に存在します:%{phone_number}。エラーが続く場合はサポートに連絡してください
       message_outside_messaging_window: WhatsApp の 24 時間対応のカスタマーサービスウィンドウが閉じられ、テンプレートパラメータが提供されなかったため、メッセージが送信されませんでした。代わりに、承認済みのテンプレートメッセージを送信してください。
+      authentication_template_requires_phone: 認証テンプレートには WhatsApp の電話番号が必要で、BSUID-
+        だけの連絡先には送信できません。
+      template_category_required_for_bsuid: この BSUIDのみの 連絡先のテンプレートカテゴリを確認できませんでした。
+      contact_info_request:
+        unsupported_provider: 連絡先情報のリクエストは、現在 WhatsApp Cloud 受信トレイでのみご利用いただけます。
+        phone_already_available: この連絡先にはすでに電話番号があります。
+        invalid_identifier: 連絡先情報をリクエストできるのは、ビジネススコープの WhatsApp ユーザーのみです。
+        outside_messaging_window: 連絡先情報は、WhatsApp 24 時間カスタマーサービスウィンドウ内でのみリクエストできます。
+        template_not_configured: 24 時間対応のカスタマーサービス期間外には、「連絡先情報をリクエスト」ボタン付きの承認済みの WhatsApp
+          テンプレートが必要です。
+        pending_request: 連絡先情報のリクエストはすでに保留中です。
       reauthorization:
         generic: WhatsApp を再認証できませんでした。もう一度試してください。
         not_supported: このタイプの WhatsApp チャネルでは、再認証はサポートされていません。
@@ -135,6 +146,7 @@ ja:
         already_ended: この電話はすでに終了しています
         already_accepted: コールはすでに別のエージェントによって受け付けられています
         no_recording: 記録ファイルが提供されていません
+        recording_disabled: この受信トレイの通話録音は無効になっています
         no_message: 通話に関連するメッセージはありません
         sdp_offer_required: sdp_offer が必要です
         contact_phone_required: 連絡先電話番号が必要です
@@ -176,6 +188,9 @@ ja:
     billing:
       invalid_currency: 請求通貨が無効です
       currency_locked: 請求設定後に請求通貨を変更することはできません
+      provider_action_unavailable: この請求アクションは Shopify 請求アカウントでは使用できません
+      shopify_pricing_unavailable: Shopify アプリ価格は現在ご利用いただけません
+      shopify_verification_failed: Shopify 現在、請求を確認できませんでした
     topup:
       credits_required: クレジット額が必要です
       invalid_credits: クレジット金額が無効です
@@ -276,6 +291,7 @@ ja:
         list_button_label: アイテムを選択する
         call_permission_request_body: あなたの会話についてお電話したいと思います。
         flow_response: フローレスポンスを送信しました
+        request_contact_info: 電話番号を私たちと共有しますか？
         unsupported_message: このメッセージは利用できません。
       voice_call:
         twilio: 音声通話
@@ -422,7 +438,11 @@ ja:
       limit_exceeded: ドキュメントの上限を超えました
       pdf_format_error: PDF ファイルである必要があります
       pdf_size_error: 10 MB 未満である必要があります
+      markdown_format_error: Markdown ファイルである必要があります
+      markdown_size_error: 10,000 文字以下でなければなりません
+      multiple_files_error: 1 つのドキュメントには、アップロードされたファイルを 1 つだけ含めることができます。
       sync_not_supported_for_pdf: PDF ドキュメントでは同期はサポートされていません
+      sync_not_supported_for_file: アップロードされたドキュメントでは同期はサポートされていません
       sync_only_available_documents: 同期は処理済みの文書でのみ使用できます
       sync_already_in_progress: ドキュメント同期は既に進行中です
       pdf_upload_failed: PDF を OpenAI にアップロードできませんでした

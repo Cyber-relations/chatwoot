@@ -8,10 +8,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // An optional overlay root runs the same behavioral contract against fresh generator output.
 const overlayRoot = process.argv[2] ? path.resolve(process.argv[2]) : path.join(root, 'overlay/app');
 const component = fs.readFileSync(path.join(overlayRoot, 'app/javascript/dashboard/components/widgets/conversation/ReplyBox.vue'), 'utf8');
-const start = component.indexOf('    getKeyboardEvents() {');
-const end = component.indexOf('    isAValidEvent(', start);
+const start = component.indexOf('    useKeyboardEvents({');
+const endMarker = '\n    });';
+const end = component.indexOf(endMarker, start);
 assert.ok(start >= 0 && end > start, 'the actual ReplyBox keyboard handlers must be loaded');
-const methods = vm.runInNewContext(`({${component.slice(start, end)}})`);
+const keyboardRegistration = component.slice(start, end + endMarker.length);
 
 function keyboardFixture({ copilot = false, valid = true } = {}) {
   let replies = 0;
@@ -23,8 +24,14 @@ function keyboardFixture({ copilot = false, valid = true } = {}) {
     onSendReply: () => { replies += 1; },
     onSubmitCopilotReply: () => { copilotReplies += 1; },
   };
+  let handlers;
+  vm.runInNewContext(keyboardRegistration, {
+    proxy: context,
+    copilot: context.copilot,
+    useKeyboardEvents(value) { handlers = value; },
+  });
   return {
-    handlers: methods.getKeyboardEvents.call(context),
+    handlers,
     sent: () => replies + copilotReplies,
   };
 }
@@ -50,6 +57,91 @@ for (const shortcut of ['Enter', '$mod+Enter']) {
 const copilot = keyboardFixture({ copilot: true });
 copilot.handlers['$mod+Enter'].action({ isComposing: false, keyCode: 13, preventDefault() {} });
 assert.equal(copilot.sent(), 1, 'the existing AI editor shortcut remains available outside composition');
+
+// Exercise the actual recipient disclosure and conversation watcher. Collapsing
+// the mobile header must not clear editable recipients or change send payloads.
+const recipientComputedStart = component.indexOf('    emailRecipientSummary() {');
+const recipientComputedEnd = component.indexOf('    enableMultipleFileUpload() {', recipientComputedStart);
+const recipientMethodsStart = component.indexOf('    toggleEmailRecipients() {');
+const recipientMethodsEnd = component.indexOf('    getDraftKey(', recipientMethodsStart);
+const recipientWatcherStart = component.indexOf('    currentChat(conversation, oldConversation) {');
+const recipientWatcherEnd = component.indexOf('    // When moving from one conversation', recipientWatcherStart);
+const payloadStart = component.indexOf('    getMessagePayload(message) {');
+const payloadEnd = component.indexOf('    setCcEmails(', payloadStart);
+assert.ok(recipientComputedStart >= 0 && recipientComputedEnd > recipientComputedStart);
+assert.ok(recipientMethodsStart >= 0 && recipientMethodsEnd > recipientMethodsStart);
+assert.ok(recipientWatcherStart >= 0 && recipientWatcherEnd > recipientWatcherStart);
+assert.ok(payloadStart >= 0 && payloadEnd > payloadStart);
+const recipients = vm.runInNewContext(`({
+  ${component.slice(recipientComputedStart, recipientComputedEnd)}
+  ${component.slice(recipientMethodsStart, recipientMethodsEnd)}
+  ${component.slice(recipientWatcherStart, recipientWatcherEnd)}
+  ${component.slice(payloadStart, payloadEnd)}
+})`, { REPLY_EDITOR_MODES: { REPLY: 'reply', NOTE: 'note' } });
+
+const recipientContext = {
+  currentChat: { id: 17 },
+  toEmails: 'primary@example.com, second@example.com',
+  ccEmails: 'copy@example.com',
+  bccEmails: 'hidden@example.com',
+  message: '日本語の未送信下書き',
+  emailRecipientsExpanded: false,
+  isPrivate: false,
+  isOnPrivateNote: false,
+  sender: 'test',
+  getMessageWithQuotedEmailText: value => value,
+  setReplyToInPayload: value => value,
+};
+const originalRecipients = JSON.stringify(recipientContext);
+assert.equal(recipients.emailRecipientSummary.call(recipientContext), recipientContext.toEmails, 'the summary reflects all current To recipients without inventing another destination');
+assert.equal(recipients.emailCopySummary.call(recipientContext), 'CC・BCCあり', 'collapsed recipients disclose both additional destination fields');
+for (const expanded of [true, false]) {
+  recipients.toggleEmailRecipients.call(recipientContext);
+  assert.equal(recipientContext.emailRecipientsExpanded, expanded);
+  const payload = recipients.getMessagePayload.call(recipientContext, recipientContext.message);
+  for (const field of ['toEmails', 'ccEmails', 'bccEmails']) {
+    assert.equal(payload[field], recipientContext[field], `${field} must survive opening and closing recipient details`);
+  }
+  assert.equal(payload.message, '日本語の未送信下書き', 'recipient disclosure preserves the draft');
+}
+assert.equal(JSON.stringify(recipientContext), originalRecipients, 'a complete disclosure cycle changes no recipient or draft data');
+const notePayload = recipients.getMessagePayload.call({ ...recipientContext, isPrivate: true, isOnPrivateNote: true }, recipientContext.message);
+for (const field of ['toEmails', 'ccEmails', 'bccEmails']) {
+  assert.equal(Object.hasOwn(notePayload, field), false, 'private notes must retain the existing recipient boundary');
+}
+for (const [ccEmails, bccEmails, label] of [
+  ['copy@example.com', '', 'CCあり'],
+  ['', 'hidden@example.com', 'BCCあり'],
+  [' ', '', ''],
+]) {
+  assert.equal(recipients.emailCopySummary.call({ ccEmails, bccEmails }), label);
+}
+assert.equal(recipients.emailRecipientSummary.call({ toEmails: ' ', currentChat: { meta: { sender: { email: 'old@example.com' } } } }), '宛先未入力', 'clearing To must not show a stale contact as the selected recipient');
+
+let recipientResets = 0;
+const conversationRecipients = {
+  ...recipientContext,
+  emailRecipientsExpanded: true,
+  isInstagramReplyRestricted: false,
+  isWithinMessagingWindow: true,
+  copilot: { reset() {} },
+  fetchAndSetReplyTo() {},
+  setCCAndToEmailsFromLastChat() {
+    recipientResets += 1;
+    this.toEmails = 'next@example.com';
+    this.ccEmails = '';
+    this.bccEmails = 'next-hidden@example.com';
+  },
+};
+recipients.currentChat.call(conversationRecipients, { id: 17 }, { id: 17 });
+assert.equal(conversationRecipients.emailRecipientsExpanded, true, 'assignment or other updates within one conversation must not close recipient editing');
+assert.equal(recipientResets, 0, 'same-conversation updates preserve edited recipient values');
+assert.equal(conversationRecipients.toEmails, recipientContext.toEmails);
+recipients.currentChat.call(conversationRecipients, { id: 18 }, { id: 17 });
+assert.equal(conversationRecipients.emailRecipientsExpanded, false, 'a different conversation starts with its recipient summary');
+assert.equal(recipientResets, 1, 'conversation changes retain the existing recipient refresh');
+assert.equal(recipients.emailRecipientSummary.call(conversationRecipients), 'next@example.com');
+assert.equal(recipients.emailCopySummary.call(conversationRecipients), 'BCCあり', 'the next conversation summary must show its own hidden recipients');
 
 // Opening contact details must not turn the tablet reply workspace into a
 // narrow third column. Run the component's actual outside-close handler too.
