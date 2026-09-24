@@ -121,6 +121,7 @@ control_file_list() {
     'tests/toybaco_growth_renewal_settlement_test.rb' \
     'tests/toybaco_growth_renewal_lock_runtime_test.rb' \
     'tests/toybaco_growth_renewal_transition_runtime_test.rb' \
+    'tests/toybaco_growth_sweep_runtime_test.rb' \
     'tests/fixtures/posting-retention-protocol-v1.json' \
     'tests/fixtures/posting-identity-v2.json' \
     'tests/fixtures/posting-preparation-protocol-v2.json' \
@@ -1186,6 +1187,9 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_renewal_transition_runtime_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_sweep_runtime_test.rb
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_retention_runtime_test.rb
