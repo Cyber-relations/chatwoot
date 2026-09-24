@@ -60,6 +60,50 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         request(:get, "/v1/payment_intents/#{id}?expand[]=latest_charge")
       end
 
+      def retrieve_invoice(id)
+        request(:get, invoice_path(id))
+      end
+
+      def list_invoice_payments(invoice_id, starting_after: nil)
+        invoice_path(invoice_id)
+        params = { 'invoice' => invoice_id, 'limit' => 100 }
+        params['starting_after'] = starting_after if starting_after
+        request(:get, "/v1/invoice_payments?#{URI.encode_www_form(params)}")
+      end
+
+      def list_customer_invoices(customer_id, starting_after: nil)
+        raise Unavailable, 'invalid customer id' unless customer_id.to_s.match?(/\Acus_[A-Za-z0-9]+\z/)
+
+        params = { 'customer' => customer_id, 'limit' => 100 }
+        params['starting_after'] = starting_after if starting_after
+        request(:get, "/v1/invoices?#{URI.encode_www_form(params)}")
+      end
+
+      def list_customer_subscriptions(customer_id, starting_after: nil)
+        raise Unavailable, 'invalid customer id' unless customer_id.to_s.match?(/\Acus_[A-Za-z0-9]+\z/)
+
+        params = { 'customer' => customer_id, 'status' => 'all', 'limit' => 100 }
+        params['starting_after'] = starting_after if starting_after
+        request(:get, "/v1/subscriptions?#{URI.encode_www_form(params)}")
+      end
+
+      def pending_customer_invoice_items(customer_id)
+        raise Unavailable, 'invalid customer id' unless customer_id.to_s.match?(/\Acus_[A-Za-z0-9]+\z/)
+
+        params = { 'customer' => customer_id, 'pending' => 'true', 'limit' => 1 }
+        request(:get, "/v1/invoiceitems?#{URI.encode_www_form(params)}")
+      end
+
+      def void_invoice(id, idempotency_key:)
+        request(:post, "#{invoice_path(id)}/void", {}, idempotency_key: idempotency_key)
+      end
+
+      def cancel_unpaid_subscription(id)
+        raise Unavailable, 'invalid subscription id' unless id.to_s.match?(/\Asub_[A-Za-z0-9]+\z/)
+
+        request(:delete, "/v1/subscriptions/#{id}", { 'invoice_now' => 'false', 'prorate' => 'false' })
+      end
+
       def retrieve_event(id)
         raise Unavailable, 'invalid event id' unless id.to_s.match?(/\Aevt_[A-Za-z0-9]+\z/)
 
@@ -110,6 +154,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       private
 
+      def invoice_path(id)
+        raise Unavailable, 'invalid invoice id' unless id.to_s.match?(/\Ain_[A-Za-z0-9]+\z/)
+
+        "/v1/invoices/#{id}"
+      end
+
       def checkout_session_path(id)
         raise Unavailable, 'invalid checkout session id' unless id.to_s.match?(/\Acs_(?:test_|live_)?[A-Za-z0-9]+\z/)
 
@@ -141,7 +191,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def request(method, path, params = nil, idempotency_key: nil)
         uri = URI("https://api.stripe.com#{path}")
-        req = method == :get ? Net::HTTP::Get.new(uri) : Net::HTTP::Post.new(uri)
+        req = { get: Net::HTTP::Get, post: Net::HTTP::Post, delete: Net::HTTP::Delete }.fetch(method).new(uri)
         req.basic_auth(@api_key, '')
         req['Idempotency-Key'] = idempotency_key if idempotency_key
         req.set_form_data(params) if params

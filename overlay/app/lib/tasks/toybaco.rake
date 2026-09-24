@@ -4,6 +4,7 @@ require_relative '../toybaco/brand_injector'
 require_relative '../toybaco/entitlements'
 require_relative '../toybaco/subscription_sync'
 require_relative '../toybaco/store_fulfillment'
+require_relative '../toybaco/subscription_reconciliation'
 require 'digest'
 
 # Independent rake task declarations share one namespace.
@@ -12,6 +13,12 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
   task :sync_subscription, [:subscription_id] => :environment do |_t, args|
     id = args[:subscription_id].to_s
     abort 'サブスクリプションIDが不正です。' unless id.match?(/\Asub_[A-Za-z0-9]+\z/)
+    if Toybaco::SubscriptionReconciliation.enabled?
+      request = Toybaco::SubscriptionReconciliation.request!(id)
+      puts "契約照合: receipt=#{request.id} state=#{request.state}"
+      next
+    end
+
     ActiveRecord::Base.transaction do
       # 開通のStripe読取後からcommit前のイベントも、同じ契約の開通完了を待って再照合する。
       lock_id = Digest::SHA256.digest("toybaco:provision:#{id}").unpack1('q>')
@@ -205,7 +212,7 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
   end
 
   desc '監査済みの契約・既存ユーザー対応を契約者未設定の親店舗へ明示適用する'
-  task :assign_billing_owner, [:account_id, :user_id, :expected_subscription_id] => :environment do |_t, args| # rubocop:disable Metrics/BlockLength
+  task :assign_billing_owner, [:account_id, :user_id, :expected_subscription_id] => :environment do |_t, args|
     account_id, user_id = %i[account_id user_id].map do |key|
       value = args[key].to_s
       abort '店舗IDとユーザーIDは正の整数で指定してください。' unless value.match?(/\A[1-9]\d*\z/)
@@ -226,9 +233,7 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
 
       owner_key = 'toybaco_billing_owner_user_id'
       owner_id = attrs[owner_key]
-      unless owner_id.nil? || (owner_id.is_a?(Integer) && owner_id.positive? && owner_id == user_id)
-        abort '契約者は別のユーザーに設定済みか、保存値が不正です。上書きは行いません。'
-      end
+      abort '契約者は別のユーザーに設定済みか、保存値が不正です。上書きは行いません。' unless owner_id.nil? || (owner_id.is_a?(Integer) && owner_id.positive? && owner_id == user_id)
       account.update!(internal_attributes: attrs.merge(owner_key => user_id)) if owner_id.nil?
       puts owner_id.nil? ? '契約者を設定しました。' : '同じ契約者が設定済みです。'
     end

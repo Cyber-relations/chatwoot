@@ -175,6 +175,13 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
   </section>
   <% end %>
 
+  <% if growth && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
+    <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %>">接続と予約を確認</a></p></section>
+  <% end %>
+  <% if growth && !growth_free && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
+    <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信ボックス・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %>&amp;target=free">接続を選ぶ</a></p></section>
+  <% end %>
+
   <div class="card">
     <% if @portal_ready %>
       <button class="btn btn-navy" id="portal">お支払い方法・請求履歴</button>

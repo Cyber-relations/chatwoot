@@ -13,6 +13,7 @@ require_relative 'plan_change_phase_settings'
 require_relative 'plan_change_release'
 require_relative 'plan_change_lock'
 require_relative 'plan_change_cancellation'
+require_relative '../growth/renewal_transition'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Checkout
@@ -114,10 +115,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
-
-      def locked(&)
-        @synchronizer.call(@account, &)
-      end
 
       def active_receipt?
         receipt = attrs[RECEIPT_KEY]

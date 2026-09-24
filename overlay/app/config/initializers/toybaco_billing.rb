@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../lib/toybaco/billing_access'
+require_relative '../../lib/toybaco/billing_admin_status'
 
 # ご契約内容の解約口。OIDC とは独立して載せる。
 Rails.application.routes.append do
@@ -13,6 +14,10 @@ Rails.application.routes.append do
 end
 
 Rails.application.config.to_prepare do
+  SuperAdmin::AccountsController.prepend(Toybaco::BillingAdminStatus) unless SuperAdmin::AccountsController < Toybaco::BillingAdminStatus
+  platform = Platform::Api::V1::AccountsController
+  platform.prepend(Toybaco::BillingAdminStatus::Platform) unless platform < Toybaco::BillingAdminStatus::Platform
+
   if ChatwootApp.enterprise?
     controller = Enterprise::Api::V1::AccountsController
     guard = Toybaco::BillingAccess::EnterpriseControllerGuard

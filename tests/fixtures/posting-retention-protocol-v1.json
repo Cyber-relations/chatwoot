@@ -1,0 +1,19 @@
+{
+  "fixture_only": true,
+  "body": {
+    "version": 1,
+    "account_id": 42,
+    "organization_id": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+    "transition_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "keep_integration_ids": [
+      "integration_a"
+    ],
+    "scheduled_posts_per_account": 5,
+    "policy_hash": "906b2ef54a8ca00d731e3b704bd309d72648a811baaa5cad553073d867c62066",
+    "issuer": "https://app.staging.toybaco.jp",
+    "audience": "https://post.staging.toybaco.jp"
+  },
+  "stamp": 1790000000,
+  "request_signature": "1790000000.4846033b11199d4554cd56d6e3901828c0b22393e59c78f6eb9f98b06ff3110a",
+  "response_signature": "1790000000.1798deafb57d7d898aaced7125d5c571afc4b37f2d91c14be5dd0f85f4163418"
+}

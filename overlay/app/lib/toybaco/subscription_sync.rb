@@ -4,6 +4,7 @@ require_relative 'entitlements'
 require_relative 'checkout'
 require_relative 'growth/paid_period'
 require_relative 'growth/paid_transition'
+require_relative 'growth/inbox_upgrade_continuation'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Webhooks carry a subscription ID, never authoritative plan or access state.
@@ -86,7 +87,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       contract = resolve(subscription, previous: previous)
       return [previous, 'payment_pending'] unless Growth::PaidTransition.allowed?(subscription, contract, previous)
 
-      Entitlements.apply!(account, contract, subscription_id: subscription.fetch('id'), catalog: @catalog)
+      Growth::InboxUpgradeContinuation.new(account, subscription, previous, contract).call do
+        Entitlements.apply!(account, contract, subscription_id: subscription.fetch('id'), catalog: @catalog)
+      end
       [contract, 'applied']
     rescue Unresolved, PlanCatalog::Invalid
       [previous, 'needs_review']

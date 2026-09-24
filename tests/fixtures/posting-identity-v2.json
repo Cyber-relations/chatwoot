@@ -1,0 +1,29 @@
+{
+  "identities": [
+    {
+      "kind": "Integration",
+      "entityId": "integration-v2-fixture",
+      "generation": "9007199254740993",
+      "epoch": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "kind": "Organization",
+      "entityId": "organization-v2-fixture",
+      "generation": "2",
+      "epoch": "22222222-2222-4222-8222-222222222222"
+    },
+    {
+      "kind": "User",
+      "entityId": "user-v2-fixture",
+      "generation": "17",
+      "epoch": "33333333-3333-4333-8333-333333333333"
+    },
+    {
+      "kind": "UserOrganization",
+      "entityId": "membership-v2-fixture",
+      "generation": "9223372036854775806",
+      "epoch": "44444444-4444-4444-8444-444444444444"
+    }
+  ],
+  "identity_hash": "c15551e4155c77371edff959317a957f6565dc0bdeacebf9e2dee6f67350ae4f"
+}

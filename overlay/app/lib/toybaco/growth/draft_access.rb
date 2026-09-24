@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../entitlements'
+require_relative 'inbox_retention'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -17,6 +18,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         context = { user: user, account: account, account_user: membership }
         ConversationPolicy.new(context, conversation).show?
+      end
+
+      def generation_allowed?(account, user, conversation)
+        InboxRetention.with_inbox(conversation.inbox) { allowed?(account, user, conversation) }
+      rescue InboxRetention::Held, InboxRetention::Busy, InboxRetention::Invalid
+        false
       end
 
       def enabled?

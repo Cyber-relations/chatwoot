@@ -9,6 +9,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module PlanChangeChecks
       private
 
+      def locked
+        @synchronizer.call(@account) do
+          reject!('busy') if Growth::RenewalTransition.pending?(@account)
+          yield
+        end
+      end
+
       def reject!(code)
         raise PlanChangeError, code
       end

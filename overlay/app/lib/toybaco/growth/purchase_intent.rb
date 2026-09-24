@@ -3,6 +3,7 @@
 require 'securerandom'
 require_relative '../billing_access'
 require_relative '../checkout'
+require_relative 'renewal_transition'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -52,7 +53,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account.with_lock do
           authorize!
           previous = self.class.saved(@account)
-          return resume(previous, selection) if previous && previous['state'] != 'expired'
+          next resume(previous, selection) if previous && previous['state'] != 'expired'
 
           terms, price = resolve(selection)
           intent = build(terms, price, selection)
@@ -63,7 +64,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def authorize!
         access = BillingAccess.permissions(@account, @user)
-        allowed = @user&.confirmed? && access[:can_manage_billing] && free_store?
+        allowed = @user&.confirmed? && access[:can_manage_billing] && free_store? && !RenewalTransition.pending?(@account)
         raise Unavailable, 'この店舗では新規購入を開始できません。' unless allowed
       end
 

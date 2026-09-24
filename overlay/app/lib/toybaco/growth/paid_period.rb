@@ -7,6 +7,7 @@ require_relative 'allowance'
 require_relative 'paid_coverage'
 require_relative 'trial_lifecycle'
 require_relative 'renewal_grace'
+require_relative 'renewal_recovery'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -27,6 +28,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           return unless coverage && matches_contract?(coverage, contract)
 
           apply_coverage!(coverage)
+          RenewalRecovery.new(@account, now: @now).observe!(subscription, coverage)
         end
       end
 

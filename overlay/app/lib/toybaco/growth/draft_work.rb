@@ -13,6 +13,19 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def perform
+        conversation = @account.conversations.find(@request.conversation_id)
+        InboxRetention.with_inbox(conversation.inbox) { generate! }
+      rescue StandardError => e
+        Rails.logger.warn("toybaco_draft_failed request=#{@request.id} class=#{e.class}")
+        DraftResult.new(@request.reload).fail!('generation_unavailable')
+      end
+
+      private
+
+      # Keep the shared session fence through the model call and persistence.
+      # A queued request cannot start on a held inbox, and an in-flight request
+      # must finish before the exclusive hold can be confirmed.
+      def generate!
         input = claim!
         return unless input
 
@@ -22,12 +35,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
                                                                                                 input.fetch('facts').fetch('fields'))
 
         DraftResult.new(@request).complete!(input, result)
-      rescue StandardError => e
-        Rails.logger.warn("toybaco_draft_failed request=#{@request.id} class=#{e.class}")
-        DraftResult.new(@request.reload).fail!('generation_unavailable')
       end
-
-      private
 
       def claim!
         @account.with_lock do
@@ -52,7 +60,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def ready?(input)
         user = User.find_by(id: @request.user_id)
         conversation = @account.conversations.find_by(id: @request.conversation_id)
-        conversation && input.is_a?(Hash) && DraftAccess.enabled? && DraftAccess.allowed?(@account, user, conversation) &&
+        conversation && input.is_a?(Hash) && DraftAccess.enabled? && DraftAccess.generation_allowed?(@account, user, conversation) &&
           DraftInput.new(@account, conversation, user).current?(input)
       end
     end

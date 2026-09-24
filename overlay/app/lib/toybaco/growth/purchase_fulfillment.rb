@@ -74,8 +74,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def free_store?(account)
         attrs = Entitlements.attributes(account)
         contract = Entitlements.contract_for(account)
-        account.active? && attrs['toybaco_subscription_id'].blank? && !attrs.key?(StoreFulfillment::PURCHASE) &&
-          contract&.dig('plan_id') == 'free' && contract.dig('entitlements', 'ai_meter') == GrowthTerms::METER
+        account.active? && !RenewalTransition.pending?(account) && attrs['toybaco_subscription_id'].blank? &&
+          !attrs.key?(StoreFulfillment::PURCHASE) && contract&.dig('plan_id') == 'free' &&
+          contract.dig('entitlements', 'ai_meter') == GrowthTerms::METER
       end
 
       def verified_contract(subscription, saved, subscription_id)

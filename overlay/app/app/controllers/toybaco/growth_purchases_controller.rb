@@ -2,6 +2,7 @@
 
 require_relative '../../../lib/toybaco/growth/purchase_session'
 require_relative '../../../lib/toybaco/growth/purchase_fulfillment'
+require_relative '../../../lib/toybaco/growth/inbox_retention'
 
 class Toybaco::GrowthPurchasesController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
@@ -9,6 +10,7 @@ class Toybaco::GrowthPurchasesController < ActionController::Base # rubocop:disa
   before_action :require_same_origin_json, except: %i[show state]
   rescue_from Toybaco::Checkout::Error,
               Toybaco::PlanCatalog::Invalid, Toybaco::SubscriptionSync::Unresolved, with: :unavailable
+  rescue_from Toybaco::Growth::InboxRetention::Busy, Toybaco::Growth::InboxRetention::Invalid, with: :unavailable
   rescue_from Toybaco::Growth::PurchaseIntent::Unavailable, with: :purchase_unavailable
 
   def show
