@@ -24,6 +24,7 @@ class Toybaco::GrowthRetentionController < ActionController::Base # rubocop:disa
   def held
     @state = service.held
     @inbox_release_available = inbox_release_available?
+    apply_posting_authority
     render 'toybaco/growth/held', layout: false
   end
 
@@ -48,6 +49,21 @@ class Toybaco::GrowthRetentionController < ActionController::Base # rubocop:disa
   end
 
   private
+
+  def apply_posting_authority
+    flags = %w[TOYBACO_POSTING_RELEASE_ENABLED TOYBACO_POSTING_AUTHORITY_ENABLED TOYBACO_POSTING_EXECUTION_ENABLED]
+    @posting_release_available = flags.all? { |flag| ENV[flag] == 'true' }
+    return unless @posting_release_available
+
+    require_relative '../../../lib/toybaco/growth/posting_authority'
+    client = Toybaco::Checkout::Client.new(ENV.fetch('TOYBACO_STRIPE_KEY', ''))
+    current = Toybaco::Growth::PostingAuthority.new(@account, @user, client: client).current
+    return unless current && current['current']
+
+    @state.fetch('posting_accounts').each do |row|
+      row['held'] = false if current.fetch('keep_ids').include?(row.fetch('id'))
+    end
+  end
 
   def service
     Toybaco::Growth::RetentionSelection.new(@account, @user, target: params[:target].to_s)

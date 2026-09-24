@@ -35,6 +35,21 @@ class ToybacoPlanCatalogTest < Minitest::Test
     Entitlements.snapshot_for(catalog.sale(id, cycle), cycle: cycle)
   end
 
+  def test_projection_builds_final_attributes_without_mutating_input_or_saving_an_account
+    contract = snapshot
+    attrs = { 'toybaco_subscription_id' => 'sub_original', 'unrelated' => { 'value' => true },
+              'postiz' => { 'organization_id' => 'existing-org', 'enabled' => true } }
+    original = Marshal.load(Marshal.dump([attrs, contract]))
+    projected = Entitlements.project_attributes(attrs, contract, subscription_id: 'sub_next')
+    assert_equal original, [attrs, contract]
+    assert_equal 'sub_next', projected['toybaco_subscription_id']
+    assert_equal 'existing-org', projected.dig('postiz', 'organization_id')
+    assert_equal attrs['unrelated'], projected['unrelated']
+    account = Account.new(attrs, {})
+    Entitlements.apply!(account, contract, subscription_id: 'sub_next')
+    assert_equal projected, account.internal_attributes
+  end
+
   def test_new_plan_and_renamed_terms_need_no_plan_branch
     changed = data
     new_plan = Marshal.load(Marshal.dump(changed['plans']['light']['versions'].values.first))

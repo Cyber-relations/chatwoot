@@ -77,6 +77,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         finish_free_allowance!
         saved = coverage.merge('current_period_start' => period['starts_at'], 'current_base_limit' => limit)
         @account.update!(internal_attributes: Entitlements.attributes(@account).merge(KEY => saved))
+        ScheduledDowngradeGrace.new(@account, now: @now).verify_upgrade!(coverage, period)
         TrialLifecycle.new(@account, now: @now).refresh!
       end
 
@@ -98,6 +99,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def issue_base!(coverage, period, limit)
+        require_relative 'scheduled_downgrade_grace'
+        return if ScheduledDowngradeGrace.new(@account, now: @now).promote!(coverage, period, limit)
+
         key = "#{prefix(coverage, period)}base"
         RenewalGrace.promote!(@account, key: key, period: period, limit: limit)
         issue!(key, period, limit)

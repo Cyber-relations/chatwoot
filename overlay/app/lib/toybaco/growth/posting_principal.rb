@@ -64,6 +64,8 @@ module Toybaco::Growth::PostingPrincipal
       invalid! if row.generation == MAX_GENERATION
       row.update!(generation: row.generation + 1, epoch: SecureRandom.hex(32), updated_at: now)
     end
+    require_relative 'posting_authority_state'
+    Toybaco::Growth::PostingAuthorityState.invalidate!(account_id, user_ids: user_ids, now: now)
   end
 
   def locked_account!(id, allow_missing: false)

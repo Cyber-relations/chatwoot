@@ -1,0 +1,11 @@
+# frozen_string_literal: true
+
+require_relative 'toybaco_growth_renewal_transition_runtime_test'
+require_relative 'toybaco_growth_posting_renewal_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingRenewalRuntimeCases)
+
+require_relative 'toybaco_growth_posting_paid_renewal_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingPaidRenewalRuntimeCases)
+
+require_relative 'toybaco_growth_posting_renewal_bridge_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingRenewalBridgeCases)

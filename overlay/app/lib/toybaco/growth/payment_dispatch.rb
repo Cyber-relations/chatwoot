@@ -7,7 +7,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module PaymentDispatch
       module_function
 
-      def enqueue(event, now: Time.now.utc)
+      def enqueue(event, now: Time.now.utc, job_class: Toybaco::GrowthPaymentJob)
         token = SecureRandom.hex(24)
         reserved = event.with_lock do
           next false unless due?(event, now)
@@ -17,7 +17,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
         return unless reserved
 
-        queued = Toybaco::GrowthPaymentJob.perform_later(event.id)
+        queued = job_class.perform_later(event.id)
         raise ActiveJob::EnqueueError unless queued
       rescue StandardError
         release_queue(event, token, now)

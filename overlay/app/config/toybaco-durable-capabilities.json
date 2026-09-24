@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "application": "chatwoot",
+  "capabilities": {
+    "billing-ingress-v1": {
+      "tables": [
+        "toybaco_billing_events",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "subscription-reconciliation-v1": {
+      "tables": [
+        "toybaco_subscription_sync_requests",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "growth-retention-v1": {
+      "tables": [
+        "toybaco_growth_free_returns",
+        "toybaco_growth_inbox_releases",
+        "toybaco_growth_posting_executions",
+        "toybaco_growth_posting_stops",
+        "toybaco_growth_posting_principals",
+        "toybaco_growth_posting_preparations",
+        "toybaco_growth_posting_preparation_acks",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "account_keys": [
+        "toybaco_growth_renewal_transition",
+        "toybaco_growth_free_return",
+        "toybaco_growth_inbox_retention",
+        "toybaco_growth_inbox_delivery_epochs",
+        "toybaco_growth_inbox_release",
+        "toybaco_growth_posting_retention"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "managed-auto-v1": {
+      "tables": [
+        "toybaco_growth_auto_installations",
+        "toybaco_growth_auto_commands",
+        "toybaco_growth_auto_requests",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "posting-authority-v1": {
+      "tables": [
+        "toybaco_growth_posting_authorities",
+        "toybaco_growth_posting_authority_currents",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "opening-ingress-v1": {
+      "tables": [
+        "toybaco_opening_notices",
+        "toybaco_opening_requests",
+        "toybaco_billing_events",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "renewal-ingress-v1": {
+      "tables": [
+        "toybaco_renewal_invoice_facts",
+        "toybaco_renewal_operations",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "posting-renewal-v1": {
+      "tables": [
+        "toybaco_growth_posting_renewals",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "posting-paid-upgrade-v1": {
+      "tables": [
+        "toybaco_growth_posting_paid_upgrades",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "renewal-settlement-v1": {
+      "tables": [
+        "toybaco_growth_renewal_coordinators",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "scheduled-downgrade-grace-v1": {
+      "tables": [
+        "toybaco_growth_scheduled_downgrades",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "renewal-provider-settlement-v1": {
+      "tables": [
+        "toybaco_growth_renewal_settlements",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "scheduled-grant-upgrade-v1": {
+      "tables": [
+        "toybaco_growth_scheduled_grant_upgrades",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    },
+    "renewal-dispatch-v1": {
+      "tables": [
+        "toybaco_growth_renewal_dispatches",
+        "toybaco_durable_capability_acceptances"
+      ],
+      "schema_sha256": "5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2"
+    }
+  }
+}

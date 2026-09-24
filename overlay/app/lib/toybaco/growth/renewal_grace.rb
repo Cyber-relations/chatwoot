@@ -72,6 +72,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         contract = Entitlements.contract_for(@account)
         failure = attrs[FAILURE_KEY]
         paid = attrs[PaidPeriod::KEY]
+        if failure.is_a?(Hash) && failure['cause'] == 'scheduled_downgrade'
+          require_relative 'scheduled_downgrade_grace'
+          return ScheduledDowngradeGrace.new(@account, now: @now).context
+        end
         return unless eligible?(attrs, contract, failure, paid)
 
         period = allowance_period(failure, paid)

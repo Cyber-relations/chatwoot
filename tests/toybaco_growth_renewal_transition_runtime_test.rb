@@ -814,7 +814,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_inbox_hold_stops_line_imap_and_mail_fetch_before_provider_or_contact_side_effects
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     prepare_inbox_hold
     inbox_hold
     before = [Contact.where(account_id: @account.id).count, Conversation.where(account_id: @account.id).count, Message.where(account_id: @account.id).count]
@@ -927,6 +927,16 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   MailboxFixtureFailure = Class.new(StandardError)
 
+  # Account#destroy! removes email channels with destroy_async, which the test queue never runs,
+  # so every run leaves its Channel::Email rows behind. The fixed gate reruns this class in a new
+  # process on the same database, where the channel_email factory sequence restarts at care-1 and
+  # collides with those rows. Per-test addresses keep the uniqueness independent of run order.
+  def unique_email_inbox
+    token = SecureRandom.hex(8)
+    create(:channel_email, account: @account, email: "care-#{token}@example.com",
+                           forward_to_email: "forward-#{token}@chatwoot.com").inbox
+  end
+
   def forwarded_mail(inbox)
     token = SecureRandom.hex(12)
     source = [
@@ -960,7 +970,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_forwarded_mail_finder_and_ingestion_are_one_transaction_against_remote_hold
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     prepare_inbox_hold
     inbound = forwarded_mail(email_inbox)
     original = mailbox_business_counts
@@ -1005,7 +1015,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_failed_forwarded_mail_rolls_back_finder_contact_and_can_be_reprocessed_once
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     inbound = forwarded_mail(email_inbox)
     original = mailbox_business_counts
     mailbox = SupportMailbox.new(inbound)
@@ -1024,7 +1034,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_failure_after_mail_message_creation_rolls_back_contact_conversation_and_message
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     inbound = forwarded_mail(email_inbox)
     original = mailbox_business_counts
     mailbox = ReplyMailbox.new(inbound)
@@ -1046,7 +1056,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_held_forwarded_mail_fails_before_contact_and_keeps_framework_retry_status
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     prepare_inbox_hold
     inbox_hold
     inbound = forwarded_mail(email_inbox)
@@ -1060,7 +1070,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_retained_forwarded_mail_completes_through_real_callbacks_after_hold
-    email_inbox = create(:channel_email, account: @account).inbox
+    email_inbox = unique_email_inbox
     @inboxes[0] = email_inbox
     @rows['inboxes'] << { 'id' => email_inbox.id.to_s, 'name' => 'retained mail fixture',
       'created_at_us' => email_inbox.created_at.to_i * 1_000_000 }
@@ -1259,6 +1269,168 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
     assert_equal 1, Toybaco::GrowthAiGrant.where(account_id: @account.id).where('source_key LIKE ?', 'free:return:%').count
     assert_equal before[InboxHold::KEY], @account.reload.internal_attributes[InboxHold::KEY]
   end
+
+  # free-atomic-tests-begin
+  def free_stop_target
+    attrs = @account.reload.internal_attributes.except('toybaco_subscription_id', Toybaco::Growth::PurchaseIntent::KEY)
+    free = FreeRecord.free_contract
+    attrs = attrs.merge('toybaco_contract' => free, 'postiz' => attrs.fetch('postiz').merge('enabled' => free.dig('entitlements', 'features', 'posting')))
+    ExecutionContext.digest(ExecutionContext.binding('active', attrs))
+  end
+
+  def prepare_atomic_free
+    posting_execution_setup
+    prepare_free_return
+    @account.disable_features!('channel_instagram')
+    @stop_contract_hash = ExecutionContext.contract_hash(@account.reload)
+    @stop_target_hash = free_stop_target
+  end
+
+  def committed_free_state(account_id)
+    worker = Thread.new do
+      Account.connection_pool.with_connection do
+        Account.uncached do
+          [Account.find(account_id).attributes, Toybaco::GrowthPostingPrincipal.find_by!(account_id: account_id).attributes,
+           PostingStopRow.find_by!(account_id: account_id).state, Toybaco::GrowthFreeReturn.where(account_id: account_id).count,
+           Toybaco::GrowthAiGrant.where(account_id: account_id).count]
+        end
+      end
+    end
+    raise 'committed state read timed out' unless worker.join(5)
+
+    worker.value
+  ensure
+    if worker&.alive?
+      worker.kill
+      worker.join
+    end
+  end
+
+  def test_free_final_binding_applies_pending_stop_with_one_account_update_and_preserves_data
+    conversation = create(:conversation, account: @account, inbox: @inboxes.last)
+    message = create(:message, account: @account, inbox: @inboxes.last, conversation: conversation, content: 'retained fixture body')
+    prepare_atomic_free
+    pack = Toybaco::Growth::AiGrants.new(@account).issue!(source: 'pack', source_key: 'pack:atomic-free',
+      units: 500, starts_at: NOW - 1.day, ends_at: NOW + 89.days)
+    pack.update!(used: 12)
+    before_channels = @inboxes.map { |box| box.channel.reload.attributes }
+    before_members = @account.account_users.pluck(:id, :user_id, :role)
+    principal = Toybaco::GrowthPostingPrincipal.find_by!(account_id: @account.id, user_id: @owner.id)
+    original_epoch = principal.epoch
+    generation = principal.generation
+    posting_stop.request!
+    updates = []
+    subscriber = ->(_name, _start, _finish, _id, payload) { updates << payload[:sql] if payload[:sql].match?(/\AUPDATE "accounts" /) }
+    receipt = nil
+    Toybaco::PostizSync.stub(:disable_account!, ->(**) { flunk 'Free hold must retain Postiz credentials and membership' }) do
+      ActiveSupport::Notifications.subscribed(subscriber, 'sql.active_record') { receipt = return_free }
+    end
+    assert_equal 1, updates.size
+    assert @account.reload.feature_enabled?('channel_instagram')
+    assert_equal [@stop_target_hash, 'applied'], [ExecutionContext.contract_hash(@account), PostingStopRow.find_by!(account_id: @account.id).state]
+    assert_equal 'free', Toybaco::Entitlements.contract_for(@account)['plan_id']
+    assert_nil @account.internal_attributes['toybaco_subscription_id']
+    assert_equal [generation + 1, false], [principal.reload.generation, principal.epoch == original_epoch]
+    assert_equal [1, 20], [Toybaco::GrowthFreeReturn.where(account_id: @account.id).count,
+      Toybaco::GrowthAiGrant.find_by!(account_id: @account.id, source: 'included').units]
+    assert_equal before_channels, @inboxes.map { |box| box.channel.reload.attributes }
+    assert_equal before_members, @account.account_users.pluck(:id, :user_id, :role)
+    assert_equal 'retained fixture body', message.reload.content
+    assert_equal [500, 12, NOW + 89.days, nil], [pack.reload.units, pack.used, pack.ends_at, pack.revoked_at]
+    assert_equal receipt, return_free
+    assert_equal 'applied', posting_stop.request!['state']
+  end
+
+  def test_free_allowance_insert_failure_rolls_back_stop_principal_features_and_receipt
+    prepare_atomic_free
+    posting_stop.request!
+    before = @account.reload.attributes.deep_dup
+    principal = Toybaco::GrowthPostingPrincipal.find_by!(account_id: @account.id, user_id: @owner.id)
+    original_principal = principal.attributes.deep_dup
+    account_id = @account.id
+    observer = -> { committed_free_state(account_id) }
+    observed = nil
+    callback = lambda do |grant|
+      next unless grant.account_id == account_id && grant.source_key.start_with?('free:return:')
+
+      observed = observer.call
+      raise 'after allowance INSERT'
+    end
+    Toybaco::GrowthAiGrant.set_callback(:create, :after, callback)
+    assert_equal 'after allowance INSERT', assert_raises(RuntimeError) { return_free }.message
+    assert_equal [before, original_principal, 'pending', 0, 0], observed
+    assert_equal before, @account.reload.attributes
+    assert_equal original_principal, principal.reload.attributes
+    assert_equal 'pending', PostingStopRow.find_by!(account_id: @account.id).state
+    assert_empty Toybaco::GrowthFreeReturn.where(account_id: @account.id)
+    assert_empty Toybaco::GrowthAiGrant.where(account_id: @account.id)
+    Toybaco::GrowthAiGrant.skip_callback(:create, :after, callback)
+    callback = nil
+    assert_equal NOW.to_i, return_free['returned_at']
+    assert_equal 'applied', PostingStopRow.find_by!(account_id: @account.id).state
+  ensure
+    Toybaco::GrowthAiGrant.skip_callback(:create, :after, callback) if callback
+  end
+
+  def test_free_stop_terminal_failure_rolls_back_final_account_and_principal
+    prepare_atomic_free
+    posting_stop.request!
+    before = @account.reload.attributes.deep_dup
+    principal = Toybaco::GrowthPostingPrincipal.find_by!(account_id: @account.id, user_id: @owner.id)
+    original_principal = principal.attributes.deep_dup
+    account_id = @account.id
+    observer = -> { committed_free_state(account_id) }
+    observed = nil
+    callback = lambda do |row|
+      next unless row.account_id == account_id && row.state == 'applied'
+
+      observed = observer.call
+      raise 'after stop applied UPDATE'
+    end
+    PostingStopRow.set_callback(:update, :after, callback)
+    assert_equal 'after stop applied UPDATE', assert_raises(RuntimeError) { return_free }.message
+    assert_equal [before, original_principal, 'pending', 0, 0], observed
+    assert_equal before, @account.reload.attributes
+    assert_equal original_principal, principal.reload.attributes
+    assert_equal 'pending', PostingStopRow.find_by!(account_id: @account.id).state
+    assert_empty Toybaco::GrowthFreeReturn.where(account_id: @account.id)
+    assert_empty Toybaco::GrowthAiGrant.where(account_id: @account.id)
+  ensure
+    PostingStopRow.skip_callback(:update, :after, callback) if callback
+  end
+
+  def test_free_different_stop_target_keeps_guard_and_does_not_partially_apply_features
+    prepare_atomic_free
+    posting_stop(target_hash: 'f' * 64).request!
+    before = @account.reload.attributes.deep_dup
+    principal = Toybaco::GrowthPostingPrincipal.find_by!(account_id: @account.id, user_id: @owner.id)
+    original_principal = principal.attributes.deep_dup
+    Toybaco::PostizSync.stub(:disable_account!, ->(**) { flunk 'wrong target must fail before external revocation' }) do
+      assert_raises(PostingStopContext::Busy) { return_free }
+    end
+    assert_equal before, @account.reload.attributes
+    assert_equal original_principal, principal.reload.attributes
+    assert_equal 'pending', PostingStopRow.find_by!(account_id: @account.id).state
+    assert_empty Toybaco::GrowthFreeReturn.where(account_id: @account.id)
+    assert_empty Toybaco::GrowthAiGrant.where(account_id: @account.id)
+  end
+
+  def test_free_pending_provider_execution_remains_a_fence_until_definitive_completion
+    prepare_atomic_free
+    posting_execution.prepare!
+    posting_execution.start!
+    posting_execution.mark_uncertain!
+    posting_stop.request!
+    before = @account.reload.internal_attributes.deep_dup
+    assert_raises(ExecutionContext::Busy) { return_free }
+    assert_equal before, @account.reload.internal_attributes
+    assert_equal ['uncertain', 'pending'], [ExecutionRow.find_by!(account_id: @account.id).state, PostingStopRow.find_by!(account_id: @account.id).state]
+    assert_empty Toybaco::GrowthFreeReturn.where(account_id: @account.id)
+    posting_execution.complete!(outcome: 'rejected', evidence_hash: 'e' * 64)
+    assert_equal NOW.to_i, return_free['returned_at']
+    assert_equal 'applied', PostingStopRow.find_by!(account_id: @account.id).state
+  end
+  # free-atomic-tests-end
 
   def test_free_return_period_is_based_on_fixed_return_not_original_registration_or_reads
     prepare_free_return
@@ -2858,7 +3030,12 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
     provider = Object.new
     provider.define_singleton_method(:retrieve_subscription) { |_| flunk 'expired request cannot query provider' }
     assert_equal 'attention', execute_sync(record, at: NOW + 1.day, client: provider)
-    assert_equal [0, 'retry_limit'], [record.reload.attempts, record.result]
+    # No run failed before the deadline, so the shared claim! expiry rule keeps the waiting
+    # cause (renewal_pending). Unlike a real failure, the next notification re-arms it.
+    assert_equal ['attention', 0, 'renewal_pending'], [record.reload.state, record.attempts, record.result]
+    rearmed = accept_sync(at: NOW + 1.day + 1)
+    assert_equal [record.id, 'pending', 0, nil, 3, NOW + 1.day + 1 + Reconciliation::DEADLINE],
+                 [rearmed.id, rearmed.state, rearmed.attempts, rearmed.result, rearmed.requested_revision, rearmed.deadline_at]
   end
 
   def test_durable_sync_old_subscription_after_repurchase_is_superseded_without_provider_read
@@ -4299,17 +4476,17 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
   PreparationRecord = Toybaco::Growth::PostingPreparationRecord
   PreparationRow = Toybaco::GrowthPostingPreparation
 
-  def prepare_posting_preparation
+  def prepare_posting_preparation(held_post_ids: [])
     travel_to NOW
     original = method(:posting_receipt)
     transport = lambda do |payload|
       policy = { 'organizationId' => payload['organization_id'], 'transitionId' => payload['transition_id'],
         'keepIntegrationIds' => payload['keep_integration_ids'], 'scheduledPostsPerAccount' => payload['scheduled_posts_per_account'] }
-      hash = Digest::SHA256.hexdigest(JSON.generate([payload['policy_hash'], [], [], []]))
+      hash = Digest::SHA256.hexdigest(JSON.generate([payload['policy_hash'], [], [], held_post_ids]))
       @posting_source_value = { 'organizationId' => payload['organization_id'], 'transitionId' => payload['transition_id'],
         'policyHash' => payload['policy_hash'], 'receiptHash' => hash, 'policy' => policy.merge('policyHash' => payload['policy_hash']),
-        'keepIntegrationIds' => [], 'keepPostIds' => [], 'heldPostIds' => [] }
-      original.call(payload).merge('receipt_hash' => hash, 'kept_posts' => 0, 'held_posts' => 0)
+        'keepIntegrationIds' => [], 'keepPostIds' => [], 'heldPostIds' => held_post_ids }
+      original.call(payload).merge('receipt_hash' => hash, 'kept_posts' => 0, 'held_posts' => held_post_ids.size)
     end
     stub(:posting_receipt, transport) { prepare_inbox_release }
     @account.with_lock do
@@ -4887,3 +5064,15 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
   end
 
 end
+
+require_relative 'toybaco_growth_posting_authority_runtime_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingAuthorityRuntimeCases)
+
+require_relative 'toybaco_growth_posting_authority_inventory_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingAuthorityInventoryCases)
+
+require_relative 'toybaco_growth_posting_paid_upgrade_runtime_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoPostingPaidUpgradeRuntimeCases)
+
+require_relative 'toybaco_growth_posting_paid_upgrade_inventory_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.include(ToybacoPostingPaidUpgradeInventoryCases)

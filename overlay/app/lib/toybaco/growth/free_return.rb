@@ -51,6 +51,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         FreeReturnRecord.current(@account)
       end
 
+      def write_contract!(attrs, contract)
+        Entitlements.assign_instagram(@account, Entitlements.effective(contract).fetch('features'))
+        @account.update!(status: 'active', internal_attributes: attrs)
+      end
+
       def complete!
         @now = @clock.call
         context = checked_context
@@ -59,8 +64,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         raise FreeReturnRecord::Invalid unless FreeReturnRecord.valid?(receipt, @account.id)
 
         Toybaco::GrowthFreeReturn.create!(account: @account, transition_id: receipt['transition_id'], receipt: receipt)
-        Entitlements.apply!(@account, receipt.fetch('free_contract'))
-        @account.update!(status: 'active', internal_attributes: free_attributes(receipt))
+        contract = receipt.fetch('free_contract')
+        attrs = Entitlements.project_attributes(free_attributes(receipt), contract)
+        write_contract!(attrs, contract)
         FreePeriod.new(@account, now: @now).refresh!
         receipt
       end

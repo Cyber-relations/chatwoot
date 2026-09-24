@@ -30,7 +30,9 @@ module Toybaco::Growth::PostingPreparationContext
 
   def source_snapshot(principal)
     state = locked { rails_snapshot!(principal) }
-    posting = source.read(owner_id: @user.id)
+    context = { 'ownerId' => @user.id, 'actorId' => @user.id, 'principalHash' => Record.digest(state.fetch('principal')),
+                'contractHash' => state.fetch('contract_hash') }
+    posting = source.read(owner_id: @user.id, authority_context: context)
     validate_source!(state, posting)
     raise Record::Invalid unless state == locked { rails_snapshot!(principal) }
 

@@ -1,0 +1,7 @@
+# frozen_string_literal: true
+
+require_relative 'toybaco_growth_posting_renewal_runtime_test'
+require_relative 'toybaco_growth_scheduled_downgrade_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoScheduledDowngradeRuntimeCases)
+require_relative 'toybaco_growth_scheduled_grant_upgrade_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoScheduledGrantUpgradeRuntimeCases)

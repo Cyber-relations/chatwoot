@@ -2199,6 +2199,8 @@
   }
 
   function aiModeCanEdit(mode) {
+    var readiness = aiReadinessState();
+    if (readiness.phase === 'ready' && readiness.data.managed_auto_registered === true) return false;
     if (aiModeState().phase !== 'ready') return false;
     // 下書きは送信を人に戻す保存設定。生成権限や接続の確認とは分ける。
     if (normalizeAiMode(mode) === AI_MODE_DRAFT) return true;
@@ -2357,6 +2359,13 @@
         if (summaries[i].getAttribute('data-toybaco-ai-compact-state') !== compactStatus.state) {
           summaries[i].setAttribute('data-toybaco-ai-compact-state', compactStatus.state);
         }
+      }
+      var managedLinks = document.querySelectorAll('[data-toybaco-managed-auto-link]');
+      for (i = 0; i < managedLinks.length; i += 1) {
+        var managedPath = readiness.phase === 'ready' && readiness.data.managed_auto_path;
+        var expectedPath = '/toybaco/growth/automatic-replies?account_id=' + encodeURIComponent(currentAccountId());
+        managedLinks[i].hidden = managedPath !== expectedPath;
+        managedLinks[i].href = managedPath === expectedPath ? expectedPath : '#';
       }
       var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
       for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error' &&
@@ -2765,6 +2774,11 @@
       var lead = document.createElement('p');
       lead.textContent = 'この店舗全体で使う、AI応答の送り方の保存設定です。未接続でも下書き設定を保存できます。AIの生成には接続設定と利用条件の確認が必要です。';
       wrapEl.appendChild(lead);
+      var managedLink = document.createElement('a');
+      managedLink.hidden = true;
+      managedLink.setAttribute('data-toybaco-managed-auto-link', '1');
+      managedLink.textContent = '窓口の自動応答を準備・開始・停止する';
+      wrapEl.appendChild(managedLink);
       var autoBtn = buildAiModeButton(AI_MODE_AUTO, 'card');
       var autoHelp = document.createElement('small');
       autoHelp.textContent = '一次応答を自動送信する設定';

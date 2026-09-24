@@ -1,0 +1,140 @@
+{
+  "stamp": 1790000000,
+  "fixtureKeyDescription": "literal unusable-posting-authority-vector-fixture; not a real credential",
+  "operationId": "b6af2329fe1f9b96a652580399f134a1c537f7b970305c1af3bd98699564e7f9",
+  "executionRequestHash": "e4a077896217b74b1f7984f413855521b1e8fa4da853cb4d7f49b440302d1966",
+  "authority": {
+    "purpose": "toybaco-posting-authority-v1",
+    "path": "/toybaco/internal/posting-authority",
+    "body": {
+      "version": 1,
+      "issuer": "https://app.staging.toybaco.jp",
+      "audience": "https://post.staging.toybaco.jp",
+      "mode": "test",
+      "operation": "activate",
+      "authority": {
+        "accountId": 42,
+        "organizationId": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+        "authorityId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "preparationRequestId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preparationReceiptHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "railsAuthorityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "expiresAt": 1790003600,
+        "scheduledPostsPerAccount": 30,
+        "expectedPointerHash": null
+      }
+    },
+    "raw": "{\"version\":1,\"issuer\":\"https://app.staging.toybaco.jp\",\"audience\":\"https://post.staging.toybaco.jp\",\"mode\":\"test\",\"operation\":\"activate\",\"authority\":{\"accountId\":42,\"organizationId\":\"59c99254-65ea-5c0e-96c7-5005c4343e39\",\"authorityId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"preparationRequestId\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"preparationReceiptHash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"railsAuthorityHash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"expiresAt\":1790003600,\"scheduledPostsPerAccount\":30,\"expectedPointerHash\":null}}",
+    "requestHash": "779fa55208acd11b63924b5e92aaf9028b443a4692a0f6edbc3c155a295ad348",
+    "canonicalHash": "6a2235c43bf6396f65b115cd44d55b7ad1c9e39a9a333cf6cdd580ad553deeaa",
+    "signature": "1790000000.b15f377a88291feb58e0d898a037941d694720bfb0f40a734709df3dd28cf048"
+  },
+  "execution": {
+    "purpose": "toybaco-posting-execution-v3",
+    "path": "/toybaco/internal/posting-execution",
+    "body": {
+      "version": 3,
+      "issuer": "https://post.staging.toybaco.jp",
+      "audience": "https://app.staging.toybaco.jp",
+      "mode": "test",
+      "operation": "start",
+      "execution": {
+        "authorityId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "authorityHash": "6a2235c43bf6396f65b115cd44d55b7ad1c9e39a9a333cf6cdd580ad553deeaa",
+        "railsAuthorityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "accountId": 42,
+        "organizationId": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+        "ownerId": 7,
+        "actorId": 7,
+        "rootId": "post-root",
+        "stepPostId": "post-root",
+        "step": "MAIN",
+        "rootGeneration": "1790000000000:01234567-89ab-4cde-8fab-0123456789ab",
+        "markerHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "saveRequestId": "01234567-89ab-4cde-8fab-0123456789ab",
+        "scheduleHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "reservationHash": "129c80066ee78c44ad0e798c97e9c6b55053fbfc1976a002d4647c0bbcbee7ed",
+        "sequence": 0,
+        "previousPendingHash": null,
+        "pendingDataHash": null
+      }
+    },
+    "raw": "{\"version\":3,\"issuer\":\"https://post.staging.toybaco.jp\",\"audience\":\"https://app.staging.toybaco.jp\",\"mode\":\"test\",\"operation\":\"start\",\"execution\":{\"authorityId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"authorityHash\":\"6a2235c43bf6396f65b115cd44d55b7ad1c9e39a9a333cf6cdd580ad553deeaa\",\"railsAuthorityHash\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"accountId\":42,\"organizationId\":\"59c99254-65ea-5c0e-96c7-5005c4343e39\",\"ownerId\":7,\"actorId\":7,\"rootId\":\"post-root\",\"stepPostId\":\"post-root\",\"step\":\"MAIN\",\"rootGeneration\":\"1790000000000:01234567-89ab-4cde-8fab-0123456789ab\",\"markerHash\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"saveRequestId\":\"01234567-89ab-4cde-8fab-0123456789ab\",\"scheduleHash\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"reservationHash\":\"129c80066ee78c44ad0e798c97e9c6b55053fbfc1976a002d4647c0bbcbee7ed\",\"sequence\":0,\"previousPendingHash\":null,\"pendingDataHash\":null}}",
+    "requestHash": "9406267f7a53e9344c987b8c6eeeb4657d91210033333fcf90d0fd937bc47ac1",
+    "canonicalHash": "0ae72bfc1fb8006e660289d3ac68e0bef3ddbe8d82577a18892c757202b139e5",
+    "signature": "1790000000.cbe2baa9bbaef59005237dc6bcfdb690cdb860cd07307925bb35c76eb6947e77"
+  },
+  "multiStage": {
+    "execution": {
+      "authorityId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "authorityHash": "6a2235c43bf6396f65b115cd44d55b7ad1c9e39a9a333cf6cdd580ad553deeaa",
+      "railsAuthorityHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "accountId": 42,
+      "organizationId": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+      "ownerId": 7,
+      "actorId": 7,
+      "rootId": "post-root",
+      "stepPostId": "post-root",
+      "step": "FINALIZE",
+      "rootGeneration": "1790000000000:01234567-89ab-4cde-8fab-0123456789ab",
+      "markerHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "saveRequestId": "01234567-89ab-4cde-8fab-0123456789ab",
+      "scheduleHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "reservationHash": "a3d40639e9cfa29ba01873db3ad23395138a46a7f785575a5da2c4102f33dd8e",
+      "sequence": 2,
+      "previousPendingHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pendingDataHash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "operationId": "08624d424dd139b35e67736648f4cf100b38b86d48bccbe9d7f36799aa793c6f",
+    "requestHash": "080b7b3d134bf2e27a172168e16de971aabd2c5dbbd3d84133b9d93850d9a329",
+    "parent": {
+      "step": "FINALIZE",
+      "sequence": 1,
+      "state": "completed",
+      "outcome": "pending",
+      "pendingEvidenceHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "ack": {
+      "state": "completed",
+      "outcome": "pending",
+      "execute": false
+    }
+  },
+  "paidUpgrade": {
+    "stamp": "1790000000",
+    "fixtureSecret": "unusable-posting-paid-upgrade-vector-fixture",
+    "handoff": {
+      "accountId": 924101,
+      "organizationId": "fixture-org",
+      "operationId": "3f23c582b30828a680253bcebb3d461711e8f43b77ee029926db107e7d673f55",
+      "sourceAuthorityId": "105af90a10ab353ea4bf149e4a8ab554bb21a7d18263d3ea5159b7bbec3eb0a8",
+      "sourceAuthorityHash": "b0027c5c6cb02c26fc607c128c76a7182aa80864eb44adc2f41772e2785383cb",
+      "expectedPointerHash": "59bc222ad2d2b522b3a694a55e5ccfe0e39d6f4df39e32ac7dc1cf4c7e8cb488",
+      "journalHash": "317d42bbdd57d63edb7e06491b944f561ade38be8e8a2f09b6ff02e1f5bea1ad",
+      "periodHash": "717aa0ce86cccbf557187ba56fa2f4aa7436ac72749c2f274f6ef615d775dfb1",
+      "sourceCoverageHash": "0c895903172497aa0301a933d56fd487eae68586bd2cf47d7f4a857e509644a4",
+      "targetCoverageHash": "40ead631ac1abb0a038c2aaaeb95997e3fbbc93d92bf25acfe5792b63a7e5d01",
+      "sourceBindingHash": "305570eebe18d72d9ef3ae390673eb1e3dfb71a0d7a1c4dfcc337ec154aeaee9",
+      "targetBindingHash": "559cc6e4486ae2f5bb155072ad797ea7f9f2b4f982241a9e76878b4a0870c172",
+      "sourcePrincipalHash": "298ec7d5744e0c35cdcc45797a97dae69723d05e6a7ebfd3708b69c106208111",
+      "selectionHash": "bba9b543514321510d79760f3ddd6267c063fb10167e239ebfad5e2a22645156",
+      "sourceRank": 1,
+      "targetRank": 2,
+      "sourcePostingLimit": 2,
+      "targetPostingLimit": 6,
+      "sourceScheduledLimit": 30,
+      "targetScheduledLimit": 100,
+      "expiresAt": 1790500000
+    },
+    "requestHash": "0a6e41fb6c7dcf4242ba51167416eb05683b5c6bd5f1875ff18013194cf45620",
+    "application": {
+      "receiptHash": "ee3f9ba430fbc59889a689806afd5e82ee36d7ada768c9484a448659222b9394",
+      "contractAppliedHash": "d247007ec9b9b20827cf4ba8be07e7166797848f1f22b745e1a41501b932f170",
+      "targetPrincipalHash": "4918fc8ee5361d28226d4d98197661c2e9a6be57ce9c206d4392a9cedaad97fa",
+      "authorityId": "961ad9780d448e5feaf16aaee37f9606ff846e6fe531b598011dd60a4f6a40e2",
+      "railsAuthorityHash": "2a2d5bb27074e08038223a2fa1c2f3614e4ac1c8a6acb8596c9e5dc9719ca3bd"
+    },
+    "raw": "{\"version\":1,\"issuer\":\"https://app.staging.toybaco.jp\",\"audience\":\"https://post.staging.toybaco.jp\",\"mode\":\"test\",\"operation\":\"prepare\",\"handoff\":{\"accountId\":924101,\"organizationId\":\"fixture-org\",\"operationId\":\"3f23c582b30828a680253bcebb3d461711e8f43b77ee029926db107e7d673f55\",\"sourceAuthorityId\":\"105af90a10ab353ea4bf149e4a8ab554bb21a7d18263d3ea5159b7bbec3eb0a8\",\"sourceAuthorityHash\":\"b0027c5c6cb02c26fc607c128c76a7182aa80864eb44adc2f41772e2785383cb\",\"expectedPointerHash\":\"59bc222ad2d2b522b3a694a55e5ccfe0e39d6f4df39e32ac7dc1cf4c7e8cb488\",\"journalHash\":\"317d42bbdd57d63edb7e06491b944f561ade38be8e8a2f09b6ff02e1f5bea1ad\",\"periodHash\":\"717aa0ce86cccbf557187ba56fa2f4aa7436ac72749c2f274f6ef615d775dfb1\",\"sourceCoverageHash\":\"0c895903172497aa0301a933d56fd487eae68586bd2cf47d7f4a857e509644a4\",\"targetCoverageHash\":\"40ead631ac1abb0a038c2aaaeb95997e3fbbc93d92bf25acfe5792b63a7e5d01\",\"sourceBindingHash\":\"305570eebe18d72d9ef3ae390673eb1e3dfb71a0d7a1c4dfcc337ec154aeaee9\",\"targetBindingHash\":\"559cc6e4486ae2f5bb155072ad797ea7f9f2b4f982241a9e76878b4a0870c172\",\"sourcePrincipalHash\":\"298ec7d5744e0c35cdcc45797a97dae69723d05e6a7ebfd3708b69c106208111\",\"selectionHash\":\"bba9b543514321510d79760f3ddd6267c063fb10167e239ebfad5e2a22645156\",\"sourceRank\":1,\"targetRank\":2,\"sourcePostingLimit\":2,\"targetPostingLimit\":6,\"sourceScheduledLimit\":30,\"targetScheduledLimit\":100,\"expiresAt\":1790500000},\"application\":null}",
+    "signature": "1790000000.7eb6e3008e2275c880db3c6e93d80c5a85d01a77474f224e2267c2cbae82a6a5"
+  }
+}

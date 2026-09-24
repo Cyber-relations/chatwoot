@@ -1,0 +1,5 @@
+# frozen_string_literal: true
+
+require_relative 'toybaco_growth_renewal_coordinator_runtime_test'
+require_relative 'toybaco_growth_scheduled_downgrade_runtime_test'
+require_relative 'toybaco_growth_renewal_provider_runtime_test'

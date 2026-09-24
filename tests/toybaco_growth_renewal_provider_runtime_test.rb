@@ -1,0 +1,5 @@
+# frozen_string_literal: true
+
+require_relative 'toybaco_growth_renewal_coordinator_runtime_test'
+require_relative 'toybaco_growth_renewal_provider_cases'
+ToybacoGrowthRenewalTransitionRuntimeTest.prepend(ToybacoRenewalProviderRuntimeCases)
