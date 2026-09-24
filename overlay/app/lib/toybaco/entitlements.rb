@@ -94,24 +94,38 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       [{ 'id' => 'manual-posting', 'quantity' => 1, 'source' => 'legacy_manual' }]
     end
 
-    def apply!(account, contract, subscription_id: nil, catalog: PlanCatalog.default)
+    # Pure projection also lets a verified transition bind its final state
+    # before saving. It must not publish an intermediate contract binding.
+    def project_attributes(attrs, contract, subscription_id: nil, catalog: PlanCatalog.default)
       contract = contract.merge('addons' => contract.fetch('addons').map { |addon| bind_addon(addon, catalog: catalog) })
-      values = effective(contract, catalog: catalog)
+      features = effective(contract, catalog: catalog).fetch('features')
+      updates = {
+        'toybaco_plan' => contract.fetch('plan_id'), 'toybaco_plan_version' => contract.fetch('plan_version'),
+        'toybaco_cycle' => contract['cycle'], 'toybaco_contract' => contract,
+        'toybaco_contract_addons' => contract.fetch('addons'),
+        'postiz' => (attrs['postiz'] || {}).merge('enabled' => features['posting'] == true)
+      }
+      updates['toybaco_subscription_id'] = subscription_id if subscription_id
+      attrs.merge(updates)
+    end
+
+    def apply!(account, contract, subscription_id: nil, catalog: PlanCatalog.default)
       account.with_lock do
-        attrs = attributes(account)
-        features = values.fetch('features')
+        attrs = project_attributes(attributes(account), contract, subscription_id: subscription_id, catalog: catalog)
+        contract = attrs.fetch('toybaco_contract')
+        features = effective(contract, catalog: catalog).fetch('features')
         apply_instagram!(account, features) if features.key?('channel_instagram')
-        updates = {
-          'toybaco_plan' => contract.fetch('plan_id'),
-          'toybaco_plan_version' => contract.fetch('plan_version'),
-          'toybaco_cycle' => contract['cycle'], 'toybaco_contract' => contract,
-          'toybaco_contract_addons' => contract.fetch('addons'),
-          'postiz' => (attrs['postiz'] || {}).merge('enabled' => features['posting'] == true)
-        }
-        updates['toybaco_subscription_id'] = subscription_id if subscription_id
-        account.update!(internal_attributes: attrs.merge(updates))
+        account.update!(internal_attributes: attrs)
       end
       contract
+    end
+
+    # Uses Chatwoot Featurable's non-saving methods. The caller saves this
+    # feature bit and all final contract fields in its one Account update.
+    def assign_instagram(account, features)
+      return unless features.key?('channel_instagram')
+
+      account.public_send(features['channel_instagram'] ? :enable_features : :disable_features, 'channel_instagram')
     end
 
     def apply_instagram!(account, features)

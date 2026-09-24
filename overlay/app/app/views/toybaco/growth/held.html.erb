@@ -38,6 +38,9 @@
       <% if kind == 'inboxes' && @inbox_release_available %>
         <a href="/toybaco/growth/inbox-release?account_id=<%= @account.id %>">受信ボックスを再開</a>
       <% end %>
+      <% if kind == 'posting_accounts' && @posting_release_available %>
+        <a href="/toybaco/growth/posting-release?account_id=<%= @account.id %>">投稿先を再開・確認</a>
+      <% end %>
     </section>
   <% end %>
   <p class="note">接続先の認証・障害などによる停止は、この一覧とは別にご確認ください。</p>

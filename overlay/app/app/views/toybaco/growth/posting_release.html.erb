@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>投稿先を再開 | トイバコ</title>
+  <style>
+    :root{color-scheme:light;--navy:#1F3A5F;--coral:#FF6B5B;--paper:#FFFDF9;--surface:#FCFBF8;--ink:#24303F;--line:#E5E3DB;--muted:#596675}
+    *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:14px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif}
+    main{max-width:640px;margin:auto;padding:24px 16px 40px}h1{font-size:22px;color:var(--navy);margin:16px 0 8px}h2{font-size:16px;margin:0;color:var(--navy)}
+    p{margin:8px 0}a{color:var(--navy);display:inline-flex;align-items:center;min-height:44px}.note{font-size:13px;color:var(--muted)}.card{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--paper);margin:20px 0}
+    .connection{display:flex;gap:12px;align-items:center;min-height:52px;border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}
+    input{width:20px;height:20px;accent-color:var(--navy);flex:none}button{font:inherit;font-weight:600;border:0;border-radius:10px;background:var(--navy);color:white;min-height:44px;padding:10px 20px;cursor:pointer}
+    button:disabled{opacity:.55;cursor:default}a:focus-visible,input:focus-visible,button:focus-visible{outline:3px solid #C84435;outline-offset:3px}
+    [role=alert]{color:#A12D22}.summary{border-left:3px solid var(--coral);padding-left:14px}[hidden]{display:none!important}
+  </style>
+</head><body><main>
+  <a href="/toybaco/growth/held?account_id=<%= @account.id %>">接続の保留状況へ</a>
+  <h1>投稿先を再開</h1>
+  <p><%= @account.name %></p>
+  <p>再開する投稿先を選んでください。</p>
+  <% if @state['current_unconfirmed'] %><p role="status">前回の再開状態を確認できませんでした。投稿先を選び直し、再開を確認してください。</p><% end %>
+  <form id="posting-release-form">
+    <section class="card" aria-labelledby="inboxes-title">
+      <h2 id="inboxes-title">投稿先</h2>
+      <p class="note">今のプランは合計<%= @state.fetch('limit') %>件まで利用できます。</p>
+      <% @state.fetch('connections').each do |row| %>
+        <label class="connection">
+          <input type="checkbox" name="integration_ids" value="<%= row.fetch('id') %>" <%= 'checked disabled' if (@state.fetch('keep_ids') + @state.fetch('current_ids')).include?(row.fetch('id')) %>>
+          <span><%= row.fetch('name') %><small class="note" data-posting-state="<%= row.fetch('id') %>"><%= !(@state.fetch('keep_ids') + @state.fetch('current_ids')).include?(row.fetch('id')) ? ' · 保留中' : ' · 契約による保留なし' %></small></span>
+        </label>
+      <% end %>
+    </section>
+    <p class="note">選んだ投稿先の接続を再開します。保留中の原稿は、日時と投稿先を確認して保存すると予約できます。</p>
+    <p class="note">再開済みの投稿先に予約が残っている場合は、その予約を完了するか取り消してから投稿先を追加してください。</p>
+    <p class="note">予約を取り消した後や有効期間が変わった後は、同じ投稿先を選んだまま再確認できます。原稿は自動で予約されません。</p>
+    <p id="posting-release-error" role="alert" hidden></p>
+    <p id="posting-release-status" role="status" aria-live="polite" tabindex="-1"></p>
+    <button id="posting-release-submit" type="submit">選んだ投稿先の再開を確認</button>
+    <p><a id="posting-release-refresh" href="/toybaco/growth/posting-release?account_id=<%= @account.id %>" hidden>最新の状態に更新</a></p>
+  </form>
+  <script id="posting-release-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
+  <script type="module" src="/toybaco-growth-posting-release.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-posting-release.mjs')).hexdigest %>"></script>
+</main></body></html>

@@ -19,7 +19,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'effects' => { 'agent_limit' => terms.dig('entitlements', 'limits', 'agents'),
                          'ai_reply_limit' => terms.dig('entitlements', 'limits', 'ai_replies'),
                          'posting' => terms.dig('entitlements', 'features', 'posting') }
-        }
+        }.merge(source_binding)
+      end
+
+      def source_binding
+        { 'source_contract_hash' => digest(contract),
+          'source_coverage_hash' => digest(attrs[Toybaco::Growth::PaidPeriod::KEY]&.except('current_period_start', 'current_base_limit')) }
       end
 
       def choices(saved)

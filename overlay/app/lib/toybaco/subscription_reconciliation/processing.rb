@@ -17,8 +17,17 @@ module Toybaco::SubscriptionReconciliation::Processing
     # This method retains the existing subscription lock, complete parent /
     # child transaction and current-subscription checks. The request claim
     # was committed separately before any Stripe read or business update.
-    outcome = Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: checked)
-    %w[applied payment_pending].include?(outcome) ? outcome : 'attention'
+    outcome = Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: checked, guard: renewal_guard)
+    %w[applied payment_pending renewal_pending].include?(outcome) ? outcome : 'attention'
+  end
+
+  # Webhook reconciliation only. The guard runs after the fresh provider read and
+  # before any write, under the session lock shared with renewal dispatch, and returns
+  # :wait, :status_only or nil (full Sync). The decision is kept for this run's expiry.
+  def renewal_guard
+    lambda do |account, subscription|
+      @renewal_decision = Toybaco::Growth::RenewalDispatch.guard_sync!(account, subscription, now: now, environment: @environment)
+    end
   end
 
   def retry_missing_account

@@ -2,8 +2,10 @@
 
 require_relative 'entitlements'
 require_relative 'checkout'
+require_relative 'subscription_sync_status'
 require_relative 'growth/paid_period'
 require_relative 'growth/paid_transition'
+require_relative 'growth/scheduled_downgrade_grace'
 require_relative 'growth/inbox_upgrade_continuation'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
@@ -11,6 +13,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Read the latest Stripe object under the account lock so retries/old events
   # cannot overwrite a newer contract with their stale payload.
   class SubscriptionSync
+    include SubscriptionSyncStatus
+
     class Unresolved < StandardError; end
 
     def initialize(client:, catalog: PlanCatalog.default)
@@ -18,17 +22,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       @catalog = catalog
     end
 
-    def call(account, subscription_id:)
+    # A guard sees the fresh subscription before any write and decides how a renewal
+    # period waits: :wait writes nothing, :status_only writes two status fields, nil runs
+    # the full Sync. Both waiting forms return 'renewal_pending'.
+    def call(account, subscription_id:, guard: nil)
       outcome = nil
       account.with_lock do
         attrs = Entitlements.attributes(account)
         raise Unresolved, 'subscription does not belong to account' unless attrs['toybaco_subscription_id'] == subscription_id
 
         subscription = retrieve_subscription(subscription_id)
-        previous = previous_contract(account)
-        contract, outcome = apply_contract(account, subscription, previous)
-        apply_status(account, subscription, contract, outcome)
-        Growth::PaidPeriod.new(account).observe!(subscription) if outcome == 'applied'
+        outcome = apply_decision(account, subscription, guard&.call(account, subscription))
         yield subscription, outcome if block_given?
       end
       outcome
@@ -83,10 +87,27 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       nil
     end
 
+    def apply_decision(account, subscription, decision)
+      case decision
+      when nil then apply_fresh(account, subscription)
+      when :status_only then apply_status_only(account, subscription)
+      when :wait then 'renewal_pending'
+      else raise ArgumentError, 'unknown subscription guard decision'
+      end
+    end
+
+    def apply_fresh(account, subscription)
+      contract, outcome = apply_contract(account, subscription, previous_contract(account))
+      apply_status(account, subscription, contract, outcome)
+      Growth::PaidPeriod.new(account).observe!(subscription) if outcome == 'applied'
+      outcome
+    end
+
     def apply_contract(account, subscription, previous)
       contract = resolve(subscription, previous: previous)
       return [previous, 'payment_pending'] unless Growth::PaidTransition.allowed?(subscription, contract, previous)
 
+      Growth::ScheduledDowngradeGrace.new(account).paid_ready?(subscription, contract)
       Growth::InboxUpgradeContinuation.new(account, subscription, previous, contract).call do
         Entitlements.apply!(account, contract, subscription_id: subscription.fetch('id'), catalog: @catalog)
       end
@@ -185,46 +206,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
       matches.length == 1 ? matches.first : nil
-    end
-
-    def apply_status(account, subscription, contract, outcome)
-      attrs = Entitlements.attributes(account)
-      status = subscription.fetch('status')
-      policy = contract && contract['billing_policy']
-      policy = {} unless policy.is_a?(Hash)
-      updates = {
-        'toybaco_subscription_status' => status,
-        'toybaco_cancel_at_period_end' => subscription['cancel_at_period_end'] == true,
-        'toybaco_billing_review' => outcome == 'needs_review',
-        'toybaco_billing_payment_pending' => outcome == 'payment_pending'
-      }
-      state = access_state(account, attrs, updates, policy)
-      account.update!(state.merge(internal_attributes: attrs.merge(updates)))
-    end
-
-    def access_state(account, attrs, updates, policy)
-      status = updates['toybaco_subscription_status']
-      state = {}
-      if suspended_status?(policy, status)
-        if account.active?
-          updates['toybaco_billing_suspended'] = true
-          state[:status] = 'suspended'
-        end
-        updates['postiz'] = (attrs['postiz'] || {}).merge('enabled' => false)
-      elsif resume_billing?(policy, status, attrs, updates)
-        updates['toybaco_billing_suspended'] = false
-        state[:status] = 'active' if account.status.to_s == 'suspended'
-      end
-      state
-    end
-
-    def suspended_status?(policy, status)
-      Array(policy['suspended_statuses']).include?(status) || status == 'canceled'
-    end
-
-    def resume_billing?(policy, status, attrs, updates)
-      Array(policy['grace_statuses']).include?(status) && !updates['toybaco_billing_review'] &&
-        !updates['toybaco_billing_payment_pending'] && attrs['toybaco_billing_suspended'] == true
     end
   end
 end

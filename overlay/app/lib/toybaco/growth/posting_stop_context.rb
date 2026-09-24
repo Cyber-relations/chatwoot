@@ -56,6 +56,10 @@ module Toybaco::Growth::PostingStopContext
   end
 
   def guard_admission!(account_id)
+    require_relative 'posting_renewal_fence'
+    require_relative 'posting_paid_upgrade_fence'
+    Toybaco::Growth::PostingRenewalFence.guard!(account_id)
+    Toybaco::Growth::PostingPaidUpgradeFence.guard!(account_id)
     raise Busy if pending(account_id)
   end
 

@@ -1,0 +1,9 @@
+# frozen_string_literal: true
+
+require_relative 'toybaco_renewal_ingress_runtime_test'
+require_relative 'toybaco_growth_renewal_dispatch_cases'
+ToybacoRenewalIngressRuntimeTest.prepend(ToybacoGrowthRenewalDispatchCases)
+require_relative 'toybaco_growth_renewal_dispatch_continuation_cases'
+ToybacoRenewalIngressRuntimeTest.prepend(ToybacoGrowthRenewalDispatchContinuationCases)
+require_relative 'toybaco_growth_renewal_dispatch_sync_cases'
+ToybacoRenewalIngressRuntimeTest.prepend(ToybacoGrowthRenewalDispatchSyncCases)

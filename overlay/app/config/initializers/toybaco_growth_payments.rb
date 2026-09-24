@@ -5,6 +5,7 @@ Rails.application.config.filter_parameters += %i[stripe_signature customer_detai
 Rails.application.config.filter_parameters += ['data.object']
 
 Rails.application.routes.append do
+  post '/toybaco/webhooks/stripe/billing', to: 'toybaco/billing_webhooks#create'
   post '/toybaco/webhooks/stripe/packs', to: 'toybaco/growth_payment_webhooks#create'
 end
 

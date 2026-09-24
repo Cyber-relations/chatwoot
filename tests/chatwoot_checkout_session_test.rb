@@ -2,6 +2,7 @@
 
 require 'minitest/autorun'
 require 'cgi'
+require 'uri'
 require_relative '../overlay/app/lib/toybaco/checkout'
 
 class ChatwootCheckoutSessionTest < Minitest::Test
@@ -258,33 +259,42 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     pricing_path = File.join(ROOT, 'site/pricing/index.html')
     skip 'site HTML はこの品質スナップショットに含まれない' unless File.file?(index_path) && File.file?(pricing_path)
 
-    index = File.read(index_path)
-    pricing = File.read(pricing_path)
-
-    assert_includes(index, 'signup/?plan=light')
-    assert_includes(index, 'signup/?plan=standard')
-    assert_includes(index, 'signup/?plan=pro')
-    assert_includes(pricing, '../signup/?plan=light')
-    assert_includes(pricing, '../signup/?plan=standard')
-    assert_includes(pricing, '../signup/?plan=pro')
-    refute_match(%r{href="signup/"\s*>このプランではじめる}, index)
-    refute_match(%r{href="../signup/"\s*>このプランではじめる}, pricing)
+    [index_path, pricing_path].each do |path|
+      html = File.read(path)
+      %w[free light standard pro].each do |plan|
+        href = html[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
+        refute_nil href, "#{path}: #{plan} has a plan link"
+        uri = URI.parse(CGI.unescapeHTML(href))
+        assert_equal '/signup/', uri.path
+        assert_nil uri.host
+        expected = { 'plan' => plan, 'version' => '2026-09-18.1' }
+        expected['cycle'] = 'month' unless plan == 'free'
+        assert_equal expected, URI.decode_www_form(uri.query).to_h
+      end
+    end
   end
 
-  def test_signup_keeps_plan_into_checkout_urls
+  def test_signup_keeps_plan_into_consultation_until_application_handoff
     signup_path = File.join(ROOT, 'site/signup/index.html')
     skip 'site HTML はこの品質スナップショットに含まれない' unless File.file?(signup_path)
 
     signup = File.read(signup_path)
-
-    %w[light standard pro].each do |plan|
-      assert_includes(signup, %(data-plan="#{plan}"))
-      assert_includes(CGI.unescapeHTML(signup), "https://app.toybaco.jp/toybaco/checkout?plan=#{plan}&cycle=month")
-      assert_includes(CGI.unescapeHTML(signup), "https://app.toybaco.jp/toybaco/checkout?plan=#{plan}&cycle=year")
+    %w[free light standard pro].each do |plan|
+      href = signup[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
+      refute_nil href, "signup: #{plan} has a plan link"
+      uri = URI.parse(CGI.unescapeHTML(href))
+      assert_nil uri.host
+      assert_equal '/contact/', uri.path
+      expected = { 'topic' => 'service', 'plan' => plan, 'version' => '2026-09-18.1' }
+      expected['cycle'] = 'month' unless plan == 'free'
+      assert_equal expected, URI.decode_www_form(uri.query).to_h
     end
-    assert_includes(signup, "params.get('plan')")
-    assert_includes(signup, 'SNS 投稿機能はありません')
+    assert_includes(signup, '/assets/lp-candidate.js?')
+    assert_includes(signup, 'data-lp-cycle="year"')
+    refute_includes(signup, 'SNS 投稿機能はありません')
     refute_includes(signup, 'buy.stripe.com')
+    refute_includes(signup, '/toybaco/checkout')
+    refute_includes(signup, '/toybaco/free/signup')
   end
 
   def test_new_sales_reject_unverified_prices_before_creating_customer_or_session

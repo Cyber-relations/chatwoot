@@ -20,8 +20,8 @@ class Toybaco::Growth::PostingReleaseSource < Toybaco::Growth::RetentionInventor
     LIMIT 2
   SQL
 
-  def read(owner_id:)
-    raise Toybaco::Growth::RetentionPlan::Invalid unless owner_id.is_a?(Integer) && owner_id.positive?
+  def read(owner_id:, authority_context: nil)
+    validate_authority_context!(owner_id, authority_context)
 
     @owner_id = owner_id
     @state = Toybaco::Growth::RetentionState.new(@account)
@@ -41,6 +41,13 @@ class Toybaco::Growth::PostingReleaseSource < Toybaco::Growth::RetentionInventor
   end
 
   private
+
+  def validate_authority_context!(owner_id, context)
+    raise Toybaco::Growth::RetentionPlan::Invalid unless owner_id.is_a?(Integer) && owner_id.positive?
+
+    @authority_context = Toybaco::Growth::PostingAuthorityInventoryRecord.context!(context) if context
+    raise Toybaco::Growth::RetentionPlan::Invalid if @authority_context && @authority_context['ownerId'] != owner_id
+  end
 
   def load_posting_state(connection, organization)
     super

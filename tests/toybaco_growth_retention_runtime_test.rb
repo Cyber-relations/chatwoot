@@ -557,3 +557,6 @@ class ToybacoGrowthRetentionRuntimeTest < ActionDispatch::IntegrationTest
     db
   end
 end
+
+require_relative 'toybaco_growth_posting_release_http_cases'
+ToybacoGrowthRetentionRuntimeTest.include(ToybacoPostingReleaseHttpCases)

@@ -83,7 +83,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         return false unless @conversation.pending? && @account.active?
         return false unless @bot.agent_bot_inboxes.where(status: :active).exists?(inbox_id: @conversation.inbox_id)
 
-        latest = @conversation.messages.where(message_type: :incoming, private: false).order(created_at: :desc, id: :desc).first
+        latest = @conversation.messages.where(message_type: :incoming, private: false).reorder(created_at: :desc, id: :desc).first
         latest&.id == @message.id
       end
 

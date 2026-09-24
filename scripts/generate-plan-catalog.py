@@ -8,6 +8,7 @@ no plan-name branch here, in the price calculator, or in signup navigation.
 import argparse
 from decimal import Decimal, ROUND_HALF_UP
 import html
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -364,8 +365,15 @@ def generate(root=ROOT, check=False, scope='all'):
     sales(data)
     outputs = {root / 'overlay/app/config/toybaco-plans.json': raw}
     if scope == 'all':
-        for page in PAGES + POLICY_PAGES + DETAIL_PAGES:
-            outputs[root / page] = render_page((root / page).read_text(), data, page).encode()
+        pricing_candidate = any(marker in (root / 'site/index.html').read_text() for marker in ('<!-- toybaco-lp-pricing:2026-09-18.1 -->', '<!-- toybaco-lp-announcement:2026-09-18.1 -->'))
+        if pricing_candidate:
+            candidate = candidate_module()
+            for name, content in candidate.rendered_files(root, candidate.VERSION, preview=False).items():
+                if name != 'lp-candidate-manifest.json':
+                    outputs[root / 'site' / name] = content
+        else:
+            for page in PAGES + POLICY_PAGES + DETAIL_PAGES:
+                outputs[root / page] = render_page((root / page).read_text(), data, page).encode()
         bot = root / 'bot/handler.py'
         outputs[bot] = render_knowledge(bot.read_text(), data).encode()
     stale = [str(path.relative_to(root)) for path, expected in outputs.items() if not path.is_file() or path.read_bytes() != expected]
@@ -378,14 +386,31 @@ def generate(root=ROOT, check=False, scope='all'):
     return stale
 
 
+def candidate_module():
+    spec = importlib.util.spec_from_file_location('lp_candidate', Path(__file__).with_name('lp_pricing_candidate.py'))
+    result = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(result)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--scope', choices=('all', 'overlay'), default='all',
                         help='Chatwoot publisher checks only its bundled catalog; private quality checks all consumers')
+    parser.add_argument('--candidate-version', help='explicit non-published LP candidate version')
+    parser.add_argument('--output', type=Path, help='candidate only: directory under this checkout/output/')
+    parser.add_argument('--public-candidate', action='store_true', help='candidate output with production URLs; publication still requires release gates')
     args = parser.parse_args()
     try:
-        generate(check=args.check, scope=args.scope)
+        if args.candidate_version:
+            if args.output is None or args.scope != 'all':
+                raise ValueError('candidate requires --output and --scope all')
+            candidate_module().generate_candidate(ROOT, args.candidate_version, args.output, check=args.check, preview=not args.public_candidate)
+        else:
+            if args.output is not None or args.public_candidate:
+                raise ValueError('--output/--public-candidate require --candidate-version')
+            generate(check=args.check, scope=args.scope)
     except (ValueError, KeyError) as error:
         raise SystemExit(str(error))
     print('PLAN_CATALOG=PASS')

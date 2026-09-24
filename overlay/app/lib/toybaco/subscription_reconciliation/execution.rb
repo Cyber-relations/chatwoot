@@ -5,6 +5,7 @@ require_relative '../subscription_reconciliation'
 require_relative '../store_fulfillment'
 require_relative '../growth/inbox_retention'
 require_relative 'processing'
+require_relative '../growth/renewal_dispatch'
 
 class Toybaco::SubscriptionReconciliation::Execution
   include Toybaco::SubscriptionReconciliation::Processing
@@ -25,6 +26,8 @@ class Toybaco::SubscriptionReconciliation::Execution
       return 'busy' unless acquired
 
       begin
+        return defer_behind_barrier! if renewal_barrier?
+
         run
       ensure
         Account.uncached { connection.select_value("SELECT pg_advisory_unlock(#{key})") }
@@ -38,10 +41,37 @@ class Toybaco::SubscriptionReconciliation::Execution
     @fixed_now || Time.now.utc
   end
 
+  # Dispatch progress beyond 'received', a started N2 or a due grace row keeps the whole
+  # Sync out. Otherwise a blocked subscription runs only the status-only Sync.
+  def renewal_barrier?
+    dispatch = Toybaco::Growth::RenewalDispatch
+    dispatch.blocked?(@record.mode, @record.subscription_id, now: now) &&
+      !dispatch.repair_admissible?(@record.mode, @record.subscription_id, now: now)
+  end
+
+  # Only the retry slot moves, so the sweep does not re-enqueue the request every tick.
+  # Attempts stay. A pending request at its deadline ends in attention with the same
+  # expiry rule as claim!; a running one (a crash inside a claim) is left to claim!.
+  def defer_behind_barrier!
+    @record.with_lock do
+      next unless Toybaco::SubscriptionReconciliation::STATES.include?(@record.state)
+
+      if @record.state == 'pending' && @record.deadline_at <= now
+        @record.update!(state: 'attention', result: expired_result)
+        Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION')
+      else
+        @record.update!(next_attempt_at: now + 60, next_enqueue_at: now + 60)
+      end
+    end
+    @record.state == 'attention' ? 'attention' : 'renewal_pending'
+  end
+
   def run
     return @record.reload.state unless claim!
 
     result = reconcile
+    return renewal_pending! if result == 'renewal_pending'
+
     finish!(%w[applied payment_pending].include?(result) ? 'completed' : result, result)
   rescue Toybaco::Growth::InboxRetention::Busy, ActiveRecord::LockWaitTimeout, ActiveRecord::Deadlocked
     retry_later!('writer_busy')
@@ -61,7 +91,9 @@ class Toybaco::SubscriptionReconciliation::Execution
       next false unless Toybaco::SubscriptionReconciliation.due?(@record, now)
 
       if @record.attempts >= Toybaco::SubscriptionReconciliation::ATTEMPTS || @record.deadline_at <= now
-        @record.update!(state: 'attention', result: 'retry_limit')
+        next reclaim_orphan! if orphan_rearmable?
+
+        @record.update!(state: 'attention', result: expired_result)
         next false
       end
 
@@ -71,8 +103,36 @@ class Toybaco::SubscriptionReconciliation::Execution
     end
   end
 
+  # claim! holds the session lock, so a running row here lost its worker, and a dispatch
+  # completion that found it running could not re-arm it. When it only waited for renewal
+  # dispatch and the barrier is down, the expiry re-arms and claims it in one step. An
+  # expired pending row keeps its attention: a dispatch completion re-arms pending rows.
+  def orphan_rearmable?
+    @record.state == 'running' && Toybaco::SubscriptionReconciliation.waiting_cause?(@record) && !renewal_barrier?
+  end
+
+  def reclaim_orphan!
+    @revision = @record.requested_revision
+    @record.update!(Toybaco::SubscriptionReconciliation.rearm_values(now).merge(state: 'running', attempts: 1, next_attempt_at: now + 60))
+    true
+  end
+
+  # Shared by claim! and the pre-claim barrier. An expiry keeps the waiting cause only
+  # when no real failure spent the budget (SubscriptionReconciliation.waiting_cause?);
+  # the next notification or dispatch completion can then re-arm it. Otherwise retry_limit.
+  def expired_result
+    Toybaco::SubscriptionReconciliation.waiting_cause?(@record) ? 'renewal_pending' : 'retry_limit'
+  end
+
   def retry_later!(reason)
     finish!('pending', reason)
+  end
+
+  # The fresh subscription showed a renewal period whose signed invoice fact has
+  # not reached its dispatch phase. Waiting keeps the retry budget and deadline.
+  def renewal_pending!
+    state = finish!('pending', 'renewal_pending')
+    state == 'pending' ? 'renewal_pending' : state
   end
 
   def finish!(state, result)
@@ -98,9 +158,31 @@ class Toybaco::SubscriptionReconciliation::Execution
   end
 
   def pending_values(values, result)
-    values[:state] = 'attention' if @record.attempts >= Toybaco::SubscriptionReconciliation::ATTEMPTS || @record.deadline_at <= now
-    delay = %w[applied payment_pending superseded].include?(result) ? 0 : [30 * (2**[@record.attempts - 1, 5].min), 900].min
+    values[:attempts] = [@record.attempts - 1, 0].max if result == 'renewal_pending'
+    attempts = values.fetch(:attempts, @record.attempts)
+    if attempts >= Toybaco::SubscriptionReconciliation::ATTEMPTS || @record.deadline_at <= now
+      return values.merge!(Toybaco::SubscriptionReconciliation.rearm_values(now)) if lifted_wait?(result, attempts)
+
+      values[:state] = 'attention'
+    end
+    delay = retry_delay(result)
     values[:next_attempt_at] = now + delay
     values[:next_enqueue_at] = now + delay
+  end
+
+  # The guard made this run wait behind the barrier (:wait) and the barrier is down at its
+  # expiry. The dispatch can only progress meanwhile if this worker lost its session lock,
+  # and its completion then found the row running, so the expiry re-arms it. A status-only
+  # wait never had the barrier up and still ends in attention at its deadline.
+  def lifted_wait?(result, attempts)
+    result == 'renewal_pending' && @renewal_decision == :wait && attempts < Toybaco::SubscriptionReconciliation::ATTEMPTS &&
+      !renewal_barrier?
+  end
+
+  def retry_delay(result)
+    return 60 if result == 'renewal_pending'
+    return 0 if %w[applied payment_pending superseded].include?(result)
+
+    [30 * (2**[@record.attempts - 1, 5].min), 900].min
   end
 end

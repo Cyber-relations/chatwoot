@@ -80,6 +80,8 @@ resource "aws_iam_role_policy" "task_s3" {
 
 locals {
   app_environment = [
+    { name = "TOYBACO_BILLING_INGRESS_ENABLED", value = tostring(var.billing_ingress_enabled) },
+    { name = "TOYBACO_OPENING_INGRESS_ENABLED", value = tostring(var.opening_ingress_enabled) },
     { name = "RAILS_ENV", value = "production" },
     { name = "INSTALLATION_ENV", value = "docker" },
     { name = "RAILS_LOG_TO_STDOUT", value = "true" },
@@ -148,6 +150,7 @@ locals {
     { name = "SMTP_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:SMTP_PASSWORD::" },
     # ご契約内容画面(カスタマーポータルのセッション発行)用の Stripe 制限付きキー
     { name = "TOYBACO_STRIPE_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_KEY::" },
+    { name = "TOYBACO_STRIPE_BILLING_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_BILLING_WEBHOOK_SECRET::" },
     { name = "TOYBACO_STRIPE_PACK_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_PACK_WEBHOOK_SECRET::" },
 
     # トイバコID の合言葉と、投稿画面側へ会社・利用者を作るための接続情報
@@ -311,7 +314,8 @@ resource "aws_ecs_service" "rails" {
   # Terraform はtask definitionを登録し、標準deploy workflowがmigration後に昇格する。
   # staging初回はdesired_count=0で作成し、同workflowが検証後に1へ上げる。
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    # Managed capability guard owns automatic rollback after migration/marker inspection.
+    ignore_changes = [task_definition, desired_count, deployment_circuit_breaker]
   }
 
   tags = local.tags
@@ -338,7 +342,8 @@ resource "aws_ecs_service" "sidekiq" {
   }
 
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    # Managed capability guard owns automatic rollback after migration/marker inspection.
+    ignore_changes = [task_definition, desired_count, deployment_circuit_breaker]
   }
 
   tags = local.tags

@@ -63,7 +63,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           RenewalGrace.new(@account, now: @now).refresh!
           grants = active_grants(allowed_sources(kind)).to_a
           reservations = reservation_counts(grants.map(&:id))
-          remaining = grants.sum { |grant| [grant.units - grant.used - reservations.fetch(grant.id, 0), 0].max }
+          remaining = grants.sum { |grant| [admission_limit(grant) - grant.used - reservations.fetch(grant.id, 0), 0].max }
           { 'remaining' => remaining, 'grants' => grants.map { |grant| grant_summary(grant, reservations) } }
         end
       end
@@ -128,7 +128,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def available_grant(sources)
         grants = active_grants(sources).to_a
         reservations = reservation_counts(grants.map(&:id))
-        grants.find { |grant| (grant.units - grant.used - reservations.fetch(grant.id, 0)).positive? }
+        grants.find { |grant| (admission_limit(grant) - grant.used - reservations.fetch(grant.id, 0)).positive? }
       end
 
       def create_reservation(grant, key, kind, digest)
@@ -178,8 +178,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         { 'result' => state, 'operation_id' => operation.id }
       end
 
+      def admission_limit(grant)
+        require_relative 'scheduled_downgrade_grace'
+        ScheduledDowngradeGrace.new(@account, now: @now).limit_for(grant)
+      end
+
       def grant_summary(grant, reservations)
-        { 'source' => grant.source, 'limit' => grant.units, 'used' => grant.used, 'reserved' => reservations.fetch(grant.id, 0),
+        { 'source' => grant.source, 'limit' => admission_limit(grant), 'used' => grant.used, 'reserved' => reservations.fetch(grant.id, 0),
           'expires_at' => grant.ends_at.utc.iso8601 }
       end
     end

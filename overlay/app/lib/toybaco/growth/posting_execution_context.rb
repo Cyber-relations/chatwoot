@@ -4,6 +4,8 @@ require_relative 'inbox_retention'
 require_relative 'retention_snapshot'
 require_relative 'posting_stop_context'
 require_relative 'posting_principal'
+require_relative 'posting_paid_upgrade_fence'
+require_relative 'renewal_coordinator_fence'
 require_relative '../postiz_sync'
 
 # An internal contract fence, not a provider authorization endpoint. The
@@ -68,16 +70,22 @@ module Toybaco::Growth::PostingExecutionContext
   end
 
   def guard_change!(account, previous_status, previous_attrs)
+    settlement = Toybaco::Growth::RenewalCoordinatorFence.guard_change!(account, previous_status, previous_attrs)
     return if binding(previous_status, previous_attrs) == binding(account.status, account.internal_attributes || {})
 
-    guard_pending!(account.id)
+    Toybaco::Growth::PostingPaidUpgradeFence.guard_change!(account, previous_status, previous_attrs)
+    guard_pending!(account.id, paid_upgrade_change: true, renewal_settlement_change: settlement)
     Toybaco::Growth::PostingStopContext.guard_change!(
       account.id, digest(binding(previous_status, previous_attrs)), contract_hash(account)
     )
     Toybaco::Growth::PostingPrincipal.rotate!(account.id)
   end
 
-  def guard_pending!(account_id)
+  def guard_pending!(account_id, paid_upgrade_change: false, renewal_settlement_change: false)
+    Toybaco::Growth::RenewalCoordinatorFence.guard!(account_id) unless renewal_settlement_change
+    require_relative 'posting_renewal_fence'
+    Toybaco::Growth::PostingRenewalFence.guard!(account_id)
+    Toybaco::Growth::PostingPaidUpgradeFence.guard!(account_id) unless paid_upgrade_change
     # A snapshot from before prepare/start can omit a committed execution,
     # even after the Account row lock becomes available.
     raise Invalid unless Account.connection.select_value('SHOW transaction_isolation') == 'read committed'

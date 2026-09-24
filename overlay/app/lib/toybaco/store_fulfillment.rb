@@ -33,10 +33,10 @@ module Toybaco::StoreFulfillment
     end
   end
 
-  def synchronize(parent, subscription_id:, client:, administrator_id: nil)
+  def synchronize(parent, subscription_id:, client:, administrator_id: nil, guard: nil)
     locked(parent, subscription_id: subscription_id, administrator_id: administrator_id) do |accounts|
-      Toybaco::SubscriptionSync.new(client: client).call(parent, subscription_id: subscription_id) do |subscription, outcome|
-        reconcile(parent, accounts, subscription, outcome)
+      Toybaco::SubscriptionSync.new(client: client).call(parent, subscription_id: subscription_id, guard: guard) do |subscription, outcome|
+        reconcile(parent, accounts, subscription, outcome) unless outcome == 'renewal_pending'
         yield subscription, outcome, accounts if block_given?
       end
     end

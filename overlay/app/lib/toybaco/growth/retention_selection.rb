@@ -4,6 +4,7 @@ require_relative '../billing_access'
 require_relative '../checkout/plan_change_error'
 require_relative '../checkout/plan_change_lock'
 require_relative 'retention_inventory'
+require_relative 'posting_owner_inventory'
 require_relative 'retention_snapshot'
 require_relative 'renewal_transition'
 
@@ -20,7 +21,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account = account
         @user = user
         @target = target
-        @inventory = inventory || RetentionInventory.new(account)
+        @inventory = inventory || PostingOwnerInventory.new(account, user)
       end
 
       def read

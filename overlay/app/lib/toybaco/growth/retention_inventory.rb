@@ -4,11 +4,12 @@ require 'time'
 require_relative '../postiz_sync'
 require_relative 'retention_plan'
 require_relative 'retention_state'
+require_relative 'posting_authority_inventory'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
-    # No channel getter, provider token, customer conversation or post body is
-    # read. A separate read-only Postiz transaction cannot reuse a write session.
+    # The baseline reads no post body. The optional authority extension hashes
+    # its exact saved payload in RAM in this separate read-only Postiz snapshot.
     class RetentionInventory
       MAX_ROWS = 10_000
       INTEGRATIONS = <<~SQL.squish.freeze
@@ -24,9 +25,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         ORDER BY p."publishDate", p.id LIMIT 10001
       SQL
 
-      def initialize(account, connector: nil)
+      def initialize(account, connector: nil, authority_context: nil, renewal_recovery: nil)
         @account = account
+        @renewal_recovery = renewal_recovery&.deep_dup
         @connector = connector || -> { PG.connect(ENV.fetch('TOYBACO_POSTIZ_DATABASE_URL'), connect_timeout: 5) }
+        @authority_context = PostingAuthorityInventoryRecord.context!(authority_context) if authority_context
       end
 
       def read
@@ -74,11 +77,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         posts = connection.exec_params(POSTS, [organization, JSON.generate(@held_posts.to_a)]).to_a
         bounded!(integrations)
         bounded!(posts)
+        @authority_posts = known_authority_posts(connection, posts)
         connection.exec('COMMIT')
         { 'posting_accounts' => integrations.map { |row| integration_row(row) },
           'posts' => posts.map { |row| post_row(row) } }
       ensure
         connection&.close unless connection&.finished?
+      end
+
+      def known_authority_posts(connection, posts)
+        return Set.new unless @authority_context
+
+        unknown = posts.select do |post|
+          post['state'] == 'QUEUE' &&
+            (@held_posts.include?(post['id']) || @kept_posts.exclude?(post['id']) || posting_held?(post['integration_id']))
+        end
+        PostingAuthorityInventory.new(connection, account_id: @account.id, context: @authority_context,
+                                                  posting: @posting, generation: @state.posting_generation,
+                                                  renewal_recovery: @renewal_recovery).known_roots(unknown)
       end
 
       def load_posting_state(connection, organization)
@@ -97,12 +113,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @posting ? @kept_integrations.exclude?(id) : false
       end
 
+      def post_held?(id)
+        @held_posts.include?(id) && @authority_posts.exclude?(id)
+      end
+
       def post_row(row)
-        held = @held_posts.include?(row.fetch('id'))
+        held = post_held?(row.fetch('id'))
         valid = if held
                   row['state'] == 'DRAFT'
                 else
-                  row['state'] == 'QUEUE' && (!@posting || (@kept_posts.include?(row['id']) && !posting_held?(row['integration_id'])))
+                  row['state'] == 'QUEUE' && (!@posting || @authority_posts.include?(row['id']) ||
+                    (@kept_posts.include?(row['id']) && !posting_held?(row['integration_id'])))
                 end
         raise RetentionPlan::Invalid unless valid
 

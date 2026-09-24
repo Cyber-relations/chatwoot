@@ -36,13 +36,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         contract = Entitlements.contract_for(account)
         return 'outside_growth_terms' unless contract.dig('entitlements', 'ai_meter') == GrowthTerms::METER && contract['plan_id'] != 'free'
 
-        subscription = @client.retrieve_subscription(@invoice.fetch('subscription'))
+        subscription = retrieve_subscription
         verify_subscription!(subscription, attrs)
         latest = subscription['latest_invoice']
         return 'invoice_already_resolved' unless current_unpaid_invoice?(latest)
         return 'awaiting_first_failure' unless @invoice['attempt_count'] == 1
 
         save_first!(account, attrs, subscription, contract)
+      end
+
+      def retrieve_subscription
+        @client.retrieve_subscription(@invoice.fetch('subscription'))
       end
 
       def verify_subscription!(subscription, attrs)

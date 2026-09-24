@@ -15,18 +15,25 @@ class Toybaco::Growth::PostingStop
     @now = now
   end
 
-  def request!
+  def request!(verify: nil, record: nil)
     raise CONTEXT::Invalid unless @environment['TOYBACO_POSTING_STOP_ENABLED'] == 'true'
 
     locked do |account|
+      verify&.call(account)
       row = find
-      next receipt(row) if row
+      if row
+        value = receipt(row)
+        record&.call(account, value)
+        next value
+      end
 
       validate_current!(account)
       CONTEXT.guard_admission!(account.id)
       row = MODEL.create!(@fields.merge('request_hash' => CONTEXT.digest(@fields), 'created_at' => @now, 'updated_at' => @now))
       cancel_unstarted!(account.id)
-      receipt(row)
+      value = receipt(row)
+      record&.call(account, value)
+      value
     end
   end
 
