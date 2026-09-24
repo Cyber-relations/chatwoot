@@ -1,6 +1,7 @@
 json.settings resource.settings
 json.toybaco_support GlobalConfigService.load('TOYBACO_SUPPORT_ENABLED', false) == true
 json.toybaco_growth_onboarding Toybaco::Growth::Onboarding.available?(resource)
+json.toybaco_gmail_available Toybaco::Connections::Gmail.allowed?(resource)
 json.created_at resource.created_at
 if resource.custom_attributes.present?
   json.custom_attributes do
