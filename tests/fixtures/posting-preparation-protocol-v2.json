@@ -1,0 +1,50 @@
+{
+  "stamp": 1790000000,
+  "body": {
+    "version": 2,
+    "issuer": "https://app.staging.toybaco.jp",
+    "audience": "https://post.staging.toybaco.jp",
+    "mode": "test",
+    "preparation": {
+      "version": 2,
+      "organizationId": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+      "requestId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "accountId": 42,
+      "ownerId": 7,
+      "actorId": 7,
+      "ownerMembershipId": "membership-fixture",
+      "principalHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "railsReceiptHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "contractHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "selectionRevision": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "holdTransitionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "holdReceiptHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "holdGeneration": 1,
+      "inventoryHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "requestedIntegrationIds": [
+        "channel-a"
+      ],
+      "keepIntegrationIds": [
+        "channel-a"
+      ],
+      "postingAccountLimit": 6,
+      "identityHash": "c15551e4155c77371edff959317a957f6565dc0bdeacebf9e2dee6f67350ae4f"
+    }
+  },
+  "response": {
+    "version": 2,
+    "request_sha256": "7e4a285df0ed9720e85a4cc00de7eccda1b08a46fcef2675119fe5fcd7f54808",
+    "preparation": {
+      "version": 2,
+      "organizationId": "59c99254-65ea-5c0e-96c7-5005c4343e39",
+      "requestId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "payloadHash": "24bb01d90f98d1f6a8b2c6fbb470a6bf9a4aab21872f464954e72fea511e2560",
+      "preparedAt": 1790000000000,
+      "state": "prepared",
+      "execute": false,
+      "receiptHash": "9c6692db29317e1bad7f2a2c94fdc0bc8ef84dc8be3f427bf8da6b7d7ebe8ebc"
+    }
+  },
+  "request_signature": "1790000000.262e8e2a27060e1392ff906326632da5cf86542a90b537c59452b3d546446811",
+  "response_signature": "1790000000.00cbaaf871ca4346451ddd2623d4d41668a83bcc08d11a6d2e20562374b37ed7"
+}

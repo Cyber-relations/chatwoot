@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../../lib/toybaco/growth/payment_dispatch'
+require_relative 'subscription_reconciliation_sweep_job'
 
 class Toybaco::GrowthPaymentSweepJob < ApplicationJob
   queue_as :scheduled_jobs
@@ -14,5 +15,8 @@ class Toybaco::GrowthPaymentSweepJob < ApplicationJob
       Toybaco::Growth::PaymentDispatch.enqueue(event, now: now)
     end
     Rails.logger.error('TOYBACO_PAYMENT_ATTENTION pending_receipts=true') if events.exists?(state: 'attention')
+    # Reuse the deployed cron class. Recovery remains active after opt-in is disabled,
+    # without leaving a new recurring job in Redis before the first receipt exists.
+    Toybaco::SubscriptionReconciliationSweepJob.perform_now
   end
 end

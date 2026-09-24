@@ -16,8 +16,10 @@ LEGACY_COUNT='178'
 LEGACY_SHA256='d33b82e5797aa8b6d0bc571bbc7edf819adfbbb0d733f8b6bc0088c63f6b9cc8'
 PREVIOUS_COUNT='189'
 PREVIOUS_SHA256='d1363da71938f52c40df06763c2937b06dabbf33a01688894a48df857de8b198'
-TARGET_COUNT='193'
-TARGET_SHA256='37461821d786842578fb617cd4d82929adfb3baecab2932f909b211f00ffef67'
+RELEASED_COUNT='193'
+RELEASED_SHA256='37461821d786842578fb617cd4d82929adfb3baecab2932f909b211f00ffef67'
+TARGET_COUNT='201'
+TARGET_SHA256='363c7da65da64bc661fc59695cee3848dd308f8d36eac4cee37bcdb07189f4ba'
 
 deny() {
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=NO-GO reason=%s\n' "$1" >&2
@@ -151,6 +153,10 @@ elif [ "$count" = "$PREVIOUS_COUNT" ] && [ "$sha256" = "$PREVIOUS_SHA256" ]; the
 elif [ "$count" = "$SCHEMA_LOADED_COUNT" ] && [ "$sha256" = "$SCHEMA_LOADED_SHA256" ]; then
   [ "$require_target" = 'false' ] || deny 'target_schema_required'
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=schema_loaded count=%s sha256=%s\n' \
+    "$count" "$sha256"
+elif [ "$count" = "$RELEASED_COUNT" ] && [ "$sha256" = "$RELEASED_SHA256" ]; then
+  [ "$require_target" = 'false' ] || deny 'target_schema_required'
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=released count=%s sha256=%s\n' \
     "$count" "$sha256"
 elif [ "$count" = "$TARGET_COUNT" ] && [ "$sha256" = "$TARGET_SHA256" ]; then
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=target count=%s sha256=%s\n' \

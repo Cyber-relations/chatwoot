@@ -108,10 +108,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def active_grants(sources)
+        receipt = FreeReturnRecord.current(@account)
         Toybaco::GrowthAiGrant.where(account_id: @account.id, source: sources, revoked_at: nil)
                               .where('starts_at <= ? AND ends_at > ?', @now, @now)
                               .order(Arel.sql("CASE source WHEN 'pack' THEN 1 ELSE 0 END"), :ends_at, :id)
-                              .select { |grant| grant.source != 'grace' || RenewalGrace.new(@account, now: @now).permits?(grant) }
+                              .select { |grant| current_grant?(grant, receipt) }
+      end
+
+      def current_grant?(grant, receipt)
+        return FreeReturnRecord.included_allowed?(@account, grant, receipt) if grant.source == 'included'
+
+        grant.source != 'grace' || RenewalGrace.new(@account, now: @now).permits?(grant)
       end
 
       def reservation_counts(ids)

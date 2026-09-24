@@ -42,7 +42,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def save_if_current!(conversation, input, result)
         user = User.find_by(id: @request.user_id)
-        valid = DraftAccess.enabled? && DraftAccess.allowed?(@account, user, conversation) &&
+        valid = DraftAccess.enabled? && DraftAccess.generation_allowed?(@account, user, conversation) &&
                 DraftInput.new(@account, conversation, user).current?(input)
         return fail!('conversation_changed') unless valid
 

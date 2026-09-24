@@ -73,7 +73,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       return :not_managed unless force || managed?(account)
 
       require_configuration!
-      with_chatwoot_identity_locks(user_id: user_id, account_ids: [account.id]) do
+      with_chatwoot_identity_locks(user_id: user_id, account_ids: [account.id], revoking: true) do
         organization_id = trusted_organization_id!(account, MappingConflict)
         with_transaction do
           lock_account!(account.id)
@@ -89,7 +89,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       return :not_managed unless force || managed?(account)
 
       require_configuration!
-      with_chatwoot_identity_locks(user_id: user_id, account_ids: [account.id]) do
+      with_chatwoot_identity_locks(user_id: user_id, account_ids: [account.id], revoking: true) do
         organization_id = trusted_organization_id!(account, MappingConflict)
         with_transaction do
           lock_account!(account.id)
@@ -104,7 +104,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       return :not_managed unless force || managed?(account)
 
       require_configuration!
-      with_chatwoot_identity_locks(account_ids: [account.id]) do
+      with_chatwoot_identity_locks(account_ids: [account.id], revoking: true) do
         organization_id = trusted_organization_id!(account, MappingConflict)
         with_transaction do
           lock_account!(account.id)
@@ -128,7 +128,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       require_configuration!
       provider_id = provider_id_for(user_id)
 
-      with_chatwoot_identity_locks(user_id: user_id) do
+      with_chatwoot_identity_locks(user_id: user_id, revoking: true) do
         with_transaction do
           disable_memberships_for_provider!(provider_id)
           deactivate_provider_user!(provider_id)
@@ -216,12 +216,15 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       exec('SELECT pg_advisory_xact_lock($1, $2)', [POSTIZ_ADVISORY_LOCK_NAMESPACE, Integer(account_id)])
     end
 
-    def with_chatwoot_identity_locks(user_id: nil, account_ids: [])
+    def with_chatwoot_identity_locks(user_id: nil, account_ids: [], revoking: false)
+      require_relative 'growth/posting_membership_boundary'
+
       Account.transaction(requires_new: true) do
         chatwoot_advisory_lock!(CHATWOOT_USER_LOCK_NAMESPACE, user_id) if user_id
         account_ids.map { |id| Integer(id) }.uniq.sort.each do |account_id|
           chatwoot_advisory_lock!(CHATWOOT_ACCOUNT_LOCK_NAMESPACE, account_id)
         end
+        Toybaco::Growth::PostingMembershipBoundary.synchronize!(user_id: user_id, account_ids: account_ids, revoking: revoking)
         yield
       end
     end

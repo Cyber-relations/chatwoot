@@ -8,6 +8,7 @@ require_relative '../../../lib/toybaco/billing_subscription'
 require_relative '../../../lib/toybaco/billing_access'
 require_relative '../../../lib/toybaco/checkout/plan_change'
 require_relative '../../../lib/toybaco/growth/renewal_notice'
+require_relative '../../../lib/toybaco/growth/inbox_retention'
 
 # トイバコ内の「ご契約内容」画面。
 # プラン変更は版付きカタログの条件を確認して実行する。カード変更・
@@ -21,6 +22,7 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   before_action :require_billing_owner, except: :access
   before_action :guard_plan_change, only: %i[change_preview change_confirm change_refresh change_cancel]
   rescue_from Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid, ActiveRecord::ActiveRecordError, with: :plan_change_unavailable
+  rescue_from Toybaco::Growth::InboxRetention::Busy, Toybaco::Growth::InboxRetention::Invalid, with: :plan_change_unavailable
   rescue_from Toybaco::Checkout::PlanChangeError, with: :plan_change_error
 
   def access

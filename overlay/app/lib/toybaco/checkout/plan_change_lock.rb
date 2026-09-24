@@ -13,14 +13,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         unsigned = Digest::SHA256.hexdigest("toybaco-plan-change:#{Integer(account.id)}")[0, 16].to_i(16)
         key = unsigned >= 2**63 ? unsigned - (2**64) : unsigned
         account.class.connection_pool.with_connection do |connection|
-          acquired = connection.select_value("SELECT pg_try_advisory_lock(#{key})")
+          acquired = connection.uncached { connection.select_value("SELECT pg_try_advisory_lock(#{key})") }
           raise PlanChangeError, 'busy' unless acquired
 
           begin
             account.reload
             yield
           ensure
-            connection.select_value("SELECT pg_advisory_unlock(#{key})")
+            connection.uncached { connection.select_value("SELECT pg_advisory_unlock(#{key})") }
           end
         end
       end

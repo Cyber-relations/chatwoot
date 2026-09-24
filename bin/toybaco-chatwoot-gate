@@ -118,6 +118,16 @@ control_file_list() {
     'tests/toybaco_plan_catalog_test.rb' \
     'tests/toybaco_billing_subscription_test.rb' \
     'tests/toybaco_plan_change_test.rb' \
+    'tests/toybaco_growth_renewal_settlement_test.rb' \
+    'tests/toybaco_growth_renewal_lock_runtime_test.rb' \
+    'tests/toybaco_growth_renewal_transition_runtime_test.rb' \
+    'tests/toybaco_growth_sweep_runtime_test.rb' \
+    'tests/fixtures/posting-retention-protocol-v1.json' \
+    'tests/fixtures/posting-identity-v2.json' \
+    'tests/fixtures/posting-preparation-protocol-v2.json' \
+    'tests/toybaco_growth_retention_plan_test.rb' \
+    'tests/toybaco_growth_retention_runtime_test.rb' \
+    'tests/toybaco-growth-retention-ui.test.mjs' \
     'tests/toybaco-plan-change-ui.test.mjs' \
     'tests/toybaco_subscription_sync_test.rb' \
     'tests/toybaco_store_fulfillment_test.rb' \
@@ -253,6 +263,11 @@ integration_ruby_file_list() {
       printf '%s\n' overlay/app/db/migrate/20260919210000_create_toybaco_growth_payment_events.rb overlay/app/config/initializers/toybaco_growth_payments.rb overlay/app/lib/tasks/toybaco_growth_payments.rake
       printf '%s\n' overlay/app/db/migrate/20260919220000_create_toybaco_growth_post_drafts.rb overlay/app/config/initializers/toybaco_growth_post_drafts.rb
       printf '%s\n' overlay/app/db/migrate/20260919230000_create_toybaco_connection_handoffs.rb overlay/app/config/initializers/toybaco_connection_handoffs.rb
+      printf '%s\n' overlay/app/db/migrate/20260921000000_create_toybaco_growth_free_returns.rb overlay/app/db/migrate/20260921010000_create_toybaco_growth_inbox_releases.rb
+      printf '%s\n' overlay/app/db/migrate/20260922010000_create_toybaco_growth_posting_executions.rb overlay/app/db/migrate/20260922020000_create_toybaco_subscription_sync_requests.rb overlay/app/db/migrate/20260922030000_create_toybaco_growth_posting_stops.rb
+      printf '%s\n' overlay/app/db/migrate/20260923000000_create_toybaco_growth_posting_principals.rb
+      printf '%s\n' overlay/app/db/migrate/20260923010000_create_toybaco_growth_posting_preparations.rb
+      printf '%s\n' overlay/app/db/migrate/20260924000000_create_toybaco_growth_posting_preparation_acks.rb
       find overlay/app/app/mailers/toybaco -type f -name '*.rb' -print
       find overlay/app/app/mailers/agent_notifications -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
@@ -822,7 +837,7 @@ run_test_container() {
     --read-only \
     --tmpfs /tmp:rw,nosuid,size=256m \
     --tmpfs /app/tmp:rw,nosuid,size=256m \
-    --tmpfs /app/log:rw,nosuid,size=64m \
+    --tmpfs /app/log:rw,nosuid,size=128m \
     --tmpfs /app/storage:rw,nosuid,size=128m \
     --tmpfs /root/.cache:rw,nosuid,size=128m \
     --cap-drop ALL \
@@ -962,6 +977,7 @@ verify_base_and_frame_contract() {
     "$CHATWOOT_IMAGE" bundle exec ruby /contract/tests/chatwoot_ses_ingress_identity_test.rb
 
   node "$CONTROL_ROOT/tests/toybaco-plan-change-ui.test.mjs"
+  node --test "$CONTROL_ROOT/tests/toybaco-growth-retention-ui.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
@@ -985,6 +1001,14 @@ verify_base_and_frame_contract() {
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_plan_change_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_growth_renewal_settlement_test.rb
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/toybaco_growth_retention_plan_test.rb
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -1155,6 +1179,20 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_annual_renewal_runtime_test.rb
+
+  STAGE='更新失敗の整理とプラン変更の実DB排他'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_renewal_lock_runtime_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_renewal_transition_runtime_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_sweep_runtime_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_retention_runtime_test.rb
 
   STAGE='Freeメール確認・開通・一度だけの初回付与'
   run_test_container \

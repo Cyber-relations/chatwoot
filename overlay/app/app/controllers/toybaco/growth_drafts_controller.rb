@@ -17,7 +17,8 @@ class Toybaco::GrowthDraftsController < ActionController::Base # rubocop:disable
     return head :not_found if params[:request_id] && !selected
 
     summary = Toybaco::Growth::UsageSummary.new(@account).read
-    render json: { available: Toybaco::Growth::DraftAccess.enabled?, remaining: summary['remaining'],
+    available = Toybaco::Growth::DraftAccess.enabled? && Toybaco::Growth::DraftAccess.generation_allowed?(@account, @user, @conversation)
+    render json: { available: available, remaining: summary['remaining'],
                    result: selected && Toybaco::Growth::DraftState.new(selected).read }
   end
 

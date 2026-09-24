@@ -20,7 +20,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         @account.with_lock do
           @conversation.with_lock do
-            raise Unavailable, '現在、この会話ではAIを利用できません。' unless DraftAccess.enabled? && DraftAccess.allowed?(@account, @user, @conversation)
+            raise Unavailable, '現在、この会話ではAIを利用できません。' unless DraftAccess.enabled? && DraftAccess.generation_allowed?(@account, @user, @conversation)
 
             input = DraftInput.new(@account, @conversation, @user)
             payload = input.build(draft)

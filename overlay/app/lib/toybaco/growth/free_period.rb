@@ -3,6 +3,7 @@
 require_relative '../entitlements'
 require_relative 'monthly_window'
 require_relative 'ai_grants'
+require_relative 'free_return_record'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -19,9 +20,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           attrs = Entitlements.attributes(@account)
           contract = Entitlements.contract_for(@account)
           state = attrs['toybaco_growth_registration']
-          return unless eligible?(contract, state)
+          receipt = FreeReturnRecord.current(@account)
+          if receipt && contract&.dig('plan_id') == 'free'
+            raise FreeReturnRecord::Invalid unless contract == receipt['free_contract']
 
-          issue!(state, contract)
+            issue_return!(receipt, contract) if @account.active?
+          elsif eligible?(contract, state)
+            issue!(state, contract)
+          end
         end
       end
 
@@ -30,6 +36,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def eligible?(contract, state)
         @account.active? && contract && contract['plan_id'] == 'free' && contract.dig('entitlements', 'ai_meter') == GrowthTerms::METER &&
           state.is_a?(Hash) && state['phase'] == 'active' && state['free_anchor'].is_a?(String)
+      end
+
+      def issue_return!(receipt, contract)
+        period = MonthlyWindow.new(anchor: Time.at(receipt.fetch('returned_at')).utc, now: @now).current
+        return unless period
+
+        AiGrants.new(@account).issue!(source: 'included', source_key: "#{FreeReturnRecord.free_prefix(receipt)}#{period.fetch('starts_at')}",
+                                      units: contract.dig('entitlements', 'limits', 'ai_generations'),
+                                      starts_at: Time.at(period.fetch('starts_at')).utc, ends_at: Time.at(period.fetch('ends_at')).utc)
       end
 
       def issue!(state, contract)

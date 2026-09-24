@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>継続する接続 | トイバコ</title>
+  <style>
+    :root{color-scheme:light;--navy:#1F3A5F;--coral:#FF6B5B;--paper:#FFFDF9;--surface:#FCFBF8;--ink:#24303F;--line:#E5E3DB;--muted:#596675}
+    *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:14px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif}
+    main{max-width:640px;margin:auto;padding:24px 16px 40px}h1{font-size:22px;color:var(--navy);margin:16px 0 8px}h2{font-size:16px;margin:0;color:var(--navy)}
+    p{margin:8px 0}a{color:var(--navy)}.note{font-size:13px;color:var(--muted)}.card{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--paper);margin:20px 0}
+    .connection{display:flex;gap:12px;align-items:center;min-height:52px;border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}
+    input{width:20px;height:20px;accent-color:var(--navy);flex:none}button{font:inherit;font-weight:600;border:0;border-radius:10px;background:var(--navy);color:white;min-height:44px;padding:10px 20px;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}a:focus-visible,input:focus-visible,button:focus-visible{outline:3px solid #C84435;outline-offset:3px}
+    [role=alert]{color:#A12D22}.summary{border-left:3px solid var(--coral);padding-left:14px}[hidden]{display:none!important}
+  </style>
+</head>
+<body><main>
+  <a href="/toybaco/billing?account_id=<%= @account.id %>">ご契約内容へ</a>
+  <h1>継続する接続</h1>
+  <p><%= @account.name %> · <%= @state.fetch('target_name') %>への変更時</p>
+  <p class="note">選択を保存しても、プランは変わりません。</p>
+  <form id="retention-form">
+    <% { 'inboxes' => '受信ボックス', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
+      <% limit = @state.dig('plan', kind, 'limit') %>
+      <section class="card" data-retention-kind="<%= kind %>" data-limit="<%= limit %>" aria-labelledby="<%= kind %>-title">
+        <h2 id="<%= kind %>-title"><%= title %></h2>
+        <p class="note"><%= limit %>件まで選べます。</p>
+        <% rows = @state.dig('inventory', kind) %>
+        <% if rows.empty? %><p class="note">接続はありません。</p><% end %>
+        <% rows.each do |row| %>
+          <label class="connection"><input type="checkbox" name="<%= kind %>" value="<%= row.fetch('id') %>" <%= 'checked' if @state.dig('selected', kind).include?(row.fetch('id')) %>><span><%= row.fetch('name') %></span></label>
+        <% end %>
+      </section>
+    <% end %>
+    <div class="summary"><p id="retention-summary"></p><p class="note">選ばなかった接続も、履歴・原稿は残ります。保留になった予約は、再契約後も自動で公開されません。</p></div>
+    <p id="retention-error" role="alert" hidden></p>
+    <p id="retention-status" role="status" aria-live="polite"></p>
+    <button id="retention-save" type="submit">選択を保存</button>
+  </form>
+  <script id="retention-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
+  <script type="module" src="/toybaco-growth-retention.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-retention.mjs')).hexdigest %>"></script>
+</main></body></html>

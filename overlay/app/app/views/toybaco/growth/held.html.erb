@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>接続の保留状況 | トイバコ</title>
+  <style>
+    :root{color-scheme:light;--navy:#1F3A5F;--coral:#FF6B5B;--paper:#FFFDF9;--surface:#FCFBF8;--ink:#24303F;--line:#E5E3DB;--muted:#596675}
+    *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:14px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif}
+    main{max-width:640px;margin:auto;padding:24px 16px 40px}h1{font-size:22px;color:var(--navy);margin:16px 0 8px}h2{font-size:16px;margin:0;color:var(--navy)}
+    p{margin:8px 0}a{color:var(--navy);display:inline-flex;align-items:center;min-height:44px}.note{font-size:13px;color:var(--muted)}
+    .card{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--paper);margin:20px 0}
+    ul{padding:0;list-style:none}.connection{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}
+    .name{min-width:0}.state{flex:none;color:var(--muted);font-size:13px}.held{border-left:3px solid var(--coral);padding-left:10px}
+    a:focus-visible{outline:3px solid #C84435;outline-offset:3px}
+  </style>
+</head>
+<body><main>
+  <a href="/toybaco/billing?account_id=<%= @account.id %>">ご契約内容へ</a>
+  <h1>接続の保留状況</h1>
+  <p><%= @account.name %></p>
+  <p class="note">保留中も履歴と原稿は残ります。保留した予約は、自動で公開されません。</p>
+  <% { 'inboxes' => '受信ボックス', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
+    <section class="card" aria-labelledby="<%= kind %>-heading">
+      <h2 id="<%= kind %>-heading"><%= title %></h2>
+      <% rows = @state.fetch(kind) %>
+      <% if rows.empty? %><p class="note">接続はありません。</p><% end %>
+      <ul>
+      <% rows.each do |row| %>
+        <li class="connection <%= 'held' if row.fetch('held', false) %>">
+          <div class="name"><span><%= row.fetch('name') %></span>
+            <% if row.fetch('held_posts', 0).positive? %><p class="note">予約 <%= row.fetch('held_posts') %>件が保留中</p><% end %>
+          </div>
+          <span class="state"><%= row.fetch('held', false) ? '保留中' : '契約による保留なし' %></span>
+        </li>
+      <% end %>
+      </ul>
+      <% if kind == 'inboxes' && @inbox_release_available %>
+        <a href="/toybaco/growth/inbox-release?account_id=<%= @account.id %>">受信ボックスを再開</a>
+      <% end %>
+    </section>
+  <% end %>
+  <p class="note">接続先の認証・障害などによる停止は、この一覧とは別にご確認ください。</p>
+</main></body></html>

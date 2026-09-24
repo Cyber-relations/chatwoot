@@ -26,7 +26,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account.with_lock do
           authorize!
           previous = saved
-          return previous if previous
+          next previous if previous
           raise Unavailable, '先に開いた追加購入の決済を確認してください。' if orders.exists?(state: PENDING)
 
           create_order!(selection)
@@ -36,7 +36,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def authorize!
         terms = Entitlements.for_account(@account)
         eligible = terms&.dig('ai_meter') == GrowthTerms::METER && terms.dig('features', 'ai_pack_purchase') == true
-        allowed = billing_owner? && eligible && PackCatalog.available?
+        allowed = billing_owner? && eligible && PackCatalog.available? && !RenewalTransition.pending?(@account)
         raise Unavailable, '追加パックはStandard・Proの契約者が購入できます。' unless allowed
       end
 
