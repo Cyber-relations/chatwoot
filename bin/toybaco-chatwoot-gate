@@ -121,6 +121,7 @@ control_file_list() {
     'tests/toybaco_growth_renewal_settlement_test.rb' \
     'tests/toybaco_growth_renewal_lock_runtime_test.rb' \
     'tests/toybaco_growth_renewal_transition_runtime_test.rb' \
+    'tests/toybaco_growth_period_end_cancel_runtime_test.rb' \
     'tests/toybaco_growth_posting_renewal_runtime_test.rb' \
     'tests/toybaco_growth_posting_renewal_cases.rb' \
     'tests/toybaco_growth_posting_renewal_bridge_cases.rb' \
@@ -185,6 +186,7 @@ control_file_list() {
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
     'tests/toybaco_growth_renewal_notice_runtime_test.rb' \
+    'tests/toybaco_growth_storage_usage_runtime_test.rb' \
     'tests/toybaco_growth_annual_renewal_runtime_test.rb' \
     'tests/toybaco_free_registration_runtime_test.rb' \
     'tests/toybaco_growth_onboarding_runtime_test.rb' \
@@ -230,6 +232,7 @@ control_file_list() {
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
+    'tests/chatwoot_billing_storage_notice_test.rb' \
     'tests/chatwoot_ai_reply_mode_test.rb' \
     'tests/chatwoot_agent_seat_limit_test.rb' \
     'tests/chatwoot_agent_login_test.rb' \
@@ -531,6 +534,8 @@ assert_control_contract() {
   ruby "$ROOT/tests/chatwoot_billing_plan_names_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_billing_cancel_test.rb"
   ruby "$ROOT/tests/chatwoot_billing_cancel_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_billing_storage_notice_test.rb"
+  ruby "$ROOT/tests/chatwoot_billing_storage_notice_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_ai_reply_mode_test.rb"
   ruby "$ROOT/tests/chatwoot_ai_reply_mode_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_agent_seat_limit_test.rb"
@@ -1250,6 +1255,10 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_annual_renewal_runtime_test.rb
+  STAGE='保存容量と保存期間の案内'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_storage_usage_runtime_test.rb
 
   STAGE='永続受付補助のRails自動読込'
   run_test_container \
@@ -1287,6 +1296,11 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_retention_runtime_test.rb
+
+  STAGE='期末解約の無料プラン移行・保留・冪等と再試行'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_growth_period_end_cancel_runtime_test.rb
 
   STAGE='通常更新の永続ディスパッチ・Sync先行guard・投稿継続'
   run_test_container \

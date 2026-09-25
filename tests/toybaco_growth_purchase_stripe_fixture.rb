@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ToybacoGrowthPurchaseStripeFixture
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
   attr_accessor :fail_before, :fail_after, :incomplete_list
   attr_reader :sessions, :subscriptions, :create_requests
 
@@ -34,6 +34,7 @@ class ToybacoGrowthPurchaseStripeFixture
     @sessions[id] = { 'id' => id, 'client_reference_id' => params['client_reference_id'], 'metadata' => metadata,
                       'mode' => 'subscription', 'livemode' => false, 'status' => 'open', 'payment_status' => 'unpaid',
                       'created' => Time.now.to_i, 'expires_at' => params['expires_at'].to_i,
+                      'consent_collection' => { 'terms_of_service' => params['consent_collection[terms_of_service]'] || 'none' },
                       'url' => "https://checkout.stripe.com/c/pay/#{id}" }
     @idempotency[idempotency_key] = id
     if fail_after
@@ -66,9 +67,11 @@ class ToybacoGrowthPurchaseStripeFixture
     selected = price(metadata['toybaco_plan'], metadata['toybaco_cycle'])
     end_at = metadata['toybaco_cycle'] == 'year' ? 1.year.from_now.to_i : 1.month.from_now.to_i
     sub_id = "sub_purchase#{@subscriptions.length + 1}"
+    # Stripe completes a session that requires terms consent only after the checkbox is accepted.
+    accepted = session.dig('consent_collection', 'terms_of_service') == 'required'
     session.merge!('status' => 'complete', 'payment_status' => paid ? 'paid' : 'unpaid', 'customer' => 'cus_purchase',
                    'subscription' => sub_id, 'currency' => 'jpy', 'amount_subtotal' => selected['unit_amount'],
-                   'total_details' => { 'amount_discount' => 0 })
+                   'total_details' => { 'amount_discount' => 0 }, 'consent' => accepted ? { 'terms_of_service' => 'accepted' } : nil)
     @subscriptions[sub_id] = {
       'id' => sub_id, 'status' => 'active', 'livemode' => false, 'customer' => 'cus_purchase', 'metadata' => metadata,
       'billing_cycle_anchor' => Time.now.to_i,

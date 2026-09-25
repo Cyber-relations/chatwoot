@@ -17,7 +17,7 @@ class ToybacoGrowthRenewalLockRuntimeTest < ActiveSupport::TestCase
   def setup
     @account = create(:account)
     @other = create(:account)
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month')
     @account.update!(internal_attributes: {
       'toybaco_contract' => contract, 'toybaco_subscription_id' => 'sub_lock', 'toybaco_stripe_customer_id' => 'cus_lock',

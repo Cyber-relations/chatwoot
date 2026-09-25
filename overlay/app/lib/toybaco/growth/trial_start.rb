@@ -5,6 +5,7 @@ require_relative 'ai_grants'
 require_relative 'trial_connection'
 require_relative 'trial_example'
 require_relative '../ai_reply_mode'
+require_relative '../legal_terms'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -71,6 +72,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         AiGrants.new(@account).issue!(source: 'trial', source_key: "trial:#{trial.id}", units: UNITS,
                                       starts_at: trial.starts_at, ends_at: trial.ends_at)
         AiReplyMode.write_to!(@account, AiReplyMode::AUTO)
+        # 開始画面の説明と利用規約第7条の2への同意(confirmed)を、開始した契約者として残す。
+        LegalTerms.record!(@account, route: 'trial', accepted_at: @now, user_id: @user.id)
         trial
       end
     end

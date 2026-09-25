@@ -33,7 +33,7 @@ module ToybacoScheduledGrantUpgradeRuntimeCases
 
   def sgu_subscription(plan: 'standard', invoice_id: 'in_sgupgrade', paid_at: n3_now.to_i)
     coverage = @sg_source.fetch(SG::PaidPeriod::KEY)
-    @n3_contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition(plan, '2026-09-18.1'), cycle: @sd_cycle)
+    @n3_contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1'), cycle: @sd_cycle)
                                     .merge('stripe_price_id' => "price_#{plan}#{@sd_cycle}", 'subscription_item_id' => 'si_fixture')
     @n3_provider = n3_subscription(coverage['term_start'], coverage['term_end'], invoice_id, paid: true, paid_at: paid_at)
     @n3_provider['items']['data'][0]['price'] = sd_price(plan)

@@ -31,7 +31,7 @@ class ToybacoHandoffLineRuntimeTest < ActionDispatch::IntegrationTest
     @api.define_singleton_method(:verify!) { |**| true }
     @old_frontend = ENV['FRONTEND_URL']
     ENV['FRONTEND_URL'] = 'https://app.staging.toybaco.jp'
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
   end
 

@@ -4,6 +4,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # A separate meter prevents old reply-only accounting from silently accepting
   # the new shared reply/post/automation quota.
   module GrowthTerms
+    # The single growth plan version the application pins (plans, release_candidates and Stripe metadata).
+    VERSION = '2026-09-25.1'
     METER = { 'unit' => 'business_generation', 'period' => 'anchored_month', 'timezone' => 'UTC', 'display_timezone' => 'Asia/Tokyo' }.freeze
     FEATURES = %w[channel_instagram posting ai_reply ai_auto_reply ai_pack_purchase support_ai].freeze
     LIMITS = %w[agents stores inboxes posting_accounts scheduled_posts_per_account ai_generations storage_bytes

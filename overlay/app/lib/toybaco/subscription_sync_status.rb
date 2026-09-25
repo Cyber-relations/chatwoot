@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'entitlements'
+require_relative 'growth/period_end_cancel'
 
 # Status part of SubscriptionSync: subscription status, cancel flag and billing access
 # from the fresh subscription.
@@ -19,14 +20,23 @@ module Toybaco::SubscriptionSyncStatus
     'renewal_pending'
   end
 
+  # A verified period-end cancellation of a paid growth store skips the suspension when
+  # the caller opted in: the Free return after this Sync replaces the contract, while a
+  # suspension would first revoke the store's posting membership. Only the status fields
+  # are written.
   def apply_status(account, subscription, contract, outcome)
     attrs = Toybaco::Entitlements.attributes(account)
     policy = contract && contract['billing_policy']
     policy = {} unless policy.is_a?(Hash)
     updates = status_fields(subscription).merge('toybaco_billing_review' => outcome == 'needs_review',
                                                 'toybaco_billing_payment_pending' => outcome == 'payment_pending')
-    state = access_state(account, attrs, updates, policy)
+    state = period_end_free_return?(account, attrs.merge(updates), subscription, outcome) ? {} : access_state(account, attrs, updates, policy)
     account.update!(state.merge(internal_attributes: attrs.merge(updates)))
+  end
+
+  def period_end_free_return?(account, attrs, subscription, outcome)
+    outcome == 'applied' &&
+      Toybaco::Growth::PeriodEndCancel.eligible?(account, attrs, subscription, environment: @environment, free_return: @free_return)
   end
 
   def status_fields(subscription)

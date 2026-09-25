@@ -17,9 +17,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     class Unresolved < StandardError; end
 
-    def initialize(client:, catalog: PlanCatalog.default)
+    # free_return: only the caller that runs the period-end Free return after this Sync
+    # opts in; every other caller keeps the existing suspension of an ended subscription.
+    def initialize(client:, catalog: PlanCatalog.default, environment: ENV, free_return: false)
       @client = client
       @catalog = catalog
+      @environment = environment
+      @free_return = free_return
     end
 
     # A guard sees the fresh subscription before any write and decides how a renewal

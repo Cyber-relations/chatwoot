@@ -31,7 +31,7 @@ class ToybacoGrowthRenewalNoticeRuntimeTest < ActionDispatch::IntegrationTest
     @old_sender = ENV['MAILER_SENDER_EMAIL']
     ENV['MAILER_SENDER_EMAIL'] = 'Toybaco <notice@example.invalid>'
     ENV['TOYBACO_STRIPE_KEY'] = 'sk_test_fixture_renewal_notice'
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_notice', 'subscription_item_id' => 'si_notice')
     Toybaco::Entitlements.apply!(@account, contract, subscription_id: 'sub_notice')
     paid = contract.slice('plan_id', 'plan_version', 'cycle', 'stripe_price_id').merge(

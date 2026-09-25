@@ -33,9 +33,15 @@ module Toybaco::StoreFulfillment
     end
   end
 
-  def synchronize(parent, subscription_id:, client:, administrator_id: nil, guard: nil)
+  # Webhook reconciliation also passes its renewal guard and its flag environment, and it
+  # alone opts in to the period-end Free return that it runs after this Sync. Without
+  # free_return the Sync keeps its default: an ended subscription is suspended.
+  def synchronize(parent, subscription_id:, client:, administrator_id: nil, **options)
+    raise ArgumentError, 'unknown synchronize option' unless (options.keys - %i[guard environment free_return]).empty?
+
+    sync = Toybaco::SubscriptionSync.new(client: client, environment: options.fetch(:environment, ENV), **options.slice(:free_return))
     locked(parent, subscription_id: subscription_id, administrator_id: administrator_id) do |accounts|
-      Toybaco::SubscriptionSync.new(client: client).call(parent, subscription_id: subscription_id, guard: guard) do |subscription, outcome|
+      sync.call(parent, subscription_id: subscription_id, guard: options[:guard]) do |subscription, outcome|
         reconcile(parent, accounts, subscription, outcome) unless outcome == 'renewal_pending'
         yield subscription, outcome, accounts if block_given?
       end

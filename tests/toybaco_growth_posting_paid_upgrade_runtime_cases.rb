@@ -138,7 +138,7 @@ module ToybacoPostingPaidUpgradeRuntimeCases
     paid_activate_fixture
     original=@subscription.deep_dup
     [->(s) { s['latest_invoice']['amount_paid']=1 }, ->(s) { s['items']['data'][0]['current_period_end']+=1 }, ->(s) {
-      s['items']['data'][0]['price'].merge!('id'=>'price_light', 'unit_amount'=>7980, 'metadata'=>{ 'toybaco_plan'=>'light', 'toybaco_plan_version'=>'2026-09-18.1' })
+      s['items']['data'][0]['price'].merge!('id'=>'price_light', 'unit_amount'=>9800, 'metadata'=>{ 'toybaco_plan'=>'light', 'toybaco_plan_version'=>'2026-09-25.1' })
     }].each do |mutate|
       @subscription=original.deep_dup; mutate.call(@subscription)
       assert_raises(StandardError) { paid_service.call(operation_id: '8'*64) }

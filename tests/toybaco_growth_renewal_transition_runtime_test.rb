@@ -70,7 +70,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
     @account = create(:account)
     @owner = create(:user, :administrator, account: @account)
     start_at, end_at = (NOW - 8.days).to_i, (NOW + 22.days).to_i
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_transition', 'subscription_item_id' => 'si_transition')
     @account.update!(internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => @owner.id,
       'toybaco_contract' => contract, 'toybaco_subscription_id' => 'sub_transition', 'toybaco_stripe_customer_id' => 'cus_transition',
@@ -226,7 +226,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   def test_partial_free_contract_does_not_open_repurchase_before_actual_holds_complete
     assert_equal 'closed', settle
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     # Simulates another writer partially applying Free. The unfinished journal
     # remains a purchase fence even if the old subscription pointer is absent.
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
@@ -1566,24 +1566,24 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   def original_purchase
     { 'nonce' => '9' * 48, 'state' => 'complete', 'owner_id' => @owner.id,
-      'selection' => { 'plan_id' => 'standard', 'plan_version' => '2026-09-18.1', 'cycle' => 'month' },
+      'selection' => { 'plan_id' => 'standard', 'plan_version' => '2026-09-25.1', 'cycle' => 'month' },
       'price_id' => 'price_transition', 'session_id' => 'cs_test_original', 'subscription_id' => 'sub_transition',
       'amount' => 19800, 'livemode' => false, 'completed_at' => (NOW - 1.month).iso8601 }
   end
 
   def repurchase_price
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     { 'id' => 'price_repurchase', 'active' => true, 'currency' => 'jpy', 'unit_amount' => 19800,
       'livemode' => false, 'tax_behavior' => 'exclusive', 'billing_scheme' => 'per_unit', 'transform_quantity' => nil,
       'recurring' => { 'interval' => 'month', 'interval_count' => 1, 'usage_type' => 'licensed' },
-      'metadata' => { 'toybaco_plan' => 'standard', 'toybaco_plan_version' => '2026-09-18.1' },
+      'metadata' => { 'toybaco_plan' => 'standard', 'toybaco_plan_version' => '2026-09-25.1' },
       'product' => { 'id' => 'prod_standard', 'active' => true, 'name' => terms['product_name'], 'description' => terms['description'] } }
   end
 
   def new_purchase_intent
     data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
-    data['plans']['standard']['versions']['2026-09-18.1']['sellable'] = true
-    data['current_versions']['standard'] = '2026-09-18.1'
+    data['plans']['standard']['versions']['2026-09-25.1']['sellable'] = true
+    data['current_versions']['standard'] = '2026-09-25.1'
     catalog = Toybaco::PlanCatalog.new(data)
     price = repurchase_price
     client = Object.new
@@ -3185,9 +3185,9 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
 
   def paid_upgrade_subscription(plan: 'pro', at: NOW)
     sub = @release_provider.sub.deep_dup
-    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1')
     price = repurchase_price.merge('id' => "price_upgrade#{plan}", 'unit_amount' => terms.dig('cycles', 'month', 'amount'),
-      'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-18.1' })
+      'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-25.1' })
     sub['items']['data'].first['price'] = price
     invoice = sub['latest_invoice']
     invoice.merge!('id' => "in_upgrade#{plan}", 'billing_reason' => 'subscription_update')
@@ -3422,7 +3422,7 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
     sub = paid_upgrade_subscription
     price = sub['items']['data'].first['price']
     price['recurring']['interval'] = 'year'
-    price['unit_amount'] = Toybaco::PlanCatalog.default.definition('pro', '2026-09-18.1').dig('cycles', 'year', 'amount')
+    price['unit_amount'] = Toybaco::PlanCatalog.default.definition('pro', '2026-09-25.1').dig('cycles', 'year', 'amount')
     # A cycle change takes effect at the next paid term, rather than changing
     # the terms of an already issued grant under its original event key.
     starts_at = sub['items']['data'].first['current_period_end']

@@ -7,7 +7,7 @@ require_relative 'payment_signature'
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
     module PackCatalog
-      VERSION = '2026-09-18.1'
+      VERSION = GrowthTerms::VERSION
 
       module_function
 

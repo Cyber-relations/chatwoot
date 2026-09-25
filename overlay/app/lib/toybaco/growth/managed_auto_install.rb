@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'managed_auto'
+require_relative '../legal_terms'
 
 class Toybaco::Growth::ManagedAutoInstall
   AUTO = Toybaco::Growth::ManagedAuto
@@ -25,9 +26,8 @@ class Toybaco::Growth::ManagedAutoInstall
     end
   end
 
-  def change!(mode:, generation:, epoch:, request_id:)
-    raise AUTO::Invalid unless %w[auto stopped].include?(mode)
-
+  def change!(mode:, generation:, epoch:, request_id:, consent: nil)
+    validate_request!(mode, consent)
     request_id = AUTO.identifier!(request_id)
     expected = [mode.dup, generation.to_s.dup, AUTO.identifier!(epoch)]
     digest = Digest::SHA256.hexdigest(JSON.generate(expected))
@@ -42,11 +42,22 @@ class Toybaco::Growth::ManagedAutoInstall
       switch!(account, installation, mode)
       AUTO::COMMANDS.create!(account_id: account.id, installation_id: installation.id, actor_id: @actor_id,
                              request_id: request_id, request_hash: digest)
+      record_consent!(account) if mode == 'auto'
       installation
     end
   end
 
   private
+
+  # 全自動の開始は、画面で説明と利用規約第7条の2への同意にチェックした要求だけ受け付ける。
+  def validate_request!(mode, consent)
+    raise AUTO::Invalid unless %w[auto stopped].include?(mode)
+    raise AUTO::Invalid if mode == 'auto' && consent != true
+  end
+
+  def record_consent!(account)
+    Toybaco::LegalTerms.record!(account, route: 'managed_auto', accepted_at: Time.now.utc, user_id: @actor_id)
+  end
 
   def registration_replay?(previous, inbox_id, request_id)
     previous && previous.request_id == request_id && previous.inbox_id == inbox_id && previous.actor_id == @actor_id

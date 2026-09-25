@@ -42,7 +42,16 @@
     </div>
     <p class="note">AIの枠は返信・投稿で共通です。年払いでも毎月更新します。自動応答は設定後に開始します。</p>
     <p class="note">お支払い後も、接続・スタッフ・原稿はそのまま使えます。税込の請求額は決済画面で確認できます。</p>
-    <p class="note">解約はご契約内容から手続きでき、現在の契約期間末まで利用できます。</p>
+    <% grace_days = @plans.map { |plan| plan.dig('billing_policy', 'renewal_grace_days') }.uniq %>
+    <ul class="note" aria-label="契約の条件">
+      <li>契約期間：月払いは1か月、年払いは1年（一括前払い）。解約の手続きをしない限り同じ条件で自動更新します</li>
+      <li>解約：「ご契約内容」からいつでも手続きでき、現在の契約期間末に無料プランへ移ります</li>
+      <li>返金：期間途中の利用者都合の解約に日割り返金はありません。二重決済・当社の誤請求は訂正します</li>
+      <% if grace_days.one? && grace_days.first.is_a?(Integer) %>
+        <li>更新時の支払い失敗：<%= grace_days.first %>日間の猶予の後、無料プラン相当へ移ります</li>
+      <% end %>
+    </ul>
+    <p class="note"><a href="<%= Toybaco::LegalTerms::TERMS_URL %>" target="_blank" rel="noopener">利用規約</a>・<a href="<%= Toybaco::LegalTerms::TOKUSHOHO_URL %>" target="_blank" rel="noopener">特定商取引法に基づく表記</a>・<a href="<%= Toybaco::LegalTerms::PRIVACY_URL %>" target="_blank" rel="noopener">プライバシーポリシー</a></p>
   </section>
   <noscript><p>プランを選ぶには、ブラウザーのJavaScriptを有効にしてください。</p></noscript>
 </main>

@@ -26,7 +26,7 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
   end
 
   def subscription(plan: 'standard', cycle: 'month', start_at: Time.utc(2026, 9, 3, 12), end_at: Time.utc(2026, 10, 3, 12), paid_at: start_at, invoice_id: 'in_initial')
-    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1')
     price_id = "price_#{plan}"
     {
       'id' => 'sub_growth', 'status' => 'active', 'billing_cycle_anchor' => start_at.to_i,
@@ -34,7 +34,7 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
         'id' => 'si_growth', 'quantity' => 1, 'current_period_start' => start_at.to_i, 'current_period_end' => end_at.to_i,
         'price' => { 'id' => price_id, 'currency' => 'jpy', 'unit_amount' => terms.dig('cycles', cycle, 'amount'),
                      'recurring' => { 'interval' => cycle, 'interval_count' => 1 },
-                     'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-18.1' } }
+                     'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-25.1' } }
       }] },
       'latest_invoice' => {
         'id' => invoice_id, 'status' => 'paid', 'currency' => 'jpy', 'amount_remaining' => 0,
@@ -130,7 +130,7 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
   end
 
   def test_unpaid_initial_invoice_keeps_free_features_and_does_not_start_automatic_replies
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     before = Toybaco::Entitlements.contract_for(@account)
     data = subscription
@@ -361,7 +361,7 @@ class ToybacoGrowthBillingRuntimeTest < ActiveSupport::TestCase
     @account.update!(status: :suspended)
     assert_equal 0, remaining(boundary)
     @account.update!(status: :active)
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     assert_equal 0, remaining(boundary)
     assert_equal 1, buckets.where(source: 'grace').count

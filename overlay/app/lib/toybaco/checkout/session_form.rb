@@ -10,7 +10,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         locale_and_country
           .merge(identity(input))
           .merge(custom_fields)
+          .merge(terms_consent(input[:consent], submit_message: input.fetch(:submit_message)))
           .merge(optional_items(input[:optional_price_ids]))
+      end
+
+      # 規約同意欄はアプリ内同意の有無に関係なく必須(fail-closed)。Stripe Dashboard の
+      # Terms of service URL が未登録だと Session 作成自体が失敗する。
+      def terms_consent(consent, submit_message:)
+        values = {
+          'consent_collection[terms_of_service]' => 'required',
+          'custom_text[terms_of_service_acceptance][message]' => LegalTerms::TOS_MESSAGE,
+          'custom_text[submit][message]' => submit_message
+        }
+        LegalTerms.metadata(consent).each do |key, value|
+          values["metadata[#{key}]"] = value
+          values["subscription_data[metadata][#{key}]"] = value
+        end
+        values
       end
 
       def locale_and_country

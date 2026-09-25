@@ -241,6 +241,91 @@
             "quota_upgrade": "remaining_period_difference",
             "retention_on_downgrade": "preserve_until_expiry"
           }
+        },
+        "2026-09-25.1": {
+          "name": "ライト",
+          "product_name": "トイバコ ライト",
+          "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
+          "sellable": false,
+          "billing_kind": "subscription",
+          "cycles": {
+            "month": {
+              "amount": 9800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "light-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_LIGHT"
+                },
+                "live": {
+                  "lookup_key": "light-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_LIGHT"
+                }
+              }
+            },
+            "year": {
+              "amount": 105840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "light-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_LIGHT_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "light-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_LIGHT_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": true,
+              "ai_auto_reply": false,
+              "ai_pack_purchase": false,
+              "support_ai": true
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "inboxes": 4,
+              "posting_accounts": 3,
+              "scheduled_posts_per_account": 30,
+              "ai_generations": 100,
+              "storage_bytes": 10000000000,
+              "history_months": 24,
+              "inbound_attachment_bytes": 25000000,
+              "posting_file_bytes": 250000000
+            },
+            "ai_meter": {
+              "unit": "business_generation",
+              "period": "anchored_month",
+              "timezone": "UTC",
+              "display_timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "renewal_grace_days": 7,
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions",
+            "downgrade": "period_end",
+            "quota_upgrade": "remaining_period_difference",
+            "retention_on_downgrade": "preserve_until_expiry"
+          }
         }
       }
     },
@@ -376,6 +461,91 @@
                 "live": {
                   "lookup_key": "standard-growth-20260918-annual",
                   "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260918_STANDARD_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": true,
+              "ai_auto_reply": true,
+              "ai_pack_purchase": true,
+              "support_ai": true
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "inboxes": 4,
+              "posting_accounts": 6,
+              "scheduled_posts_per_account": 300,
+              "ai_generations": 500,
+              "storage_bytes": 50000000000,
+              "history_months": 24,
+              "inbound_attachment_bytes": 25000000,
+              "posting_file_bytes": 250000000
+            },
+            "ai_meter": {
+              "unit": "business_generation",
+              "period": "anchored_month",
+              "timezone": "UTC",
+              "display_timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "renewal_grace_days": 7,
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions",
+            "downgrade": "period_end",
+            "quota_upgrade": "remaining_period_difference",
+            "retention_on_downgrade": "preserve_until_expiry"
+          }
+        },
+        "2026-09-25.1": {
+          "name": "スタンダード",
+          "product_name": "トイバコ スタンダード",
+          "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
+          "sellable": false,
+          "billing_kind": "subscription",
+          "cycles": {
+            "month": {
+              "amount": 19800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "standard-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_STANDARD"
+                },
+                "live": {
+                  "lookup_key": "standard-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_STANDARD"
+                }
+              }
+            },
+            "year": {
+              "amount": 213840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "standard-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_STANDARD_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "standard-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_STANDARD_ANNUAL"
                 }
               }
             }
@@ -615,6 +785,91 @@
             "quota_upgrade": "remaining_period_difference",
             "retention_on_downgrade": "preserve_until_expiry"
           }
+        },
+        "2026-09-25.1": {
+          "name": "プロ",
+          "product_name": "トイバコ プロ",
+          "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
+          "sellable": false,
+          "billing_kind": "subscription",
+          "cycles": {
+            "month": {
+              "amount": 29800,
+              "interval": "month",
+              "stripe": {
+                "test": {
+                  "lookup_key": "pro-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_PRO"
+                },
+                "live": {
+                  "lookup_key": "pro-growth-20260925",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_PRO"
+                }
+              }
+            },
+            "year": {
+              "amount": 321840,
+              "interval": "year",
+              "stripe": {
+                "test": {
+                  "lookup_key": "pro-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_PRO_ANNUAL"
+                },
+                "live": {
+                  "lookup_key": "pro-growth-20260925-annual",
+                  "price_env": "TOYBACO_STRIPE_PRICE_GROWTH_20260925_PRO_ANNUAL"
+                }
+              }
+            }
+          },
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": true,
+              "ai_auto_reply": true,
+              "ai_pack_purchase": true,
+              "support_ai": true
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "inboxes": 4,
+              "posting_accounts": 6,
+              "scheduled_posts_per_account": 300,
+              "ai_generations": 2000,
+              "storage_bytes": 100000000000,
+              "history_months": 24,
+              "inbound_attachment_bytes": 25000000,
+              "posting_file_bytes": 250000000
+            },
+            "ai_meter": {
+              "unit": "business_generation",
+              "period": "anchored_month",
+              "timezone": "UTC",
+              "display_timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "renewal_grace_days": 7,
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions",
+            "downgrade": "period_end",
+            "quota_upgrade": "remaining_period_difference",
+            "retention_on_downgrade": "preserve_until_expiry"
+          }
         }
       }
     },
@@ -774,6 +1029,62 @@
             "quota_upgrade": "remaining_period_difference",
             "retention_on_downgrade": "preserve_until_expiry"
           }
+        },
+        "2026-09-25.1": {
+          "name": "フリー",
+          "product_name": "トイバコ フリー",
+          "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
+          "sellable": false,
+          "billing_kind": "free",
+          "cycles": {},
+          "entitlements": {
+            "features": {
+              "channel_instagram": true,
+              "posting": true,
+              "ai_reply": true,
+              "ai_auto_reply": false,
+              "ai_pack_purchase": false,
+              "support_ai": true
+            },
+            "limits": {
+              "agents": null,
+              "stores": 1,
+              "inboxes": 2,
+              "posting_accounts": 1,
+              "scheduled_posts_per_account": 5,
+              "ai_generations": 20,
+              "storage_bytes": 1000000000,
+              "history_months": 24,
+              "inbound_attachment_bytes": 25000000,
+              "posting_file_bytes": 250000000
+            },
+            "ai_meter": {
+              "unit": "business_generation",
+              "period": "anchored_month",
+              "timezone": "UTC",
+              "display_timezone": "Asia/Tokyo"
+            }
+          },
+          "billing_policy": {
+            "grace_statuses": [
+              "active",
+              "trialing",
+              "past_due"
+            ],
+            "suspended_statuses": [
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "paused"
+            ],
+            "renewal_grace_days": 7,
+            "cancellation": "period_end",
+            "seat_overflow": "keep_existing_block_additions",
+            "downgrade": "period_end",
+            "quota_upgrade": "remaining_period_difference",
+            "retention_on_downgrade": "preserve_until_expiry"
+          }
         }
       }
     }
@@ -834,7 +1145,7 @@
   },
   "release_candidates": {
     "2026-09-18.1": {
-      "status": "implementation_pending",
+      "status": "superseded_by_2026-09-25.1",
       "versions": {
         "free": "2026-09-18.1",
         "light": "2026-09-18.1",
@@ -870,6 +1181,47 @@
           "test": {
             "lookup_key": "ai-pack-500-v20260918",
             "price_env": "TOYBACO_PRICE_AI_PACK_V20260918"
+          }
+        }
+      }
+    },
+    "2026-09-25.1": {
+      "status": "application_pinned",
+      "versions": {
+        "free": "2026-09-25.1",
+        "light": "2026-09-25.1",
+        "standard": "2026-09-25.1",
+        "pro": "2026-09-25.1"
+      },
+      "free_registration": "verified_identity",
+      "auto_reply_trial": {
+        "days": 14,
+        "generations": 100,
+        "once_per_store": true,
+        "requires_owner_start": true,
+        "automatic_charge": false
+      },
+      "ai_pack": {
+        "generations": 500,
+        "amount": 5500,
+        "tax_behavior": "exclusive",
+        "expires_after_days": 90,
+        "automatic_purchase": false,
+        "purchase_plans": [
+          "standard",
+          "pro"
+        ],
+        "retained_draft_use_after_downgrade": true,
+        "sellable": false,
+        "product_name": "トイバコ AI追加パック500回",
+        "stripe": {
+          "live": {
+            "lookup_key": "ai-pack-500-v20260925",
+            "price_env": "TOYBACO_PRICE_AI_PACK_V20260925"
+          },
+          "test": {
+            "lookup_key": "ai-pack-500-v20260925",
+            "price_env": "TOYBACO_PRICE_AI_PACK_V20260925"
           }
         }
       }

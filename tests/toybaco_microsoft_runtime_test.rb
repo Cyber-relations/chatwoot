@@ -380,7 +380,7 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def test_onboarding_completes_only_with_the_microsoft_receipt_for_its_mailbox
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     message = reply(connect)
     guide = Toybaco::Growth::Onboarding.new(@account, @user)

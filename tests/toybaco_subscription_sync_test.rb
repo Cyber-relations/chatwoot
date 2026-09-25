@@ -400,3 +400,159 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     assert_raises(Toybaco::SubscriptionSync::Unresolved) { @sync.call(@account, subscription_id: 'sub_other') }
   end
 end
+
+require 'minitest/mock'
+
+# Period-end cancellation of a paid growth store: with all three rollout flags and every
+# rule the Sync keeps the store active for the Free return that runs after it; otherwise
+# it suspends.
+class ToybacoSubscriptionSyncTest
+  ROLLOUT_FLAGS = %w[TOYBACO_GROWTH_FREE_RETURN_ENABLED TOYBACO_POSTING_RETENTION_ENABLED TOYBACO_INBOX_RETENTION_ENABLED].freeze
+  FREE_RETURN_FLAGS = ROLLOUT_FLAGS.to_h { |flag| [flag, 'true'] }.freeze
+
+  def growth_contract(version = Toybaco::Growth::RetentionSnapshot::VERSION)
+    terms = Toybaco::PlanCatalog.default.definition('standard', version)
+    Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_growth', 'subscription_item_id' => 'si_fixture')
+  end
+
+  def old_meter_version
+    versions = Toybaco::PlanCatalog.default.data.dig('plans', 'standard', 'versions')
+    versions.find { |_, terms| terms['legacy'] != true && terms.dig('entitlements', 'ai_meter') != Toybaco::GrowthTerms::METER }.first
+  end
+
+  def ended_subscription(contract)
+    amount = Toybaco::PlanCatalog.default.definition('standard', contract['plan_version']).dig('cycles', 'month', 'amount')
+    { 'id' => 'sub_fixture', 'customer' => 'cus_fixture', 'status' => 'canceled', 'cancel_at_period_end' => true,
+      'canceled_at' => 1_790_000_000, 'cancel_at' => 1_792_592_000, 'ended_at' => 1_792_592_000,
+      'cancellation_details' => { 'reason' => 'cancellation_requested' }, 'latest_invoice' => { 'id' => 'in_fixture', 'status' => 'paid' },
+      'items' => { 'data' => [{ 'id' => 'si_fixture', 'quantity' => 1, 'price' => {
+        'id' => 'price_growth', 'currency' => 'jpy', 'unit_amount' => amount, 'recurring' => { 'interval' => 'month', 'interval_count' => 1 },
+        'product' => { 'metadata' => { 'toybaco_plan' => 'standard', 'toybaco_plan_version' => contract['plan_version'] } }
+      } }] } }
+  end
+
+  def prepare_period_end(contract = growth_contract)
+    setup
+    @account.internal_attributes['toybaco_contract'] = contract
+    @latest = ended_subscription(contract)
+  end
+
+  # The pure Sync has no grant table, so the scheduled-downgrade lookup reports ready.
+  # The reconciliation opts in to the Free return; opt_in: false keeps the constructor default.
+  def period_end_sync(environment = FREE_RETURN_FLAGS, guard: nil, opt_in: true)
+    grace = Object.new
+    grace.define_singleton_method(:paid_ready?) { |*| true }
+    options = { client: @client, environment: environment }
+    options[:free_return] = true if opt_in
+    Toybaco::Growth::ScheduledDowngradeGrace.stub(:new, grace) do
+      Toybaco::SubscriptionSync.new(**options).call(@account, subscription_id: 'sub_fixture', guard: guard)
+    end
+  end
+
+  def assert_billing_suspension(message)
+    assert_equal 'suspended', @account.status, message
+    assert_equal false, @account.internal_attributes.dig('postiz', 'enabled'), message
+    assert_equal true, @account.internal_attributes['toybaco_billing_suspended'], message
+    assert_equal 'keep', @account.internal_attributes.dig('postiz', 'organization_id'), message
+  end
+
+  def test_period_end_cancel_keeps_an_eligible_growth_store_active_with_all_rollout_flags
+    prepare_period_end
+    assert_equal 'applied', period_end_sync
+    assert @account.active?
+    assert_equal({ 'enabled' => true, 'organization_id' => 'keep' }, @account.internal_attributes['postiz'])
+    assert_equal ['canceled', true, false, false], @account.internal_attributes.values_at(
+      'toybaco_subscription_status', 'toybaco_cancel_at_period_end', 'toybaco_billing_review', 'toybaco_billing_payment_pending'
+    )
+    refute @account.internal_attributes.key?('toybaco_billing_suspended')
+    assert_equal growth_contract, stored
+  end
+
+  def test_period_end_cancel_without_every_rollout_flag_keeps_the_existing_suspension
+    closed = ROLLOUT_FLAGS.flat_map do |flag|
+      [FREE_RETURN_FLAGS.except(flag), FREE_RETURN_FLAGS.merge(flag => 'false'), FREE_RETURN_FLAGS.merge(flag => 'TRUE')]
+    end
+    (closed + [{}]).each do |environment|
+      prepare_period_end
+      assert_equal 'applied', period_end_sync(environment), environment.inspect
+      assert_billing_suspension(environment.inspect)
+    end
+  end
+
+  # Rake, child store fulfillment and plan changes never run the Free return: by default
+  # the Sync suspends even with all rollout flags open.
+  def test_period_end_cancel_without_the_reconciliation_opt_in_keeps_the_existing_suspension
+    prepare_period_end
+    assert_equal 'applied', period_end_sync(opt_in: false)
+    assert_billing_suspension('default free_return')
+  end
+
+  def test_period_end_cancel_of_the_old_meter_version_is_suspended
+    prepare_period_end(growth_contract(old_meter_version))
+    refute_equal Toybaco::GrowthTerms::METER, stored.dig('entitlements', 'ai_meter')
+    assert_equal 'applied', period_end_sync
+    assert_billing_suspension('old meter')
+  end
+
+  def test_period_end_cancel_without_the_owner_request_or_a_settled_invoice_is_suspended
+    {
+      payment_failed: ->(sub) { sub['cancellation_details'] = { 'reason' => 'payment_failed' } },
+      malformed_details: ->(sub) { sub['cancellation_details'] = 'cancellation_requested' },
+      immediate_cancel: ->(sub) { sub['cancel_at_period_end'] = false },
+      no_ended_at: ->(sub) { sub.delete('ended_at') },
+      text_canceled_at: ->(sub) { sub['canceled_at'] = '1790000000' },
+      open_invoice: ->(sub) { sub['latest_invoice']['status'] = 'open' },
+      unexpanded_invoice: ->(sub) { sub['latest_invoice'] = 'in_fixture' }
+    }.each do |reason, change|
+      prepare_period_end
+      change.call(@latest)
+      assert_equal 'applied', period_end_sync, reason.to_s
+      assert_billing_suspension(reason.to_s)
+    end
+  end
+
+  def test_period_end_cancel_with_a_renewal_failure_addon_or_child_store_is_suspended
+    manual = Toybaco::Entitlements.new_addon('opt-store', quantity: 1, source: 'manual').merge('account_id' => 42)
+    {
+      renewal_failure: -> { @account.internal_attributes['toybaco_growth_renewal_failure'] = { 'subscription_id' => 'sub_fixture' } },
+      addons: -> { @account.internal_attributes['toybaco_contract']['addons'] = [manual] },
+      child_store: -> { @account.internal_attributes['toybaco_store_purchase'] = { 'parent_account_id' => 1 } },
+      failure_journal: lambda do
+        @account.internal_attributes['toybaco_growth_renewal_transition'] = { 'state' => 'provider_closed', 'binding' => { 'failure' => {} } }
+      end,
+      earlier_return: lambda do
+        @account.internal_attributes['toybaco_growth_renewal_transition'] = { 'state' => 'free_completed', 'binding' => { 'cancel' => {} } }
+      end
+    }.each do |reason, change|
+      prepare_period_end
+      change.call
+      assert_equal 'applied', period_end_sync, reason.to_s
+      assert_billing_suspension(reason.to_s)
+    end
+  end
+
+  def test_period_end_cancel_under_billing_review_is_suspended
+    prepare_period_end
+    @latest.dig('items', 'data', 0, 'price').merge!('id' => 'price_unknown', 'product' => { 'metadata' => {} })
+    assert_equal 'needs_review', period_end_sync
+    assert_equal true, @account.internal_attributes['toybaco_billing_review']
+    assert_billing_suspension('needs_review')
+  end
+
+  def test_period_end_cancel_never_resumes_an_admin_suspended_store
+    prepare_period_end
+    @account.status = 'suspended'
+    assert_equal 'applied', period_end_sync
+    assert_equal 'suspended', @account.status
+    assert_equal false, @account.internal_attributes.dig('postiz', 'enabled')
+    refute @account.internal_attributes.key?('toybaco_billing_suspended')
+  end
+
+  def test_period_end_cancel_leaves_the_status_only_sync_unchanged
+    prepare_period_end
+    before = Marshal.load(Marshal.dump(@account.internal_attributes))
+    assert_equal 'renewal_pending', period_end_sync(guard: ->(*) { :status_only })
+    assert_equal before.merge('toybaco_subscription_status' => 'canceled'), @account.internal_attributes
+    assert @account.active?
+  end
+end

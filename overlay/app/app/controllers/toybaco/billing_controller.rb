@@ -9,6 +9,7 @@ require_relative '../../../lib/toybaco/billing_access'
 require_relative '../../../lib/toybaco/checkout/plan_change'
 require_relative '../../../lib/toybaco/growth/renewal_notice'
 require_relative '../../../lib/toybaco/growth/inbox_retention'
+require_relative '../../../lib/toybaco/growth/storage_usage'
 
 # トイバコ内の「ご契約内容」画面。
 # プラン変更は版付きカタログの条件を確認して実行する。カード変更・
@@ -38,6 +39,7 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     @portal_ready = @admin && @subscription_id.present? && ENV['TOYBACO_STRIPE_KEY'].present?
     @contract = Toybaco::Entitlements.contract_for(@account)
     @plan = @contract && { name: @contract.fetch('name') }
+    @storage = storage_usage
     @store_purchase = Toybaco::StoreFulfillment.linked_purchase?(@account)
     load_actual_billing
     @plan_changes = plan_change_service.state if @portal_ready
@@ -123,6 +125,15 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
 
   def plan_change_unavailable(_error)
     render json: { error: 'unavailable', message: Toybaco::Checkout::PlanChange::MESSAGES['unavailable'] }, status: :service_unavailable
+  end
+
+  # 保存容量の条件(storage_bytes)を持つ契約だけ使用量を数える。持たない契約(既存契約)では何も集計しない。
+  def storage_usage
+    limits = @contract&.dig('entitlements', 'limits')
+    storage_bytes = limits && limits['storage_bytes']
+    return unless storage_bytes.is_a?(Integer) && storage_bytes.positive?
+
+    Toybaco::Growth::StorageUsage.new(@account, limits: limits).read
   end
 
   def load_actual_billing

@@ -11,7 +11,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     # the owner screen and the renewal journal use this exact selection rule.
     class RetentionSnapshot
       KEY = 'toybaco_growth_retention_selection'
-      VERSION = '2026-09-18.1'
+      VERSION = GrowthTerms::VERSION
       ORDER = %w[free light standard pro].freeze
 
       def initialize(account, target:, rows:)

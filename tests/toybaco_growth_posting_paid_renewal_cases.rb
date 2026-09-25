@@ -18,12 +18,12 @@ module ToybacoPostingPaidRenewalRuntimeCases
 
   def paid_renewal_target(plan: 'pro')
     value = @n3_provider.deep_dup
-    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1')
     item = value['items']['data'].first
     item['price'] = { 'id' => "price_mixed#{plan}", 'currency' => 'jpy',
                       'unit_amount' => terms.fetch('cycles').fetch('month').fetch('amount'),
                       'recurring' => { 'interval' => 'month', 'interval_count' => 1 },
-                      'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-18.1' } }
+                      'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => '2026-09-25.1' } }
     invoice = value['latest_invoice']
     invoice.merge!('id' => "in_mixed#{plan}", 'billing_reason' => 'subscription_update', 'status' => 'paid',
                    'amount_due' => 10_000, 'amount_paid' => 10_000, 'amount_remaining' => 0)

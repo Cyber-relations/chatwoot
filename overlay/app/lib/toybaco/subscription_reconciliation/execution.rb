@@ -60,10 +60,21 @@ class Toybaco::SubscriptionReconciliation::Execution
         @record.update!(state: 'attention', result: expired_result)
         Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION')
       else
-        @record.update!(next_attempt_at: now + 60, next_enqueue_at: now + 60)
+        @record.update!(next_attempt_at: deferred_slot, next_enqueue_at: now + 60)
       end
     end
     @record.state == 'attention' ? 'attention' : 'renewal_pending'
+  end
+
+  # The deferral writes now + 60 without a due check, so inside the claim's own microsecond
+  # (the column keeps microseconds) it would write the claim's slot again. A running row's
+  # slot therefore always moves past the stored one, which ends the claim generation of a
+  # worker that lost its session lock (current_claim?). A pending row takes now + 60.
+  def deferred_slot
+    slot = now + 60
+    return slot unless @record.state == 'running' && slot.floor(6) <= @record.next_attempt_at
+
+    @record.next_attempt_at + Rational(1, 1_000_000)
   end
 
   def run
@@ -71,6 +82,7 @@ class Toybaco::SubscriptionReconciliation::Execution
 
     result = reconcile
     return renewal_pending! if result == 'renewal_pending'
+    return retry_later!('free_return_pending') if result == 'free_return_pending'
 
     finish!(%w[applied payment_pending].include?(result) ? 'completed' : result, result)
   rescue Toybaco::Growth::InboxRetention::Busy, ActiveRecord::LockWaitTimeout, ActiveRecord::Deadlocked
@@ -99,6 +111,7 @@ class Toybaco::SubscriptionReconciliation::Execution
 
       @revision = @record.requested_revision
       @record.update!(state: 'running', attempts: @record.attempts + 1, next_attempt_at: now + 60)
+      @lease = @record.next_attempt_at
       true
     end
   end
@@ -114,6 +127,7 @@ class Toybaco::SubscriptionReconciliation::Execution
   def reclaim_orphan!
     @revision = @record.requested_revision
     @record.update!(Toybaco::SubscriptionReconciliation.rearm_values(now).merge(state: 'running', attempts: 1, next_attempt_at: now + 60))
+    @lease = @record.next_attempt_at
     true
   end
 
@@ -137,13 +151,22 @@ class Toybaco::SubscriptionReconciliation::Execution
 
   def finish!(state, result)
     @record.with_lock do
-      raise Toybaco::SubscriptionReconciliation::Invalid unless @record.state == 'running' && @revision
+      raise Toybaco::SubscriptionReconciliation::Invalid unless current_claim?
 
       values = completion_values(state, result)
       @record.update!(values)
       Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION') if values[:state] == 'attention'
       @record.state
     end
+  end
+
+  # The claim generation: claim! and reclaim_orphan! keep the retry slot they wrote as the
+  # row stores it (the column drops sub-microsecond digits of the value passed in). A worker
+  # that lost its session lock can outlive its claim. Any re-claim runs at or after that
+  # slot and writes a later one, so the old worker finishes nothing. Only session-lock
+  # holders write a running row's slot, so the lease never refuses a worker that keeps it.
+  def current_claim?
+    @record.state == 'running' && @revision && @lease && @record.next_attempt_at == @lease
   end
 
   def completion_values(state, result)

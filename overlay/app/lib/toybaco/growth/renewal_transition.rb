@@ -2,22 +2,30 @@
 
 require_relative 'retention_snapshot'
 require_relative 'free_return_record'
+require_relative 'period_end_cancel'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
     # Durable intent before provider mutations. This is not a stop receipt:
     # provider_closed still blocks purchases until the actual holds and Free
     # entitlement transition have been implemented and confirmed.
+    # A period-end cancellation binds Stripe's own closure evidence (cause cancel)
+    # instead of a signed renewal failure; nothing is voided or recovered for it.
     class RenewalTransition
       KEY = 'toybaco_growth_renewal_transition'
       STATES = %w[prepared invoice_voided provider_closed payment_recovered free_completed].freeze
       FAILURE_FIELDS = %w[subscription_id invoice_id first_failed_at grace_ends_at term_start term_end].freeze
+      FAILURE_STEPS = { 'prepared' => %w[invoice_voided payment_recovered], 'invoice_voided' => ['provider_closed'],
+                        'provider_closed' => [], 'payment_recovered' => [] }.freeze
+      CANCEL_STEPS = { 'prepared' => ['provider_closed'], 'invoice_voided' => [], 'provider_closed' => [],
+                       'payment_recovered' => [] }.freeze
       class Changed < StandardError; end
 
-      def initialize(account, now:, mode:)
+      def initialize(account, now:, mode:, cancel: nil)
         @account = account
         @now = now
         @mode = mode
+        @cancel = cancel
       end
 
       def self.pending?(account)
@@ -62,7 +70,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def current!
         value = Entitlements.attributes(@account)[KEY]
-        raise Changed unless self.class.valid?(value) && value['binding'] == binding
+        raise Changed unless self.class.valid?(value) && same_binding?(value['binding'])
 
         value
       end
@@ -71,8 +79,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         value = current!
         return value if value['state'] == state
 
-        allowed = { 'prepared' => %w[invoice_voided payment_recovered],
-                    'invoice_voided' => ['provider_closed'], 'provider_closed' => [], 'payment_recovered' => [] }
+        allowed = value['binding'].key?('cancel') ? CANCEL_STEPS : FAILURE_STEPS
         raise Changed unless allowed.fetch(value['state']).include?(state)
 
         save!(value.merge('state' => state, 'observed_at' => @now.to_i))
@@ -80,7 +87,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       private
 
+      # A stored cancel cause is checked against the current account and the shape of
+      # its evidence, so the holds and the Free write verify it without a provider read.
+      def same_binding?(stored)
+        return stored == binding unless stored.key?('cancel')
+
+        PeriodEndCancel.evidence?(stored['cancel']) && stored.except('cancel') == cancel_base
+      end
+
       def binding
+        return cancel_base.merge('cancel' => cancel_evidence) if @cancel
+
         attrs = Entitlements.attributes(@account)
         failure = attrs['toybaco_growth_renewal_failure']
         raise Changed unless failure.is_a?(Hash) && %w[test live].include?(@mode)
@@ -88,6 +105,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         { 'account_id' => @account.id, 'source' => Entitlements.contract_for(@account),
           'subscription_id' => attrs['toybaco_subscription_id'], 'customer_id' => attrs['toybaco_stripe_customer_id'],
           'failure' => failure.slice(*FAILURE_FIELDS), 'mode' => @mode }
+      end
+
+      def cancel_evidence
+        raise Changed unless PeriodEndCancel.evidence?(@cancel)
+
+        @cancel
+      end
+
+      # The saved status is the ended period-end cancellation of an active store
+      # that has no renewal failure: the same account side as the Sync decision.
+      def cancel_base
+        attrs = Entitlements.attributes(@account)
+        raise Changed unless %w[test live].include?(@mode) && @account.active? && !attrs.key?(PeriodEndCancel::FAILURE_KEY) &&
+                             PeriodEndCancel.ended_status?(attrs)
+
+        { 'account_id' => @account.id, 'source' => Entitlements.contract_for(@account),
+          'subscription_id' => attrs['toybaco_subscription_id'], 'customer_id' => attrs['toybaco_stripe_customer_id'], 'mode' => @mode }
       end
 
       def minimal_retention(snapshot)

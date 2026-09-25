@@ -14,7 +14,7 @@ module ToybacoOpeningFixture
     @session_id = "cs_test_opening#{SecureRandom.hex(6)}"
     @email = "opening-#{SecureRandom.hex(6)}@example.invalid"
     @events = []
-    metadata = { 'toybaco_plan' => 'standard', 'toybaco_plan_version' => '2026-09-18.1',
+    metadata = { 'toybaco_plan' => 'standard', 'toybaco_plan_version' => '2026-09-25.1',
                  'toybaco_cycle' => 'month', 'toybaco_reference_price_id' => 'price_standardmonth' }
     @client.sessions[@session_id] = { 'id' => @session_id, 'object' => 'checkout.session', 'metadata' => metadata,
                                     'mode' => 'subscription', 'livemode' => false, 'customer_details' => { 'email' => @email },

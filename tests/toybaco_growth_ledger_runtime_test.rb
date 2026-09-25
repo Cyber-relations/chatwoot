@@ -22,7 +22,7 @@ class ToybacoGrowthLedgerRuntimeTest < ActiveSupport::TestCase
   end
 
   def set_plan(id)
-    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: id == 'free' ? nil : 'month')
     Toybaco::Entitlements.apply!(@account, contract)
   end
@@ -191,7 +191,7 @@ class ToybacoGrowthLedgerConcurrencyTest < ActiveSupport::TestCase
 
   def test_concurrent_post_and_reply_cannot_overspend_one_store
     account = create(:account)
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'))
     now = Time.now.utc
     grant = Toybaco::Growth::AiGrants.new(account).issue!(source: 'included', source_key: SecureRandom.hex(12), units: 1,

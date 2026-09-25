@@ -27,7 +27,8 @@ class Toybaco::ManagedAutoController < Toybaco::AiReplyController
   end
 
   def update
-    result = service.change!(mode: params[:mode], generation: params[:generation], epoch: params[:epoch], request_id: params[:request_id])
+    result = service.change!(mode: params[:mode], generation: params[:generation], epoch: params[:epoch], request_id: params[:request_id],
+                             consent: params[:consent])
     render json: Toybaco::Growth::ManagedAuto.public_state(result)
   end
 

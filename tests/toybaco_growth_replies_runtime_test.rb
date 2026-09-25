@@ -42,7 +42,7 @@ class ToybacoGrowthRepliesRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def set_plan(id)
-    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: id == 'free' ? nil : 'month')
     Toybaco::Entitlements.apply!(@account, contract)
   end

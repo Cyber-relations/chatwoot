@@ -11,7 +11,7 @@ require_relative 'onboarding_inboxes'
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
     class Onboarding
-      VERSION = '2026-09-18.1'
+      VERSION = GrowthTerms::VERSION
       PREFERENCES = 'toybaco_guides'
 
       def initialize(account, user)

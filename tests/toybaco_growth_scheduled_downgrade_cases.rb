@@ -19,7 +19,7 @@ module ToybacoScheduledDowngradeRuntimeCases
   end
 
   def sd_price(plan)
-    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1')
     { 'id' => "price_#{plan}#{@sd_cycle}", 'active' => true, 'livemode' => false, 'currency' => 'jpy',
       'unit_amount' => terms.dig('cycles', @sd_cycle, 'amount'), 'billing_scheme' => 'per_unit', 'tax_behavior' => 'exclusive',
       'metadata' => { 'toybaco_plan' => plan, 'toybaco_plan_version' => terms['plan_version'] },
@@ -34,9 +34,9 @@ module ToybacoScheduledDowngradeRuntimeCases
     @sd_catalog_method = Toybaco::PlanCatalog.method(:default)
     data = @sd_catalog_method.call.data.deep_dup
     %w[light standard pro].each do |plan|
-      data['current_versions'][plan] = '2026-09-18.1'
-      data['plans'][plan]['versions']['2026-09-18.1']['sellable'] = true
-      data['plan_changes']['eligible_versions'][plan] = '2026-09-18.1'
+      data['current_versions'][plan] = '2026-09-25.1'
+      data['plans'][plan]['versions']['2026-09-25.1']['sellable'] = true
+      data['plan_changes']['eligible_versions'][plan] = '2026-09-25.1'
     end
     catalog = Toybaco::PlanCatalog.new(data)
     Toybaco::PlanCatalog.define_singleton_method(:default) { catalog }
@@ -44,7 +44,7 @@ module ToybacoScheduledDowngradeRuntimeCases
     attrs = @account.reload.internal_attributes
     @n3_subscription_id = attrs['toybaco_subscription_id']; @n3_customer_id = attrs['toybaco_stripe_customer_id']
     @n3_nonce = attrs.dig(SD::PurchaseIntent::KEY, 'nonce')
-    source = Toybaco::Entitlements.snapshot_for(catalog.definition('pro', '2026-09-18.1'), cycle: cycle)
+    source = Toybaco::Entitlements.snapshot_for(catalog.definition('pro', '2026-09-25.1'), cycle: cycle)
                                 .merge('stripe_price_id' => "price_pro#{cycle}", 'subscription_item_id' => 'si_fixture')
     @n3_contract = source
     coverage = attrs.fetch(SD::PaidPeriod::KEY).merge(source.slice('plan_id', 'plan_version', 'cycle', 'stripe_price_id'))
@@ -61,8 +61,8 @@ module ToybacoScheduledDowngradeRuntimeCases
     old_sub['items']['data'][0]['price'] = sd_price('pro')
     @sd_price = sd_price('light')
     service = Toybaco::Checkout::PlanChange.new(account: @account, client: Object.new, catalog: catalog, clock: -> { n3_now })
-    selection = { 'plan_id' => 'light', 'plan_version' => '2026-09-18.1', 'cycle' => cycle }
-    quote = service.send(:build_quote, old_sub, selection, @owner.id, catalog.definition('light', '2026-09-18.1'), @sd_price)
+    selection = { 'plan_id' => 'light', 'plan_version' => '2026-09-25.1', 'cycle' => cycle }
+    quote = service.send(:build_quote, old_sub, selection, @owner.id, catalog.definition('light', '2026-09-25.1'), @sd_price)
     first = { 'start_date' => @n3_previous_start, 'end_date' => @n3_boundary, 'items' => [{ 'price' => "price_pro#{cycle}", 'quantity' => 1 }] }
     @sd_schedule = { 'id' => 'sub_sched_fixture', 'subscription' => @n3_subscription_id, 'status' => 'active',
       'metadata' => {}, 'end_behavior' => 'release', 'phases' => [first] }
@@ -71,7 +71,7 @@ module ToybacoScheduledDowngradeRuntimeCases
     @sd_schedule.merge!(receipt['configuration'].except('proration_behavior'))
     receipt['schedule_fingerprint'] = service.send(:schedule_fingerprint, @sd_schedule)
     n3_mutate('toybaco_plan_change' => receipt, 'toybaco_subscription_status' => 'past_due')
-    @sd_target = Toybaco::Entitlements.snapshot_for(catalog.definition('light', '2026-09-18.1'), cycle: cycle)
+    @sd_target = Toybaco::Entitlements.snapshot_for(catalog.definition('light', '2026-09-25.1'), cycle: cycle)
                                     .merge('stripe_price_id' => @sd_price['id'], 'subscription_item_id' => 'si_fixture')
     @n3_contract = @sd_target
     n3_time(@n3_boundary + 3600)

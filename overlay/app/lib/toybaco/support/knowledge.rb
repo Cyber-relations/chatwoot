@@ -4,7 +4,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Support
     # Only shipped procedures belong here. Product plans are not support sources.
     module Knowledge
-      VERSION = '2026-09-19.2'
+      VERSION = '2026-09-25.1'
       ARTICLES = {
         'first_steps' => ['使い始める', '最初に使う窓口を接続し、お店情報を確認します。初回案内から続けられます。', 'start', 'growth'],
         'connection' => ['窓口を接続する', '「受信箱」で接続する媒体を選びます。接続設定は店舗の管理者が行います。', 'inboxes', 'administrator'],
@@ -17,6 +17,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         'ai' => ['AIの下書き', '返信欄のAIから下書きを作れます。内容を確認して採用し、送信はご自身で行ってください。', 'conversations', 'drafts'],
         'staff' => ['スタッフを追加する', '「スタッフ」で利用者を招待します。料金や追加できる人数は現在の契約内容で確認してください。', 'staff', 'administrator'],
         'billing' => ['契約・お支払い', '現在の契約と利用条件は「契約・お支払い」で確認できます。変更操作は契約者が管理者権限で行います。', 'billing', 'billing'],
+        'cancel' => ['契約を解約する', '「ご契約内容」の「解約する」を選び、確認の画面でもう一度「解約する」を選びます。現在の契約期間末まで利用でき、期間途中の日割り返金はありません。',
+                     'billing', 'billing'],
+        'refund' => ['返金・請求の訂正', '二重決済や誤った請求に気づいたときは、support@toybaco.jp へご連絡ください。確認のうえ訂正します。期間途中の解約、使わなかった月のAI枠、AI追加パックは返金しません。',
+                     nil, 'billing'],
+        'pack' => ['AI追加パックを購入する', '「ご契約内容」の「AI追加パック・残り回数を確認」から購入します。購入できるかどうかは画面の表示に従ってください。決済成功から90日間有効で、自動購入はありません。',
+                   'billing', 'billing'],
+        'data_request' => ['データの削除を依頼する', '店舗のデータや個人情報の削除のご依頼は、トイバコのプライバシーポリシーに記載の窓口で受け付けます。', nil, 'member'],
         'login' => ['ログインできない', 'ログイン画面からパスワードを再設定できます。確認メールが見つからない場合は迷惑メールも確認してください。', nil, 'member'],
         'private_note' => ['お店の中だけでメモを残す', '返信欄を「プライベートメモ」に切り替えて記録します。お客様への返信に戻すときは、送信前に入力欄の種類を確認してください。', 'conversations', 'active_member'],
         'resolve' => ['対応が終わった会話', '対応が終わったら、会話を解決済みにします。会話の削除とは別の操作です。', 'conversations', 'active_member'],

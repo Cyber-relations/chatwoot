@@ -148,7 +148,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <% end %>
     <p class="note">AI の表示はご契約上の利用枠です。応答の設定・稼働状況は受信箱でご確認ください。</p>
     <% unless growth %>
-    <p class="note">オプションの追加・変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へどうぞ(<a href="https://toybaco.jp/" target="_blank" rel="noopener">toybaco.jp</a> 右下のチャットでも受け付けています)。1営業日以内に反映します。</p>
+    <p class="note">オプションの追加・変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へどうぞ(<a href="https://toybaco.jp/" target="_blank" rel="noopener">toybaco.jp</a> 右下のチャットでも受け付けています)。担当者が確認してご連絡します(平日10〜18時)。</p>
     <% end %>
   </div>
 
@@ -175,6 +175,31 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
   </section>
   <% end %>
 
+  <% if @storage %>
+    <% storage_format = Toybaco::Growth::StorageUsage %>
+    <% storage_limit = storage_format.decimal(@storage['limit_bytes'], storage_format::GB) %>
+    <section class="card" aria-labelledby="storage-heading">
+      <h2 class="change-title" id="storage-heading">保存容量と保存期間</h2>
+      <% if @storage['reason'] == 'unavailable' %>
+        <div class="row"><span>保存容量</span><span>上限 <%= storage_limit %> GB</span></div>
+        <p class="note" role="status">使用量を取得できません。時間をおいて再度お試しください。</p>
+      <% else %>
+        <div class="row"><span>保存容量</span><span>使用中 <%= storage_format.used_gigabytes(@storage['used_bytes']) %> GB / 上限 <%= storage_limit %> GB</span></div>
+        <% if @storage['level'] == 'warn80' %>
+          <p class="note"><span class="badge off">上限の 80% に達しています</span> <%= @contract['plan_id'] == 'pro' ? '不要な添付の削除で容量を確保できます。' : '不要な添付の削除や上位プランで容量を確保できます。' %></p>
+        <% elsif @storage['level'] == 'full' %>
+          <p class="note"><span class="badge off">上限に達しています</span> 現在は追加の受け入れを止めていません。整理はサポート（<a href="mailto:support@toybaco.jp">support@toybaco.jp</a>）へご相談ください。</p>
+        <% end %>
+      <% end %>
+      <% if @storage['history_months'] %>
+        <div class="row"><span>会話・送信履歴・公開済み投稿本文</span><span>直近 <%= @storage['history_months'] %> か月保存</span></div>
+      <% end %>
+      <% if @storage['inbound_attachment_bytes'] && @storage['posting_file_bytes'] %>
+        <div class="row"><span>1 ファイル上限</span><span>受信添付 <%= storage_format.decimal(@storage['inbound_attachment_bytes'], storage_format::MB) %>MB・投稿素材 <%= storage_format.decimal(@storage['posting_file_bytes'], storage_format::MB) %>MB</span></div>
+      <% end %>
+      <p class="note">使用量は会話の添付ファイル（受信・送信）の合計です。投稿素材は現在計上していません。1 ファイル上限は、接続先の上限が小さい場合はそちらが適用されます。</p>
+    </section>
+  <% end %>
   <% if growth && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
     <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %>">接続と予約を確認</a></p></section>
   <% end %>
@@ -203,12 +228,18 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <p class="lp-line">解約は、管理画面から2クリックで手続きできます。</p>
     <button type="button" class="btn btn-navy" id="cancel-open">解約する</button>
     <p class="err" id="cancel-err">解約できませんでした。時間をおいて再度お試しください。</p>
+    <%# 期間末に無料プランへ移るのは新料金版の契約だけ。旧版の契約には従来の案内を出す。 %>
+    <p class="note" id="cancel-done-message" hidden><%= growth ? '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' : 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' %></p>
   </div>
   <div class="dlg-back" id="cancel-dialog" hidden>
     <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
       <p class="dlg-title" id="cancel-title">この契約を解約しますか？</p>
       <p class="dlg-body" id="cancel-reservation-note" hidden>変更予約を取り消し、現在の契約期間末で解約します。</p>
+      <% if growth %>
+      <p class="dlg-body">解約すると次回の更新を停止します。現在の契約期間末までは現在のプランを使えます。現在の契約期間末に無料プランへ移り、会話・原稿・スタッフはそのまま残ります。無料プランの上限を超える接続は停止し、予約投稿は保留します（削除はしません）。期間途中の日割り返金はありません。</p>
+      <% else %>
       <p class="dlg-body">お申し出以降、次回分の請求は発生しません。日割りの返金はありません。</p>
+      <% end %>
       <div class="dlg-actions">
         <button type="button" class="btn btn-back" id="cancel-back">戻る</button>
         <button type="button" class="btn btn-navy" id="cancel-confirm">解約する</button>
@@ -258,8 +289,9 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
   var confirmBtn = document.getElementById('cancel-confirm');
   var err = document.getElementById('cancel-err');
   var reservationNote = document.getElementById('cancel-reservation-note');
+  var doneMessage = document.getElementById('cancel-done-message');
   var reservationToken = null;
-  if (!openBtn || !dialog || !backBtn || !confirmBtn) return;
+  if (!openBtn || !dialog || !backBtn || !confirmBtn || !doneMessage) return;
   function currentReservationToken() {
     try {
       var stateElement = document.getElementById('plan-change-state');
@@ -304,7 +336,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
           var done = document.createElement('p');
           done.id = 'cancel-done';
           done.className = 'note';
-          done.textContent = 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。';
+          done.textContent = doneMessage.textContent;
           openBtn.parentNode.appendChild(done);
         }
       })
