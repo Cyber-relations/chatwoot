@@ -2,6 +2,7 @@
 
 require_relative '../entitlements'
 require_relative '../ai_reply_mode'
+require_relative '../legal_terms'
 require_relative 'free_period'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
@@ -60,11 +61,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         terms = @catalog.definition('free', version)
         contract = Entitlements.snapshot_for(terms, cycle: nil, catalog: @catalog)
         Entitlements.apply!(account, contract, catalog: @catalog)
+        # terms_version は従来どおり無料プランのカタログ版。利用規約の版は legal_terms_version に分けて残す。
         state = { 'phase' => 'email_pending', 'version' => version, 'owner_id' => user.id,
-                  'registered_at' => @now.iso8601, 'terms_version' => version }
+                  'registered_at' => @now.iso8601, 'terms_version' => version,
+                  'legal_terms_version' => LegalTerms::VERSION, 'terms_accepted_at' => @now.iso8601 }
         updates = { KEY => state, OWNER_KEY => user.id, AiReplyMode::ATTR => AiReplyMode::DRAFT }
         account.update!(status: 'suspended', internal_attributes: Entitlements.attributes(account).merge(updates),
                         custom_attributes: (account.custom_attributes || {}).merge('onboarding_step' => nil))
+        LegalTerms.record!(account, route: 'free_registration', accepted_at: @now, user_id: user.id)
         activate!(user, account) if user.confirmed?
       end
 

@@ -23,7 +23,7 @@ class ToybacoGrowthTrialCompensationRuntimeTest < ActiveSupport::TestCase
     @account = create(:account)
     @owner = create(:user, :administrator, account: @account)
     @account.update!(internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => @owner.id })
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     @trial = Toybaco::GrowthTrial.create!(account_id: @account.id, facts_revision: 'a' * 64, example_id: 1,
                                          starts_at: START, ends_at: START + 14.days)

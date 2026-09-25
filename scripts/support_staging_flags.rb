@@ -10,7 +10,7 @@ module ToybacoSupportStagingFlags
 
   def self.apply!(enabled:, environment: ENV)
     raise Invalid unless environment['TOYBACO_DEPLOYMENT_ENVIRONMENT'] == 'staging' && [true, false].include?(enabled)
-    raise Invalid unless Toybaco::Support::Knowledge::VERSION == '2026-09-19.2'
+    raise Invalid unless Toybaco::Support::Knowledge::VERSION == '2026-09-25.1'
 
     InstallationConfig.transaction do
       InstallationConfig.connection.execute("SELECT pg_advisory_xact_lock(#{LOCK})")

@@ -73,7 +73,7 @@ class ToybacoHandoffMailRuntimeTest < ActionDispatch::IntegrationTest
     @account = create(:account)
     @owner = create(:user, :administrator, account: @account)
     @helper = create(:user, email: "mail-recipient-#{SecureRandom.uuid}@example.test")
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     @nonce = SecureRandom.hex(32)
     @gateway = Gateway.new('gmail')

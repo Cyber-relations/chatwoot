@@ -27,7 +27,7 @@ class ToybacoGrowthAnnualRenewalRuntimeTest < ActiveSupport::TestCase
     ENV['MAILER_SENDER_EMAIL'] = 'Toybaco <notice@example.invalid>'
     @account = create(:account)
     @owner = create(:user, :administrator, account: @account)
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'year').merge('stripe_price_id' => 'price_annual', 'subscription_item_id' => 'si_annual')
     Toybaco::Entitlements.apply!(@account, contract, subscription_id: 'sub_annual')
     starts = (ENDS - 1.year).to_i

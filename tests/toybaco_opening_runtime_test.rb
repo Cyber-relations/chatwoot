@@ -51,6 +51,35 @@ class ToybacoOpeningRuntimeTest < Minitest::Test
     refute ActiveJob::Base.queue_adapter.enqueued_jobs.any? { |job| job[:job].name.include?('MailDelivery') }
   end
 
+  def test_opening_records_the_terms_version_consent_time_session_and_stripe_consent_once
+    session = @client.sessions[@session_id]
+    session['metadata'].merge!('toybaco_terms_version' => Toybaco::LegalTerms::VERSION, 'toybaco_terms_accepted_at' => '2026-09-24T11:58:00Z')
+    session['consent'] = { 'terms_of_service' => 'accepted' }
+    row = accept
+    assert_equal 'opening_account_ready', fulfill(row)
+    saved = opening_request(row)
+    account = Account.find(saved.account_id)
+    expected = [{ 'route' => 'opening_checkout', 'terms_version' => Toybaco::LegalTerms::VERSION, 'accepted_at' => '2026-09-24T11:58:00Z',
+                  'user_id' => saved.owner_id, 'session_id' => @session_id, 'stripe_consent' => 'accepted' }]
+    assert_equal expected, account.internal_attributes[Toybaco::LegalTerms::KEY]
+    assert_equal 'opening_account_ready', fulfill(accept)
+    assert_equal expected, account.reload.internal_attributes[Toybaco::LegalTerms::KEY]
+  end
+
+  def test_session_created_before_in_app_consent_opens_without_inventing_a_consent_record
+    row = accept
+    assert_equal 'opening_account_ready', fulfill(row)
+    assert_nil Account.find(opening_request(row).account_id).internal_attributes[Toybaco::LegalTerms::KEY]
+  end
+
+  def test_malformed_consent_metadata_does_not_open_a_store
+    @client.sessions[@session_id]['metadata'].merge!('toybaco_terms_version' => 'unknown', 'toybaco_terms_accepted_at' => 'yesterday')
+    row = accept
+    assert_raises(ArgumentError) { fulfill(row) }
+    assert_nil opening_request(row).account_id
+    refute User.exists?(email: @email)
+  end
+
   def test_failure_after_store_insert_rolls_back_user_store_grants_and_request_binding
     row = accept
     request = Growth::OpeningReceipt.bind!(row)

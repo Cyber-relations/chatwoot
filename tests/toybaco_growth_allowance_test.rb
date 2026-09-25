@@ -5,11 +5,15 @@ require_relative '../overlay/app/lib/toybaco/growth/monthly_window'
 require_relative '../overlay/app/lib/toybaco/growth/allowance'
 require_relative '../overlay/app/lib/toybaco/plan_catalog'
 require_relative '../overlay/app/lib/toybaco/entitlements'
+require_relative '../overlay/app/lib/toybaco/growth/onboarding'
+require_relative '../overlay/app/lib/toybaco/growth/pack_catalog'
+require_relative '../overlay/app/lib/toybaco/growth/purchase_intent'
+require_relative '../overlay/app/lib/toybaco/growth/retention_snapshot'
 
 class ToybacoGrowthAllowanceTest < Minitest::Test
   Window = Toybaco::Growth::MonthlyWindow
   Allowance = Toybaco::Growth::Allowance
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
 
   def window(anchor, now, ends_at: nil)
     Window.new(anchor: Time.iso8601(anchor), now: Time.iso8601(now), ends_at: ends_at && Time.iso8601(ends_at)).current
@@ -60,7 +64,7 @@ class ToybacoGrowthAllowanceTest < Minitest::Test
   def test_candidate_terms_do_not_change_current_sales_or_old_contracts
     catalog = Toybaco::PlanCatalog.default
     assert_equal [9800, 29800, 44800], catalog.sales.map { |plan| plan.dig('cycles', 'month', 'amount') }
-    assert_equal [7980, 19800, 34800], %w[light standard pro].map { |id| catalog.definition(id, VERSION).dig('cycles', 'month', 'amount') }
+    assert_equal [9800, 19800, 29800], %w[light standard pro].map { |id| catalog.definition(id, VERSION).dig('cycles', 'month', 'amount') }
     %w[free light standard pro].each do |id|
       terms = catalog.definition(id, VERSION)
       refute terms['sellable']
@@ -69,6 +73,29 @@ class ToybacoGrowthAllowanceTest < Minitest::Test
       assert_raises(Toybaco::PlanCatalog::Invalid) { catalog.sale(id, 'month', version: VERSION) }
     end
     assert_equal 3, catalog.definition('light', '2026-09-06.1').dig('entitlements', 'limits', 'agents')
+  end
+
+  def test_application_pins_one_growth_version_whose_sales_stay_closed
+    assert_equal '2026-09-25.1', Toybaco::GrowthTerms::VERSION
+    pinned = [Toybaco::Growth::Onboarding, Toybaco::Growth::PackCatalog, Toybaco::Growth::PurchaseIntent, Toybaco::Growth::RetentionSnapshot]
+    assert_equal [VERSION] * pinned.length, pinned.map { |owner| owner::VERSION }
+    catalog = Toybaco::PlanCatalog.default
+    candidate = catalog.data.fetch('release_candidates').fetch(VERSION)
+    assert_equal %w[free light standard pro].to_h { |id| [id, VERSION] }, candidate.fetch('versions')
+    %w[free light standard pro].each do |id|
+      assert_equal false, catalog.definition(id, VERSION)['sellable'], id
+      %w[month year].each { |cycle| assert_raises(Toybaco::PlanCatalog::Invalid) { catalog.sale(id, cycle, version: VERSION) } }
+    end
+    assert_equal false, candidate.fetch('ai_pack')['sellable']
+    refute_includes catalog.data.fetch('current_versions').values, VERSION
+    refute catalog.data.key?('free_registration_version')
+  end
+
+  def test_lp_candidate_is_the_version_the_application_pins
+    lp_path = File.expand_path('../scripts/lp_pricing_candidate.py', __dir__)
+    skip 'LP 候補 script はこの品質スナップショットに含まれない' unless File.file?(lp_path)
+
+    assert_equal [[Toybaco::GrowthTerms::VERSION]], File.read(lp_path).scan(/^VERSION = '([^']+)'$/)
   end
 
   def test_free_has_no_stripe_subscription_and_upgrades_add_automation_or_volume

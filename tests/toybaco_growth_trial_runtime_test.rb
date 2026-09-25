@@ -44,7 +44,7 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def set_plan(id)
-    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: id == 'free' ? nil : 'month'))
   end
 
@@ -85,6 +85,9 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal 1, Toybaco::GrowthTrial.where(account_id: @account.id).count
     assert_equal 'auto', Toybaco::AiReplyMode.read_from(@account.reload)
     assert_nil @account.internal_attributes['toybaco_subscription_id']
+    assert_equal [{ 'route' => 'trial', 'terms_version' => Toybaco::LegalTerms::VERSION, 'accepted_at' => NOW.iso8601,
+                    'user_id' => @owner.id, 'session_id' => nil, 'stripe_consent' => nil }],
+                 Toybaco::LegalTerms.records(@account), 'the already started trial does not add a second consent'
   end
 
   def test_explicit_confirmation_owner_and_current_example_are_required
@@ -95,6 +98,7 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
     Growth::StoreFacts.new(@account).save!({ 'name' => '変更した店舗' }, user: @owner)
     assert_raises(Growth::TrialStart::Unavailable) { start! }
     assert_empty Toybaco::GrowthTrial.where(account_id: @account.id)
+    assert_empty Toybaco::LegalTerms.records(@account.reload), 'a refused start records no consent'
   end
 
   def test_changed_latest_question_invalidates_the_answer_example
@@ -194,6 +198,10 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
         get '/toybaco/growth/trial', params: { account_id: @account.id }
         assert_response :success
         assert_includes response.body, '10時から18時までです。'
+        assert_includes response.body, 'Amazon Bedrock（東京・大阪）'
+        assert_includes response.body, '受信箱の「AI応答」からいつでも停止できます。'
+        assert_includes response.body, '上記と利用規約第7条の2を確認し、自動応答の体験を開始します'
+        refute_includes response.body, 'この画面からいつでも停止できます', 'the trial page itself has no stop control'
         assert_empty Toybaco::GrowthTrial.where(account_id: @account.id)
         post '/toybaco/growth/trial', params: input, headers: { 'Origin' => 'https://elsewhere.test' }, as: :json
         assert_response :forbidden

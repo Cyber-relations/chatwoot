@@ -11,7 +11,7 @@ class ToybacoFreeRegistrationRuntimeTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
   self.use_transactional_tests = true
   Registration = Toybaco::Growth::FreeRegistration
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
 
   def setup
     @previous_adapter = ActiveJob::Base.queue_adapter
@@ -86,6 +86,23 @@ class ToybacoFreeRegistrationRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal 'free', attrs.dig('toybaco_contract', 'plan_id')
     assert_equal user.id, attrs['toybaco_billing_owner_user_id']
     assert_equal 'draft', attrs['toybaco_ai_reply_mode']
+  end
+
+  def test_registration_keeps_the_catalog_version_and_records_the_accepted_terms_version
+    user, account = register
+    state = Toybaco::Entitlements.attributes(account)[Registration::KEY]
+    assert_equal VERSION, state['terms_version'], 'terms_version remains the free plan catalog version'
+    assert_equal Toybaco::LegalTerms::VERSION, state['legal_terms_version']
+    assert_equal state['registered_at'], state['terms_accepted_at']
+    records = Toybaco::LegalTerms.records(account)
+    assert_equal [{ 'route' => 'free_registration', 'terms_version' => Toybaco::LegalTerms::VERSION, 'accepted_at' => state['registered_at'],
+                    'user_id' => user.id, 'session_id' => nil, 'stripe_consent' => nil }], records
+    Toybaco::PlanCatalog.stub(:default, @catalog) do
+      assert user.confirm
+      Registration.new.activate!(user.reload, account.reload)
+    end
+    assert account.reload.active?
+    assert_equal records, Toybaco::LegalTerms.records(account), 'email confirmation does not add or rewrite the consent'
   end
 
   def test_email_confirmation_activates_the_same_store_and_grants_twenty_once

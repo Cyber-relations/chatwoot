@@ -20,7 +20,7 @@ class ToybacoRenewalIngressRuntimeTest < Minitest::Test
     travel_to NOW
     suffix = SecureRandom.hex(8)
     @sub, @invoice, @customer = "sub_#{suffix}", "in_#{suffix}", "cus_#{suffix}"
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_renewal', 'subscription_item_id' => 'si_renewal')
     @account = Account.create!(name: 'Renewal fixture', locale: 'ja', internal_attributes: {
       'toybaco_contract' => contract, 'toybaco_subscription_id' => @sub, 'toybaco_stripe_customer_id' => @customer

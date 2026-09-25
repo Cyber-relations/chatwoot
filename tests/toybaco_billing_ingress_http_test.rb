@@ -12,7 +12,7 @@ FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 class ToybacoBillingIngressHttpTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
   self.use_transactional_tests = false
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
   SECRET = 'whsec_fixture12345678901234567890'
   NOW = Time.utc(2026, 9, 24, 8)
   SETTINGS = { 'TOYBACO_OPENING_INGRESS_ENABLED' => 'false', 'TOYBACO_BILLING_INGRESS_ENABLED' => 'true', 'TOYBACO_STRIPE_MODE' => 'test',

@@ -12,7 +12,14 @@ class ChatwootBillingCancelTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
   CANCEL_COPY = '解約は、管理画面から2クリックで手続きできます。'
   CONFIRM_TITLE = 'この契約を解約しますか？'
+  # 旧版の契約(期間末に無料プランへ移らない)の確認文と完了文。
   CONFIRM_BODY = 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。'
+  # 新料金版の契約。終了日は解約 API の応答に無いため、日付を作らず「現在の契約期間末」と書く。
+  FREE_PLAN_CONFIRM_BODY = '解約すると次回の更新を停止します。現在の契約期間末までは現在のプランを使えます。' \
+                           '現在の契約期間末に無料プランへ移り、会話・原稿・スタッフはそのまま残ります。' \
+                           '無料プランの上限を超える接続は停止し、予約投稿は保留します（削除はしません）。期間途中の日割り返金はありません。'
+  FREE_PLAN_DONE = '解約を受け付けました。現在の契約期間末に無料プランへ移ります。'
+  SUPPORT_REPLY = '担当者が確認してご連絡します(平日10〜18時)。'
 
   def view
     @view ||= File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/billing/show.html.erb'))
@@ -48,12 +55,43 @@ class ChatwootBillingCancelTest < Minitest::Test
     refute_includes view, 'やめる'
   end
 
-  def test_cancel_copy_is_cycle_independent_and_confirmation_is_unchanged
+  def test_cancel_copy_is_cycle_independent_and_confirmation_matches_the_contract
     assert_includes view, CANCEL_COPY
     assert_includes view, CONFIRM_TITLE
     assert_includes view, CONFIRM_BODY
+    assert_includes view, FREE_PLAN_CONFIRM_BODY
+    assert_includes view, FREE_PLAN_DONE
+    assert_includes view, SUPPORT_REPLY
+    refute_includes view, '1営業日以内に反映します'
     refute_includes view, '管理画面から2クリックです'
     refute_includes view, '契約の縛りなし —'
+    refute_match(/\[(?:要確認|弁護士確認)/, view)
+  end
+
+  def render_with_cancel_box(contract)
+    context = Object.new
+    { :@account => Struct.new(:name, :id).new('店舗', 5), :@plan => { name: '保存済み契約' }, :@admin => false,
+      :@portal_ready => true, :@contract => contract,
+      :@billing => { status: 'active', status_label: '利用中', cancel_at_period_end: false, items: [], invoice: nil } }
+      .each { |name, value| context.instance_variable_set(name, value) }
+    context.define_singleton_method(:number_with_delimiter) { |amount| amount.to_s }
+    ERB.new(view).result(context.instance_eval { binding })
+  end
+
+  def test_cancel_dialog_names_the_free_plan_only_for_contracts_that_return_to_it
+    growth = { 'plan_id' => 'standard', 'entitlements' => { 'ai_meter' => Toybaco::GrowthTerms::METER,
+                                                            'features' => { 'ai_reply' => true, 'ai_auto_reply' => true },
+                                                            'limits' => { 'ai_generations' => 500 } } }
+    rendered = render_with_cancel_box(growth)
+    assert_includes rendered, FREE_PLAN_CONFIRM_BODY
+    assert_includes rendered, "id=\"cancel-done-message\" hidden>#{FREE_PLAN_DONE}</p>"
+    refute_includes rendered, CONFIRM_BODY
+
+    legacy = { 'entitlements' => { 'features' => { 'ai_reply' => false }, 'limits' => { 'ai_replies' => 0 } } }
+    rendered = render_with_cancel_box(legacy)
+    assert_includes rendered, "<p class=\"dlg-body\">#{CONFIRM_BODY}</p>"
+    assert_includes rendered, "id=\"cancel-done-message\" hidden>#{CONFIRM_BODY}</p>"
+    refute_includes rendered, '無料プラン'
   end
 
   def test_cancel_is_not_mixed_with_payment_methods

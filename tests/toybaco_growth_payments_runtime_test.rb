@@ -31,9 +31,9 @@ class ToybacoGrowthPaymentsRuntimeTest < ActionDispatch::IntegrationTest
     @owner = create(:user, :administrator, account: @account)
     @account.update!(internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => @owner.id, 'toybaco_stripe_customer_id' => 'cus_packstore' })
     data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
-    data['release_candidates']['2026-09-18.1']['ai_pack']['sellable'] = true
+    data['release_candidates']['2026-09-25.1']['ai_pack']['sellable'] = true
     catalog = Toybaco::PlanCatalog.new(data)
-    terms = catalog.definition('standard', '2026-09-18.1')
+    terms = catalog.definition('standard', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'))
     @client = ToybacoGrowthPackStripeFixture.new
     Toybaco::PlanCatalog.stub(:default, catalog) do

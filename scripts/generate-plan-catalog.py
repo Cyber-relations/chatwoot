@@ -68,8 +68,16 @@ def link(plan, cycle, signup=False, root_page=False):
     return base + '?' + urlencode({'plan': plan['plan_id'], 'cycle': cycle, 'version': plan['version']})
 
 
+def growth_terms(plan):
+    # Growth versions meter shared business generations (GrowthTerms::LIMITS), not replies.
+    return 'ai_generations' in plan['entitlements']['limits']
+
+
 def ai_count(plan):
-    limit = plan['entitlements']['limits']['ai_replies']
+    limits = plan['entitlements']['limits']
+    if growth_terms(plan):
+        return f"月{limits['ai_generations']:,}回"
+    limit = limits['ai_replies']
     return '件数無制限' if limit is None else f'月{limit:,}件'
 
 
@@ -340,7 +348,12 @@ def knowledge(data):
             price += '、年一括' + yen(plan['cycles']['year']['amount'])
         terms = ('利用人数無制限' if agents is None else f'利用{agents:,}名まで')
         terms += '、SNS投稿' + ('あり' if ent['features']['posting'] else 'なし')
-        terms += '、AI応答' + (ai_count(plan) if ent['features']['ai_reply'] else 'なし')
+        if growth_terms(plan):
+            # Provisional wording until the owner approves the bot copy for growth plans.
+            terms += '、AI生成' + (' ' + ai_count(plan) if ent['features']['ai_reply'] else 'なし')
+            terms += '、AI自動返信' + ('あり' if ent['features']['ai_auto_reply'] else 'なし')
+        else:
+            terms += '、AI応答' + (ai_count(plan) if ent['features']['ai_reply'] else 'なし')
         url = 'https://toybaco.jp/' + link(plan, 'month', signup=True, root_page=True)
         lines.append(plan['name'] + ': ' + price + '。' + terms + '。申込: ' + url)
     lines.append('プラン変更: ' + change_policy_text(data) + billing_copy(data)['change_scope'])
@@ -365,7 +378,7 @@ def generate(root=ROOT, check=False, scope='all'):
     sales(data)
     outputs = {root / 'overlay/app/config/toybaco-plans.json': raw}
     if scope == 'all':
-        pricing_candidate = any(marker in (root / 'site/index.html').read_text() for marker in ('<!-- toybaco-lp-pricing:2026-09-18.1 -->', '<!-- toybaco-lp-announcement:2026-09-18.1 -->'))
+        pricing_candidate = re.search(r'<!-- toybaco-lp-(?:pricing|announcement):\d{4}-\d{2}-\d{2}\.\d+ -->', (root / 'site/index.html').read_text()) is not None
         if pricing_candidate:
             candidate = candidate_module()
             for name, content in candidate.rendered_files(root, candidate.VERSION, preview=False).items():

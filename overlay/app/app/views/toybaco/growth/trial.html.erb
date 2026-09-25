@@ -35,7 +35,18 @@
         <label class="trial-example"><input type="radio" name="example_id" value="<%= example['id'] %>" <%= 'checked' if index.zero? %>><span><small><%= example['inbox_name'] %></small><span class="trial-answer"><%= example['content'] %></span></span></label>
       <% end %>
       </fieldset>
-      <label class="trial-confirm"><input id="trial-confirm" type="checkbox" required>店舗情報と回答例を確認しました</label>
+      <section aria-labelledby="trial-terms-heading">
+        <h3 id="trial-terms-heading">自動応答を始める前にご確認ください</h3>
+        <ul>
+          <li>対象の窓口に届いたメッセージ本文、同じ会話の過去のやり取り、店舗情報・回答方針を AWS の Amazon Bedrock（東京・大阪）へ送って返信を作ります。本文中の個人情報も処理されます。</li>
+          <li>返信は担当者の確認なしにお客様へ送られ、誤った内容を含むことがあります。</li>
+          <li>会話を AI の学習に使いません。</li>
+          <li>返信には AI の応答であることを表示し、お客様はいつでも担当者への切替えを求められます。</li>
+          <li>受信箱の「AI応答」からいつでも停止できます。</li>
+        </ul>
+        <p class="note"><a href="<%= Toybaco::LegalTerms::TERMS_URL %>" target="_blank" rel="noopener">利用規約を開く</a></p>
+      </section>
+      <label class="trial-confirm"><input id="trial-confirm" type="checkbox" required>上記と利用規約第7条の2を確認し、自動応答の体験を開始します</label>
       <button id="trial-start" type="submit" disabled>自動応答の体験を開始する</button>
       <p class="note">開始すると、接続済みの対象受信箱でAIが返信します。期間・回数の早い方で終了し、自動課金はありません。</p>
     </form>

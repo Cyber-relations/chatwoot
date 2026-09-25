@@ -19,7 +19,7 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
     ActiveJob::Base.queue_adapter = :test
     @account = create(:account)
     @user = create(:user, :administrator, account: @account)
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
   end
 
@@ -239,19 +239,33 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
       %w[conversation_search conversation_assign conversation_snooze conversation_reopen conversation_labels canned_reply mail_recipients].each do |id|
         assert_includes ids, id
       end
-      %w[connection line gmail microsoft facts staff billing inbox_access line_credentials].each { |id| refute_includes ids, id }
+      %w[connection line gmail microsoft facts staff billing inbox_access line_credentials cancel refund pack].each { |id| refute_includes ids, id }
+      assert_includes ids, 'data_request'
     end
   end
 
   def test_billing_guide_requires_actual_contract_owner
     authenticated do
       read_support
-      refute_includes ids, 'billing'
+      %w[billing cancel refund pack].each { |id| refute_includes ids, id }
       attrs = @account.reload.internal_attributes.merge('toybaco_billing_owner_user_id' => @user.id)
       @account.update!(internal_attributes: attrs)
       read_support
-      assert_includes ids, 'billing'
+      %w[billing cancel refund pack data_request].each { |id| assert_includes ids, id }
     end
+  end
+
+  def test_knowledge_version_and_contract_guides_follow_the_shipped_procedures
+    assert_equal '2026-09-25.1', Toybaco::Support::Knowledge::VERSION
+    articles = Toybaco::Support::Knowledge::ARTICLES
+    assert_equal 38, articles.size
+    assert_equal %w[billing billing billing], %w[cancel refund pack].map { |id| articles.fetch(id).last }
+    assert_equal 'member', articles.fetch('data_request').last
+    assert_includes articles.fetch('cancel')[1], '日割り返金はありません'
+    refute_includes articles.fetch('cancel')[1], '無料プラン', 'the period-end Free transition is not a shipped procedure yet'
+    assert_includes articles.fetch('pack')[1], '90日間'
+    assert_includes articles.fetch('refund')[1], '二重決済'
+    articles.each_value { |_title, answer| refute_match(/休止|\[要確認|\[弁護士確認/, answer) }
   end
 
   def test_suspended_store_still_has_help_without_offering_inactive_operations

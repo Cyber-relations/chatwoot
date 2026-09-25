@@ -35,7 +35,7 @@ module Toybaco::Growth::ManagedAuto
   end
 
   def supported_contract?(contract)
-    contract && contract['plan_version'] == '2026-09-18.1' && %w[standard pro].include?(contract['plan_id'])
+    contract && contract['plan_version'] == Toybaco::GrowthTerms::VERSION && %w[standard pro].include?(contract['plan_id'])
   end
 
   def registration_available?(account)

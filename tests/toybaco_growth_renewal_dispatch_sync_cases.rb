@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'timeout'
 require Rails.root.join('lib/toybaco/growth/billing_execution')
 require Rails.root.join('lib/toybaco/growth/renewal_dispatch_execution')
 require Rails.root.join('lib/toybaco/subscription_reconciliation/execution')
@@ -1177,5 +1178,154 @@ module ToybacoGrowthRenewalDispatchSyncCases
     sync_assert_enqueued_once(jobs, request)
     assert_equal 'completed', sync_execute(request)
     assert_equal 1, sync_base_rows.size
+  end
+
+  # One worker: its own Execution, row object and clock.
+  def sync_worker(sync, at:, client: @client)
+    Reconciliation::Execution.new(Toybaco::SubscriptionSyncRequest.find(sync.id), client: client, now: at)
+  end
+
+  # Astra 6th [medium] / Grok 6th [low]: a worker that lost its session lock (a dropped
+  # connection) can outlive its claim. Past the claim's retry slot and the deadline, another
+  # worker re-claims the orphan (reclaim_orphan!) and writes a later slot, the claim
+  # generation. The old worker's finish! finds another generation, raises Invalid and writes
+  # nothing. A run that finds the new claim not due returns before finish!; the new worker
+  # finishes.
+  def test_dispatch_sync_stale_worker_cannot_finish_a_reclaimed_orphan
+    sync_fixture(paid: true)
+    sync = sync_notice!
+    sync.update_columns(deadline_at: NOW + 30)
+    stale = sync_worker(sync, at: NOW)
+    assert stale.send(:claim!)
+    assert_equal ['running', 1, NOW + 60], sync.reload.values_at(:state, :attempts, :next_attempt_at)
+    travel_to NOW + 61
+    fresh = sync_worker(sync, at: NOW + 61)
+    assert fresh.send(:claim!)
+    reclaimed = sync.reload.attributes
+    assert_equal ['running', 1, NOW + 121, NOW + 61 + Reconciliation::DEADLINE, nil, 0],
+                 sync.values_at(:state, :attempts, :next_attempt_at, :deadline_at, :result, :completed_revision)
+    assert_raises(Reconciliation::Invalid) { stale.send(:finish!, 'completed', 'applied') }
+    assert_equal reclaimed, sync.reload.attributes
+    assert_equal 'running', sync_worker(sync, at: NOW + 62, client: sync_unreachable).call
+    assert_equal reclaimed, sync.reload.attributes
+    assert_equal 'completed', fresh.send(:finish!, 'completed', 'applied')
+    assert_equal ['completed', 'applied', 1, sync.requested_revision, NOW + 61],
+                 sync.reload.values_at(:state, :result, :attempts, :completed_revision, :completed_at)
+  end
+
+  # The same through Execution#call, with the ordinary re-claim of a running row whose slot
+  # passed. The old worker's session lock is released during its provider read (a dropped
+  # connection). The new worker takes the lock and claims in its own session, then holds
+  # its claim in its own provider read. The old worker's renewal_pending! and its rescue
+  # (binding_unresolved) both find another generation: call raises Invalid and the row
+  # keeps the new claim. The new worker then finishes its run.
+  def test_dispatch_sync_worker_that_lost_its_session_lock_cannot_finish_a_reclaimed_run
+    sync_fixture(paid: true)
+    sync = sync_notice!
+    claimed = Queue.new
+    entered = Queue.new
+    release = Queue.new
+    test = self
+    held = Object.new
+    held.define_singleton_method(:retrieve_subscription) do |_|
+      entered << true
+      release.pop
+      test.instance_variable_get(:@subscription).deep_dup
+    end
+    fresh = sync_worker(sync, at: NOW + 61, client: held)
+    claim = fresh.method(:claim!)
+    fresh.define_singleton_method(:claim!) { claim.call.tap { claimed << true } }
+    key = Dispatch.lock_key('test', @sub)
+    reclaimed = worker = nil
+    lost = Object.new
+    lost.define_singleton_method(:retrieve_subscription) do |_|
+      Account.uncached { Account.connection.select_value("SELECT pg_advisory_unlock(#{key})") }
+      test.travel_to(NOW + 61)
+      worker = Thread.new do
+        Account.connection_pool.with_connection { fresh.call }
+      rescue StandardError => e
+        e
+      end
+      Timeout.timeout(10) { claimed.pop }
+      reclaimed = Toybaco::SubscriptionSyncRequest.find(sync.id).attributes
+      test.instance_variable_get(:@subscription).deep_dup
+    end
+    assert_raises(Reconciliation::Invalid) { sync_worker(sync, at: NOW, client: lost).call }
+    assert_equal ['running', 2, NOW + 121], reclaimed.values_at('state', 'attempts', 'next_attempt_at')
+    assert_equal reclaimed, sync.reload.attributes
+    Timeout.timeout(10) { entered.pop }
+    release << true
+    assert_equal 'renewal_pending', worker.value
+    assert_equal ['pending', 'renewal_pending', 1, NOW + 121], sync.reload.values_at(:state, :result, :attempts, :next_attempt_at)
+  ensure
+    release << true if release && worker&.alive?
+    worker&.join
+  end
+
+  # A worker that holds the session lock moves a running row's slot behind the barrier
+  # (defer_behind_barrier!). That also ends the generation of a worker that claimed before
+  # the barrier went up and lost its lock: its finish! raises Invalid, and the row keeps the
+  # deferred slot for claim! once the barrier lifts.
+  def test_dispatch_sync_stale_worker_cannot_finish_a_row_deferred_behind_the_barrier
+    sync_fixture(paid: false)
+    sync_fact!(type: 'invoice.payment_failed', created: NOW.to_i - 30)
+    assert_equal 'idle', dispatch_real_execute
+    @subscription = sync_subscription(paid: true)
+    sync = sync_notice!
+    refute Dispatch.blocked?('test', @sub, now: NOW)
+    stale = sync_worker(sync, at: NOW)
+    assert stale.send(:claim!)
+    travel_to NOW + 60
+    sync_fact!(type: 'invoice.paid', created: NOW.to_i)
+    assert_equal %w[pending grace_ready], dispatch_row.values_at(:state, :phase)
+    refute Dispatch.repair_admissible?('test', @sub, now: NOW + 70)
+    assert_equal 'renewal_pending', sync_worker(sync, at: NOW + 70, client: sync_unreachable).call
+    deferred = sync.reload.attributes
+    assert_equal ['running', 1, NOW + 130, NOW + 130], sync.values_at(:state, :attempts, :next_attempt_at, :next_enqueue_at)
+    assert_raises(Reconciliation::Invalid) { stale.send(:finish!, 'pending', 'renewal_pending') }
+    assert_equal deferred, sync.reload.attributes
+  end
+
+  # Grok 4.7 [medium] (lease review): the deferral writes now + 60 without a due check. At
+  # the claim's own instant it would write the claim's slot again, and a worker that lost
+  # its lock would still finish the deferred row. The deferral moves a running row's slot
+  # one microsecond past the stored one instead.
+  def test_dispatch_sync_deferral_at_the_claims_instant_ends_its_generation
+    sync_deferral_inside_the_claims_microsecond(0)
+  end
+
+  # The same when the deferring clock is later inside the microsecond the column keeps:
+  # now + 60 is compared after the column's truncation.
+  def test_dispatch_sync_deferral_inside_the_claims_microsecond_ends_its_generation
+    sync_deferral_inside_the_claims_microsecond(Rational(1, 2_000_000))
+  end
+
+  def sync_deferral_inside_the_claims_microsecond(offset)
+    sync = sync_rearmed_grace_barrier
+    at = Time.now.utc
+    stale = sync_worker(sync, at: at)
+    assert stale.send(:claim!)
+    assert_equal ['running', at + 60], sync.reload.values_at(:state, :next_attempt_at)
+    assert_equal 'renewal_pending', sync_worker(sync, at: at + offset, client: sync_unreachable).call
+    deferred = sync.reload.attributes
+    assert_raises(Reconciliation::Invalid) { stale.send(:finish!, 'completed', 'applied') }
+    assert_equal deferred, sync.reload.attributes
+    assert_equal ['running', 1, at + 60 + Rational(1, 1_000_000), at + 60],
+                 sync.values_at(:state, :attempts, :next_attempt_at, :next_enqueue_at)
+  end
+
+  # The generation is the slot as the row stores it. The production clock carries digits
+  # below the column's microseconds, so the value passed to update! differs from the stored
+  # one; a lease kept from that value would make every finish! raise Invalid.
+  def test_dispatch_sync_claim_at_a_sub_microsecond_clock_completes
+    sync_fixture(paid: true)
+    ENV.delete(Dispatch::FLAG)
+    sync = sync_notice!
+    at = NOW + Rational(123_456_789, 1_000_000_000)
+    assert_equal 'completed', Reconciliation::Execution.new(sync, client: @client, now: at).call
+    assert_equal ['completed', 'applied', 1, sync.requested_revision],
+                 sync.reload.values_at(:state, :result, :attempts, :completed_revision)
+    assert_equal [(at + 60).floor(6), 123_456_000], [sync.next_attempt_at, sync.next_attempt_at.nsec]
+    refute_equal at + 60, sync.next_attempt_at
   end
 end

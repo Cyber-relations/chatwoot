@@ -16,7 +16,8 @@
   <section class="trial-card">
     <h2>追加 <%= @state.dig('pack', 'generations') %>回</h2>
     <p><strong><%= number_with_delimiter(@state.dig('pack', 'amount')) %>円（税抜）</strong>・購入ごとのお支払い</p>
-    <p>決済成功から<%= @state.dig('pack', 'expires_after_days') %>日間。自動購入はありません。</p>
+    <p>決済成功から<%= @state.dig('pack', 'expires_after_days') %>日間有効です。</p>
+    <p>購入後の取消・返金はできません。期限を過ぎた残りの回数は失効し、返金しません。自動購入・自動更新はありません。</p>
     <p class="note">通常枠から先に使います。Free／Lightへ変更後も、残りは返信案・投稿文の作成に使えます。</p>
     <p id="pack-status" role="status" aria-live="polite"></p>
     <p id="pack-error" role="alert" hidden></p>
@@ -42,6 +43,7 @@
     </section>
   <% end %>
   <p class="note">自動応答にはStandard以上のご契約が必要です。税額と合計は決済画面で確認できます。</p>
+  <p class="note"><a href="<%= Toybaco::LegalTerms::TERMS_URL %>" target="_blank" rel="noopener">利用規約</a>・<a href="<%= Toybaco::LegalTerms::TOKUSHOHO_URL %>" target="_blank" rel="noopener">特定商取引法に基づく表記</a></p>
 </main>
 </body>
 </html>

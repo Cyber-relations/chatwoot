@@ -5,6 +5,7 @@ require 'securerandom'
 require_relative 'opening_receipt'
 require_relative 'opening_terms'
 require_relative 'paid_period'
+require_relative '../legal_terms'
 
 class Toybaco::Growth::OpeningFulfillment
   Invalid = Toybaco::Growth::PaymentSignature::Invalid
@@ -92,5 +93,18 @@ class Toybaco::Growth::OpeningFulfillment
       'toybaco_cancel_at_period_end' => subscription['cancel_at_period_end'] == true,
       'toybaco_billing_review' => false, 'toybaco_billing_payment_pending' => false
     ))
+    record_terms!(account, current.fetch(:session))
+  end
+
+  # 確認画面の同意(Session metadata)と Stripe の同意欄の結果を、開通した店舗の契約記録に残す。
+  # 同意欄を導入する前に作られた Session には記録する同意がない。
+  def record_terms!(account, session)
+    accepted = Toybaco::LegalTerms.accepted_in(session['metadata'])
+    return unless accepted
+
+    Toybaco::LegalTerms.record!(account, route: 'opening_checkout', accepted_at: accepted.fetch(:accepted_at),
+                                         terms_version: accepted.fetch(:terms_version), session_id: session.fetch('id'),
+                                         user_id: Toybaco::Entitlements.attributes(account)['toybaco_billing_owner_user_id'],
+                                         stripe_consent: session.dig('consent', 'terms_of_service'))
   end
 end

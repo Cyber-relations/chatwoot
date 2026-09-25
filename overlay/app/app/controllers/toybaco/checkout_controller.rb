@@ -7,19 +7,20 @@ class Toybaco::CheckoutController < ActionController::Base # rubocop:disable Rai
   before_action :set_no_cache
 
   def show
-    start_checkout
+    start_checkout(submitted: false)
   end
 
   def create
-    start_checkout
+    start_checkout(submitted: true)
   end
 
   private
 
-  def start_checkout
-    return if confirm_current_terms
+  def start_checkout(submitted:)
+    return if confirmation_required?(submitted)
 
-    session = Toybaco::Checkout.start!(plan: params[:plan], cycle: params[:cycle], version: params[:version].presence)
+    session = Toybaco::Checkout.start!(plan: @plan, cycle: @cycle, version: @terms.fetch('plan_version'),
+                                       consent: Toybaco::LegalTerms.consent)
     redirect_to session.fetch('url'), allow_other_host: true, status: :see_other
   rescue Toybaco::PlanCatalog::Invalid => e
     render_error(e.message, :conflict)
@@ -34,12 +35,26 @@ class Toybaco::CheckoutController < ActionController::Base # rubocop:disable Rai
     render_error('決済ページの作成に失敗しました。右下のチャットからお申し込みください。', :bad_gateway)
   end
 
-  def confirm_current_terms
+  # 確認画面は常に表示する。この確認画面から現在の版で送信し、利用規約等への
+  # 同意欄にチェックがある場合だけ決済へ進む(同意なしでは決済を始めない)。
+  def confirmation_required?(submitted)
     @plan, @cycle = Toybaco::Checkout.normalize_selection(params[:plan], params[:cycle])
     @terms = Toybaco::Checkout::Catalog.sale(@plan, @cycle)
-    return false if params[:version].to_s == @terms.fetch('plan_version')
+    return render_confirm(:ok) unless submitted && same_site_submission? && params[:version].to_s == @terms.fetch('plan_version')
+    return render_confirm(:unprocessable_entity, consent_missing: true) unless params[:accept_terms] == '1'
 
-    render 'toybaco/checkout/confirm', layout: false
+    false
+  end
+
+  def same_site_submission?
+    origin = request.headers['Origin']
+    [nil, '', 'same-origin'].include?(request.headers['Sec-Fetch-Site']) && (origin.blank? || origin == request.base_url)
+  end
+
+  def render_confirm(status, consent_missing: false)
+    @consent_missing = consent_missing
+    render 'toybaco/checkout/confirm', layout: false, status: status
+    true
   end
 
   def render_error(message, status)

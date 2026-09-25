@@ -7,6 +7,7 @@
   <title>お申し込み内容の確認 | トイバコ</title>
   <style>
     *{box-sizing:border-box}body{margin:0;background:#f5f3ef;color:#263a32;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;line-height:1.8}main{max-width:560px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #dce3dd;border-radius:18px}h1{font-size:24px;line-height:1.5}.brand{font-weight:700;color:#225c45}dl{display:grid;grid-template-columns:auto 1fr;gap:12px 24px;padding:20px 0;border-block:1px solid #e6e9e5}dt{color:#56665d}dd{margin:0;text-align:right;font-weight:600}button{width:100%;background:#225c45;color:white;border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #d9a548;outline-offset:4px}a{color:#225c45}small{color:#56665d}@media(max-width:600px){main{margin:20px 12px;padding:24px}dl{gap:12px}h1{font-size:22px}}
+    .terms{margin:16px 0;padding:0;list-style:none;display:grid;gap:8px;font-size:15px}.terms strong{color:#225c45}.legal{font-size:14px}.consent{display:flex;gap:12px;align-items:flex-start;margin:20px 0;font-weight:600}.consent input{flex:none;width:20px;height:20px;margin-top:5px;accent-color:#225c45}.consent input:focus-visible{outline:3px solid #d9a548;outline-offset:3px}.error{color:#9c2f22;font-weight:700}
   </style>
 </head>
 <body><main>
@@ -15,18 +16,35 @@
   <p>以前のページやリンクからお越しの場合は、現在の料金と利用条件をご確認のうえ、決済へお進みください。</p>
   <% limits = @terms.fetch('entitlements').fetch('limits') %>
   <% features = @terms.fetch('entitlements').fetch('features') %>
+  <% shared_ai = limits.key?('ai_generations') %>
+  <% ai_limit = shared_ai ? limits['ai_generations'] : limits['ai_replies'] %>
+  <% returns_to_free = Toybaco::LegalTerms.returns_to_free?(@terms) %>
+  <% grace_days = @terms.dig('billing_policy', 'renewal_grace_days') %>
   <dl>
     <dt>プラン</dt><dd><%= @terms.fetch('name') %></dd>
     <dt>お支払い</dt><dd><%= number_with_delimiter(@terms.fetch('cycles').fetch(@cycle).fetch('amount')) %>円 / <%= @cycle == 'year' ? '年' : '月' %>（税別）</dd>
     <dt>担当者</dt><dd><%= limits['agents'].nil? ? '人数制限なし' : "#{limits['agents']}名まで" %></dd>
     <dt>SNS投稿</dt><dd><%= features['posting'] ? '利用できます' : '含まれません' %></dd>
-    <dt>AI応答</dt><dd><%= features['ai_reply'] ? (limits['ai_replies'].nil? ? '回数制限なし' : "月#{number_with_delimiter(limits['ai_replies'])}回まで") : '含まれません' %></dd>
+    <dt><%= shared_ai ? '業務AI' : 'AI応答' %></dt><dd><%= features['ai_reply'] ? (ai_limit.nil? ? '回数制限なし' : "月#{number_with_delimiter(ai_limit)}回まで") : '含まれません' %><%= '（返信・投稿で共通）' if shared_ai && features['ai_reply'] %></dd>
   </dl>
   <p><small>税額・割引・追加オプションを含むお支払い総額は、次の決済画面でご確認いただけます。</small></p>
+  <ul class="terms" aria-label="契約の条件">
+    <li><strong>契約期間：</strong>月払いは1か月、年払いは1年（一括前払い）。解約の手続きをしない限り同じ条件で自動更新します</li>
+    <li><strong>解約：</strong>「ご契約内容」からいつでも手続きでき<%= returns_to_free ? '、現在の契約期間末に無料プランへ移ります' : 'ます' %></li>
+    <li><strong>返金：</strong>期間途中の利用者都合の解約に日割り返金はありません。二重決済・当社の誤請求は訂正します</li>
+    <% if returns_to_free && grace_days.is_a?(Integer) %>
+      <li><strong>更新時の支払い失敗：</strong><%= grace_days %>日間の猶予の後、無料プラン相当へ移ります</li>
+    <% end %>
+  </ul>
+  <p class="legal"><a href="<%= Toybaco::LegalTerms::TERMS_URL %>" target="_blank" rel="noopener">利用規約</a>・<a href="<%= Toybaco::LegalTerms::TOKUSHOHO_URL %>" target="_blank" rel="noopener">特定商取引法に基づく表記</a>・<a href="<%= Toybaco::LegalTerms::PRIVACY_URL %>" target="_blank" rel="noopener">プライバシーポリシー</a></p>
+  <% if @consent_missing %>
+    <p class="error" role="alert">利用規約などへの同意が必要です。内容をご確認のうえ、チェックを入れてください。</p>
+  <% end %>
   <form action="/toybaco/checkout" method="post">
     <input type="hidden" name="plan" value="<%= @plan %>">
     <input type="hidden" name="cycle" value="<%= @cycle %>">
     <input type="hidden" name="version" value="<%= @terms.fetch('plan_version') %>">
+    <label class="consent"><input type="checkbox" name="accept_terms" value="1" required>利用規約（料金・自動更新・解約の条件を含む）、特定商取引法に基づく表記、プライバシーポリシーを確認し、同意します</label>
     <button type="submit">この内容で決済に進む</button>
   </form>
   <p><a href="https://toybaco.jp/pricing/">料金・プランを選び直す</a></p>

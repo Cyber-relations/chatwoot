@@ -18,7 +18,7 @@ class ToybacoGrowthPacksRuntimeTest < ActionDispatch::IntegrationTest
   self.use_transactional_tests = true
   Growth = Toybaco::Growth
   NOW = Time.utc(2026, 9, 19, 4)
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
   ENVIRONMENT = { 'TOYBACO_STRIPE_MODE' => 'test', 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging' }.freeze
 
   StripeFixture = ToybacoGrowthPackStripeFixture

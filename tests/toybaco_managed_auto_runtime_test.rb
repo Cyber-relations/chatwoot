@@ -49,7 +49,7 @@ module ToybacoManagedAutoCases
   end
 
   def set_auto_plan(id)
-    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition(id, '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: id == 'free' ? nil : 'month'))
   end
 
@@ -57,10 +57,15 @@ module ToybacoManagedAutoCases
     @installation ||= Install.new(@account.id, actor_id: @admin.id).create!(inbox_id: @inbox.id, request_id: SecureRandom.uuid)
   end
 
+  # The owner checks the terms consent on the page before starting automatic replies.
   def switch(mode)
     row = install.reload
     Install.new(@account.id, actor_id: @admin.id).change!(mode: mode, generation: row.generation.to_s,
-                                                       epoch: row.epoch, request_id: SecureRandom.uuid)
+                                                       epoch: row.epoch, request_id: SecureRandom.uuid, consent: mode == 'auto' || nil)
+  end
+
+  def legal_consents
+    Toybaco::LegalTerms.records(@account.reload)
   end
 
   def incoming(content: '営業時間は？')
@@ -124,6 +129,27 @@ module ToybacoManagedAutoCases
     @account.update!(internal_attributes: @account.internal_attributes.except(Growth::StoreFacts::KEY))
     assert_raises(AUTO::Invalid) { install }
     assert_empty AgentBot.where(account_id: @account.id)
+  end
+
+  def test_auto_start_requires_explicit_terms_consent_and_records_each_start
+    row = install.reload
+    [nil, false, 'true', 1].each do |consent|
+      assert_raises(AUTO::Invalid) do
+        Install.new(@account.id, actor_id: @admin.id).change!(mode: 'auto', generation: row.generation.to_s, epoch: row.epoch,
+                                                           request_id: SecureRandom.uuid, consent: consent)
+      end
+    end
+    assert_equal ['draft', row.generation], install.reload.values_at('state', 'generation')
+    assert_equal 'draft', Toybaco::AiReplyMode.read_from(@account.reload)
+    assert_empty legal_consents
+    switch('auto')
+    first = legal_consents
+    assert_equal [['managed_auto', Toybaco::LegalTerms::VERSION, @admin.id, nil]],
+                 first.map { |entry| entry.values_at('route', 'terms_version', 'user_id', 'stripe_consent') }
+    switch('stopped')
+    assert_equal first, legal_consents, 'stopping needs no consent and records nothing'
+    travel_to(Time.now.utc + 60) { switch('auto') }
+    assert_equal 2, legal_consents.size, 'each explicit start keeps its own consent time'
   end
 
   def test_draft_routes_to_staff_without_model_request
@@ -550,8 +576,9 @@ module ToybacoManagedAutoCases
     operator = create(:user, :administrator, account: @account)
     row = install.reload
     Install.new(@account.id, actor_id: operator.id).change!(mode: 'auto', generation: row.generation.to_s,
-                                                          epoch: row.epoch, request_id: SecureRandom.uuid)
+                                                          epoch: row.epoch, request_id: SecureRandom.uuid, consent: true)
     assert_equal operator.id, install.reload.actor_id
+    assert_equal [operator.id], legal_consents.map { |entry| entry['user_id'] }
     _, message = incoming
     request = admit(message)
     member = @account.account_users.find_by!(user_id: operator.id)
@@ -632,6 +659,28 @@ unless ENV['TOYBACO_MANAGED_AUTO_LOCAL'] == 'true'
       assert_response :success
       assert_equal 'draft', response.parsed_body['state']
       assert_equal @inbox.id, response.parsed_body['inbox_id']
+    end
+
+    def test_http_auto_start_requires_the_terms_checkbox_and_page_explains_the_processing
+      row = install.reload
+      payload = { account_id: @account.id, mode: 'auto', generation: row.generation.to_s, epoch: row.epoch }
+      session_request do
+        put '/toybaco/growth/automatic-replies', params: payload.merge(request_id: SecureRandom.uuid),
+                                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+      end
+      assert_response :conflict
+      assert_equal 'draft', install.reload.state
+      assert_empty legal_consents
+      session_request do
+        put '/toybaco/growth/automatic-replies', params: payload.merge(request_id: SecureRandom.uuid, consent: true),
+                                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+      end
+      assert_response :success
+      assert_equal 'auto', response.parsed_body['state']
+      assert_equal ['managed_auto'], legal_consents.map { |entry| entry['route'] }
+      session_request { get '/toybaco/growth/automatic-replies', params: { account_id: @account.id } }
+      assert_includes response.body, 'Amazon Bedrock（東京・大阪）'
+      assert_includes response.body, '<input type="checkbox" id="auto-consent">上記と利用規約第7条の2を確認し、自動応答を開始します'
     end
 
     def test_managed_bot_token_cannot_read_or_write_through_general_account_api

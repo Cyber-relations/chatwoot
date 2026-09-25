@@ -43,7 +43,7 @@ const diagnosticArticles = [
   "ai",
   "billing",
 ];
-const VERSION = "2026-09-19.2";
+const VERSION = "2026-09-25.1";
 const targets = {
   start: ["toybaco_growth_start", "初回案内を開く"],
   inboxes: ["settings_inbox_list", "受信箱を開く"],

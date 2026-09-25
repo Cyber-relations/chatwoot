@@ -7,8 +7,8 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../overlay/app/public/brand-assets/toybaco-managed-auto.js'), 'utf8');
 const tick = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 function setup(respond) {
-  const nodes = Object.fromEntries(['status', 'register', 'enable', 'stop', 'inbox', 'refresh', 'error'].map(id => [id, {
-    value: '22', textContent: '', disabled: false, handlers: {}, addEventListener(name, fn) { this.handlers[name] = fn; }
+  const nodes = Object.fromEntries(['status', 'register', 'enable', 'stop', 'inbox', 'refresh', 'error', 'auto-consent'].map(id => [id, {
+    value: '22', textContent: '', disabled: false, checked: false, handlers: {}, addEventListener(name, fn) { this.handlers[name] = fn; }
   }]));
   const requests = [];
   let nonce = 0;
@@ -24,7 +24,11 @@ function setup(respond) {
     }
   };
   vm.runInNewContext(source, context, { filename: 'toybaco-managed-auto.js' });
-  return { nodes, requests, async click(id) { if (!nodes[id].disabled) nodes[id].handlers.click(); await tick(); } };
+  return {
+    nodes, requests,
+    async click(id) { if (!nodes[id].disabled) nodes[id].handlers.click(); await tick(); },
+    consent(checked) { nodes['auto-consent'].checked = checked; nodes['auto-consent'].handlers.change(); }
+  };
 }
 
 test('registration is initially draft and retries a lost response with the same request id', async () => {
@@ -41,6 +45,8 @@ test('registration is initially draft and retries a lost response with the same 
   await app.click('register');
   assert.equal(app.requests[1].body.request_id, app.requests[2].body.request_id);
   assert.equal(app.requests[1].body.inbox_id, 22);
+  assert.equal(app.nodes.enable.disabled, true, 'automatic replies need the terms checkbox first');
+  app.consent(true);
   assert.equal(app.nodes.enable.disabled, false);
   assert.equal(app.nodes.register.disabled, true);
   assert.match(app.nodes.status.textContent, /下書き/);
@@ -66,7 +72,42 @@ test('stop remains pending until the server confirms completion and cannot auto 
   assert.equal(app.nodes.enable.disabled, true);
   await app.click('refresh');
   assert.match(app.nodes.status.textContent, /停止済み/);
+  assert.equal(app.nodes.enable.disabled, true);
+  app.consent(true);
   assert.equal(app.nodes.enable.disabled, false);
+});
+
+test('automatic start sends explicit consent only after the terms checkbox is checked', async () => {
+  const epoch = '00000000-0000-4000-8000-000000000099';
+  const app = setup(async request => {
+    if (request.method === 'GET') return { state: 'draft', enabled: true, generation: '1', epoch, pending: false };
+    return { state: 'auto', enabled: true, generation: '2', epoch, pending: false };
+  });
+  await tick();
+  assert.equal(app.nodes.enable.disabled, true);
+  app.nodes.enable.handlers.click();
+  await tick();
+  assert.equal(app.requests.length, 1, 'an unchecked page cannot start automatic replies');
+  app.consent(true);
+  app.consent(false);
+  assert.equal(app.nodes.enable.disabled, true, 'unchecking removes the consent again');
+  app.consent(true);
+  await app.click('enable');
+  assert.equal(app.requests[1].method, 'PUT');
+  assert.deepEqual({ ...app.requests[1].body, request_id: 'fixed' },
+    { mode: 'auto', generation: '1', epoch, consent: true, request_id: 'fixed' });
+  assert.match(app.nodes.status.textContent, /全自動/);
+});
+
+test('stopping never carries an automatic-reply consent', async () => {
+  const epoch = '00000000-0000-4000-8000-000000000099';
+  const app = setup(async request => request.method === 'GET' ? { state: 'auto', enabled: true, generation: '4', epoch, pending: false } :
+    { state: 'stopping', enabled: true, generation: '5', epoch, pending: true });
+  await tick();
+  app.consent(true);
+  await app.click('stop');
+  assert.equal(app.requests[1].body.mode, 'stopped');
+  assert.equal(Object.prototype.hasOwnProperty.call(app.requests[1].body, 'consent'), false);
 });
 
 test('disabled rollout never offers new automatic execution but still permits stopping', async () => {

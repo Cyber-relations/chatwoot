@@ -32,7 +32,7 @@ class ToybacoGrowthPostDraftsRuntimeTest < ActionDispatch::IntegrationTest
     @editor = SecureRandom.uuid
     @facts = Growth::StoreFacts.new(@account).save!({ 'name' => 'テスト店舗', 'hours' => '10時から18時',
                                                     'booking' => 'https://store.example/booking' }, user: @owner)
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
     @grant = Growth::AiGrants.new(@account).issue!(source: 'included', source_key: 'post-fixture', units: 20,
                                                  starts_at: NOW - 1, ends_at: NOW + 30.days)

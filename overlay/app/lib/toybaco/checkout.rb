@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'legal_terms'
 require_relative 'checkout/catalog'
 require_relative 'checkout/line_item'
 require_relative 'checkout/session_form'
@@ -17,18 +18,21 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
     module_function
 
-    def start!(plan:, cycle: 'month', version: nil, client: nil, environment: ENV)
+    # options: client / consent(確認画面で規約等に同意した記録。LegalTerms.consent)。
+    def start!(plan:, cycle: 'month', version: nil, environment: ENV, **options)
+      raise ArgumentError, "unknown checkout options: #{options.keys.join(', ')}" unless (options.keys - %i[client consent]).empty?
+
       plan, cycle = normalize_selection(plan, cycle)
       terms = Catalog.sale(plan, cycle, version: version)
       urls = Resolver.return_urls(environment, plan: plan, cycle: cycle, version: terms.fetch('plan_version'))
-      http = client || Client.new(environment['TOYBACO_STRIPE_KEY'])
+      http = options[:client] || Client.new(environment['TOYBACO_STRIPE_KEY'])
       price = Resolver.price_for(terms, cycle, client: http, environment: environment)
       assert_checkout_price!(price, terms, cycle, environment)
       customer = http.create_customer(customer_params(plan: plan, cycle: cycle))
       http.create_checkout_session(
         session_params(
           plan: plan, cycle: cycle, version: terms.fetch('plan_version'), price: price, customer_id: customer.fetch('id'),
-          **urls,
+          consent: options[:consent], **urls,
           optional_price_ids: Resolver.optional_price_ids(client: http, cycle: cycle)
         )
       )
@@ -127,7 +131,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       customer_id = input.fetch(:customer_id)
       raise InvalidPlan unless customer_id.to_s.match?(Catalog::CUSTOMER_ID)
 
-      SessionForm.build(input.merge(plan: plan, cycle: cycle, version: terms.fetch('plan_version'), customer_id: customer_id))
+      SessionForm.build(input.merge(plan: plan, cycle: cycle, version: terms.fetch('plan_version'), customer_id: customer_id,
+                                    submit_message: LegalTerms.submit_message(terms)))
     end
   end
 end

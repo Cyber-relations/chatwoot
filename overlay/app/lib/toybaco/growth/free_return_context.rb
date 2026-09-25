@@ -67,13 +67,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         fields = { 'version' => 1, 'account_id' => @account.id, 'transition_id' => context.fetch('journal').fetch('id'),
                    'returned_at' => @now.to_i, 'free_contract' => FreeReturnRecord.free_contract,
                    'source_journal' => context.fetch('journal'), 'posting' => context.fetch('posting'), 'inbox' => context.fetch('inbox'),
-                   'settlement' => attrs.fetch(RenewalSettlement::KEY), 'purchase' => context['purchase'],
-                   'billing_history' => attrs.slice(*BILLING_KEYS) }
+                   'settlement' => settlement_evidence(attrs), 'purchase' => context['purchase'],
+                   'billing_history' => attrs.slice(*archived_keys) }
         fields.merge('receipt_hash' => RetentionSnapshot.fingerprint(fields))
       end
 
+      # The provider closure this return rests on. The renewal failure path records
+      # it as its settlement receipt; another cause supplies its own evidence.
+      def settlement_evidence(attrs)
+        attrs.fetch(RenewalSettlement::KEY)
+      end
+
+      # Billing records moved into the receipt and removed from the Free store.
+      def archived_keys
+        BILLING_KEYS
+      end
+
       def free_attributes(receipt)
-        attrs = Entitlements.attributes(@account).except(*BILLING_KEYS, PurchaseIntent::KEY, 'toybaco_subscription_id')
+        attrs = Entitlements.attributes(@account).except(*archived_keys, PurchaseIntent::KEY, 'toybaco_subscription_id')
         completed = receipt.fetch('source_journal').merge('state' => 'free_completed', 'observed_at' => receipt['returned_at'])
         attrs.merge(FreeReturnRecord::KEY => FreeReturnRecord.reference(receipt),
                     RenewalTransition::KEY => completed,

@@ -5,6 +5,7 @@ require_relative 'purchase_intent'
 require_relative 'purchase_identity'
 require_relative 'paid_coverage'
 require_relative 'paid_period'
+require_relative '../legal_terms'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -112,6 +113,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
                    'toybaco_cancel_at_period_end' => subscription['cancel_at_period_end'] == true, 'toybaco_billing_review' => false,
                    'toybaco_stripe_customer_id' => session['customer'] }
         account.update!(internal_attributes: Entitlements.attributes(account).merge(values))
+        record_terms!(account, session, saved)
+      end
+
+      # accepted_at は条件を示した購入画面から決済を始めた時刻。同意欄の結果は Stripe の consent。
+      def record_terms!(account, session, saved)
+        accepted = LegalTerms.accepted_in(session['metadata'])
+        return unless accepted
+
+        LegalTerms.record!(account, route: 'growth_purchase', accepted_at: accepted.fetch(:accepted_at),
+                                    terms_version: accepted.fetch(:terms_version), user_id: saved['owner_id'],
+                                    session_id: session.fetch('id'), stripe_consent: session.dig('consent', 'terms_of_service'))
       end
     end
   end

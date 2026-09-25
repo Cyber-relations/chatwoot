@@ -80,8 +80,30 @@ resource "aws_iam_role_policy" "task_s3" {
 
 locals {
   app_environment = [
+    # durable rollback guard(scripts/durable-rollback-guard.py)のFLAGS chatwoot側20名を名前順に置く。
+    # 変数はprovision.tf、値はGitHub Environment variable → TF_VAR(未登録は'false')。Rails側は'true'との
+    # 一致だけで有効と判定するため"false"は未設定と同じ。guardは同名の重複、secretsのflag、
+    # "true"/"false"以外の値を拒否する。app_secretsやschema preflightのtaskへは書かない。
     { name = "TOYBACO_BILLING_INGRESS_ENABLED", value = tostring(var.billing_ingress_enabled) },
+    { name = "TOYBACO_GROWTH_FREE_RETURN_ENABLED", value = tostring(var.growth_free_return_enabled) },
+    { name = "TOYBACO_GROWTH_RETENTION_ENABLED", value = tostring(var.growth_retention_enabled) },
+    { name = "TOYBACO_INBOX_RELEASE_ENABLED", value = tostring(var.inbox_release_enabled) },
+    { name = "TOYBACO_INBOX_RETENTION_ENABLED", value = tostring(var.inbox_retention_enabled) },
+    { name = "TOYBACO_MANAGED_AUTO_ENABLED", value = tostring(var.managed_auto_enabled) },
     { name = "TOYBACO_OPENING_INGRESS_ENABLED", value = tostring(var.opening_ingress_enabled) },
+    { name = "TOYBACO_POSTING_AUTHORITY_ENABLED", value = tostring(var.posting_authority_enabled) },
+    { name = "TOYBACO_POSTING_EXECUTION_ENABLED", value = tostring(var.posting_execution_enabled) },
+    { name = "TOYBACO_POSTING_PAID_UPGRADE_ENABLED", value = tostring(var.posting_paid_upgrade_enabled) },
+    { name = "TOYBACO_POSTING_RELEASE_ENABLED", value = tostring(var.posting_release_enabled) },
+    { name = "TOYBACO_POSTING_RENEWAL_ENABLED", value = tostring(var.posting_renewal_enabled) },
+    { name = "TOYBACO_POSTING_RETENTION_ENABLED", value = tostring(var.posting_retention_enabled) },
+    { name = "TOYBACO_POSTING_STOP_ENABLED", value = tostring(var.posting_stop_enabled) },
+    { name = "TOYBACO_RENEWAL_DISPATCH_ENABLED", value = tostring(var.renewal_dispatch_enabled) },
+    { name = "TOYBACO_RENEWAL_PROVIDER_SETTLEMENT_ENABLED", value = tostring(var.renewal_provider_settlement_enabled) },
+    { name = "TOYBACO_RENEWAL_SETTLEMENT_ENABLED", value = tostring(var.renewal_settlement_enabled) },
+    { name = "TOYBACO_SCHEDULED_DOWNGRADE_GRACE_ENABLED", value = tostring(var.scheduled_downgrade_grace_enabled) },
+    { name = "TOYBACO_SCHEDULED_GRANT_UPGRADE_ENABLED", value = tostring(var.scheduled_grant_upgrade_enabled) },
+    { name = "TOYBACO_SUBSCRIPTION_RECONCILIATION_ENABLED", value = tostring(var.subscription_reconciliation_enabled) },
     { name = "RAILS_ENV", value = "production" },
     { name = "INSTALLATION_ENV", value = "docker" },
     { name = "RAILS_LOG_TO_STDOUT", value = "true" },

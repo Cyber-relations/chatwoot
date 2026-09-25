@@ -9,7 +9,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
     class PurchaseIntent
       KEY = 'toybaco_growth_purchase'
-      VERSION = '2026-09-18.1'
+      VERSION = GrowthTerms::VERSION
       class Unavailable < StandardError; end
 
       def initialize(account, user, client:, environment: ENV, now: Time.now.utc)

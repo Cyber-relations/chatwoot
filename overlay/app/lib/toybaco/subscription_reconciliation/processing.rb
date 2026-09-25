@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require 'delegate'
+require_relative '../growth/period_end_free_return'
 
 module Toybaco::SubscriptionReconciliation::Processing
+  FREE_RETURN_RESULTS = { nil => 'applied', 'free_completed' => 'applied', 'free_pending' => 'free_return_pending' }.freeze
+
   private
 
   def reconcile
@@ -17,8 +20,21 @@ module Toybaco::SubscriptionReconciliation::Processing
     # This method retains the existing subscription lock, complete parent /
     # child transaction and current-subscription checks. The request claim
     # was committed separately before any Stripe read or business update.
-    outcome = Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: checked, guard: renewal_guard)
-    %w[applied payment_pending renewal_pending].include?(outcome) ? outcome : 'attention'
+    outcome = Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: checked,
+                                                             guard: renewal_guard, environment: @environment, free_return: true)
+    return period_end_free_return(account, checked) if outcome == 'applied'
+
+    %w[payment_pending renewal_pending].include?(outcome) ? outcome : 'attention'
+  end
+
+  # A paid growth store that the Sync kept active at its ended period-end cancellation
+  # returns to Free here, after that transaction committed: the holds need HTTP and
+  # fences. Only a fixed test time is passed; otherwise each step reads the real clock.
+  def period_end_free_return(account, client)
+    account.reload
+    finalizer = Toybaco::Growth::PeriodEndFreeReturn
+    result = finalizer.new(account, client: client, environment: @environment, now: @fixed_now).call if finalizer.applicable?(account)
+    FREE_RETURN_RESULTS.fetch(result, 'attention')
   end
 
   # Webhook reconciliation only. The guard runs after the fresh provider read and

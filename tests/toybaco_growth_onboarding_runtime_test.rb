@@ -19,7 +19,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     ActiveJob::Base.queue_adapter = :test
     @account = create(:account)
     @user = create(:user, :administrator, account: @account)
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
   end
 

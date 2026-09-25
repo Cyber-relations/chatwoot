@@ -71,7 +71,7 @@ class ToybacoGrowthRenewalSettlementTest < Minitest::Test
   def setup
     start_at = Time.utc(2026, 10, 3, 12).to_i
     end_at = Time.utc(2026, 11, 3, 12).to_i
-    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
     contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month').merge('stripe_price_id' => 'price_standard', 'subscription_item_id' => 'si_renewal')
     @account = Account.new({ 'toybaco_contract' => contract, 'toybaco_subscription_id' => 'sub_renewal', 'toybaco_stripe_customer_id' => 'cus_store',
                             SERVICE::FAILURE_KEY => { 'subscription_id' => 'sub_renewal', 'invoice_id' => 'in_renewal', 'term_start' => start_at,
@@ -169,7 +169,7 @@ class ToybacoGrowthRenewalSettlementTest < Minitest::Test
 
   def test_changed_contract_keeps_prepared_transition_fenced
     subscription = prepare_payment_recovery
-    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-18.1')
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
     @account.internal_attributes['toybaco_contract'] = Toybaco::Entitlements.snapshot_for(terms, cycle: nil)
     refute recover(subscription)
     assert Toybaco::Growth::RenewalTransition.pending?(@account)

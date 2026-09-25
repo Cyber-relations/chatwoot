@@ -14,7 +14,7 @@ class ToybacoGrowthPurchaseRuntimeTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
   self.use_transactional_tests = true
   Intent = Toybaco::Growth::PurchaseIntent
-  VERSION = '2026-09-18.1'
+  VERSION = '2026-09-25.1'
   NOW = Time.utc(2026, 9, 18, 12)
   SELECTION = { 'plan_id' => 'standard', 'plan_version' => VERSION, 'cycle' => 'month' }.freeze
 
@@ -74,6 +74,14 @@ class ToybacoGrowthPurchaseRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal @account.id.to_s, params['client_reference_id']
     assert_equal 'false', params['allow_promotion_codes']
     assert_equal 'card', params['payment_method_types[0]']
+    assert_equal 'required', params['consent_collection[terms_of_service]']
+    assert_equal Toybaco::LegalTerms::TOS_MESSAGE, params['custom_text[terms_of_service_acceptance][message]']
+    assert_equal Toybaco::LegalTerms::SUBMIT_MESSAGE, params['custom_text[submit][message]']
+    %w[metadata subscription_data[metadata]].each do |scope|
+      assert_equal Toybaco::LegalTerms::VERSION, params["#{scope}[toybaco_terms_version]"]
+      assert_equal NOW.iso8601, params["#{scope}[toybaco_terms_accepted_at]"]
+    end
+    assert_nil Toybaco::Entitlements.attributes(@account.reload)[Toybaco::LegalTerms::KEY], 'checkout alone is not a completed contract'
   end
 
   def test_timeout_after_creation_keeps_nonce_and_reuses_the_same_remote_session
@@ -105,6 +113,9 @@ class ToybacoGrowthPurchaseRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal 500, Toybaco::GrowthAiGrant.where(account_id: @account.id).sum(:units)
     assert_equal @user.id, @account.internal_attributes[Toybaco::BillingAccess::OWNER_KEY]
     assert_equal true, @account.internal_attributes['toybaco_cancel_at_period_end']
+    assert_equal [{ 'route' => 'growth_purchase', 'terms_version' => Toybaco::LegalTerms::VERSION, 'accepted_at' => NOW.iso8601,
+                    'user_id' => @user.id, 'session_id' => session_id, 'stripe_consent' => 'accepted' }],
+                 @account.internal_attributes[Toybaco::LegalTerms::KEY], 'repeated fulfilment records the consent once'
   end
 
   def test_complete_checkout_without_paid_invoice_keeps_free_access

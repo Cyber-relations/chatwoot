@@ -2,6 +2,14 @@
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>窓口の自動応答 | トイバコ</title><link rel="stylesheet" href="/brand-assets/toybaco-managed-auto.css"><script defer src="/brand-assets/toybaco-managed-auto.js"></script></head>
 <body><main data-account-id="<%= @account.id %>"><h1>窓口の自動応答</h1><p>確認済みの店舗情報で答えられる内容に応答します。確かな回答がないときや、人への引継ぎを求められたときは担当者へ渡します。</p>
 <p>準備直後は下書き設定です。文案は会話画面で作成できます。全自動を選ぶと、新しく届く問い合わせへの応答が始まります。</p>
+<section aria-labelledby="auto-terms-heading"><h2 id="auto-terms-heading">自動応答を始める前にご確認ください</h2><ul>
+<li>対象の窓口に届いたメッセージ本文、同じ会話の過去のやり取り、店舗情報・回答方針を AWS の Amazon Bedrock（東京・大阪）へ送って返信を作ります。本文中の個人情報も処理されます。</li>
+<li>返信は担当者の確認なしにお客様へ送られ、誤った内容を含むことがあります。</li>
+<li>会話を AI の学習に使いません。</li>
+<li>返信には AI の応答であることを表示し、お客様はいつでも担当者への切替えを求められます。</li>
+<li>この画面からいつでも停止できます。</li>
+</ul><p><a href="<%= Toybaco::LegalTerms::TERMS_URL %>" target="_blank" rel="noopener">利用規約を開く</a></p>
+<label><input type="checkbox" id="auto-consent">上記と利用規約第7条の2を確認し、自動応答を開始します</label></section>
 <p id="status" role="status" aria-live="polite">状態を確認しています。</p>
 <label for="inbox">対象の窓口</label><select id="inbox"><% @inboxes.each do |inbox| %><option value="<%= inbox.id %>"><%= inbox.name %></option><% end %></select>
 <div class="actions"><button id="register" type="button">この窓口を準備する</button><button id="enable" type="button" disabled>この窓口で全自動を始める</button><button id="stop" type="button" disabled>自動応答を停止する</button><button id="refresh" type="button">状態を確認</button></div>

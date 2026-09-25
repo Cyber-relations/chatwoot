@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative '../legal_terms'
+
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
     module PurchaseForm
@@ -13,12 +15,19 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'line_items[0][price]' => intent.fetch('price_id'), 'line_items[0][quantity]' => '1',
           'client_reference_id' => account.id.to_s, 'expires_at' => intent.fetch('expires_at').to_s,
           'success_url' => "#{return_url}&growth_checkout=returned", 'cancel_url' => "#{return_url}&growth_checkout=cancelled"
-        )
+        ).merge(terms_consent(intent))
         metadata(account.id, intent).each do |key, value|
           values["metadata[#{key}]"] = value.to_s
           values["subscription_data[metadata][#{key}]"] = value.to_s
         end
         values
+      end
+
+      # 購入画面で契約条件と規約へのリンクを示したうえで決済を始めた時刻を記録し、
+      # Stripe の同意欄(必須)で規約への同意を取る。新料金版は期間末に無料プランへ移る。
+      def terms_consent(intent)
+        consent = LegalTerms.consent(Time.at(intent.fetch('created_at')).utc)
+        Checkout::SessionForm.terms_consent(consent, submit_message: LegalTerms::SUBMIT_MESSAGE)
       end
 
       def metadata(account_id, intent)

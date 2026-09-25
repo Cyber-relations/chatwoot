@@ -267,11 +267,18 @@ class ChatwootCheckoutSessionTest < Minitest::Test
         uri = URI.parse(CGI.unescapeHTML(href))
         assert_equal '/signup/', uri.path
         assert_nil uri.host
-        expected = { 'plan' => plan, 'version' => '2026-09-18.1' }
+        expected = { 'plan' => plan, 'version' => '2026-09-25.1' }
         expected['cycle'] = 'month' unless plan == 'free'
         assert_equal expected, URI.decode_www_form(uri.query).to_h
       end
     end
+  end
+
+  def test_lp_candidate_links_the_version_the_application_accepts
+    lp_path = File.join(ROOT, 'scripts/lp_pricing_candidate.py')
+    skip 'LP 候補 script はこの品質スナップショットに含まれない' unless File.file?(lp_path)
+
+    assert_equal [[Toybaco::GrowthTerms::VERSION]], File.read(lp_path).scan(/^VERSION = '([^']+)'$/)
   end
 
   def test_signup_keeps_plan_into_consultation_until_application_handoff
@@ -285,7 +292,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
       uri = URI.parse(CGI.unescapeHTML(href))
       assert_nil uri.host
       assert_equal '/contact/', uri.path
-      expected = { 'topic' => 'service', 'plan' => plan, 'version' => '2026-09-18.1' }
+      expected = { 'topic' => 'service', 'plan' => plan, 'version' => '2026-09-25.1' }
       expected['cycle'] = 'month' unless plan == 'free'
       assert_equal expected, URI.decode_www_form(uri.query).to_h
     end
@@ -335,6 +342,78 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     client.retrieve_price('price_fixture')
     assert_equal [:get, '/v1/prices?lookup_keys[]=light&currency=jpy&active=true&limit=1&expand[]=data.product'], requests[0]
     assert_equal [:get, '/v1/prices/price_fixture?expand[]=product'], requests[1]
+  end
+
+  def test_terms_consent_is_required_on_every_session_even_without_in_app_consent
+    params = session_params
+
+    assert_equal 'required', params['consent_collection[terms_of_service]']
+    assert_equal Toybaco::LegalTerms::TOS_MESSAGE, params['custom_text[terms_of_service_acceptance][message]']
+    assert_equal Toybaco::LegalTerms::LEGACY_SUBMIT_MESSAGE, params['custom_text[submit][message]']
+    assert_equal Toybaco::LegalTerms::VERSION, params['metadata[toybaco_terms_version]']
+    assert_equal Toybaco::LegalTerms::VERSION, params['subscription_data[metadata][toybaco_terms_version]']
+    refute params.key?('metadata[toybaco_terms_accepted_at]')
+    refute params.key?('subscription_data[metadata][toybaco_terms_accepted_at]')
+  end
+
+  def test_in_app_consent_time_is_kept_on_the_session_and_the_subscription
+    consent = Toybaco::LegalTerms.consent(Time.utc(2026, 9, 25, 3, 4, 5))
+    client = FakeStripe.new('light' => jpy_price('light'))
+    Toybaco::Checkout.start!(plan: 'light', client: client, consent: consent)
+    params = client.last_session
+
+    assert_equal 'required', params['consent_collection[terms_of_service]']
+    assert_equal Toybaco::LegalTerms::VERSION, params['metadata[toybaco_terms_version]']
+    assert_equal '2026-09-25T03:04:05Z', params['metadata[toybaco_terms_accepted_at]']
+    assert_equal '2026-09-25T03:04:05Z', params['subscription_data[metadata][toybaco_terms_accepted_at]']
+    assert_equal({ 'terms_version' => Toybaco::LegalTerms::VERSION, 'accepted_at' => '2026-09-25T03:04:05Z' }, consent)
+    assert_raises(ArgumentError) { Toybaco::Checkout.start!(plan: 'light', client: client, consnet: consent) }
+  end
+
+  def test_submit_text_names_the_free_plan_only_for_versions_that_return_to_it
+    growth = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
+    legacy = Toybaco::Checkout::Catalog.sale('standard', 'month')
+
+    assert Toybaco::LegalTerms.returns_to_free?(growth)
+    refute Toybaco::LegalTerms.returns_to_free?(legacy)
+    assert_equal Toybaco::LegalTerms::SUBMIT_MESSAGE, Toybaco::LegalTerms.submit_message(growth)
+    assert_includes Toybaco::LegalTerms::SUBMIT_MESSAGE, '契約期間末に無料プランへ移ります'
+    refute_includes Toybaco::LegalTerms.submit_message(legacy), '無料プラン'
+    form = Toybaco::Checkout::SessionForm.terms_consent(nil, submit_message: Toybaco::LegalTerms.submit_message(growth))
+    assert_equal Toybaco::LegalTerms::SUBMIT_MESSAGE, form['custom_text[submit][message]']
+  end
+
+  def test_terms_text_fits_stripe_limits_and_links_the_published_pages
+    legal = Toybaco::LegalTerms
+    assert_equal '[利用規約](https://toybaco.jp/terms/)と[特定商取引法に基づく表記](https://toybaco.jp/tokushoho/)に同意します。',
+                 legal::TOS_MESSAGE
+    [legal::TOS_MESSAGE, legal::SUBMIT_MESSAGE, legal::LEGACY_SUBMIT_MESSAGE].each { |text| assert_operator text.length, :<=, 1200 }
+    params = session_params(consent: legal.consent)
+    params.each do |key, value|
+      next unless key.start_with?('metadata[', 'subscription_data[metadata][')
+
+      assert_operator key[/\[([^\[\]]+)\]\z/, 1].length, :<=, 40
+      assert_operator value.length, :<=, 500
+    end
+    assert_match(/\A\d{4}-\d{2}-\d{2}\.\d+\z/, legal::VERSION)
+    [legal::TERMS_URL, legal::TOKUSHOHO_URL, legal::PRIVACY_URL].each { |url| assert_match(%r{\Ahttps://toybaco\.jp/[a-z]+/\z}, url) }
+  end
+
+  def test_consent_entries_are_validated_before_they_are_saved
+    legal = Toybaco::LegalTerms
+    entry = legal.entry('opening_checkout', '2026-09-25T12:00:00+09:00', { session_id: 'cs_test_a1', stripe_consent: 'accepted', user_id: 7 })
+
+    assert_equal({ 'route' => 'opening_checkout', 'terms_version' => legal::VERSION, 'accepted_at' => '2026-09-25T03:00:00Z',
+                   'user_id' => 7, 'session_id' => 'cs_test_a1', 'stripe_consent' => 'accepted' }, entry)
+    [['unknown', '2026-09-25T03:00:00Z', {}], ['trial', 'not-a-time', {}], ['trial', Time.now.utc, { terms_version: 'v1' }],
+     ['trial', Time.now.utc, { session_id: 'sub_1' }], ['trial', Time.now.utc, { stripe_consent: 'declined' }],
+     ['trial', Time.now.utc, { user_id: '7' }], ['trial', Time.now.utc, { extra: 1 }]].each do |route, time, details|
+      assert_raises(ArgumentError) { legal.entry(route, time, details) }
+    end
+    assert legal.duplicate?(entry, entry.merge('accepted_at' => '2026-09-26T00:00:00Z'))
+    refute legal.duplicate?(entry, entry.merge('session_id' => 'cs_test_other'))
+    assert_nil legal.accepted_in('toybaco_plan' => 'light')
+    assert_equal({ terms_version: 'v', accepted_at: 't' }, legal.accepted_in('toybaco_terms_version' => 'v', 'toybaco_terms_accepted_at' => 't'))
   end
 
   def test_routes_and_controller_are_public_checkout
