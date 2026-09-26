@@ -36,19 +36,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         found
       end
 
-      def optional_price_ids(client:, cycle:)
-        Catalog::OPTIONAL_LOOKUP_KEYS.fetch(cycle).filter_map do |key|
-          price = client.find_price_by_lookup_key(key)
-          next unless price.is_a?(Hash)
-          next unless price['currency'].to_s.downcase == Catalog::CURRENCY &&
-                      price['id'].to_s.match?(Catalog::PRICE_ID)
-
-          price['id']
-        rescue Error
-          nil
-        end
-      end
-
       def success_url(environment)
         host = site_host(environment)
         safe_site_url(environment['TOYBACO_CHECKOUT_SUCCESS_URL'], "https://#{host}/welcome/")

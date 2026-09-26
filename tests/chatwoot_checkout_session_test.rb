@@ -7,20 +7,26 @@ require_relative '../overlay/app/lib/toybaco/checkout'
 
 class ChatwootCheckoutSessionTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
+  # New sales since the 2026-09-26 sales switch: 2026-09-25.1 at the prices fixed by the catalog preparation (#319).
+  VERSION = '2026-09-25.1'
+  FORMER = '2026-09-06.1'
 
   AMOUNTS = {
     'light' => { 'month' => 9800, 'year' => 105_840 },
-    'standard' => { 'month' => 29_800, 'year' => 321_840 },
-    'pro' => { 'month' => 44_800, 'year' => 483_840 }
+    'standard' => { 'month' => 19_800, 'year' => 213_840 },
+    'pro' => { 'month' => 29_800, 'year' => 321_840 }
   }.freeze
 
+  def lookup(plan, cycle = 'month')
+    "#{plan}-growth-20260925#{'-annual' if cycle == 'year'}"
+  end
+
   def jpy_price(plan, cycle = 'month')
-    key = cycle == 'year' ? "#{plan}-annual" : plan
     terms = Toybaco::Checkout::Catalog.sale(plan, cycle)
     {
       'id' => "price_test#{plan.delete('-')}#{cycle}",
       'currency' => 'jpy',
-      'lookup_key' => key,
+      'lookup_key' => lookup(plan, cycle),
       'unit_amount' => AMOUNTS.fetch(plan).fetch(cycle),
       'active' => true, 'livemode' => true, 'tax_behavior' => 'exclusive',
       'billing_scheme' => 'per_unit', 'transform_quantity' => nil,
@@ -85,10 +91,23 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     end
   end
 
-  def test_light_catalog_product_preserves_japanese_name_and_no_posting_description
+  def test_current_sales_are_the_growth_version_with_its_own_lookup_keys
+    %w[light standard pro].product(%w[month year]).each do |plan, cycle|
+      terms = Toybaco::Checkout::Catalog.sale(plan, cycle)
+      assert_equal [VERSION, AMOUNTS.fetch(plan).fetch(cycle)], [terms['plan_version'], terms.dig('cycles', cycle, 'amount')]
+      assert_equal lookup(plan, cycle), Toybaco::Checkout.lookup_key(plan, cycle)
+      assert_raises(Toybaco::PlanCatalog::Invalid) { Toybaco::Checkout::Catalog.sale(plan, cycle, version: FORMER) }
+    end
+    assert_equal %w[light standard pro], Toybaco::Checkout::Catalog::PLANS
+  end
+
+  def test_light_catalog_product_preserves_japanese_name_and_published_description
     price = jpy_price('light')
     assert_equal 'トイバコ ライト', price['product']['name']
-    assert_includes price['product']['description'], Toybaco::Checkout::Catalog::LIGHT_NO_SNS
+    # The former light version had no SNS posting; the growth light includes it.
+    assert_equal '1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。', price['product']['description']
+    refute_includes price['product']['description'], Toybaco::Checkout::Catalog::LIGHT_NO_SNS
+    assert_includes Toybaco::PlanCatalog.default.definition('light', FORMER)['description'], Toybaco::Checkout::Catalog::LIGHT_NO_SNS
     assert_equal price['id'], session_params(price: price)['line_items[0][price]']
   end
 
@@ -116,7 +135,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
   end
 
   def test_annual_lookup_keys_and_cycle_survive
-    assert_equal 'light-annual', Toybaco::Checkout.lookup_key('light', 'year')
+    assert_equal 'light-growth-20260925-annual', Toybaco::Checkout.lookup_key('light', 'year')
     params = session_params(plan: 'pro', cycle: 'year')
 
     assert_equal 'pro', params['metadata[toybaco_plan]']
@@ -162,7 +181,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
   def test_start_keeps_lp_plan_on_session_and_customer
     client = FakeStripe.new(
-      'light' => jpy_price('light'),
+      lookup('light') => jpy_price('light'),
       'setup-standard' => { 'id' => 'price_testset1', 'currency' => 'jpy' },
       'opt-store' => { 'id' => 'price_teststore1', 'currency' => 'jpy' }
     )
@@ -181,7 +200,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
   end
 
   def test_staging_checkout_returns_to_staging_and_keeps_selected_terms
-    client = FakeStripe.new('pro-annual' => jpy_price('pro', 'year').merge('livemode' => false))
+    client = FakeStripe.new(lookup('pro', 'year') => jpy_price('pro', 'year').merge('livemode' => false))
     env = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STRIPE_MODE' => 'test' }
 
     Toybaco::Checkout.start!(plan: 'pro', cycle: 'year', client: client, environment: env)
@@ -190,13 +209,13 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     uri = URI.parse(client.last_session['cancel_url'])
     assert_equal 'staging.toybaco.jp', uri.host
     assert_equal '/signup/', uri.path
-    assert_equal({ 'plan' => 'pro', 'cycle' => 'year', 'version' => '2026-09-06.1' }, URI.decode_www_form(uri.query).to_h)
+    assert_equal({ 'plan' => 'pro', 'cycle' => 'year', 'version' => VERSION }, URI.decode_www_form(uri.query).to_h)
   end
 
   def test_staging_rejects_live_and_unknown_environment_before_creating_customer
     [{ 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STRIPE_MODE' => 'live' },
      { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'preview', 'TOYBACO_STRIPE_MODE' => 'test' }].each do |env|
-      client = FakeStripe.new('light' => jpy_price('light'))
+      client = FakeStripe.new(lookup('light') => jpy_price('light'))
       assert_raises(Toybaco::Checkout::Unavailable) do
         Toybaco::Checkout.start!(plan: 'light', client: client, environment: env)
       end
@@ -220,7 +239,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
   end
 
   def test_start_fails_closed_when_resolved_price_is_not_jpy
-    client = FakeStripe.new('standard' => { 'id' => 'price_testusdstd', 'currency' => 'usd' })
+    client = FakeStripe.new(lookup('standard') => { 'id' => 'price_testusdstd', 'currency' => 'usd' })
 
     assert_raises(Toybaco::Checkout::NonJpyPrice) do
       Toybaco::Checkout.start!(plan: 'standard', client: client)
@@ -233,25 +252,26 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     client = FakeStripe.new(
       'price_testoverride1' => { 'id' => 'price_testoverride1', 'currency' => 'eur' }
     )
-    env = { 'TOYBACO_STRIPE_PRICE_PRO' => 'price_testoverride1' }
+    env = { 'TOYBACO_STRIPE_PRICE_GROWTH_20260925_PRO' => 'price_testoverride1' }
+    assert_equal env.keys.first, Toybaco::Checkout::Catalog.sale('pro', 'month').dig('cycles', 'month', 'stripe', 'live', 'price_env')
 
     assert_raises(Toybaco::Checkout::NonJpyPrice) do
       Toybaco::Checkout.start!(plan: 'pro', client: client, environment: env)
     end
   end
 
-  def test_optional_non_jpy_price_is_dropped
+  def test_optional_items_are_never_offered_even_when_their_prices_exist
     client = FakeStripe.new(
-      'light' => jpy_price('light'),
+      lookup('light') => jpy_price('light'),
       'setup-standard' => { 'id' => 'price_testusdopt', 'currency' => 'usd' },
       'opt-store' => { 'id' => 'price_teststore1', 'currency' => 'jpy' }
     )
 
     Toybaco::Checkout.start!(plan: 'light', client: client)
 
-    refute client.last_session.key?('optional_items[0][price]') &&
-           client.last_session['optional_items[0][price]'] == 'price_testusdopt'
-    assert_equal 'price_teststore1', client.last_session['optional_items[0][price]']
+    refute client.last_session.keys.any? { |key| key.start_with?('optional_items') }
+    refute_includes client.lookups, 'setup-standard'
+    refute_includes client.lookups, 'opt-store'
   end
 
   def test_lp_plan_buttons_pass_query_into_signup
@@ -281,7 +301,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     assert_equal [[Toybaco::GrowthTerms::VERSION]], File.read(lp_path).scan(/^VERSION = '([^']+)'$/)
   end
 
-  def test_signup_keeps_plan_into_consultation_until_application_handoff
+  def test_signup_hands_the_selected_plan_to_the_application_since_the_sales_switch
     signup_path = File.join(ROOT, 'site/signup/index.html')
     skip 'site HTML はこの品質スナップショットに含まれない' unless File.file?(signup_path)
 
@@ -290,18 +310,25 @@ class ChatwootCheckoutSessionTest < Minitest::Test
       href = signup[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
       refute_nil href, "signup: #{plan} has a plan link"
       uri = URI.parse(CGI.unescapeHTML(href))
-      assert_nil uri.host
-      assert_equal '/contact/', uri.path
-      expected = { 'topic' => 'service', 'plan' => plan, 'version' => '2026-09-25.1' }
-      expected['cycle'] = 'month' unless plan == 'free'
-      assert_equal expected, URI.decode_www_form(uri.query).to_h
+      assert_equal %w[https app.toybaco.jp], [uri.scheme, uri.host]
+      if plan == 'free'
+        # The free registration opens by the catalog's free_registration_version, not by a query.
+        assert_equal ['/toybaco/free/signup', nil], [uri.path, uri.query]
+        next
+      end
+      assert_equal '/toybaco/checkout', uri.path
+      query = URI.decode_www_form(uri.query).to_h
+      assert_equal({ 'plan' => plan, 'version' => VERSION, 'cycle' => 'month' }, query)
+      # The checkout accepts exactly this version for the linked plan and cycle.
+      assert_equal VERSION, Toybaco::Checkout::Catalog.sale(query['plan'], query['cycle'], version: query['version'])['plan_version']
     end
+    free = Toybaco::PlanCatalog.default.definition('free', Toybaco::PlanCatalog.default.data.fetch('free_registration_version'))
+    assert_equal [VERSION, true, {}], [free['plan_version'], free['sellable'], free['cycles']]
     assert_includes(signup, '/assets/lp-candidate.js?')
     assert_includes(signup, 'data-lp-cycle="year"')
     refute_includes(signup, 'SNS 投稿機能はありません')
     refute_includes(signup, 'buy.stripe.com')
-    refute_includes(signup, '/toybaco/checkout')
-    refute_includes(signup, '/toybaco/free/signup')
+    refute_includes(signup, '/contact/?topic=service')
   end
 
   def test_new_sales_reject_unverified_prices_before_creating_customer_or_session
@@ -321,7 +348,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
       mutate.call(price)
       price_env = Toybaco::Checkout::Catalog.sale('light', 'month').dig('cycles', 'month', 'stripe', 'live', 'price_env')
       [{}, { price_env => price['id'] }].each do |environment|
-        client = FakeStripe.new('light' => price)
+        client = FakeStripe.new(lookup('light') => price)
         assert_raises(Toybaco::Checkout::Unavailable, "invalid sale #{index}, override=#{!environment.empty?}") do
           Toybaco::Checkout.start!(plan: 'light', client: client, environment: environment)
         end
@@ -329,6 +356,79 @@ class ChatwootCheckoutSessionTest < Minitest::Test
         assert_nil client.last_session
       end
     end
+  end
+
+  # 開通(Growth::OpeningTerms)は割引 0 と「Session 小計 = 購読明細の小計」を要求する。新規店舗の決済画面に
+  # 割引コード欄や任意オプションを出すと、支払いは済んでも店舗が開通しない。
+  def test_new_store_checkout_has_one_subscription_line_and_no_promotion_codes
+    %w[light standard pro].product(%w[month year]).each do |plan, cycle|
+      price = jpy_price(plan, cycle)
+      client = FakeStripe.new(Toybaco::Checkout.lookup_key(plan, cycle) => price,
+                              'setup-standard' => { 'id' => 'price_testset1', 'currency' => 'jpy' },
+                              'opt-store' => { 'id' => 'price_teststore1', 'currency' => 'jpy' })
+      Toybaco::Checkout.start!(plan: plan, cycle: cycle, client: client)
+      params = client.last_session
+
+      assert_equal 'false', params['allow_promotion_codes'], "#{plan}/#{cycle}"
+      assert_equal({ 'line_items[0][price]' => price['id'], 'line_items[0][quantity]' => '1' },
+                   params.select { |key, _| key.start_with?('line_items') }, "#{plan}/#{cycle}")
+      refute params.keys.any? { |key| key.start_with?('optional_items', 'discounts') }, "#{plan}/#{cycle}"
+      assert_equal [Toybaco::Checkout.lookup_key(plan, cycle)], client.lookups, "#{plan}/#{cycle}"
+    end
+    assert_equal 'false', session_params['allow_promotion_codes']
+  end
+
+  def test_industry_choices_end_with_other_which_applies_no_pack
+    params = session_params
+    options = (0...20).map do |index|
+      params.values_at("custom_fields[1][dropdown][options][#{index}][value]", "custom_fields[1][dropdown][options][#{index}][label]")
+    end.take_while(&:first)
+    assert_equal 13, options.length
+    assert_equal %w[other その他], options.last
+    assert_equal Toybaco::Checkout::Catalog::OTHER_INDUSTRY, options.last.first
+    assert(options.all? { |value, _| value.match?(/\A[a-z]+\z/) }, 'Stripe dropdown values stay alphanumeric')
+    assert_equal '業種(該当する業種は初期設定パックを適用します)', params['custom_fields[1][label][custom]']
+  end
+
+  def test_checkout_pages_use_the_published_terms_and_an_existing_contact_route
+    controller = File.read(File.join(ROOT, 'overlay/app/app/controllers/toybaco/checkout_controller.rb'))
+    error_page = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/checkout/error.html.erb'))
+    confirm = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/checkout/confirm.html.erb'))
+    refute_includes "#{controller}#{error_page}", '右下のチャット'
+    assert_includes controller, '決済ページの作成に失敗しました。お手数ですが、お問い合わせフォームからご連絡ください。'
+    assert_includes error_page, '<a href="https://toybaco.jp/contact/">お問い合わせフォーム</a>'
+    assert_includes confirm, '<dt>スタッフ</dt>'
+    assert_includes confirm, "shared_ai ? 'AIアシスタント' : 'AI応答'"
+    refute_match(/担当者|業務AI/, confirm)
+    assert_includes confirm, '<p>現在の料金と利用条件をご確認のうえ、決済へお進みください。</p>'
+    refute_includes confirm, '以前のページやリンクから'
+  end
+
+  # 確認画面の SNS 投稿は、カタログの投稿先上限がある契約では件数を出す(上限の無い契約は従来どおり)。
+  def test_confirmation_states_the_posting_account_limit_from_the_catalog
+    growth = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
+    assert_includes render_confirmation(growth, 'month'),
+                    "<dt>SNS投稿</dt><dd>投稿先 #{growth.dig('entitlements', 'limits', 'posting_accounts')}アカウントまで</dd>"
+    light = Toybaco::PlanCatalog.default.definition('light', '2026-09-25.1')
+    assert_includes render_confirmation(light, 'year'),
+                    "<dt>SNS投稿</dt><dd>投稿先 #{light.dig('entitlements', 'limits', 'posting_accounts')}アカウントまで</dd>"
+    without_limit = Marshal.load(Marshal.dump(growth))
+    without_limit['entitlements']['limits'].delete('posting_accounts')
+    assert_includes render_confirmation(without_limit, 'month'), '<dt>SNS投稿</dt><dd>利用できます</dd>'
+    without_posting = Marshal.load(Marshal.dump(growth))
+    without_posting['entitlements']['features']['posting'] = false
+    assert_includes render_confirmation(without_posting, 'month'), '<dt>SNS投稿</dt><dd>含まれません</dd>'
+  end
+
+  def render_confirmation(terms, cycle)
+    require 'erb'
+    view = Object.new
+    view.instance_variable_set(:@terms, terms)
+    view.instance_variable_set(:@cycle, cycle)
+    view.instance_variable_set(:@plan, terms.fetch('plan_id'))
+    view.define_singleton_method(:number_with_delimiter) { |value| value.to_s.reverse.scan(/\d{1,3}/).join(',').reverse }
+    template = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/checkout/confirm.html.erb'))
+    ERB.new(template).result(view.instance_eval { binding })
   end
 
   def test_lookup_and_explicit_price_id_both_request_expanded_product
@@ -349,7 +449,8 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
     assert_equal 'required', params['consent_collection[terms_of_service]']
     assert_equal Toybaco::LegalTerms::TOS_MESSAGE, params['custom_text[terms_of_service_acceptance][message]']
-    assert_equal Toybaco::LegalTerms::LEGACY_SUBMIT_MESSAGE, params['custom_text[submit][message]']
+    # The growth version returns to the free plan at the period end, so new sessions say so.
+    assert_equal Toybaco::LegalTerms::SUBMIT_MESSAGE, params['custom_text[submit][message]']
     assert_equal Toybaco::LegalTerms::VERSION, params['metadata[toybaco_terms_version]']
     assert_equal Toybaco::LegalTerms::VERSION, params['subscription_data[metadata][toybaco_terms_version]']
     refute params.key?('metadata[toybaco_terms_accepted_at]')
@@ -358,7 +459,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
   def test_in_app_consent_time_is_kept_on_the_session_and_the_subscription
     consent = Toybaco::LegalTerms.consent(Time.utc(2026, 9, 25, 3, 4, 5))
-    client = FakeStripe.new('light' => jpy_price('light'))
+    client = FakeStripe.new(lookup('light') => jpy_price('light'))
     Toybaco::Checkout.start!(plan: 'light', client: client, consent: consent)
     params = client.last_session
 
@@ -371,8 +472,9 @@ class ChatwootCheckoutSessionTest < Minitest::Test
   end
 
   def test_submit_text_names_the_free_plan_only_for_versions_that_return_to_it
-    growth = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
-    legacy = Toybaco::Checkout::Catalog.sale('standard', 'month')
+    growth = Toybaco::Checkout::Catalog.sale('standard', 'month')
+    legacy = Toybaco::PlanCatalog.default.definition('standard', FORMER)
+    assert_equal VERSION, growth['plan_version']
 
     assert Toybaco::LegalTerms.returns_to_free?(growth)
     refute Toybaco::LegalTerms.returns_to_free?(legacy)
@@ -437,7 +539,12 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     end
 
     def find_price_by_lookup_key(key)
+      lookups << key
       @prices[key]
+    end
+
+    def lookups
+      @lookups ||= []
     end
 
     def retrieve_price(price_id)

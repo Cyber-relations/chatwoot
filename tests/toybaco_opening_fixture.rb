@@ -53,4 +53,25 @@ module ToybacoOpeningFixture
     Toybaco::OpeningRequest.find(row.reload.opening_request_id)
   end
 
+  # Runs the block with an operations address and returns the operations mails it queued, rendered by the real mailer.
+  def operations_mail(address: 'ops@example.invalid', environment: {})
+    keys = %w[TOYBACO_OPERATIONS_EMAIL TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_DEPLOYMENT_ENVIRONMENT]
+    saved = ENV.to_h.slice(*keys)
+    mailer = [ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries]
+    ENV.delete('TOYBACO_STAGING_FIXTURE_EMAILS') unless environment.key?('TOYBACO_STAGING_FIXTURE_EMAILS')
+    ENV.update({ 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production' }.merge(environment).merge('TOYBACO_OPERATIONS_EMAIL' => address))
+    ActionMailer::Base.delivery_method = :test
+    ActionMailer::Base.perform_deliveries = true
+    ActionMailer::Base.deliveries.clear
+    ActiveJob::Base.queue_adapter.enqueued_jobs.clear
+    yield
+    ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == ActionMailer::MailDeliveryJob }.each do |job|
+      job[:job].new(*ActiveJob::Arguments.deserialize(job[:args])).perform_now
+    end
+    ActionMailer::Base.deliveries.dup
+  ensure
+    keys.each { |key| saved.key?(key) ? ENV[key] = saved[key] : ENV.delete(key) }
+    ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries = mailer
+    ActionMailer::Base.deliveries.clear
+  end
 end

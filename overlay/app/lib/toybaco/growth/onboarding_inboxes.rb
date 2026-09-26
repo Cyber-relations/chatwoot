@@ -14,10 +14,16 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @administrator = administrator
       end
 
+      # ガイドで案内する候補。スタッフには所属している受信箱だけを見せる。
       def visible
-        scope = @account.inboxes.where(channel_type: TYPES).includes(:channel).order(:created_at, :id)
+        scope = store_inboxes
         scope = scope.joins(:inbox_members).where(inbox_members: { user_id: @user.id }) unless @administrator
         scope.select { |inbox| usable?(inbox.channel) }
+      end
+
+      # 店舗全体に、ガイドの対象になる受信箱があるか(所属では絞らない)。
+      def any_in_store?
+        store_inboxes.any? { |inbox| usable?(inbox.channel) }
       end
 
       def describe(inbox)
@@ -39,6 +45,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
+
+      def store_inboxes
+        @account.inboxes.where(channel_type: TYPES).includes(:channel).order(:created_at, :id)
+      end
 
       def accepted_mail_reply?(reply, inbox)
         key = Connections::Microsoft.connected?(inbox.channel) ? 'toybaco_microsoft_send' : 'toybaco_gmail_send'

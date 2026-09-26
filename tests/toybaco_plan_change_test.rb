@@ -5,7 +5,20 @@ require 'monitor'
 require_relative '../overlay/app/lib/toybaco/checkout/plan_change'
 
 class ToybacoPlanChangeTest < Minitest::Test
-  CATALOG = Toybaco::PlanCatalog.default
+  FORMER = '2026-09-06.1'
+  CURRENT = '2026-09-25.1'
+  # The mechanism needs a version that is both on sale and eligible for changes. Since the 2026-09-26 sales switch none
+  # is (test_sales_switch_offers_no_self_service_change_until_an_eligible_version_is_on_sale), so these cases run on the
+  # catalog as it stood before the switch: FORMER on sale and eligible.
+  CATALOG = Toybaco::PlanCatalog.new(JSON.parse(File.read(Toybaco::PlanCatalog::PATH)).tap do |data|
+    %w[light standard pro].each do |id|
+      data['current_versions'][id] = FORMER
+      data['plans'][id]['versions'][FORMER]['sellable'] = true
+    end
+    %w[free light standard pro].each { |id| data['plans'][id]['versions'][CURRENT]['sellable'] = false }
+    data['release_candidates'][CURRENT]['ai_pack']['sellable'] = false
+    data.delete('free_registration_version')
+  end)
   ENVIRONMENT = { 'TOYBACO_STRIPE_MODE' => 'test' }.freeze
   SYNCHRONIZER = ->(account, &block) { account.with_lock(&block) }
   SERVICE = Toybaco::Checkout::PlanChange
@@ -119,18 +132,20 @@ class ToybacoPlanChangeTest < Minitest::Test
 
   def setup
     @now = 1_800_000_000
-    @prices = CATALOG.sales.flat_map do |terms|
-      terms.fetch('cycles').map do |cycle, definition|
-        { 'id' => "price_#{terms['plan_id']}#{cycle}", 'active' => true, 'livemode' => false, 'currency' => 'jpy',
-          'unit_amount' => definition['amount'], 'billing_scheme' => 'per_unit', 'tax_behavior' => 'exclusive',
-          'lookup_key' => definition.dig('stripe', 'test', 'lookup_key'),
-          'metadata' => { 'toybaco_plan' => terms['plan_id'], 'toybaco_plan_version' => terms['plan_version'] },
-          'recurring' => { 'interval' => cycle, 'interval_count' => 1, 'usage_type' => 'licensed' },
-          'product' => { 'id' => "prod_#{terms['plan_id']}#{cycle}", 'active' => true,
-                         'name' => terms['product_name'], 'description' => terms['description'] } }
-      end
-    end
+    @prices = CATALOG.sales.flat_map { |terms| price_rows(terms) }
     reset_contract
+  end
+
+  def price_rows(terms, suffix = '')
+    terms.fetch('cycles').map do |cycle, definition|
+      { 'id' => "price_#{terms['plan_id']}#{cycle}#{suffix}", 'active' => true, 'livemode' => false, 'currency' => 'jpy',
+        'unit_amount' => definition['amount'], 'billing_scheme' => 'per_unit', 'tax_behavior' => 'exclusive',
+        'lookup_key' => definition.dig('stripe', 'test', 'lookup_key'),
+        'metadata' => { 'toybaco_plan' => terms['plan_id'], 'toybaco_plan_version' => terms['plan_version'] },
+        'recurring' => { 'interval' => cycle, 'interval_count' => 1, 'usage_type' => 'licensed' },
+        'product' => { 'id' => "prod_#{terms['plan_id']}#{cycle}#{suffix}", 'active' => true,
+                       'name' => terms['product_name'], 'description' => terms['description'] } }
+    end
   end
 
   def reset_contract(plan = 'light', cycle = 'month')
@@ -146,7 +161,8 @@ class ToybacoPlanChangeTest < Minitest::Test
         'current_period_start' => @now - 1000, 'current_period_end' => @now + 2000,
         'price' => @prices.find { |price| price['id'] == "price_#{plan}#{cycle}" } }] }
     }, @prices)
-    @service = SERVICE.new(account: @account, client: @client, environment: ENVIRONMENT, synchronizer: SYNCHRONIZER, clock: -> { @now })
+    @service = SERVICE.new(account: @account, client: @client, catalog: CATALOG, environment: ENVIRONMENT, synchronizer: SYNCHRONIZER,
+                           clock: -> { @now })
   end
 
   def selection(plan = 'standard', cycle = 'month')
@@ -399,6 +415,29 @@ class ToybacoPlanChangeTest < Minitest::Test
     @client.failure = nil
     assert_equal 'applied', @service.refresh['status']
     assert_equal 1, mutations.select { |call| call.first == :release }.map(&:last).uniq.length
+  end
+
+  def test_sales_switch_offers_no_self_service_change_until_an_eligible_version_is_on_sale
+    # The production catalog since the 2026-09-26 sales switch: 2026-09-25.1 is on sale while
+    # plan_changes.eligible_versions stays FORMER. A FORMER contract still resolves and is offered no change (the page
+    # says 現在選択できる変更先がありません and links support); neither version can be previewed, so nothing is charged.
+    production = Toybaco::PlanCatalog.default
+    assert_equal [CURRENT] * 3, production.sales.map { |terms| terms['plan_version'] }
+    @client.prices.concat(production.sales.flat_map { |terms| price_rows(terms, 'growth') })
+    @service = SERVICE.new(account: @account, client: @client, catalog: production, environment: ENVIRONMENT,
+                           synchronizer: SYNCHRONIZER, clock: -> { @now })
+    assert_equal FORMER, snapshot['plan_version']
+    assert_equal({ 'status' => 'available', 'choices' => [] }, @service.state)
+    # FORMER is no longer the current sale; CURRENT is on sale but not eligible for a change from any contract.
+    { FORMER => 'プランの条件が更新されました。内容を確認して再度お申し込みください。',
+      CURRENT => 'この契約条件ではプラン変更を受け付けられません。' }.each do |version, message|
+      %w[standard pro].each do |plan|
+        assert_rejected(message) { @service.preview({ 'plan_id' => plan, 'cycle' => 'month', 'plan_version' => version }, user_id: 91) }
+      end
+    end
+    assert_empty mutations
+    assert_empty @client.calls
+    assert_equal 'light', snapshot['plan_id']
   end
 
   def test_stripe_natural_schedule_completion_can_reconcile_without_releasing_again

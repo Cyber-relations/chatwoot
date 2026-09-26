@@ -13,7 +13,7 @@
 <body><main>
   <p class="brand">トイバコ</p>
   <h1>現在のお申し込み内容を<br>ご確認ください</h1>
-  <p>以前のページやリンクからお越しの場合は、現在の料金と利用条件をご確認のうえ、決済へお進みください。</p>
+  <p>現在の料金と利用条件をご確認のうえ、決済へお進みください。</p>
   <% limits = @terms.fetch('entitlements').fetch('limits') %>
   <% features = @terms.fetch('entitlements').fetch('features') %>
   <% shared_ai = limits.key?('ai_generations') %>
@@ -23,9 +23,10 @@
   <dl>
     <dt>プラン</dt><dd><%= @terms.fetch('name') %></dd>
     <dt>お支払い</dt><dd><%= number_with_delimiter(@terms.fetch('cycles').fetch(@cycle).fetch('amount')) %>円 / <%= @cycle == 'year' ? '年' : '月' %>（税別）</dd>
-    <dt>担当者</dt><dd><%= limits['agents'].nil? ? '人数制限なし' : "#{limits['agents']}名まで" %></dd>
-    <dt>SNS投稿</dt><dd><%= features['posting'] ? '利用できます' : '含まれません' %></dd>
-    <dt><%= shared_ai ? '業務AI' : 'AI応答' %></dt><dd><%= features['ai_reply'] ? (ai_limit.nil? ? '回数制限なし' : "月#{number_with_delimiter(ai_limit)}回まで") : '含まれません' %><%= '（返信・投稿で共通）' if shared_ai && features['ai_reply'] %></dd>
+    <dt>スタッフ</dt><dd><%= limits['agents'].nil? ? '人数制限なし' : "#{limits['agents']}名まで" %></dd>
+    <% posting_accounts = limits['posting_accounts'] %>
+    <dt>SNS投稿</dt><dd><%= features['posting'] ? (posting_accounts.is_a?(Integer) ? "投稿先 #{posting_accounts}アカウントまで" : '利用できます') : '含まれません' %></dd>
+    <dt><%= shared_ai ? 'AIアシスタント' : 'AI応答' %></dt><dd><%= features['ai_reply'] ? (ai_limit.nil? ? '回数制限なし' : "月#{number_with_delimiter(ai_limit)}回まで") : '含まれません' %><%= '（返信・投稿で共通）' if shared_ai && features['ai_reply'] %></dd>
   </dl>
   <p><small>税額・割引・追加オプションを含むお支払い総額は、次の決済画面でご確認いただけます。</small></p>
   <ul class="terms" aria-label="契約の条件">

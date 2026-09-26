@@ -12,7 +12,7 @@ RSpec.describe 'Toybaco checkout terms', type: :request do
     [nil, 'old-version', terms['plan_version']].each do |version|
       get '/toybaco/checkout', params: { plan: 'pro', cycle: 'year', version: version }
       expect(response).to have_http_status(:ok)
-      expect(response.body).to include('483,840円', '月500回まで', terms['plan_version'], 'この内容で決済に進む',
+      expect(response.body).to include('321,840円', '月2,000回まで（返信・投稿で共通）', terms['plan_version'], 'この内容で決済に進む',
                                        '<input type="checkbox" name="accept_terms" value="1" required>',
                                        legal::TERMS_URL, legal::TOKUSHOHO_URL, legal::PRIVACY_URL)
       expect(response.headers['Cache-Control']).to eq('no-store')
@@ -54,13 +54,13 @@ RSpec.describe 'Toybaco checkout terms', type: :request do
   end
 
   it '期間末に無料プランへ移る版だけが無料プランと更新猶予の条件を表示する' do
-    get '/toybaco/checkout', params: { plan: 'pro', cycle: 'year' }
-    expect(response.body).to include('「ご契約内容」からいつでも手続きできます')
-    expect(response.body).not_to include('無料プラン')
-    allow(Toybaco::Checkout::Catalog).to receive(:sale).and_return(Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1'))
     get '/toybaco/checkout', params: { plan: 'standard', cycle: 'month' }
     expect(response.body).to include('19,800円', '月500回まで（返信・投稿で共通）', '現在の契約期間末に無料プランへ移ります',
                                      '7日間の猶予の後、無料プラン相当へ移ります')
+    allow(Toybaco::Checkout::Catalog).to receive(:sale).and_return(Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1'))
+    get '/toybaco/checkout', params: { plan: 'pro', cycle: 'year' }
+    expect(response.body).to include('「ご契約内容」からいつでも手続きできます')
+    expect(response.body).not_to include('無料プラン')
   end
 
   it '未知のプランを現行プランに読み替えない' do

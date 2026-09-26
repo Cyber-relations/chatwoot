@@ -13,6 +13,8 @@ class Toybaco::GmailCallbackController < ActionController::Base # rubocop:disabl
     inbox = connect_inbox
     Toybaco::GmailFetchJob.perform_later(inbox.channel_id)
     return_with('connected', inbox: inbox)
+  rescue Toybaco::Connections::GmailMailbox::LimitReached => e
+    return_with('limit', limit: e.limit, count: e.count, free: Toybaco::Connections::InboxLimit.free_plan?(@account))
   rescue Toybaco::Connections::GmailApi::Error, ActiveRecord::ActiveRecordError, IOError, Timeout::Error, SocketError,
          KeyError, ArgumentError, ActionController::ParameterMissing, OpenSSL::SSL::SSLError
     return_with('retry')
@@ -49,7 +51,8 @@ class Toybaco::GmailCallbackController < ActionController::Base # rubocop:disabl
     Toybaco::Connections::Gmail.connect!(account: @account, tokens: tokens, profile: profile)
   end
 
-  def return_with(result, inbox: nil)
+  # 上限の案内は画面側で組み立てる。無料プランの店舗だけ toybaco_plan=free を添える(「有料プランを見る」へ案内する)。
+  def return_with(result, inbox: nil, limit: nil, count: nil, free: false)
     target = if @return_to == 'growth'
                "/app/accounts/#{@account.id}/toybaco/start"
              elsif @return_to == 'onboarding'
@@ -59,6 +62,7 @@ class Toybaco::GmailCallbackController < ActionController::Base # rubocop:disabl
              else
                "/app/accounts/#{@account.id}/settings/inboxes"
              end
-    redirect_to "#{target}?toybaco_connection=#{result}", allow_other_host: false
+    query = { toybaco_connection: result, toybaco_limit: limit, toybaco_count: count, toybaco_plan: ('free' if free) }.compact
+    redirect_to "#{target}?#{query.to_query}", allow_other_host: false
   end
 end

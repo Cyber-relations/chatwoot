@@ -190,15 +190,23 @@ class ToybacoGrowthPurchaseRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
-  def test_purchase_screen_stays_closed_until_new_sales_are_published
+  def test_purchase_screen_opens_with_the_published_sales_and_closes_without_them
+    # The sales switch (2026-09-26) publishes the growth version: the shipped catalog opens the screen.
+    closed = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    %w[light standard pro].each do |id|
+      closed['current_versions'][id] = '2026-09-06.1'
+      closed['plans'][id]['versions']['2026-09-06.1']['sellable'] = true
+      closed['plans'][id]['versions'][VERSION]['sellable'] = false
+    end
     Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @user)) do
       get '/toybaco/growth/purchase', params: { account_id: @account.id }
-      assert_response :not_found
-      Toybaco::PlanCatalog.stub(:default, @catalog) do
+      assert_response :success
+      assert_includes response.body, '19,800'
+      assert_includes response.body, '213,840'
+      # As before the switch, a catalog that sells another version keeps it closed.
+      Toybaco::PlanCatalog.stub(:default, Toybaco::PlanCatalog.new(closed)) do
         get '/toybaco/growth/purchase', params: { account_id: @account.id }
-        assert_response :success
-        assert_includes response.body, '19,800'
-        assert_includes response.body, '213,840'
+        assert_response :not_found
       end
     end
   end

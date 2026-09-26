@@ -91,6 +91,36 @@ class ChatwootBillingPlanNamesTest < Minitest::Test
     refute_match(/Captain|キャプテン/, view)
   end
 
+  def test_app_billing_pages_use_the_lp_terms
+    view = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/billing/show.html.erb'))
+    purchase = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/growth/purchase.html.erb'))
+    packs = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/growth/packs.html.erb'))
+    retention = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/growth/retention.html.erb'))
+    # The free catalog name stays in stored contracts; customers see the LP name.
+    assert_includes view, '<% if growth_free %>無料プラン<% else %><%= @plan[:name] %> プラン<% end %>'
+    assert_includes view, "growth ? 'AIアシスタント（返信・投稿で共通）'"
+    assert_includes retention, "@state.fetch('target') == 'free' ? '無料プラン' : @state.fetch('target_name')"
+    assert_includes purchase, '<small> / 月・税別</small>'
+    assert_includes purchase, '<li>AIアシスタント 月'
+    assert_includes packs, '円（税別）'
+    [view, purchase, packs].each do |page|
+      refute_match(/税抜|業務AI|右下のチャット|チャットでお知らせ/, page)
+    end
+    assert_includes view, '<a href="https://toybaco.jp/contact/" target="_blank" rel="noopener">お問い合わせフォーム</a>でも受け付けています'
+    # 年払いでも請求は年 1 回。毎月あらたに数えるのは AI の回数で、自動応答は含むプランだけ。
+    assert_includes purchase, '<p class="note">AIの回数は、返信と投稿で共通です。年払いでも、回数は毎月あらたに数えます。' \
+                              '自動応答（スタンダード以上）は、設定したあとで始まります。</p>'
+    refute_includes purchase, '年払いでも毎月更新します'
+    assert_includes packs, '無料プラン／ライトへ変更後も'
+    refute_includes packs, 'Free／Light'
+    assert_includes view, '解約後に残す受信箱・投稿先を選べます。'
+    assert_includes retention, "'inboxes' => '受信箱'"
+    managed = File.read(File.join(ROOT, 'overlay/app/app/views/toybaco/managed_auto/show.html.erb'))
+    assert_includes managed, '/dashboard">店舗の画面へ戻る</a>'
+    views = Dir[File.join(ROOT, 'overlay/app/app/views/toybaco/**/*.erb')].map { |path| File.read(path) }.join
+    refute_includes views, '受信ボックス'
+  end
+
   def test_assignment_upsell_honors_brand_policy_and_preserves_assignment_behavior
     view = File.read(File.join(
                        ROOT,

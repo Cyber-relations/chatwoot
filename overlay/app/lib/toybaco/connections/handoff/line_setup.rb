@@ -2,13 +2,24 @@
 
 require_relative 'completion'
 require_relative '../line_setup_api'
-require_relative '../../entitlements'
+require_relative '../inbox_limit'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Connections
     module Handoff
       class LineSetup
         FIELDS = %w[line_channel_id line_channel_secret line_channel_token].freeze
+
+        # 契約の受信箱上限(確認回数の上限 Limited とは別に案内する)。
+        class LimitReached < StandardError
+          attr_reader :limit, :count
+
+          def initialize(limit, count)
+            @limit = limit
+            @count = count
+            super('inbox limit reached')
+          end
+        end
 
         def self.available?
           Access.enabled? && Chatwoot.encryption_configured? &&
@@ -58,8 +69,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
           raise Invalid if Channel::Line.exists?(line_channel_id: @fields.fetch('line_channel_id'))
 
-          limit = Toybaco::Entitlements.for_account(account)&.dig('limits', 'inboxes')
-          raise Limited if limit && account.inboxes.count >= limit
+          reached = InboxLimit.reached(account)
+          raise LimitReached.new(*reached) if reached
 
           channel = Channel::Line.create!(@fields.merge('account' => account))
           account.inboxes.create!(channel: channel, name: "#{account.name.to_s.slice(0, 60)} LINE")

@@ -7,6 +7,10 @@ require_relative '../overlay/app/lib/toybaco/agent_seat_limit'
 require_relative '../overlay/app/lib/toybaco/ai_usage'
 
 class ToybacoSubscriptionSyncTest < Minitest::Test
+  # Contracts of the former sales version, reconciled by the version on the Stripe price. Since the 2026-09-26 sales
+  # switch that version takes no new sales but its subscriptions keep syncing to its terms, so it is read by definition.
+  FORMER = '2026-09-06.1'
+
   class Account
     attr_accessor :internal_attributes, :status, :features, :account_users
     attr_reader :lock
@@ -31,12 +35,12 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
   end
 
   def contract(plan = 'standard')
-    terms = Toybaco::PlanCatalog.default.sale(plan, 'month')
+    terms = Toybaco::PlanCatalog.default.definition(plan, FORMER)
     Toybaco::Entitlements.snapshot_for(terms, cycle: 'month')
   end
 
-  def subscription(plan: 'standard', status: 'active', price_id: 'price_standard', catalog: Toybaco::PlanCatalog.default)
-    terms = catalog.sale(plan, 'month')
+  def subscription(plan: 'standard', status: 'active', price_id: 'price_standard', catalog: Toybaco::PlanCatalog.default, version: FORMER)
+    terms = catalog.definition(plan, version)
     { 'id' => 'sub_fixture', 'status' => status, 'cancel_at_period_end' => false,
       'items' => { 'data' => [{ 'id' => 'si_fixture', 'quantity' => 1, 'price' => {
         'id' => price_id, 'currency' => 'jpy', 'unit_amount' => terms.dig('cycles', 'month', 'amount'),
@@ -105,6 +109,7 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
   def test_future_plan_syncs_renamed_terms_and_new_feature_combination_then_keeps_purchased_limits
     data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
     future = Marshal.load(Marshal.dump(data['plans']['pro']['versions'].values.first))
+    future['sellable'] = true
     future['name'] = '季節店舗プラン'
     future['entitlements']['features'] = { 'channel_instagram' => false, 'posting' => true, 'ai_reply' => true }
     future['entitlements']['limits'].merge!('agents' => 4, 'ai_replies' => 3)
@@ -112,7 +117,7 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
     data['current_versions']['seasonal'] = 'future-v1'
     catalog = Toybaco::PlanCatalog.new(data)
     @sync = Toybaco::SubscriptionSync.new(client: @client, catalog: catalog)
-    @latest = subscription(plan: 'seasonal', price_id: 'price_seasonal', catalog: catalog)
+    @latest = subscription(plan: 'seasonal', price_id: 'price_seasonal', catalog: catalog, version: 'future-v1')
 
     assert_equal 'applied', sync
     assert_equal ['seasonal', 'future-v1', '季節店舗プラン'], stored.values_at('plan_id', 'plan_version', 'name')
@@ -195,7 +200,7 @@ class ToybacoSubscriptionSyncTest < Minitest::Test
 
     assert_equal 'applied', sync
     assert_equal 'pro', stored['plan_id']
-    assert_equal Toybaco::PlanCatalog.default.sale('pro', 'month')['plan_version'], stored['plan_version']
+    assert_equal FORMER, stored['plan_version']
     assert_equal 'price_catalogpro', stored['stripe_price_id']
     assert_equal 500, stored.dig('entitlements', 'limits', 'ai_replies')
   end

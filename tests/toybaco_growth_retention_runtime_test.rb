@@ -401,14 +401,14 @@ class ToybacoGrowthRetentionRuntimeTest < ActionDispatch::IntegrationTest
       authenticated do
         get "/toybaco/growth/held?account_id=#{@account.id}"
         assert_response :success
-        assert_select 'a', text: '受信ボックスを再開', count: 1 do |links|
+        assert_select 'a', text: '受信箱を再開', count: 1 do |links|
           assert_equal release_endpoint, links.first['href']
         end
         get release_endpoint
         assert_response :success
-        assert_select 'h1', '受信ボックスを再開'
+        assert_select 'h1', '受信箱を再開'
         assert_select 'input[checked][disabled]', 1
-        assert_select 'button', '選んだ受信ボックスを再開'
+        assert_select 'button', '選んだ受信箱を再開'
         assert_select 'script[type="module"][src]', 1 do |scripts|
           digest = Digest::SHA256.file(Rails.public_path.join('toybaco-growth-inbox-release.mjs')).hexdigest
           assert_equal "/toybaco-growth-inbox-release.mjs?v=#{digest}", scripts.first['src']

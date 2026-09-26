@@ -112,7 +112,7 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
   end
 
   it '契約本人は担当者権限でも請求を閲覧できるが支払変更と契約変更はできない' do
-    Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('light', 'month'), cycle: 'month'))
+    Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(former_terms('light'), cycle: 'month'))
     user.account_users.find_by!(account: account).update!(role: :agent)
     client = instance_double(Toybaco::Checkout::Client, retrieve_subscription: {})
     allow(Toybaco::Checkout::Client).to receive(:new).and_return(client)
@@ -300,7 +300,7 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
 
     # PostgreSQL/model/controller/ERB are real; catalog revision and HTTP/session replies are fixtures.
     let(:catalog) { Toybaco::PlanCatalog.default }
-    let(:terms) { catalog.sale('pro', 'month') }
+    let(:terms) { catalog.definition('pro', '2026-09-06.1') }
     let(:account) { create(:account, name: 'P02 isolated fixture') }
     let(:user) { create(:user, account: account) }
     let(:subscription_id) { 'sub_P02Fixture' }
@@ -390,7 +390,7 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     end
 
     def revised_pro_terms
-      revised = Marshal.load(Marshal.dump(catalog.data['plans']['pro']['versions'].fetch(terms['plan_version'])))
+      revised = Marshal.load(Marshal.dump(catalog.data['plans']['pro']['versions'].fetch(terms['plan_version']))).merge('sellable' => true)
       revised['name'] = 'P02 revised sales fixture'
       revised['cycles']['month']['amount'] = 98_900
       revised['entitlements']['features'].merge!('posting' => false, 'channel_instagram' => false)
@@ -446,5 +446,10 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
       expect(presentation(billing_document)).to eq(before)
       expect(a_request(:post, %r{\Ahttps://api\.stripe\.com/})).not_to have_been_made
     end
+  end
+
+  # Contracts of the sales version before the 2026-09-26 sales switch keep their terms; they are read by version.
+  def former_terms(plan)
+    Toybaco::PlanCatalog.default.definition(plan, '2026-09-06.1')
   end
 end

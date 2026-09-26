@@ -15,13 +15,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       COUNTRY = DATA.data.fetch('country')
       DEFAULT_SUCCESS_URL = 'https://toybaco.jp/welcome/'
       DEFAULT_CANCEL_BASE = 'https://toybaco.jp/signup/'
-      OPTIONAL_LOOKUP_KEYS = DATA.data.fetch('optional_lookup_keys')
       LOOKUP_KEYS = SALES.to_h do |plan|
         [plan.fetch('plan_id'), plan.fetch('cycles').transform_values { |price| price.dig('stripe', 'live', 'lookup_key') }]
       end.freeze
       PRICE_ENV_KEYS = SALES.flat_map do |plan|
         plan.fetch('cycles').values.map { |price| [price.dig('stripe', 'live', 'lookup_key'), price.dig('stripe', 'live', 'price_env')] }
       end.to_h.freeze
+      # 該当する業種が無い店舗も申し込める。業界パックは適用しない(Growth::OpeningTerms)。
+      OTHER_INDUSTRY = 'other'
       INDUSTRIES = [
         %w[beauty 美容室・サロン],
         %w[food 飲食店],
@@ -34,7 +35,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         %w[hotel 宿泊(旅館・ゲストハウス)],
         %w[bridalphoto 冠婚葬祭・写真館],
         %w[pet ペット(トリミング・動物病院)],
-        %w[pro 士業・コンサル]
+        %w[pro 士業・コンサル],
+        [OTHER_INDUSTRY, 'その他']
       ].freeze
       PRICE_ID = /\Aprice_[A-Za-z0-9]+\z/
       CUSTOMER_ID = /\Acus_[A-Za-z0-9]+\z/

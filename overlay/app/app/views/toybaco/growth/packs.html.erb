@@ -15,10 +15,10 @@
   <h1>AIを、もう少し使いたいときに</h1>
   <section class="trial-card">
     <h2>追加 <%= @state.dig('pack', 'generations') %>回</h2>
-    <p><strong><%= number_with_delimiter(@state.dig('pack', 'amount')) %>円（税抜）</strong>・購入ごとのお支払い</p>
+    <p><strong><%= number_with_delimiter(@state.dig('pack', 'amount')) %>円（税別）</strong>・購入ごとのお支払い</p>
     <p>決済成功から<%= @state.dig('pack', 'expires_after_days') %>日間有効です。</p>
     <p>購入後の取消・返金はできません。期限を過ぎた残りの回数は失効し、返金しません。自動購入・自動更新はありません。</p>
-    <p class="note">通常枠から先に使います。Free／Lightへ変更後も、残りは返信案・投稿文の作成に使えます。</p>
+    <p class="note">通常枠から先に使います。無料プラン／ライトへ変更後も、残りは返信案・投稿文の作成に使えます。</p>
     <p id="pack-status" role="status" aria-live="polite"></p>
     <p id="pack-error" role="alert" hidden></p>
     <% if @state['can_purchase'] && %w[none prepared open].include?(@state['state']) %>

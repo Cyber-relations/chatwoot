@@ -330,7 +330,7 @@ onBeforeUnmount(() => {
     v-if="enabled && state && !inSetup && state.phase !== 'complete'"
     class="toybaco-guide-entry"
   >
-    <span>最初の接続から、画面で案内します。</span>
+    <span>お店の準備を、画面で案内します。</span>
     <button type="button" @click="resume">
       {{ state.preference.purpose ? '設定を続ける' : '使い始める' }}
     </button>

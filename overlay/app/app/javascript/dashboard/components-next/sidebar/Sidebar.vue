@@ -50,7 +50,7 @@ const emit = defineEmits([
   'closeMobileSidebar',
 ]);
 
-const { accountScopedRoute, isOnChatwootCloud } = useAccount();
+const { accountScopedRoute, isOnChatwootCloud, currentAccount } = useAccount();
 const { isEnterprise } = useConfig();
 const store = useStore();
 const { canViewBilling } = useToybacoBillingAccess();
@@ -112,6 +112,7 @@ const isMobile = computed(() => windowWidth.value < 768);
 
 const accountId = useMapGetter('getCurrentAccountId');
 const currentUserId = useMapGetter('getCurrentUserID');
+const currentRole = useMapGetter('getCurrentRole');
 const isFeatureEnabledonAccount = useMapGetter(
   'accounts/isFeatureEnabledonAccount'
 );
@@ -1120,6 +1121,18 @@ const menuItems = computed(() => {
           icon: 'i-lucide-shield',
           to: accountScopedRoute('security_settings_index'),
         },
+        // 店舗情報の入力・保存は管理者だけ(スタッフには注記だけの画面になるため出さない)。
+        ...(currentAccount.value?.toybaco_growth_onboarding === true &&
+        currentRole.value === 'administrator'
+          ? [
+              {
+                name: 'Settings Store Facts',
+                label: '店舗情報',
+                icon: 'i-lucide-store',
+                to: accountScopedRoute('toybaco_store_facts_settings'),
+              },
+            ]
+          : []),
         ...(canViewBilling.value
           ? [
               {

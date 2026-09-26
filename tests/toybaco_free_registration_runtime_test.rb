@@ -35,12 +35,24 @@ class ToybacoFreeRegistrationRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
-  def test_registration_is_closed_until_the_free_version_is_released
-    refute Registration.enabled?
-    assert_no_difference('Account.count') do
-      post '/toybaco/free/signup', params: @attributes, as: :json
-      assert_response :not_found
+  def test_registration_opens_only_with_a_released_sellable_free_version
+    # The sales switch (2026-09-26) released the free version: the shipped catalog opens registration.
+    assert_equal VERSION, Toybaco::PlanCatalog.default.data.fetch('free_registration_version')
+    assert Registration.enabled?
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    data.delete('free_registration_version')
+    # Without a released free version, as before the switch, the route stays closed.
+    Toybaco::PlanCatalog.stub(:default, Toybaco::PlanCatalog.new(data)) do
+      refute Registration.enabled?
+      assert_no_difference('Account.count') do
+        post '/toybaco/free/signup', params: @attributes, as: :json
+        assert_response :not_found
+      end
     end
+    # A released version that is not sellable keeps it closed as well.
+    data['free_registration_version'] = VERSION
+    data['plans']['free']['versions'][VERSION]['sellable'] = false
+    Toybaco::PlanCatalog.stub(:default, Toybaco::PlanCatalog.new(data)) { refute Registration.enabled? }
   end
 
   def test_same_origin_form_registers_without_creating_a_login_session

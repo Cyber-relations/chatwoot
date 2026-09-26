@@ -6,7 +6,7 @@ require Rails.root.join('lib/toybaco/checkout/plan_change')
 RSpec.describe Toybaco::Checkout::PlanChange do
   self.use_transactional_tests = false
 
-  let(:catalog) { Toybaco::PlanCatalog.default }
+  let(:catalog) { before_switch_catalog }
   let(:source_plan) { 'pro' }
   let(:clock) { { now: Time.now.to_i } }
   let(:client) { instance_double(Toybaco::Checkout::Client) }
@@ -59,7 +59,7 @@ RSpec.describe Toybaco::Checkout::PlanChange do
   def stored = account.reload.internal_attributes['toybaco_contract']
 
   def service
-    described_class.new(account: account, client: client, environment: { 'TOYBACO_STRIPE_MODE' => 'test' }, clock: -> { Time.at(clock[:now]).utc })
+    described_class.new(account: account, client: client, catalog: catalog, environment: stripe_test_mode, clock: -> { Time.at(clock[:now]).utc })
   end
 
   def quote(plan = 'light')
@@ -239,4 +239,20 @@ RSpec.describe Toybaco::Checkout::PlanChange do
       expect(service.refresh).to eq('status' => 'expired')
     end
   end
+
+  # The mechanism needs a version that is on sale and eligible for changes. Since the 2026-09-26 sales switch none is,
+  # so these receipts run on the catalog as it stood before the switch: 2026-09-06.1 on sale and eligible.
+  def before_switch_catalog
+    data = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    %w[light standard pro].each do |id|
+      data['current_versions'][id] = '2026-09-06.1'
+      data['plans'][id]['versions']['2026-09-06.1']['sellable'] = true
+    end
+    %w[free light standard pro].each { |id| data['plans'][id]['versions']['2026-09-25.1']['sellable'] = false }
+    data['release_candidates']['2026-09-25.1']['ai_pack']['sellable'] = false
+    data.delete('free_registration_version')
+    Toybaco::PlanCatalog.new(data)
+  end
+
+  def stripe_test_mode = { 'TOYBACO_STRIPE_MODE' => 'test' }
 end

@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 require_relative '../../../lib/toybaco/ai_reply_mode'
+require_relative '../../../lib/toybaco/growth/bot_access'
 require_relative '../../../lib/toybaco/growth/reply_policy'
 
 # 受信箱の AI 一次応答モード(全自動 / 下書き)。客面は日本語のみ。
 # 店舗スタッフはログインcookie、bot は既存の api_access_token で読む。
+# bot が受信箱を指定したときだけ、その受信箱へ自動応答してよいかの判定(access)を付ける。
 class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
   before_action :set_no_cache
@@ -13,6 +15,8 @@ class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rail
   def show
     payload = Toybaco::AiReplyMode.payload(Toybaco::AiReplyMode.read_from(@account))
     payload[:meter] = Toybaco::GrowthTerms::METER if Toybaco::Entitlements.for_account(@account)&.dig('ai_meter') == Toybaco::GrowthTerms::METER
+    access = bot_access
+    payload[:access] = access if access
     render json: payload
   end
 
@@ -25,6 +29,17 @@ class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rail
   end
 
   private
+
+  # cookie の呼出しと受信箱なしの呼出しは応答を変えない。判定は1行だけ記録する(店舗・受信箱・botのIDと結果のみ)。
+  def bot_access
+    inbox_id = params[:inbox_id].to_s
+    return unless @bot && inbox_id.match?(/\A[1-9]\d*\z/)
+
+    access = Toybaco::Growth::BotAccess.read(@account, inbox: @account.inboxes.find_by(id: inbox_id), bot: @bot)
+    Rails.logger.info("toybaco_bot_access account=#{@account.id} inbox=#{inbox_id} bot=#{@bot.id} " \
+                      "allowed=#{access['allowed']} reason=#{access['reason']}")
+    access
+  end
 
   def update_growth
     allowed_site = [nil, '', 'same-origin'].include?(request.headers['Sec-Fetch-Site'])
@@ -64,6 +79,7 @@ class Toybaco::AiReplyController < ActionController::Base # rubocop:disable Rail
     return false unless account && bot_covers_account?(bot, account)
 
     @account = account
+    @bot = bot
     true
   end
 

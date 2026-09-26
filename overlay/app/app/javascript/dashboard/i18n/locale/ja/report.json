@@ -136,7 +136,7 @@
       "PREVIOUS_BUCKET": "前のバー",
       "NEXT_BUCKET": "次のバー",
       "UNKNOWN_CONTACT": "不明な連絡先",
-      "UNKNOWN_INBOX": "不明な受信トレイ",
+      "UNKNOWN_INBOX": "不明な受信箱",
       "UNASSIGNED_AGENT": "未割当",
       "NO_MESSAGE_CONTENT": "メッセージコンテンツなし",
       "MESSAGE_CREATED_AT": "{time} でメッセージが作成されました",
@@ -296,17 +296,17 @@
     }
   },
   "INBOX_REPORTS": {
-    "HEADER": "受信トレイ概要",
-    "DESCRIPTION": "会話、応答時間、解決までの時間、解決済み案件などの主要な指標を使用して、受信トレイのパフォーマンスをすばやく確認できます。 詳細については、受信トレイ名をクリックしてください。",
+    "HEADER": "受信箱概要",
+    "DESCRIPTION": "会話、応答時間、解決までの時間、解決済み案件などの主要な指標を使用して、受信箱のパフォーマンスをすばやく確認できます。 詳細については、受信箱名をクリックしてください。",
     "LOADING_CHART": "グラフデータを読み込んでいます...",
     "NO_ENOUGH_DATA": "レポートを生成するための十分なデータポイントを受信していません。後でもう一度お試しください。",
-    "DOWNLOAD_INBOX_REPORTS": "受信トレイレポートをダウンロード",
-    "FILTER_DROPDOWN_LABEL": "受信トレイを選択",
-    "ALL_INBOXES": "すべての受信トレイ",
-    "SEARCH_INBOX": "受信トレイを検索",
+    "DOWNLOAD_INBOX_REPORTS": "受信箱レポートをダウンロード",
+    "FILTER_DROPDOWN_LABEL": "受信箱を選択",
+    "ALL_INBOXES": "すべての受信箱",
+    "SEARCH_INBOX": "受信箱を検索",
     "FILTERS": {
       "INPUT_PLACEHOLDER": {
-        "INBOXES": "受信トレイを検索する"
+        "INBOXES": "受信箱を検索する"
       }
     },
     "METRICS": {
@@ -458,7 +458,7 @@
       "NO_FILTER": "利用可能なフィルターがありません",
       "INPUT_PLACEHOLDER": {
         "AGENTS": "担当者を検索",
-        "INBOXES": "受信トレイを検索する",
+        "INBOXES": "受信箱を検索する",
         "TEAMS": "チームを検索",
         "RATINGS": "評価を検索する"
       },
@@ -466,7 +466,7 @@
         "LABEL": "担当者"
       },
       "INBOXES": {
-        "LABEL": "受信トレイ"
+        "LABEL": "受信箱"
       },
       "TEAMS": {
         "LABEL": "チーム"
@@ -517,7 +517,7 @@
       "UPDATED_BY_LABEL": "更新者",
       "PAYWALL": {
         "TITLE": "アップグレードしてレビューノートを追加",
-        "AVAILABLE_ON": "レビューノート機能はビジネスプランとエンタープライズプランでのみ利用できます。",
+        "AVAILABLE_ON": "レビューノート機能は有料プランでのみ利用できます。",
         "UPGRADE_PROMPT": "レビューノートを使用して、すべてのCSAT回答に内部コンテキストを追加します。実際に起こったことを把握し、パターンをすばやく発見し、フィードバックからより適切な意思決定を下すことができます。",
         "UPGRADE_NOW": "今すぐアップグレード",
         "CANCEL_ANYTIME": "プランはいつでも変更またはキャンセルできます"
@@ -626,12 +626,12 @@
       "INPUT_PLACEHOLDER": {
         "SLA": "SLA名",
         "AGENTS": "担当者名",
-        "INBOXES": "受信トレイ名",
+        "INBOXES": "受信箱名",
         "LABELS": "ラベル名",
         "TEAMS": "チーム名"
       },
       "SLA": "SLAポリシー",
-      "INBOXES": "受信トレイ",
+      "INBOXES": "受信箱",
       "AGENTS": "担当者",
       "LABELS": "ラベル",
       "TEAMS": "チーム"
@@ -661,7 +661,7 @@
     }
   },
   "SUMMARY_REPORTS": {
-    "INBOX": "受信トレイ",
+    "INBOX": "受信箱",
     "AGENT": "担当者",
     "TEAM": "チーム",
     "LABEL": "ラベル",

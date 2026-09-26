@@ -5,6 +5,10 @@ require 'monitor'
 require_relative '../overlay/app/lib/toybaco/ai_usage'
 
 class ToybacoAiUsageTest < Minitest::Test
+  # Reply metering (ai_replies) belongs to contracts of the former sales version. Since the 2026-09-26 sales switch the
+  # current sale meters growth generations, so these contracts are taken from that version by definition.
+  FORMER = '2026-09-06.1'
+
   class Record
     attr_accessor :internal_attributes, :content_attributes, :status
     def initialize(attrs = {})
@@ -20,7 +24,7 @@ class ToybacoAiUsageTest < Minitest::Test
 
   def setup
     @now = Time.iso8601('2026-09-30T23:59:00+09:00')
-    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('pro', 'month'), cycle: 'month')
+    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition('pro', FORMER), cycle: 'month')
     contract['entitlements']['limits']['ai_replies'] = 2
     @account = Record.new('toybaco_contract' => contract, 'other' => 'preserved')
     @message = Record.new
@@ -121,7 +125,7 @@ class ToybacoAiUsageTest < Minitest::Test
 
   def test_unknown_legacy_or_disabled_plan_never_receives_an_invented_allowance
     [{}, { 'toybaco_plan' => 'standard' }, { 'toybaco_contract' => Toybaco::Entitlements.snapshot_for(
-      Toybaco::PlanCatalog.default.sale('light', 'month'), cycle: 'month'
+      Toybaco::PlanCatalog.default.definition('light', FORMER), cycle: 'month'
     ) }].each do |attrs|
       @account.internal_attributes = attrs
       assert_equal 'denied', usage.reserve(Record.new)['result']

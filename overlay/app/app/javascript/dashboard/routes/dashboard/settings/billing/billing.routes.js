@@ -31,6 +31,15 @@ export default {
       ],
     },
     {
+      // 店舗情報(AI の返信案・投稿文に使う)は、初回ガイドを通らなくても設定メニューから開ける。
+      path: frontendURL('accounts/:accountId/settings/store'),
+      name: 'toybaco_store_facts_settings',
+      component: () => import('../../onboarding/ToybacoStart.vue'),
+      meta: {
+        permissions: ['administrator'],
+      },
+    },
+    {
       path: frontendURL('accounts/:accountId/settings/contract'),
       name: 'toybaco_billing_settings_index',
       component: ToybacoBilling,

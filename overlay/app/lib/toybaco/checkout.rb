@@ -32,8 +32,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       http.create_checkout_session(
         session_params(
           plan: plan, cycle: cycle, version: terms.fetch('plan_version'), price: price, customer_id: customer.fetch('id'),
-          consent: options[:consent], **urls,
-          optional_price_ids: Resolver.optional_price_ids(client: http, cycle: cycle)
+          consent: options[:consent], **urls
         )
       )
     end

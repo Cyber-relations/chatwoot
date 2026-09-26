@@ -11,7 +11,7 @@ RSpec.describe Toybaco::SubscriptionSync do
   let!(:user) { create(:user, email: "order-#{SecureRandom.hex(8)}@example.invalid") }
   let(:client) { instance_double(Toybaco::Checkout::Client) }
   let(:state) { { reads: [], workers: [], new_users: [], after_read: nil } }
-  let(:terms) { Toybaco::PlanCatalog.default.sale('pro', 'month') }
+  let(:terms) { Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1') }
   let(:latest) do
     { 'id' => subscription_id, 'status' => 'active', 'cancel_at_period_end' => false,
       'items' => { 'data' => [{ 'id' => 'si_order', 'quantity' => 1, 'price' => {
@@ -336,7 +336,7 @@ RSpec.describe Toybaco::SubscriptionSync do
       end
       stale_pid = Account.connection.select_value('SELECT pg_backend_pid()')
       allow(Toybaco::InboundEmail).to receive(:resolve_mx) do
-        light = Toybaco::PlanCatalog.default.sale('light', 'month')
+        light = Toybaco::PlanCatalog.default.definition('light', '2026-09-06.1')
         latest.fetch('items').fetch('data').first['price'] = {
           'id' => 'price_orderlight', 'currency' => 'jpy', 'unit_amount' => light.dig('cycles', 'month', 'amount'),
           'recurring' => { 'interval' => 'month', 'interval_count' => 1 },

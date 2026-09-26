@@ -35,9 +35,9 @@
             "ERROR": "メッセージは必須です"
           },
           "INBOX": {
-            "LABEL": "受信トレイを選択",
-            "PLACEHOLDER": "受信トレイを選択",
-            "ERROR": "受信トレイは必須です"
+            "LABEL": "受信箱を選択",
+            "PLACEHOLDER": "受信箱を選択",
+            "ERROR": "受信箱は必須です"
           },
           "SENT_BY": {
             "LABEL": "送信者",
@@ -113,9 +113,9 @@
             "ERROR": "メッセージは必須です"
           },
           "INBOX": {
-            "LABEL": "受信トレイを選択",
-            "PLACEHOLDER": "受信トレイを選択",
-            "ERROR": "受信トレイは必須です"
+            "LABEL": "受信箱を選択",
+            "PLACEHOLDER": "受信箱を選択",
+            "ERROR": "受信箱は必須です"
           },
           "AUDIENCE": {
             "LABEL": "対象者",
@@ -168,9 +168,9 @@
             "ERROR": "タイトルは必須です"
           },
           "INBOX": {
-            "LABEL": "受信トレイを選択",
-            "PLACEHOLDER": "受信トレイを選択",
-            "ERROR": "受信トレイは必須です"
+            "LABEL": "受信箱を選択",
+            "PLACEHOLDER": "受信箱を選択",
+            "ERROR": "受信箱は必須です"
           },
           "TEMPLATE": {
             "LABEL": "WhatsApp テンプレート",

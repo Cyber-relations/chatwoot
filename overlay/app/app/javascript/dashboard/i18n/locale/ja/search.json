@@ -56,13 +56,13 @@
     "FILTERS": {
       "FILTER_MESSAGE": "次の条件でメッセージをフィルタリングします。",
       "FROM": "送信者",
-      "IN": "受信トレイ",
+      "IN": "受信箱",
       "AGENTS": "担当者",
       "CONTACTS": "連絡先",
-      "INBOXES": "受信トレイ",
+      "INBOXES": "受信箱",
       "NO_AGENTS": "担当者が見つかりません",
       "NO_CONTACTS": "まず検索して結果を確認",
-      "NO_INBOXES": "受信トレイが見つかりません"
+      "NO_INBOXES": "受信箱が見つかりません"
     }
   }
 }

@@ -12,7 +12,11 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
   end
 
   def update
-    render json: @onboarding.update!(params.require(:preference).permit(:purpose, :inbox_id, :dismissed).to_h)
+    preference = params.require(:preference)
+    attributes = preference.permit(:purpose, :inbox_id, :dismissed, skipped: [], opened: []).to_h
+    raise ArgumentError, 'invalid guide steps' unless step_lists_kept?(preference, attributes)
+
+    render json: @onboarding.update!(attributes)
   rescue ArgumentError, ActionController::ParameterMissing
     render json: { error: '操作を確認してください。' }, status: :unprocessable_entity
   end
@@ -29,6 +33,11 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
   end
 
   private
+
+  # 段の一覧(skipped・opened)は配列だけを受け付ける。strong parameters が落とした値(配列以外)を、指定なしとして通さない。
+  def step_lists_kept?(preference, attributes)
+    Toybaco::Growth::Onboarding::STEP_LISTS.all? { |key| preference.key?(key) == attributes.key?(key) }
+  end
 
   def load_membership
     response.headers['Cache-Control'] = 'no-store'

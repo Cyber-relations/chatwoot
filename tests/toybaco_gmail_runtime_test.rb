@@ -133,6 +133,46 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_plan_inbox_limit_is_explained_instead_of_asking_to_retry
+    terms = Toybaco::PlanCatalog.default.definition('free', '2026-09-25.1')
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: nil))
+    2.times { create(:inbox, account: @account) }
+    with_google do
+      state = authorize(return_to: 'growth')
+      get '/toybaco/connections/gmail/callback', params: { state: state, code: 'fixture-code' }
+      assert_response :redirect
+      uri = URI(response.location)
+      assert_equal "/app/accounts/#{@account.id}/toybaco/start", uri.path
+      assert_equal({ 'toybaco_connection' => 'limit', 'toybaco_limit' => '2', 'toybaco_count' => '2', 'toybaco_plan' => 'free' },
+                   URI.decode_www_form(uri.query).to_h)
+    end
+    assert_equal 2, @account.inboxes.count
+    error = assert_raises(Toybaco::Connections::GmailMailbox::LimitReached) { connect }
+    assert_equal [2, 2, 409], [error.limit, error.count, error.status]
+    assert_kind_of Api::Error, error
+    free = Toybaco::Connections::InboxLimit.free_plan?(@account)
+    assert_equal 'このプランでは受信箱を2件まで接続できます(現在2件)。上位プランへの変更は「ご契約内容」の「有料プランを見る」から行えます。',
+                 Toybaco::Connections::InboxLimit.notice(error.limit, error.count, free: free)
+  end
+
+  # 有料の契約(新料金版はアプリ内でプランを変更できない)は、無料プランの印を付けずにサポートへ案内する。
+  def test_paid_plan_inbox_limit_points_to_support_without_the_free_plan_mark
+    terms = Toybaco::PlanCatalog.default.definition('light', '2026-09-25.1')
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'))
+    4.times { create(:inbox, account: @account) }
+    with_google do
+      state = authorize(return_to: 'growth')
+      get '/toybaco/connections/gmail/callback', params: { state: state, code: 'fixture-code' }
+      assert_response :redirect
+      assert_equal({ 'toybaco_connection' => 'limit', 'toybaco_limit' => '4', 'toybaco_count' => '4' },
+                   URI.decode_www_form(URI(response.location).query).to_h)
+    end
+    assert_equal 4, @account.inboxes.count
+    free = Toybaco::Connections::InboxLimit.free_plan?(@account)
+    assert_equal 'このプランでは受信箱を4件まで接続できます(現在4件)。プランの変更やご不明な点は、サポートへお問い合わせください。',
+                 Toybaco::Connections::InboxLimit.notice(4, 4, free: free)
+  end
+
   def test_removed_admin_permission_is_rechecked_after_google_returns
     with_google do
       state = authorize

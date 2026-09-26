@@ -338,31 +338,188 @@ def render_page(source, data, path):
     return re.sub(r'<script type="application/ld\+json">(.*?)</script>', schema, result, flags=re.S)
 
 
-def knowledge(data):
-    lines = ['現在販売中のプランです。料金は税別です。契約中のお客様の金額・権利は契約時の条件で確認してください。']
+# Bot knowledge copy. The fixed sentences restate LP copy (lp_pricing_candidate.py); prices, limits and links come from the catalog.
+SALES_KNOWLEDGE_HEADER = '現在販売中のプランです。料金は税別です。契約中のお客様の金額・権利は契約時の条件で確認してください。'
+LP_KNOWLEDGE_HEADER = '現在ご案内中のプランです。料金は1店舗ごとの税別価格で、全プランでスタッフ数は無制限です。契約中のお客様の金額・権利は契約時の条件で確認してください。'
+APPLY_BY_FORM = '申し込みページでプランと支払周期を選ぶと、内容が相談フォームに引き継がれます。有料プランはお問い合わせフォームでお申し込みを承り、内容の確認後に担当者からご連絡します(販売開始後はカード決済に対応)。'
+APPLY_FREE_BY_EMAIL = '無料プランはメール確認で開始できます(カード登録不要)。'
+# The start of paid service is stated as the LP 特定商取引法・利用規約 state it; no fixed opening lead time is promised.
+APPLY_BY_CARD = '有料プランはクレジットカード(Stripe の決済画面によるWeb決済)でお申し込みいただき、初回決済の成功を確認して開始します。最終金額は決済画面でご確認ください。接続作業・審査に必要な期間は媒体や店舗の状態によって異なります。'
+BILLED_AMOUNT = '請求額は税額・割引・追加項目によって変わります。'
+PLAN_CHANGE_QUESTION = 'プラン変更・解約はいつ反映されますか？'
+TRIAL_QUESTION = 'AI自動返信の体験はいつ始まりますか？'
+
+
+def annual_discount(month, annual):
+    # Only an exact whole-percent discount is stated; the annual total itself is always shown.
+    if not month:
+        return ''
+    percent = (1 - Decimal(annual) / (Decimal(month) * 12)) * 100
+    return f'({percent:.0f}%割引)' if percent > 0 and percent % 1 == 0 else ''
+
+
+def application_links(url, year_url):
+    """A plan's application links: one reads "申込", a plan with both billing cycles labels each of them.
+
+    Each cycle offered is linked, so an annual applicant is not sent to the monthly checkout. The bot finds the links
+    by these labels. Every URL is followed by a space or a line break only, the one boundary the bot accepts after a
+    link (a chat renderer would carry other characters into the href), so a reply copying this form stays valid.
+    """
+    return '申込: ' + url if year_url is None else '申込(月払い): ' + url + ' 申込(年払い): ' + year_url
+
+
+def plan_line(name, month, annual, limits, automatic, pack, url, year_url, *, free):
+    """One plan in the bot's words. LP candidate plans and promoted growth terms share this sentence."""
+    if free:
+        price = yen(month) + '(カード登録不要)'
+    else:
+        price = '月額' + yen(month) + ('' if annual is None else '、年一括' + yen(annual) + annual_discount(month, annual))
+    links = application_links(url, year_url)
+    counts = [limits[key] for key in ('inboxes', 'posting_accounts', 'scheduled_posts_per_account', 'ai_generations')]
+    if any(type(count) is not int or count < 0 for count in counts):
+        raise ValueError('plan limits must be non-negative integers')
+    # Numbers are written as on the LP cards: connections without and reservations or generations with separators.
+    # Like the cards ("通常の自動返信は対象外"), plans without automatic replies may still offer the trial.
+    terms = [f"受信箱{limits['inboxes']}接続", f"投稿先{limits['posting_accounts']}接続",
+             f"同時予約は投稿先ごとに{limits['scheduled_posts_per_account']:,}件", f"AI生成 月{limits['ai_generations']:,}回",
+             'AI自動返信あり' if automatic else '通常のAI自動返信は対象外'] + (['AI追加パック購入可'] if pack else [])
+    return name + ': ' + price + '。' + '、'.join(terms) + '。' + links
+
+
+def application_line(connected, free_offered):
+    # The LP takes applications through the consultation form until the application routes are connected.
+    route = ((APPLY_FREE_BY_EMAIL if free_offered else '') + APPLY_BY_CARD) if connected else APPLY_BY_FORM
+    return '申し込み方法: ' + route + BILLED_AMOUNT
+
+
+LP_SITE = 'https://toybaco.jp'
+LP_CARD_LINK = re.compile(r'data-lp-plan-link="([^"]*)" href="([^"]*)"')
+LINKS_CHANGED = 'LP plan card links changed; review the bot knowledge links'
+
+
+def lp_card_links(candidate, plans, data, connected):
+    """The LP plan card destinations, read from the candidate's own cards() so the bot keeps no second URL rule.
+
+    The pricing cards link the signup page. Once the application routes are connected, the signup cards link the app.
+    cards() reads that from APP_ROUTES_CONNECTED, so an explicit choice is applied to it only while rendering.
+    """
+    flag = candidate.APP_ROUTES_CONNECTED
+    candidate.APP_ROUTES_CONNECTED = connected
+    try:
+        rendered = candidate.cards(plans, data, signup=connected)
+    finally:
+        candidate.APP_ROUTES_CONNECTED = flag
+    links = [(plan_id, html.unescape(href)) for plan_id, href in LP_CARD_LINK.findall(rendered)]
+    if [plan_id for plan_id, _ in links] != ['free', 'light', 'standard', 'pro']:
+        raise ValueError(LINKS_CHANGED)
+    urls = {}
+    for plan_id, href in links:
+        if href.startswith('/') and not href.startswith('//'):
+            href = LP_SITE + href
+        elif not href.startswith('https://'):
+            raise ValueError(LINKS_CHANGED)
+        urls[plan_id] = href
+    return urls
+
+
+def annual_link(url):
+    # The LP script switches a paid card to annual billing by setting cycle=year in place (candidate.js setCycle).
+    if url.count('cycle=month') != 1:
+        raise ValueError(LINKS_CHANGED)
+    return url.replace('cycle=month', 'cycle=year')
+
+
+def lp_knowledge(data, candidate, connected):
+    if connected is not True and connected is not False:
+        raise ValueError('the application route choice must be True or False')
+    plans, terms = candidate.load_plans(data, candidate.VERSION)
+    pack = terms['ai_pack']
+    buyers = [p['plan_id'] for p in plans if p['pack']]
+    trial = terms.get('auto_reply_trial') or {}
+    trial_plans = [p['name'] for p in plans if not p['automatic']]
+    # The fixed sentences here and on the LP state these terms: the LP cards and FAQ say annual billing is 10% off,
+    # and its pack panel and FAQ name Standard・Pro, in that order, as the buyers. The pack figures are whole yen and
+    # days as on the LP. The trial is once per store, started by the owner, and never charged automatically. A catalog
+    # that contradicts them needs reviewed copy. The plan prices carry no tax field of their own to check.
+    if (any(p['limits']['agents'] is not None or p['limits'].get('stores') != 1 for p in plans)
+            or any(Decimal(p['annual']) != Decimal(p['amount']) * 12 * Decimal('0.9') for p in plans if not p['free'])
+            or pack.get('automatic_purchase') is not False or pack.get('tax_behavior') != 'exclusive'
+            or any(type(pack.get(key)) is not int or pack[key] <= 0 for key in ('generations', 'amount', 'expires_after_days'))
+            or set(buyers) != set(pack['purchase_plans']) or buyers != ['standard', 'pro']
+            or (trial_plans and (trial.get('once_per_store') is not True or trial.get('requires_owner_start') is not True
+                                 or trial.get('automatic_charge') is not False
+                                 or any(type(trial.get(key)) is not int or trial[key] <= 0 for key in ('days', 'generations'))))):
+        raise ValueError('LP candidate terms contradict the bot knowledge copy; review it before generating')
+    # Plan changes and cancellation quote the one LP FAQ answer, which the candidate builds from CHANGE and LEGACY.
+    answers = [answer for question, answer in candidate.faq_items(plans, terms) if question == PLAN_CHANGE_QUESTION]
+    if len(answers) != 1 or not isinstance(answers[0], str) or not answers[0].strip():
+        raise ValueError('LP FAQ no longer answers plan changes and cancellation; review the bot knowledge copy')
+    change = answers[0]
+    urls = lp_card_links(candidate, plans, data, connected)
+    lines = [LP_KNOWLEDGE_HEADER]
+    for p in plans:
+        url = urls[p['plan_id']]
+        lines.append(plan_line(p['name'], p['amount'], p['annual'], p['limits'], p['automatic'], p['pack'],
+                               url, None if p['free'] else annual_link(url), free=p['free']))
+    labels = '・'.join(plan_id.capitalize() for plan_id in buyers)  # The LP names them in English: "Standard・Pro".
+    lines.append(f"AI追加パック: {pack['generations']:,}回 {yen(pack['amount'])}(税別)。{labels}で購入でき、"
+                 f"決済成功から{pack['expires_after_days']}日間有効です。自動購入はありません。")
+    if trial_plans:
+        # The LP FAQ offers plans without automatic replies a trial of them (candidate auto_reply_trial). Where the trial
+        # runs is quoted from the candidate (TRIAL_INBOXES), which the LP FAQ answer must state once.
+        answers = [answer for question, answer in candidate.faq_items(plans, terms) if question == TRIAL_QUESTION]
+        if len(answers) != 1 or not isinstance(answers[0], str) or answers[0].count(candidate.TRIAL_INBOXES) != 1:
+            raise ValueError('LP FAQ no longer states where the trial runs; review the bot knowledge copy')
+        lines.append(f"AI自動返信の体験: {'・'.join(trial_plans)}では、準備完了後にオーナーが開始してから{trial['days']}日または"
+                     f"{trial['generations']:,}回に達するまで、1店舗につき1回体験できます。自動課金はありません。"
+                     + candidate.TRIAL_INBOXES)
+    lines.append(application_line(connected, free_offered=any(p['free'] for p in plans)))
+    lines.append('プラン変更・解約: ' + change)
+    return '\n'.join(lines)
+
+
+def knowledge(data, candidate=None, connected=None):
+    """Bot knowledge for the plans the public LP shows.
+
+    With the LP candidate module (the LP renders its version), the candidate plans are stated and the application
+    route follows `connected`, by default the module's APP_ROUTES_CONNECTED. Without it, the current sellable versions
+    are stated with the card checkout route of the version-pinned signup pages.
+    """
+    if candidate is not None:
+        return lp_knowledge(data, candidate, candidate.APP_ROUTES_CONNECTED if connected is None else connected)
+    if connected is not None:
+        raise ValueError('the application route choice applies only to the LP candidate')
+    lines = [SALES_KNOWLEDGE_HEADER]
     for plan in sales(data):
         ent = plan['entitlements']
+        # Every line here is a paid plan; a zero monthly price would read as "月額¥0" for a plan sold by card.
+        if plan['cycles']['month']['amount'] == 0:
+            raise ValueError('current sales plans need a positive monthly price in the bot knowledge')
+        # Without the candidate the LP cards link its signup page for both cycles (data-lm / data-ly) in every version.
+        url = 'https://toybaco.jp/' + link(plan, 'month', signup=True, root_page=True)
+        annual = plan['cycles']['year']['amount'] if 'year' in plan['cycles'] else None
+        year_url = None if annual is None else 'https://toybaco.jp/' + link(plan, 'year', signup=True, root_page=True)
+        if growth_terms(plan):
+            lines.append(plan_line(plan['name'], plan['cycles']['month']['amount'], annual, ent['limits'],
+                                   ent['features']['ai_auto_reply'], ent['features']['ai_pack_purchase'], url, year_url, free=False))
+            continue
         agents = ent['limits']['agents']
         price = '月額' + yen(plan['cycles']['month']['amount'])
-        if 'year' in plan['cycles']:
-            price += '、年一括' + yen(plan['cycles']['year']['amount'])
+        if annual is not None:
+            price += '、年一括' + yen(annual)
         terms = ('利用人数無制限' if agents is None else f'利用{agents:,}名まで')
         terms += '、SNS投稿' + ('あり' if ent['features']['posting'] else 'なし')
-        if growth_terms(plan):
-            # Provisional wording until the owner approves the bot copy for growth plans.
-            terms += '、AI生成' + (' ' + ai_count(plan) if ent['features']['ai_reply'] else 'なし')
-            terms += '、AI自動返信' + ('あり' if ent['features']['ai_auto_reply'] else 'なし')
-        else:
-            terms += '、AI応答' + (ai_count(plan) if ent['features']['ai_reply'] else 'なし')
-        url = 'https://toybaco.jp/' + link(plan, 'month', signup=True, root_page=True)
-        lines.append(plan['name'] + ': ' + price + '。' + terms + '。申込: ' + url)
+        terms += '、AI応答' + (ai_count(plan) if ent['features']['ai_reply'] else 'なし')
+        lines.append(plan['name'] + ': ' + price + '。' + terms + '。' + application_links(url, year_url))
+    # sales() never lists a free plan: it requires a monthly price.
+    lines.append(application_line(connected=True, free_offered=False))
     lines.append('プラン変更: ' + change_policy_text(data) + billing_copy(data)['change_scope'])
     return '\n'.join(lines)
 
 
-def render_knowledge(source, data):
+def render_knowledge(source, data, candidate=None, connected=None):
     pattern = r'(?m)^# toybaco-plans:knowledge:start\n.*?^# toybaco-plans:knowledge:end'
-    replacement = '# toybaco-plans:knowledge:start\nPLAN_KNOWLEDGE = ' + repr(knowledge(data)) + '\n# toybaco-plans:knowledge:end'
+    replacement = '# toybaco-plans:knowledge:start\nPLAN_KNOWLEDGE = ' + repr(knowledge(data, candidate, connected)) + '\n# toybaco-plans:knowledge:end'
     rendered, count = re.subn(pattern, lambda _: replacement, source, flags=re.S)
     if count != 1:
         raise ValueError('bot/handler.py: expected one generated knowledge region')
@@ -379,8 +536,8 @@ def generate(root=ROOT, check=False, scope='all'):
     outputs = {root / 'overlay/app/config/toybaco-plans.json': raw}
     if scope == 'all':
         pricing_candidate = re.search(r'<!-- toybaco-lp-(?:pricing|announcement):\d{4}-\d{2}-\d{2}\.\d+ -->', (root / 'site/index.html').read_text()) is not None
-        if pricing_candidate:
-            candidate = candidate_module()
+        candidate = candidate_module() if pricing_candidate else None
+        if candidate is not None:
             for name, content in candidate.rendered_files(root, candidate.VERSION, preview=False).items():
                 if name != 'lp-candidate-manifest.json':
                     outputs[root / 'site' / name] = content
@@ -388,7 +545,8 @@ def generate(root=ROOT, check=False, scope='all'):
             for page in PAGES + POLICY_PAGES + DETAIL_PAGES:
                 outputs[root / page] = render_page((root / page).read_text(), data, page).encode()
         bot = root / 'bot/handler.py'
-        outputs[bot] = render_knowledge(bot.read_text(), data).encode()
+        # The official chat states what the LP shows: its candidate version while the LP renders one.
+        outputs[bot] = render_knowledge(bot.read_text(), data, candidate=candidate).encode()
     stale = [str(path.relative_to(root)) for path, expected in outputs.items() if not path.is_file() or path.read_bytes() != expected]
     if check and stale:
         raise ValueError('plan catalog outputs are stale: ' + ', '.join(stale) + '; run scripts/generate-plan-catalog.py')

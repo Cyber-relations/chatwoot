@@ -26,7 +26,7 @@ RSpec.describe Toybaco::StoreFulfillment do
       'pricing' => { 'price_details' => { 'price' => 'price_store' } } }
   end
   let(:latest) do
-    terms = Toybaco::PlanCatalog.default.sale('pro', 'month')
+    terms = Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1')
     base = { 'id' => 'si_base', 'quantity' => 1, 'price' => {
       'id' => 'price_base', 'currency' => 'jpy', 'unit_amount' => terms.dig('cycles', 'month', 'amount'),
       'recurring' => { 'interval' => 'month', 'interval_count' => 1 },
@@ -40,7 +40,7 @@ RSpec.describe Toybaco::StoreFulfillment do
 
   before do
     create(:account_user, account: parent, user: user, role: :administrator)
-    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('pro', 'month'), cycle: 'month')
+    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1'), cycle: 'month')
     Toybaco::Entitlements.apply!(parent, contract, subscription_id: subscription_id)
     allow(Toybaco::Checkout::Client).to receive(:new).and_return(client)
     allow(client).to receive(:retrieve_subscription).with(subscription_id) do
@@ -218,7 +218,7 @@ RSpec.describe Toybaco::StoreFulfillment do
     child = fulfill
     saved = child.internal_attributes.fetch('toybaco_contract')
     data = Marshal.load(Marshal.dump(Toybaco::PlanCatalog.default.data))
-    future = Marshal.load(Marshal.dump(data['plans']['light']['versions'][version]))
+    future = Marshal.load(Marshal.dump(data['plans']['light']['versions'][version])).merge('sellable' => true)
     future['name'] = '将来の店舗プラン'
     future['entitlements']['limits']['agents'] = 1
     data['plans']['light']['versions']['future'] = future

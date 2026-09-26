@@ -13,7 +13,9 @@
   <header><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152"><a href="/app/accounts/<%= @account.id %>/inbox">受信箱へ戻る</a></header>
   <p class="eyebrow"><%= @account.name %></p>
   <h1>返信を、AIに任せてみる</h1>
-  <p class="lead">14日間・100回まで。カード登録は不要です。</p>
+  <% unless @state['state'] == 'included' %>
+    <p class="lead">トイバコで接続した Gmail または Microsoft のメール受信箱で、14日間・100回まで。カード登録は不要です。</p>
+  <% end %>
   <p id="trial-status" role="status" aria-live="polite"></p>
   <p id="trial-error" role="alert" hidden></p>
   <% if @state['state'] == 'included' %>
@@ -26,7 +28,9 @@
   <% elsif @state['state'] == 'completed' %>
     <section class="trial-card"><h2>体験が終了しました</h2><p>下書きと履歴はそのまま使えます。</p><a href="/toybaco/billing?account_id=<%= @account.id %>">自動応答を続けるプランを見る</a></section>
   <% elsif @state.fetch('examples', []).empty? %>
-    <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p>接続と店舗情報を設定し、受信箱でAIの下書きを1件作成してください。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
+    <%# メールの接続がこの店舗に開放済みなら、審査を待つ案内は出さない(接続の公開判定をそのまま使う)。 %>
+    <% mail_open = Toybaco::Connections::Gmail.allowed?(@account) || Toybaco::Connections::Microsoft.allowed?(@account) %>
+    <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p><%= 'メールの接続は提供元の審査完了後に順次開放します。開放されたら、' unless mail_open %>トイバコで Gmail または Microsoft のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
   <% else %>
     <form id="trial-form" class="trial-card">
       <h2>お店の回答として使えますか？</h2>
@@ -48,13 +52,13 @@
       </section>
       <label class="trial-confirm"><input id="trial-confirm" type="checkbox" required>上記と利用規約第7条の2を確認し、自動応答の体験を開始します</label>
       <button id="trial-start" type="submit" disabled>自動応答の体験を開始する</button>
-      <p class="note">開始すると、接続済みの対象受信箱でAIが返信します。期間・回数の早い方で終了し、自動課金はありません。</p>
+      <p class="note">開始すると、接続済みの対象受信箱（トイバコで接続した Gmail または Microsoft のメール受信箱で、ボット設定で「トイバコAI」を割り当て済みのもの）でAIが返信します。それ以外の受信箱（LINE・Webチャットなど）は対象外です。期間・回数の早い方で終了し、自動課金はありません。</p>
     </form>
   <% end %>
   <% if @state['compensated_seconds'].to_i.positive? %>
     <p class="note">トイバコの障害による停止時間を、体験期限に補填しました。使用済み回数は変わりません。</p>
   <% end %>
-  <p class="note">体験は1店舗につき1回です。接続数や通常のAI枠は変わりません。</p>
+  <p class="note">体験は1店舗につき1回です。体験に使った Gmail・Microsoft のアカウントは、別の店舗の体験には使えません。接続数や通常のAI枠は変わりません。</p>
 </main>
 </body>
 </html>

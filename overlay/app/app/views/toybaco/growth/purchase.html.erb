@@ -27,11 +27,11 @@
       <% @plans.each do |plan| %>
       <article class="plan" data-plan-id="<%= plan.fetch('plan_id') %>" data-plan-version="<%= plan.fetch('plan_version') %>">
         <h2><%= plan.fetch('name') %></h2>
-        <p class="price" data-cycle="month">¥<%= number_with_delimiter(plan.dig('cycles', 'month', 'amount')) %><small> / 月・税抜</small></p>
-        <p class="price" data-cycle="year" hidden>¥<%= number_with_delimiter(plan.dig('cycles', 'year', 'amount')) %><small> / 年・税抜</small></p>
+        <p class="price" data-cycle="month">¥<%= number_with_delimiter(plan.dig('cycles', 'month', 'amount')) %><small> / 月・税別</small></p>
+        <p class="price" data-cycle="year" hidden>¥<%= number_with_delimiter(plan.dig('cycles', 'year', 'amount')) %><small> / 年・税別</small></p>
         <p data-cycle="year" class="annual-note" hidden>1年分を一括でお支払い</p>
         <ul>
-          <li>業務AI 月<%= number_with_delimiter(plan.dig('entitlements', 'limits', 'ai_generations')) %>回</li>
+          <li>AIアシスタント 月<%= number_with_delimiter(plan.dig('entitlements', 'limits', 'ai_generations')) %>回</li>
           <li><%= plan.dig('entitlements', 'features', 'ai_auto_reply') ? 'AIの自動応答を利用可能' : 'AIが返信・投稿の下書きを作成' %></li>
           <li>投稿先 <%= plan.dig('entitlements', 'limits', 'posting_accounts') %>アカウント</li>
           <li>保存容量 <%= plan.dig('entitlements', 'limits', 'storage_bytes') / 1_000_000_000 %>GB</li>
@@ -40,7 +40,7 @@
       </article>
       <% end %>
     </div>
-    <p class="note">AIの枠は返信・投稿で共通です。年払いでも毎月更新します。自動応答は設定後に開始します。</p>
+    <p class="note">AIの回数は、返信と投稿で共通です。年払いでも、回数は毎月あらたに数えます。自動応答（スタンダード以上）は、設定したあとで始まります。</p>
     <p class="note">お支払い後も、接続・スタッフ・原稿はそのまま使えます。税込の請求額は決済画面で確認できます。</p>
     <% grace_days = @plans.map { |plan| plan.dig('billing_policy', 'renewal_grace_days') }.uniq %>
     <ul class="note" aria-label="契約の条件">

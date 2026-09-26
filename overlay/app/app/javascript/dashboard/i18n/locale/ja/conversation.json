@@ -13,11 +13,11 @@
     "SWITCH_VIEW_LAYOUT": "レイアウトを変更",
     "DASHBOARD_APP_TAB_MESSAGES": "メッセージ",
     "UNVERIFIED_SESSION": "このユーザーの身元は確認されていません",
-    "NO_MESSAGE_1": "おっと！受信トレイに顧客からのメッセージがないようです。",
+    "NO_MESSAGE_1": "おっと！受信箱に顧客からのメッセージがないようです。",
     "NO_MESSAGE_2": " あなたのページにメッセージを送る",
-    "NO_INBOX_1": "まだ受信トレイを追加していないようです。",
+    "NO_INBOX_1": "まだ受信箱を追加していないようです。",
     "NO_INBOX_2": " 始めましょう",
-    "NO_INBOX_AGENT": "あなたに受信トレイが設定されていないようです。管理者に問い合わせてください。",
+    "NO_INBOX_AGENT": "あなたに受信箱が設定されていないようです。管理者に問い合わせてください。",
     "SEARCH_MESSAGES": "会話中のメッセージの検索",
     "VIEW_ORIGINAL": "オリジナルを表示",
     "VIEW_TRANSLATED": "翻訳版を表示",
@@ -39,7 +39,7 @@
       "NEWER": "このお客様との次のチャット"
     },
     "CLICK_HERE": "ここをクリック",
-    "LOADING_INBOXES": "受信トレイを読み込み中",
+    "LOADING_INBOXES": "受信箱を読み込み中",
     "LOADING_CONVERSATIONS": "会話データを読み込んでいます",
     "CANNOT_REPLY": "以下の理由で返信できません：",
     "24_HOURS_WINDOW": "24時間以内のメッセージウィンドウの制限",
@@ -55,7 +55,7 @@
     "BOT_HANDOFF_ERROR": "会話を引き継ぐことができませんでした。もう一度試してください。",
     "TWILIO_WHATSAPP_CAN_REPLY": "この会話にはテンプレートメッセージでしか返信できません。",
     "TWILIO_WHATSAPP_24_HOURS_WINDOW": "24時間以内のメッセージウィンドウの制限",
-    "OLD_INSTAGRAM_INBOX_REPLY_BANNER": "この Instagram アカウントは、新しい Instagram チャンネル受信トレイに移行されました。新しいメッセージはすべてそこに表示されます。この会話からメッセージを送ることはできなくなります。",
+    "OLD_INSTAGRAM_INBOX_REPLY_BANNER": "この Instagram アカウントは、新しい Instagram チャンネル受信箱に移行されました。新しいメッセージはすべてそこに表示されます。この会話からメッセージを送ることはできなくなります。",
     "INSTAGRAM_RESTRICTION_BANNER": "Instagram メッセージは現在 Meta 側の API レベルの問題の影響を受けていますが、トイバコ の問題ではありません。メッセージやアクションによっては、遅延が発生したり、利用できなくなったりすることがあります。できるだけ早く問題を解決するために、Meta と緊密に連携しています。",
     "INSTAGRAM_RESTRICTION_STATUS_LINK": "ステータス更新を表示",
     "REPLYING_TO": "以下に返信：",
@@ -444,7 +444,7 @@
     "ALL_CONVERSATION": {
       "TITLE": "すべての会話を1箇所で",
       "DESCRIPTION": "お客様からのすべての会話を1つのダッシュボードで確認できます。受信チャネル、ラベル、ステータスでフィルタリング可能です。",
-      "NEW_LINK": "ここをクリックして受信トレイを作成"
+      "NEW_LINK": "ここをクリックして受信箱を作成"
     },
     "TEAM_MEMBERS": {
       "TITLE": "チームメンバーを招待",

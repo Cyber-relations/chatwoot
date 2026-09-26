@@ -3,7 +3,7 @@
 require_relative 'ai_ledger'
 require_relative 'store_facts'
 require_relative 'reply_result'
-require_relative 'trial_connection'
+require_relative 'bot_access'
 require_relative '../ai_reply_mode'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
@@ -76,7 +76,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def automatic_connection?
-        Entitlements.for_account(@account)&.dig('features', 'ai_auto_reply') == true || TrialConnection.allowed?(@account, @conversation.inbox)
+        BotAccess.rights?(@account, @conversation.inbox)
       end
 
       def current_conversation?

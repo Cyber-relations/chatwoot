@@ -32,7 +32,7 @@ class Toybaco::CheckoutController < ActionController::Base # rubocop:disable Rai
     render_error('いま決済ページを開けません。しばらくしてからお試しください。', :service_unavailable)
   rescue StandardError => e
     Rails.logger.error("toybaco checkout error: #{e.class}: #{e.message}")
-    render_error('決済ページの作成に失敗しました。右下のチャットからお申し込みください。', :bad_gateway)
+    render_error('決済ページの作成に失敗しました。お手数ですが、お問い合わせフォームからご連絡ください。', :bad_gateway)
   end
 
   # 確認画面は常に表示する。この確認画面から現在の版で送信し、利用規約等への

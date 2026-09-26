@@ -95,6 +95,9 @@ class Toybaco::Growth::OpeningTerms
     raise Invalid unless fields.one?
 
     value = fields.first.dig('dropdown', 'value')
+    # 「その他」(Checkout::Catalog::OTHER_INDUSTRY)は業種の指定なしと同じく、業界パックを適用しない。
+    return if value == 'other'
+
     value = { 'retailec' => 'retail-ec', 'bridalphoto' => 'bridal-photo' }.fetch(value, value)
     raise Invalid unless Toybaco::IndustryPack.known_industries.include?(value)
 

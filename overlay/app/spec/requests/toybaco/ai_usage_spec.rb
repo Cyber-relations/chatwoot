@@ -12,7 +12,7 @@ RSpec.describe 'Toybaco AI usage', type: :request do
   let(:params) { { account_id: account.id, conversation_id: conversation.display_id, message_id: message.id, action_type: 'reserve' } }
 
   before do
-    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('pro', 'month'), cycle: 'month')
+    contract = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1'), cycle: 'month')
     account.update!(internal_attributes: { 'toybaco_contract' => contract })
     create(:agent_bot_inbox, agent_bot: bot, inbox: inbox)
   end

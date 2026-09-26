@@ -33,7 +33,7 @@
     },
     "LIST": {
       "FETCHING": "連携設定を取得中",
-      "INBOX": "受信トレイ",
+      "INBOX": "受信箱",
       "ACTIONS": "操作",
       "DELETE": {
         "BUTTON_TEXT": "削除"
@@ -42,8 +42,8 @@
     "ADD": {
       "FORM": {
         "INBOX": {
-          "LABEL": "受信トレイを選択",
-          "PLACEHOLDER": "受信トレイを選択"
+          "LABEL": "受信箱を選択",
+          "PLACEHOLDER": "受信箱を選択"
         },
         "SUBMIT": "作成",
         "VALIDATING_OPENAI": "OpenAI を使用して検証中...",

@@ -83,7 +83,11 @@ class ToybacoGrowthPacksRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def test_catalog_and_current_billing_owner_gate_purchase_before_any_payment_request
-    assert_raises(Growth::PurchaseIntent::Unavailable) { start! }
+    # The sales switch (2026-09-26) sells the pack; a catalog whose pack is not sellable still closes the purchase.
+    assert_equal true, Toybaco::PlanCatalog.default.data.dig('release_candidates', VERSION, 'ai_pack', 'sellable')
+    closed = JSON.parse(File.read(Toybaco::PlanCatalog::PATH))
+    closed['release_candidates'][VERSION]['ai_pack']['sellable'] = false
+    Toybaco::PlanCatalog.stub(:default, Toybaco::PlanCatalog.new(closed)) { assert_raises(Growth::PurchaseIntent::Unavailable) { start! } }
     enabled do
       set_plan('light')
       assert_raises(Growth::PurchaseIntent::Unavailable) { start! }
@@ -312,7 +316,8 @@ class ToybacoGrowthPacksRuntimeTest < ActionDispatch::IntegrationTest
       Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @owner)) do
         get '/toybaco/growth/packs', params: { account_id: @account.id }
         assert_response :success
-        assert_includes response.body, '5,500円（税抜）'
+        assert_includes response.body, '5,500円（税別）'
+        refute_includes response.body, '税抜'
         refute_includes response.body, 'cus_packstore'
         body = { account_id: @account.id, request_key: @request_key }
         post '/toybaco/growth/packs', params: body, headers: { 'Origin' => 'https://elsewhere.invalid' }, as: :json
