@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { slotPlacement } from '../overlay/app/public/brand-assets/toybaco-pointer-guide.mjs';
 
 // The first-run guide reads the dashboard overlay (Vue routes, locale, views). The Chatwoot gate carries the whole
 // overlay; the Postiz gate runs only toybaco-pointer-guide.test.mjs with the pointer assets, so these stay here.
@@ -81,6 +83,199 @@ test('opening the posting screen is recorded apart from leaving the step for lat
   assert(!complete.includes("skipped.includes('posting')"), 'the posting row never shows from skipped alone');
   assert.equal(template.split('data-toybaco-guide-action="posting.open"').length - 1, 1);
   assert(block(`<template v-else-if="state?.phase === 'posting'">`).includes('@click="openPosting"'));
+});
+
+// A10: on the guide screen the pointer prompt sits in a place kept right under the heading (the pointer guide keeps
+// its height), so it never covers the heading or the choices. Every step the guide points at here has that place.
+test('every guide screen step keeps a place for the prompt right under its heading', () => {
+  const guide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
+  const steps = guide.slice(guide.indexOf('const setupSteps = {'), guide.indexOf('if (inSetup.value) return setupSteps'));
+  const actions = [...new Set([...steps.matchAll(/'([a-z]+\.[a-z_]+)'/g)].map(([, id]) => id))];
+  for (const id of ['purpose.inbox', 'connection.google', 'connection.microsoft', 'connection.line', 'facts.confirm', 'reply.open', 'posting.open'])
+    assert(actions.includes(id), `guide screen step ${id}`);
+  const blocks = {
+    facts: block('<template v-if="showFacts">'),
+    ...Object.fromEntries(['purpose', 'connect', 'reply', 'posting'].map((phase) =>
+      [phase, block(`<template v-else-if="state?.phase === '${phase}'">`)])),
+  };
+  const place = /<\/h1>\n\s*(?:<!--[^\n]*-->\n\s*)?<div\n\s*(?:v-if="!settingsView"\n\s*)?data-toybaco-guide-slot\n\s*:class="\{ reserved: keepsGuidePlace\('([a-z]+)'\) \}"\n\s*><\/div>\n/;
+  for (const id of actions) {
+    const [phase, text] = Object.entries(blocks).find(([, candidate]) => candidate.includes(`data-toybaco-guide-action="${id}"`)) || [];
+    assert(text, `${id} is on the guide screen`);
+    assert.equal(text.match(place)?.[1], phase, `${id}: place right under the heading, kept for the ${phase} step`);
+    assert.equal(text.split('data-toybaco-guide-slot').length - 1, 1, `${id}: one place in its step`);
+  }
+  // The store facts page in the settings menu has the place too: a support prompt there sits under「店舗情報」.
+  assert(!/v-if="!settingsView"\n\s*data-toybaco-guide-slot/.test(blocks.facts));
+  // The receive and completion screens have no pointer step (setupSteps), so they keep no place.
+  const setup = guide.slice(guide.indexOf('const setupSteps = {'), guide.indexOf('};', guide.indexOf('const setupSteps = {')));
+  assert.deepEqual([...setup.matchAll(/^  (\w+): \[/gm)].map(([, phase]) => phase), ['purpose', 'connect', 'facts', 'reply', 'posting']);
+  for (const phase of ['receive', 'complete'])
+    assert(!block(`<template v-else-if="state?.phase === '${phase}'">`).includes('data-toybaco-guide-slot'), `${phase}: no place`);
+});
+
+// A10-2: the page keeps the place under the heading before the prompt appears, so the choices never jump down.
+// It keeps it only where the guide will point (ToybacoGrowthGuide wantedStep), never for a closed guide.
+test('the place under the heading is kept before the prompt appears, never for a closed guide', () => {
+  // One line of the prompt is 82.4px at 1280, 768 and 390 wide (headless Chrome); the pointer guide adds its gap.
+  const style = start.slice(start.indexOf('<style scoped>'));
+  const kept = style.match(/\n\[data-toybaco-guide-slot\]\.reserved \{\n  min-height: (\d+)px;\n\}/);
+  assert(kept, 'the kept place has a min-height');
+  assert.equal(Number(kept[1]), slotPlacement({ left: 0, top: 0, width: 574 }, { height: 82.4 }).reserve);
+  const guide = (phase, extra = {}) => ({
+    phase, administrator: true, inboxes: [], connections: { count: 0, limit: 4, channels: [] },
+    preference: { purpose: 'inbox', dismissed: false, skipped: [], opened: [] }, ...extra,
+  });
+  const closed = { preference: { purpose: 'inbox', dismissed: true, skipped: [], opened: [] } };
+  const keeps = (current, phase = current.phase) => startScript(current, (value) => value).page.keepsGuidePlace(phase);
+  for (const phase of ['purpose', 'connect', 'facts', 'reply', 'posting']) {
+    assert.equal(keeps(guide(phase)), true, `${phase}: kept while the guide is open`);
+    assert.equal(keeps(guide(phase, closed)), false, `${phase}: no blank place once the guide is closed`);
+  }
+  // The guide points at nothing for staff on the connect and facts steps or at the plan limit: nothing is kept.
+  assert.equal(keeps(guide('connect', { administrator: false })), false);
+  assert.equal(keeps(guide('connect', { connections: { count: 4, limit: 4, channels: [] } })), false);
+  assert.equal(keeps(guide('facts', { administrator: false })), false);
+  // Store facts opened from the first screen are not the facts step; the guide stays on the purpose step there.
+  assert.equal(keeps(guide('purpose'), 'facts'), false);
+  // The settings menu's store facts page never runs the first-run guide, so nothing is kept there in advance.
+  assert.equal(startScript(guide('facts'), (value) => value, 'toybaco_store_facts_settings').page.keepsGuidePlace('facts'), false);
+});
+
+// A10: on the completion screen「ホームへ」and the purpose switch never share a line with mismatched baselines.
+test('the purpose switch is a line of its own after「ホームへ」', () => {
+  const style = start.slice(start.indexOf('<style scoped>'));
+  assert(/\n\.change-purpose \{\n  display: block;\n  margin-top: 28px;\n\}/.test(style));
+  const complete = block(`<template v-else-if="state?.phase === 'complete'">`);
+  assert(complete.includes('class="home-link"'));
+  assert(template.indexOf('class="text-button change-purpose"') > template.indexOf('class="home-link"'));
+});
+
+// A10: the saved notice belongs to the step it was saved on (or the one screen right after the save). It leaves when
+// the step or the purpose changes and does not come back. The script runs with a minimal Vue reactivity stand-in.
+function startScript(initial, respond, routeName = 'toybaco_growth_start') {
+  const script = start.slice(start.indexOf('<script setup>') + '<script setup>'.length, start.indexOf('</script>'));
+  const body = script.replace(/import\s+(\{[^}]*\}|\w+)\s+from\s+"([^"]+)";/g, (_, names, from) =>
+    names.startsWith('{')
+      ? `const ${names.replace(/\s+as\s+/g, ': ')} = modules[${JSON.stringify(from)}];`
+      : `const ${names} = modules[${JSON.stringify(from)}].default;`);
+  assert(!/^import /m.test(body), 'every import is replaced');
+  const watchers = [];
+  // Like Vue: a list of sources runs the callback when any one of them changed.
+  const same = (a, b) => (Array.isArray(a) ? a.every((value, index) => Object.is(value, b[index])) : Object.is(a, b));
+  const flush = () => watchers.forEach((watcher) => {
+    const value = watcher.read();
+    if (same(value, watcher.last)) return;
+    const previous = watcher.last;
+    watcher.last = value;
+    watcher.callback(value, previous);
+  });
+  const state = { value: initial };
+  const server = { flushFirst: true };
+  const answer = async (body) => {
+    state.value = respond(state.value, body);
+    // Vue runs the watchers when the new state arrives; the other order is covered by flushFirst = false.
+    if (server.flushFirst) flush();
+    return state.value;
+  };
+  const modules = {
+    vue: {
+      ref: (value) => ({ value }),
+      reactive: (value) => value,
+      computed: (read) => ({ get value() { return read(); } }),
+      watch: (source, callback, options = {}) => {
+        const one = (item) => (typeof item === 'function' ? item() : item.value);
+        const read = Array.isArray(source) ? () => source.map(one) : () => one(source);
+        const watcher = { read, callback, last: read() };
+        watchers.push(watcher);
+        if (options.immediate) callback(watcher.last);
+      },
+      onBeforeUnmount() {},
+    },
+    'vue-router': { useRoute: () => ({ name: routeName }), useRouter: () => ({ push() {} }) },
+    'dashboard/composables/useAccount': { useAccount: () => ({ accountId: { value: 1 } }) },
+    'dashboard/api/channel/googleClient': { default: {} },
+    'dashboard/api/channel/microsoftClient': { default: {} },
+    'dashboard/composables/toybacoGrowthGuide': {
+      growthGuideState: state,
+      growthGuideError: { value: '' },
+      growthGuideBusy: { value: false },
+      refreshGrowthGuide() {},
+      updateGrowthGuide: (preference) => answer({ preference }),
+      saveGrowthFacts: (fields) => answer({ fields }),
+    },
+  };
+  const page = runInNewContext(`(function (modules) {${body}
+    return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace };
+  })`, {})(modules);
+  // The template shows「店舗情報を保存しました。」with exactly this condition.
+  const notice = () => page.factsSaved.value && !page.showFacts.value;
+  return { page, state, server, flush, notice };
+}
+
+test('the saved notice stays on the step it was saved on and leaves when the step or purpose changes', async () => {
+  assert(template.includes('<p v-if="factsSaved && !showFacts" role="status" class="saved">'));
+  const guideState = (phase, purpose) => ({ phase, preference: { purpose, skipped: [], opened: [] }, inboxes: [] });
+  for (const flushFirst of [true, false]) {
+    // Staging: facts saved from the first screen, then the purpose switched to posting (3/5 発信).
+    const first = startScript(guideState('purpose', null), (current, body) =>
+      body.fields ? current : guideState(body.preference.purpose === 'posting' ? 'posting' : 'connect', body.preference.purpose));
+    first.server.flushFirst = flushFirst;
+    first.page.openFacts();
+    assert.equal(first.page.showFacts.value, true);
+    await first.page.saveFacts();
+    first.flush();
+    assert.equal(first.notice(), true, 'shown on the screen right after the save');
+    await first.page.updateGrowthGuide({ purpose: 'posting', dismissed: false });
+    first.flush();
+    assert.equal(first.state.value.phase, 'posting');
+    assert.equal(first.notice(), false, 'gone once the purpose moved the guide to the posting step');
+    await first.page.updateGrowthGuide({ purpose: 'inbox', dismissed: false });
+    await first.page.updateGrowthGuide({ purpose: 'posting', dismissed: false });
+    first.flush();
+    assert.equal(first.notice(), false, 'never comes back on a later visit to the same step');
+
+    // The facts step itself: the save moves the guide on, the next screen shows the notice once, then it leaves.
+    const facts = startScript(guideState('facts', 'inbox'), (current, body) =>
+      body.fields ? guideState('receive', 'inbox') : current);
+    facts.server.flushFirst = flushFirst;
+    await facts.page.saveFacts();
+    facts.flush();
+    assert.equal(facts.state.value.phase, 'receive');
+    assert.equal(facts.notice(), true, 'shown on the screen right after the facts step');
+    facts.state.value = guideState('reply', 'inbox');
+    facts.flush();
+    assert.equal(facts.notice(), false, 'gone when the next step arrives');
+
+    // The completion screen stays complete when the purpose switches after the posting screen was opened
+    // (Onboarding#posting_progress); the purpose alone still takes the notice away.
+    const done = startScript(guideState('complete', 'inbox'), (current, body) =>
+      body.fields ? current : guideState('complete', body.preference.purpose));
+    done.server.flushFirst = flushFirst;
+    done.page.openFacts();
+    await done.page.saveFacts();
+    done.flush();
+    assert.equal(done.notice(), true, 'shown on the completion screen after the save');
+    await done.page.updateGrowthGuide({ purpose: 'posting', dismissed: false });
+    done.flush();
+    assert.equal(done.state.value.phase, 'complete');
+    assert.equal(done.notice(), false, 'gone when only the purpose changed');
+
+    // A purpose read for the first time (not set → set) on the same step is not a change of step.
+    const read = startScript({ ...guideState('complete', undefined), preference: { skipped: [], opened: [] } },
+      (current, body) => (body.fields ? current : guideState('complete', body.preference.purpose)));
+    read.server.flushFirst = flushFirst;
+    read.page.openFacts();
+    await read.page.saveFacts();
+    read.flush();
+    assert.equal(read.notice(), true);
+    read.state.value = guideState('complete', 'inbox');
+    read.flush();
+    assert.equal(read.notice(), true, 'kept while only the purpose was read');
+    read.state.value = guideState('reply', 'inbox');
+    read.flush();
+    assert.equal(read.notice(), false, 'gone with the next step');
+  }
 });
 
 test('connection step lists real channel states and explains the plan limit', () => {
