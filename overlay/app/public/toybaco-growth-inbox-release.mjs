@@ -1,7 +1,7 @@
 export function releaseError(ids, state) {
-  if (!ids.length) return '再開する受信ボックスを選んでください。';
+  if (!ids.length) return '再開する受信箱を選んでください。';
   const active = state.inboxes.filter(row => !row.held).length;
-  return active + ids.length > state.limit ? `利用できる受信ボックスは合計${state.limit}件です。` : '';
+  return active + ids.length > state.limit ? `利用できる受信箱は合計${state.limit}件です。` : '';
 }
 
 export function releaseRequestId(random = crypto) {
@@ -81,7 +81,7 @@ export function mountInboxRelease(document, fetcher = fetch, idFactory = release
       }
       pending = null;
       succeeded = true;
-      status.textContent = '選んだ受信ボックスを再開しました。';
+      status.textContent = '選んだ受信箱を再開しました。';
     } catch {
       status.textContent = '';
       showError(failureMessage);

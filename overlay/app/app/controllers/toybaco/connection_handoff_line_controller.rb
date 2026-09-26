@@ -5,6 +5,7 @@ require_relative '../../../lib/toybaco/connections/handoff/line_presentation'
 
 class Toybaco::ConnectionHandoffLineController < Toybaco::ConnectionHandoffSessionsController
   rescue_from Toybaco::Connections::LineSetupApi::Error, ActiveRecord::ActiveRecordError, with: :line_unavailable
+  rescue_from Toybaco::Connections::Handoff::LineSetup::LimitReached, with: :inbox_limit
 
   def show
     @record.account.with_lock do
@@ -26,6 +27,11 @@ class Toybaco::ConnectionHandoffLineController < Toybaco::ConnectionHandoffSessi
   end
 
   private
+
+  def inbox_limit(error)
+    limits = Toybaco::Connections::InboxLimit
+    render json: { error: limits.notice(error.limit, error.count, free: limits.free_plan?(@record.account)) }, status: :conflict
+  end
 
   def line_unavailable(_error = nil)
     render json: { error: '設定を保存できませんでした。チャネルIDと長期のアクセストークンを確認してください。' }, status: :unprocessable_entity

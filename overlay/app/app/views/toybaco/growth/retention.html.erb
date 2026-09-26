@@ -18,10 +18,10 @@
 <body><main>
   <a href="/toybaco/billing?account_id=<%= @account.id %>">ご契約内容へ</a>
   <h1>継続する接続</h1>
-  <p><%= @account.name %> · <%= @state.fetch('target_name') %>への変更時</p>
+  <p><%= @account.name %> · <%= @state.fetch('target') == 'free' ? '無料プラン' : @state.fetch('target_name') %>への変更時</p>
   <p class="note">選択を保存しても、プランは変わりません。</p>
   <form id="retention-form">
-    <% { 'inboxes' => '受信ボックス', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
+    <% { 'inboxes' => '受信箱', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
       <% limit = @state.dig('plan', kind, 'limit') %>
       <section class="card" data-retention-kind="<%= kind %>" data-limit="<%= limit %>" aria-labelledby="<%= kind %>-title">
         <h2 id="<%= kind %>-title"><%= title %></h2>

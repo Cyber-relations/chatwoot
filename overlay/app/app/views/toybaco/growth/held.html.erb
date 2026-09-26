@@ -20,7 +20,7 @@
   <h1>接続の保留状況</h1>
   <p><%= @account.name %></p>
   <p class="note">保留中も履歴と原稿は残ります。保留した予約は、自動で公開されません。</p>
-  <% { 'inboxes' => '受信ボックス', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
+  <% { 'inboxes' => '受信箱', 'posting_accounts' => '投稿先' }.each do |kind, title| %>
     <section class="card" aria-labelledby="<%= kind %>-heading">
       <h2 id="<%= kind %>-heading"><%= title %></h2>
       <% rows = @state.fetch(kind) %>
@@ -36,7 +36,7 @@
       <% end %>
       </ul>
       <% if kind == 'inboxes' && @inbox_release_available %>
-        <a href="/toybaco/growth/inbox-release?account_id=<%= @account.id %>">受信ボックスを再開</a>
+        <a href="/toybaco/growth/inbox-release?account_id=<%= @account.id %>">受信箱を再開</a>
       <% end %>
       <% if kind == 'posting_accounts' && @posting_release_available %>
         <a href="/toybaco/growth/posting-release?account_id=<%= @account.id %>">投稿先を再開・確認</a>

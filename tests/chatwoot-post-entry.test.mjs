@@ -2937,16 +2937,55 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(env.usageCalls.length, 2, 'DOM mutations must not retry unavailable usage in a loop');
 }
 
+// The auto-reply trial (free plan and Light) runs only on the mail inboxes connected through Toybaco, which the
+// providers still review.
+const TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
+  'メールの接続は提供元の審査完了後に開放します。';
+
 for (const reset of ['2026-10-19T01:00:00Z', null]) {
   const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract',
-    resets_at: reset, automatic_enabled: false, automatic_reason: 'automatic_unavailable' })));
+    resets_at: reset, automatic_enabled: false, automatic_reason: 'automatic_unavailable', automatic_included: false })));
   await flush();
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-heading]').textContent, '現在の共通AI枠');
   assert.match(collectText(env.usageCard), /返信・投稿で共通のAI枠/);
   assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
   assert.notEqual(env.document.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   assert.match(collectText(env.body), /自動応答の契約・体験・残り枠/);
+  // The trial runs only on mail inboxes connected through Toybaco; the panel says so where it asks to check the trial.
+  assert.ok(collectText(env.body).includes('残り枠を確認してください。' + TRIAL_INBOX_NOTE + '下書きは利用できます。'));
   if (reset === null) assert.doesNotMatch(collectText(env.usageCard), /NaN|に更新/);
+}
+
+// The assistant states the trial condition only when the contract is known not to include automatic replies, also
+// before the store facts are confirmed. A contract that includes them, or one that does not say, gets no trial note.
+for (const included of [true, false, undefined]) {
+  const env = loadInjectEntry((url, opts) => String(url).includes('/ai_usage')
+    ? Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract', resets_at: null,
+      automatic_enabled: false, automatic_reason: 'facts_required', automatic_included: included }))
+    : aiModeAwareFetch(url, opts));
+  env.api.inject(); env.api.openAuxiliaryView('ai'); await flush();
+  const note = collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]'));
+  env.api.openAiModePanel(); await flush();
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  const readiness = collectText(panel.querySelector('[data-toybaco-ai-readiness]'));
+  if (included === false) {
+    assert.ok(note.endsWith('してもらってください。' + TRIAL_INBOX_NOTE), note);
+    assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。' + TRIAL_INBOX_NOTE);
+  } else {
+    assert.ok(note.endsWith('してもらってください。'), `no trial note when included is ${included}: ${note}`);
+    assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。');
+    assert.doesNotMatch(collectText(env.body), /自動応答の体験は/);
+  }
+  env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
+}
+{
+  // A value that is not a boolean is a malformed contract read, not a plan without automatic replies.
+  const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract',
+    resets_at: null, automatic_enabled: false, automatic_reason: 'facts_required', automatic_included: 'false' })));
+  await flush();
+  assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
+  assert.doesNotMatch(collectText(env.body), /自動応答の体験は/);
+  env.api.closeAiModePanel();
 }
 
 for (const [reason, expected] of [
@@ -4886,6 +4925,36 @@ for (const path of ['/app/accounts/10/suspended', '/app/accounts/11/suspended/']
   env.api.afterNavChange();
   assert.ok(env.document.querySelector('[data-toybaco-aux-entry="ai"]'), 'return to active account restores its own normal navigation');
 }
+// 投稿 AI の回数の扱いは契約の計測方式で分ける(旧契約は返信枠と共有しない)。取得前・取得失敗ではどちらとも断言しない。
+for (const [label, usage, expected] of [
+  ['growth shared meter', usageResponse({ meter: 'business_generation', period: 'contract', resets_at: null,
+    automatic_enabled: true, automatic_reason: null }),
+  '投稿用の文案です。AIで文案を作ると、返信と共通の月間AI利用回数を使います。残りの回数は「ご契約内容」で確認できます。'],
+  ['former monthly meter', usageResponse(),
+    '投稿用の文案です。返信の月間AI利用回数とは別です。'],
+  ['usage unavailable', { ok: false, status: 503, json: async () => ({}) }, ''],
+]) {
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const tree = createMenuTree(true);
+  const env = loadInjectEntry((url, opts) => (String(url).includes('/ai_usage') ? pending : aiModeAwareFetch(url, opts)),
+    '/app/accounts/1/inbox', { body: tree.body });
+  tree.content.setAttribute('aria-hidden', 'false');
+  env.api.inject();
+  fireClick(env.document.querySelector('[data-toybaco-aux-entry="ai"]'), env.docListeners.click || []);
+  const view = env.document.querySelector('[data-toybaco-aux-view="ai"]');
+  assert.ok(view, label);
+  const quota = view.querySelector('[data-toybaco-posting-ai-quota]');
+  assert.ok(quota, label);
+  assert.equal(quota.textContent, '', `${label}: the note waits for the contract meter`);
+  assert.equal(quota.hidden, true, label);
+  release(usage);
+  await flush();
+  assert.equal(quota.textContent, expected, label);
+  assert.equal(quota.hidden, expected === '', label);
+  assert.doesNotMatch(collectText(view), /月間利用枠は使いません/, label);
+}
+
 {
   const tree = createMenuTree(true);
   const env = loadInjectEntry(aiModeAwareFetch, '/app/accounts/1/inbox', { body: tree.body });
@@ -4900,9 +4969,12 @@ for (const path of ['/app/accounts/10/suspended', '/app/accounts/11/suspended/']
   const view = env.document.querySelector('[data-toybaco-aux-view="ai"]'); assert.ok(view);
   assert.match(collectText(view), /問い合わせ返信/); assert.match(collectText(view), /投稿文作成/);
   assert.match(collectText(view), /内部メモ/); assert.match(collectText(view), /AI下書きを使う/);
-  assert.match(collectText(view), /返信AIの月間利用枠/); assert.match(collectText(view), /管理者/);
+  assert.doesNotMatch(collectText(view), /月間利用枠は使いません/);
+  assert.match(collectText(view), /管理者/);
   assert.equal(input.value, '未保存の返信'); assert.equal(input.getAttribute('inert'), '');
   await flush(); assert.ok(env.fetches.every(item => !item.opts?.method || item.opts.method === 'GET'));
+  assert.equal(view.querySelector('[data-toybaco-posting-ai-quota]').textContent,
+    '投稿用の文案です。返信の月間AI利用回数とは別です。');
   env.api.closeAuxiliaryView(); assert.equal(input.getAttribute('inert'), null); assert.equal(input.value, '未保存の返信');
   env.api.openAuxiliaryView('about');
   const about = env.document.querySelector('[data-toybaco-aux-view="about"]');
@@ -4954,11 +5026,13 @@ console.log('AI/About auxiliary entry, read-only guidance, owned draft and close
   group.removeAttribute('data-toybaco-inbox-settings-path'); env.api.afterNavChange();
   assert.equal(settingsButton(), null, 'revocation removes the setup action');
   assert.match(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /管理者/);
+  assert.match(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /してもらってください。$/, 'a legacy contract has no trial note');
   group.setAttribute('data-toybaco-inbox-settings-path', '/app/accounts/2/settings/inboxes/list'); env.api.afterNavChange();
   assert.equal(settingsButton(), null, 'another account destination cannot expose setup');
   group.setAttribute('data-toybaco-inbox-settings-path', destination); env.api.afterNavChange();
   assert.ok(settingsButton(), 'late permissions update the open assistant without navigation');
   assert.doesNotMatch(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /管理者が/);
+  assert.match(collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]')), /割り当てます。$/, 'a legacy contract has no trial note');
   assert.equal(env.document.querySelectorAll('[data-toybaco-reply-ai-settings]').length, 1);
   env.api.closeAuxiliaryView();
 }

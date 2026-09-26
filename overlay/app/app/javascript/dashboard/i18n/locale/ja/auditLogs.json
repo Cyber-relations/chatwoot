@@ -24,7 +24,7 @@
         "AGENTS": "エージェント",
         "TEAMS": "チーム",
         "TEAM_MEMBERS": "チームメンバー",
-        "INBOX_MEMBERS": "受信トレイコラボレーター",
+        "INBOX_MEMBERS": "受信箱コラボレーター",
         "ACCOUNT": "アカウント設定",
         "INBOXES": "受信箱",
         "WEBHOOKS": "ウェブフック",
@@ -68,9 +68,9 @@
       }
     },
     "INBOX": {
-      "ADD": "{agentName} が新しい受信トレイ (#{id}) を作成しました",
-      "EDIT": "{agentName} が受信トレイ (#{id}) を更新しました",
-      "DELETE": "{agentName} が受信トレイ (#{id}) を削除しました"
+      "ADD": "{agentName} が新しい受信箱 (#{id}) を作成しました",
+      "EDIT": "{agentName} が受信箱 (#{id}) を更新しました",
+      "DELETE": "{agentName} が受信箱 (#{id}) を削除しました"
     },
     "WEBHOOK": {
       "ADD": "{agentName} が新しいWebhook (#{id}) を作成しました",
@@ -92,8 +92,8 @@
       "DELETE": "{agentName} がマクロ (#{id}) を削除しました"
     },
     "INBOX_MEMBER": {
-      "ADD": "{agentName} が {user} を受信トレイ (#{inbox_id}) に追加しました",
-      "REMOVE": "{agentName} が {user} を受信トレイ (#{inbox_id}) から削除しました"
+      "ADD": "{agentName} が {user} を受信箱 (#{inbox_id}) に追加しました",
+      "REMOVE": "{agentName} が {user} を受信箱 (#{inbox_id}) から削除しました"
     },
     "TEAM_MEMBER": {
       "ADD": "{agentName} が {user} をチーム (#{team_id}) に追加しました",

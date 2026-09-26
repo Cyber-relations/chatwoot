@@ -1,17 +1,17 @@
 {
   "INBOX_MGMT": {
-    "HEADER": "受信トレイ",
-    "DESCRIPTION": "チャンネルは、顧客があなたとやり取りするために選択する通信手段です。受信トレイは、特定のチャンネルのやり取りを管理する場所です。メール、ライブチャット、ソーシャルメディアなど、さまざまなソースからの通信を含むことができます。",
-    "LEARN_MORE": "受信トレイについて詳しく知る",
-    "COUNT": "{n} 受信トレイ | {n} 受信ボックス",
-    "SEARCH_PLACEHOLDER": "受信トレイを検索...",
-    "NO_RESULTS": "検索条件に一致する受信トレイは見つかりませんでした",
-    "RECONNECTION_REQUIRED": "受信トレイが切断されました。再認証するまで新しいメッセージを受信できません。",
+    "HEADER": "受信箱",
+    "DESCRIPTION": "チャンネルは、顧客があなたとやり取りするために選択する通信手段です。受信箱は、特定のチャンネルのやり取りを管理する場所です。メール、ライブチャット、ソーシャルメディアなど、さまざまなソースからの通信を含むことができます。",
+    "LEARN_MORE": "受信箱について詳しく知る",
+    "COUNT": "{n} 受信箱 | {n} 受信箱",
+    "SEARCH_PLACEHOLDER": "受信箱を検索...",
+    "NO_RESULTS": "検索条件に一致する受信箱は見つかりませんでした",
+    "RECONNECTION_REQUIRED": "受信箱が切断されました。再認証するまで新しいメッセージを受信できません。",
     "CLICK_TO_RECONNECT": "再接続するにはここをクリック。",
     "WHATSAPP_REGISTRATION_INCOMPLETE": "WhatsApp ビジネス登録が完了していません。再接続する前に、Meta ビジネスマネージャーで表示名のステータスを確認してください。",
     "COMPLETE_REGISTRATION": "登録を完了する",
     "LIST": {
-      "404": "このアカウントに紐付けられている受信トレイはありません。"
+      "404": "このアカウントに紐付けられている受信箱はありません。"
     },
     "CREATE_FLOW": {
       "CHANNEL": {
@@ -19,12 +19,12 @@
         "BODY": "トイバコと統合するプロバイダを選択してください。"
       },
       "INBOX": {
-        "TITLE": "受信トレイを作成",
-        "BODY": "アカウントを認証し、受信トレイを作成します。"
+        "TITLE": "受信箱を作成",
+        "BODY": "アカウントを認証し、受信箱を作成します。"
       },
       "AGENT": {
         "TITLE": "担当者を追加",
-        "BODY": "作成した受信トレイに担当者を追加します。"
+        "BODY": "作成した受信箱に担当者を追加します。"
       },
       "FINISH": {
         "TITLE": "設定完了",
@@ -33,9 +33,9 @@
     },
     "ADD": {
       "CHANNEL_NAME": {
-        "LABEL": "受信トレイ名",
-        "PLACEHOLDER": "受信トレイ名を入力してください (例: Acme Inc)",
-        "ERROR": "有効な受信トレイ名を入力してください"
+        "LABEL": "受信箱名",
+        "PLACEHOLDER": "受信箱名を入力してください (例: Acme Inc)",
+        "ERROR": "有効な受信箱名を入力してください"
       },
       "WEBSITE_NAME": {
         "LABEL": "ウェブサイト名",
@@ -45,12 +45,12 @@
         "HELP": "PS: サインインすることで、私たちはあなたのページのメッセージにのみアクセスできます。あなたのプライベートメッセージはトイバコによってアクセスすることはできません。",
         "CHOOSE_PAGE": "ページを選択",
         "CHOOSE_PLACEHOLDER": "リストからページを選択",
-        "INBOX_NAME": "受信トレイ名",
-        "ADD_NAME": "受信トレイに名前をつける",
-        "PICK_NAME": "受信トレイの名前を選択",
+        "INBOX_NAME": "受信箱名",
+        "ADD_NAME": "受信箱に名前をつける",
+        "PICK_NAME": "受信箱の名前を選択",
         "PICK_A_VALUE": "値を選択",
-        "CREATE_INBOX": "受信トレイを作成",
-        "RESTRICTED_WARNING": "Facebook 受信ボックスの作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
+        "CREATE_INBOX": "受信箱を作成",
+        "RESTRICTED_WARNING": "Facebook 受信箱の作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
         "STATUS_LINK": "ステータス更新を表示"
       },
       "INSTAGRAM": {
@@ -59,9 +59,9 @@
         "HELP": "Instagramプロフィールをチャンネルとして追加するには、「Instagramで続行」をクリックしてInstagramプロフィールを認証する必要があります ",
         "ERROR_MESSAGE": "Instagram への接続中にエラーが発生しました。もう一度試してください",
         "ERROR_AUTH": "Instagram への接続中にエラーが発生しました。もう一度試してください",
-        "NEW_INBOX_SUGGESTION": "この Instagram アカウントは、以前は別の受信トレイにリンクされていましたが、ここに移行されました。新しいメッセージはすべてここに表示されます。古い受信トレイでは、このアカウントのメッセージを送受信できなくなります。",
-        "DUPLICATE_INBOX_BANNER": "この Instagram アカウントは、新しい Instagram チャンネル受信トレイに移行されました。この受信トレイから Instagram メッセージを送受信することはできなくなります。",
-        "RESTRICTED_WARNING": "Instagram 受信ボックスの作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
+        "NEW_INBOX_SUGGESTION": "この Instagram アカウントは、以前は別の受信箱にリンクされていましたが、ここに移行されました。新しいメッセージはすべてここに表示されます。古い受信箱では、このアカウントのメッセージを送受信できなくなります。",
+        "DUPLICATE_INBOX_BANNER": "この Instagram アカウントは、新しい Instagram チャンネル受信箱に移行されました。この受信箱から Instagram メッセージを送受信することはできなくなります。",
+        "RESTRICTED_WARNING": "Instagram 受信箱の作成は、Meta 側の API レベルの問題のため一時的に使用できません。トイバコ の問題ではありません。できる限り早く解決できるよう Meta と緊密に連携しています。",
         "SETTINGS_RESTRICTED_WARNING": "Instagram メッセージは現在 Meta 側の API レベルの問題の影響を受けていますが、トイバコ の問題ではありません。メッセージやアクションによっては、遅延が発生したり、利用できなくなったりすることがあります。できるだけ早く問題を解決するために、Meta と緊密に連携しています。",
         "STATUS_LINK": "ステータス更新を表示"
       },
@@ -133,7 +133,7 @@
           "LABEL": "ウィジェットの色",
           "PLACEHOLDER": "ウィジェットで使用されている色を更新"
         },
-        "SUBMIT_BUTTON": "受信トレイを作成",
+        "SUBMIT_BUTTON": "受信箱を作成",
         "API": {
           "ERROR_MESSAGE": "ウェブサイトチャンネルを作成できませんでした。もう一度お試しください"
         }
@@ -172,8 +172,8 @@
           "ERROR": "このフィールドは必須項目です"
         },
         "CHANNEL_NAME": {
-          "LABEL": "受信トレイ名",
-          "PLACEHOLDER": "受信トレイ名を入力してください",
+          "LABEL": "受信箱名",
+          "PLACEHOLDER": "受信箱名を入力してください",
           "ERROR": "このフィールドは必須項目です"
         },
         "PHONE_NUMBER": {
@@ -223,8 +223,8 @@
             "ERROR": "このフィールドは必須項目です"
           },
           "INBOX_NAME": {
-            "LABEL": "受信トレイ名",
-            "PLACEHOLDER": "受信トレイ名を入力してください",
+            "LABEL": "受信箱名",
+            "PLACEHOLDER": "受信箱名を入力してください",
             "ERROR": "このフィールドは必須項目です"
           },
           "PHONE_NUMBER": {
@@ -261,8 +261,8 @@
           "RESTRICTION_DESCRIPTION": "お使いの WhatsApp プロバイダーを選択してください。クラウド API 認証情報を使用して WhatsApp クラウドに手動で接続することも、アカウントの認証情報を使用して Twilio 経由で接続することもできます。"
         },
         "INBOX_NAME": {
-          "LABEL": "受信トレイ名",
-          "PLACEHOLDER": "受信トレイ名を入力してください",
+          "LABEL": "受信箱名",
+          "PLACEHOLDER": "受信箱名を入力してください",
           "ERROR": "このフィールドは必須項目です"
         },
         "PHONE_NUMBER": {
@@ -348,13 +348,13 @@
           },
           "REVIEW": {
             "TITLE": "WhatsApp インボックスを作成",
-            "DESCRIPTION": "番号の詳細を確認して、受信トレイの名前を選択します。",
+            "DESCRIPTION": "番号の詳細を確認して、受信箱の名前を選択します。",
             "VERIFIED": "Meta 番号とアクセストークンは有効です。",
             "BUSINESS_NAME": "ビジネス名",
             "PHONE_NUMBER": "電話番号",
             "PHONE_ID": "電話番号 ID",
             "WABA_ID": "WhatsApp ビジネスアカウント ID",
-            "INBOX_NAME": "受信トレイ名",
+            "INBOX_NAME": "受信箱名",
             "INBOX_NAME_HELP": "この名前は、検証済みの Meta ビジネス名から生成されました。この名前は変更できます。"
           },
           "VERIFY": {
@@ -382,7 +382,7 @@
             "SHOW_TOKEN": "トークンを表示",
             "HIDE_TOKEN": "トークンを非表示にする",
             "VERIFY_DETAILS": "詳細を確認",
-            "CONNECT": "受信トレイを作成",
+            "CONNECT": "受信箱を作成",
             "RETRY_WEBHOOK": "ウェブフックのセットアップを再試行",
             "CONTINUE": "エージェントの追加を続ける"
           },
@@ -435,7 +435,7 @@
           },
           "RESTRICTED_WARNING": "WhatsAppの埋め込みサインアップは、Meta側のAPIレベルの問題により一時的に利用できません。トイバコ側の問題ではありません。対象となるCloud API番号は手動で設定できます。できるだけ早い解決に向けてMetaと連携しています。",
           "STATUS_LINK": "ステータス更新を表示",
-          "CALLING_ENABLE_FAILED": "WhatsApp 受信トレイの準備はできていますが、音声通話を有効にできませんでした。この番号は WhatsApp ビジネス通話 API にまだ登録されていません。Meta またはお使いの WhatsApp ビジネスソリューションプロバイダーに連絡してオンボーディングしてもらい、受信トレイの [通話] 設定から通話をオンにします。"
+          "CALLING_ENABLE_FAILED": "WhatsApp 受信箱の準備はできていますが、音声通話を有効にできませんでした。この番号は WhatsApp ビジネス通話 API にまだ登録されていません。Meta またはお使いの WhatsApp ビジネスソリューションプロバイダーに連絡してオンボーディングしてもらい、受信箱の [通話] 設定から通話をオンにします。"
         },
         "API": {
           "ERROR_MESSAGE": "WhatsAppチャンネルを保存できませんでした",
@@ -504,7 +504,7 @@
       },
       "EMAIL_CHANNEL": {
         "TITLE": "Eメールチャンネル",
-        "DESC": "Eメール受信トレイを統合します。",
+        "DESC": "Eメール受信箱を統合します。",
         "CHANNEL_NAME": {
           "LABEL": "チャンネル名",
           "PLACEHOLDER": "チャンネル名を入力してください",
@@ -520,7 +520,7 @@
           "ERROR_MESSAGE": "Eメールチャンネルを保存できませんでした"
         },
         "FINISH_MESSAGE": "以下のメールアドレスにメールを転送します。",
-        "FINISH_MESSAGE_NO_FORWARDING": "Eメールの受信トレイが正常に作成されました！メールを送受信するには、SMTP と IMAP の認証情報を設定する必要があります。これらの設定がないと、メールは処理されません。",
+        "FINISH_MESSAGE_NO_FORWARDING": "Eメールの受信箱が正常に作成されました！メールを送受信するには、SMTP と IMAP の認証情報を設定する必要があります。これらの設定がないと、メールは処理されません。",
         "FORWARDING_ADDRESS_LABEL": "このアドレスにメールを転送:",
         "CONFIGURE_SMTP_IMAP_LINK": "ここをクリック",
         "CONFIGURE_SMTP_IMAP_TEXT": " IMAP と SMTP の設定を構成するには"
@@ -626,17 +626,17 @@
       },
       "AGENTS": {
         "TITLE": "担当者",
-        "DESC": "ここでは、新しく作成した受信トレイを管理する担当者を追加できます。選択された担当者のみが受信トレイにアクセスできます。この受信トレイに割り当てられていない担当者は、ログイン時にこの受信トレイ内のメッセージを表示または応答することができません。<br><b>PS:</b> 管理者として、すべての受信トレイにアクセスする必要がある場合、あなたが作成したすべての受信トレイに担当者として自分自身を追加する必要があります。",
-        "VALIDATION_ERROR": "新しい受信トレイに少なくとも1人の担当者を追加してください",
-        "PICK_AGENTS": "受信トレイの担当者を選択"
+        "DESC": "ここでは、新しく作成した受信箱を管理する担当者を追加できます。選択された担当者のみが受信箱にアクセスできます。この受信箱に割り当てられていない担当者は、ログイン時にこの受信箱内のメッセージを表示または応答することができません。<br><b>PS:</b> 管理者として、すべての受信箱にアクセスする必要がある場合、あなたが作成したすべての受信箱に担当者として自分自身を追加する必要があります。",
+        "VALIDATION_ERROR": "新しい受信箱に少なくとも1人の担当者を追加してください",
+        "PICK_AGENTS": "受信箱の担当者を選択"
       },
       "DETAILS": {
-        "TITLE": "受信トレイの詳細",
-        "DESC": "下のドロップダウンから、トイバコに接続するFacebookページを選択してください。わかりやすくするために受信トレイの名前をカスタマイズすることもできます。"
+        "TITLE": "受信箱の詳細",
+        "DESC": "下のドロップダウンから、トイバコに接続するFacebookページを選択してください。わかりやすくするために受信箱の名前をカスタマイズすることもできます。"
       },
       "FINISH": {
         "TITLE": "ばっちりです！",
-        "DESC": "Facebookページとトイバコとの統合が正常に完了しました。次回から、あなたのページに送信された顧客からのメッセージや会話は、自動的に受信トレイに表示されます。<br>また、ウェブサイトに簡単に追加できるウィジェットスクリプトを提供しています。一度これをあなたのウェブサイトに設定すれば、顧客は他のツールの助けを借りずにWebサイトから直接メッセージを送信でき、トイバコ上に会話が表示されます。<br><br>素敵でしょ？まあ、私たちはきっとそうしますけどね:)"
+        "DESC": "Facebookページとトイバコとの統合が正常に完了しました。次回から、あなたのページに送信された顧客からのメッセージや会話は、自動的に受信箱に表示されます。<br>また、ウェブサイトに簡単に追加できるウィジェットスクリプトを提供しています。一度これをあなたのウェブサイトに設定すれば、顧客は他のツールの助けを借りずにWebサイトから直接メッセージを送信でき、トイバコ上に会話が表示されます。<br><br>素敵でしょ？まあ、私たちはきっとそうしますけどね:)"
       },
       "EMAIL_PROVIDER": {
         "TITLE": "メールプロバイダーを選択",
@@ -644,14 +644,14 @@
       },
       "MICROSOFT": {
         "TITLE": "Microsoftメール",
-        "DESCRIPTION": "開始するには、「Microsoftでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信トレイ作成ステップに戻ります。",
+        "DESCRIPTION": "開始するには、「Microsoftでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信箱作成ステップに戻ります。",
         "EMAIL_PLACEHOLDER": "メールアドレスを入力してください",
         "SIGN_IN": "Microsoftでサインイン",
         "ERROR_MESSAGE": "Microsoftへの接続中にエラーが発生しました。もう一度お試しください"
       },
       "GOOGLE": {
         "TITLE": "Googleメール",
-        "DESCRIPTION": "開始するには、「Googleでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信トレイ作成ステップに戻ります。",
+        "DESCRIPTION": "開始するには、「Googleでサインイン」ボタンをクリックしてください。メールサインインページにリダイレクトされます。要求された権限を承認すると、受信箱作成ステップに戻ります。",
         "SIGN_IN": "Googleでサインイン",
         "EMAIL_PLACEHOLDER": "メールアドレスを入力してください",
         "ERROR_MESSAGE": "Googleへの接続中にエラーが発生しました。もう一度お試しください"
@@ -663,35 +663,35 @@
       "ERROR_FB_AUTH": "問題が発生しました。ページを更新してください...",
       "ERROR_FB_UNAUTHORIZED": "この操作を実行する権限がありません。",
       "ERROR_FB_UNAUTHORIZED_HELP": "Facebookページへの完全なアクセス権があることを確認してください。Facebookの役割については<a href=\"https://www.facebook.com/help/187316341316631\">こちら</a>を参照してください。",
-      "ERROR_CHANNEL_CREATION": "受信トレイを作成できませんでした。もう一度試してください。",
-      "CREATING_CHANNEL": "受信トレイを作成しています...",
-      "TITLE": "受信トレイの詳細の設定",
+      "ERROR_CHANNEL_CREATION": "受信箱を作成できませんでした。もう一度試してください。",
+      "CREATING_CHANNEL": "受信箱を作成しています...",
+      "TITLE": "受信箱の詳細の設定",
       "DESC": ""
     },
     "AGENTS": {
       "BUTTON_TEXT": "担当者を追加",
-      "ADD_AGENTS": "受信トレイに担当者を追加しています..."
+      "ADD_AGENTS": "受信箱に担当者を追加しています..."
     },
     "FINISH": {
-      "TITLE": "受信トレイの準備ができました！",
+      "TITLE": "受信箱の準備ができました！",
       "MESSAGE": "新しいチャンネルを通じて顧客と交流できます。サポートを楽しんでください",
-      "BUTTON_TEXT": "受信トレイに移動",
+      "BUTTON_TEXT": "受信箱に移動",
       "MORE_SETTINGS": "その他の設定",
-      "WEBSITE_SUCCESS": "ウェブサイトチャンネルの作成が正常に完了しました。以下のコードをコピーしてウェブサイトに貼り付けてください。次回、お客様がライブチャットを使用すると、会話は自動的に受信トレイに表示されます。",
-      "WHATSAPP_QR_INSTRUCTION": "上記のQRコードをスキャンして、WhatsApp受信ボックスをすばやくテストしてください",
-      "SMS_QR_INSTRUCTION": "上記の QR コードをスキャンして、SMS 受信ボックスをすばやくテストしてください",
-      "SMS_QR_ALT": "SMS 受信ボックスをテストするための QR コード",
+      "WEBSITE_SUCCESS": "ウェブサイトチャンネルの作成が正常に完了しました。以下のコードをコピーしてウェブサイトに貼り付けてください。次回、お客様がライブチャットを使用すると、会話は自動的に受信箱に表示されます。",
+      "WHATSAPP_QR_INSTRUCTION": "上記のQRコードをスキャンして、WhatsApp受信箱をすばやくテストしてください",
+      "SMS_QR_INSTRUCTION": "上記の QR コードをスキャンして、SMS 受信箱をすばやくテストしてください",
+      "SMS_QR_ALT": "SMS 受信箱をテストするための QR コード",
       "TWILIO_CALLBACK_FALLBACK": "Webhook は自動的に設定されます。受信メッセージが届かない場合は、Twilio のコールバック URL を使用してください。",
-      "MESSENGER_QR_INSTRUCTION": "上記のQRコードをスキャンして、Facebookメッセンジャーの受信トレイをすばやくテストしてください",
-      "TELEGRAM_QR_INSTRUCTION": "上記のQRコードをスキャンして、Telegram受信ボックスをすばやくテストしてください"
+      "MESSENGER_QR_INSTRUCTION": "上記のQRコードをスキャンして、Facebookメッセンジャーの受信箱をすばやくテストしてください",
+      "TELEGRAM_QR_INSTRUCTION": "上記のQRコードをスキャンして、Telegram受信箱をすばやくテストしてください"
     },
     "REAUTH": "再認証",
     "VIEW": "表示",
     "EDIT": {
       "API": {
-        "SUCCESS_MESSAGE": "受信トレイの設定が正常に更新されました",
+        "SUCCESS_MESSAGE": "受信箱の設定が正常に更新されました",
         "AUTO_ASSIGNMENT_SUCCESS_MESSAGE": "自動割り当ての更新に成功しました",
-        "ERROR_MESSAGE": "受信トレイの設定を更新できませんでした。後でもう一度お試しください。"
+        "ERROR_MESSAGE": "受信箱の設定を更新できませんでした。後でもう一度お試しください。"
       },
       "EMAIL_COLLECT_BOX": {
         "ENABLED": "有効です",
@@ -749,10 +749,10 @@
         "NO": "いいえ、保存しておきます"
       },
       "API": {
-        "SUCCESS_MESSAGE": "受信トレイの削除に成功しました",
-        "ERROR_MESSAGE": "受信トレイを削除できませんでした。後でもう一度お試しください。",
-        "AVATAR_SUCCESS_MESSAGE": "受信トレイのアバターを正常に削除しました",
-        "AVATAR_ERROR_MESSAGE": "受信トレイのアバターを削除できませんでした。後でもう一度お試しください。"
+        "SUCCESS_MESSAGE": "受信箱の削除に成功しました",
+        "ERROR_MESSAGE": "受信箱を削除できませんでした。後でもう一度お試しください。",
+        "AVATAR_SUCCESS_MESSAGE": "受信箱のアバターを正常に削除しました",
+        "AVATAR_ERROR_MESSAGE": "受信箱のアバターを削除できませんでした。後でもう一度お試しください。"
       }
     },
     "TABS": {
@@ -772,7 +772,7 @@
     "VOICE_CONFIGURATION": {
       "ENABLE_VOICE": {
         "LABEL": "音声通話を有効にする",
-        "DESCRIPTION": "この受信トレイで音声通話を有効にします。エージェントは電話をかけたり受けたりできるようになります。"
+        "DESCRIPTION": "この受信箱で音声通話を有効にします。エージェントは電話をかけたり受けたりできるようになります。"
       },
       "CREDENTIALS": {
         "DESCRIPTION": "音声通話には Twilio API キーの認証情報が必要です。これらはエージェントの音声接続用のトークンを生成するために使用されます。"
@@ -793,7 +793,7 @@
     "WHATSAPP_CALLING": {
       "ENABLE": {
         "LABEL": "WhatsApp コールを有効にする",
-        "DESCRIPTION": "エージェントがこの受信トレイでWhatsAppクラウド通話を受信して発信できるようにします。お客様はこのビジネス番号に WhatsApp から直接電話をかけることができます。"
+        "DESCRIPTION": "エージェントがこの受信箱でWhatsAppクラウド通話を受信して発信できるようにします。お客様はこのビジネス番号に WhatsApp から直接電話をかけることができます。"
       },
       "ENABLE_FAILED": "この番号では音声通話をオンにできませんでした。WhatsApp ビジネスコーリング API にはまだ登録されていません。Meta またはお使いの WhatsApp ビジネスソリューションプロバイダーに連絡してオンボーディングしてもらい、もう一度試してください。",
       "PHONE_NUMBER": {
@@ -814,7 +814,7 @@
     "WIDGET_FEATURES": "ウィジェット機能",
     "TWILIO_HEALTH": {
       "TITLE": "Twilio 番号を管理",
-      "DESCRIPTION": "この受信トレイの Twilio アカウント、送信者、ウェブフックを確認してください。トイバコ が受信できないものには、ここにフラグが付けられます。",
+      "DESCRIPTION": "この受信箱の Twilio アカウント、送信者、ウェブフックを確認してください。トイバコ が受信できないものには、ここにフラグが付けられます。",
       "GO_TO_SETTINGS": "Twilio コンソールに移動",
       "NO_DATA": "健康データはありません",
       "LOADING": "Twilio からヘルスデータを取得中...",
@@ -838,15 +838,15 @@
         },
         "SENDER": {
           "LABEL": "送信者",
-          "TOOLTIP": "この受信トレイを配信する電話番号またはメッセージングサービス"
+          "TOOLTIP": "この受信箱を配信する電話番号またはメッセージングサービス"
         },
         "CAPABILITIES": {
           "LABEL": "数値機能",
-          "TOOLTIP": "この番号では機能 Twilio が有効になっています。この受信トレイには必要でもない機能は決して機能しません。"
+          "TOOLTIP": "この番号では機能 Twilio が有効になっています。この受信箱には必要でもない機能は決して機能しません。"
         },
         "VOICE_CALLING": {
           "LABEL": "音声通話",
-          "TOOLTIP": "この受信トレイの通話がオンになっているかどうか"
+          "TOOLTIP": "この受信箱の通話がオンになっているかどうか"
         }
       },
       "VALUES": {
@@ -912,9 +912,9 @@
       "ERRORS": {
         "AUTHORIZATION": {
           "EMBEDDED_TITLE": "WhatsApp 接続を更新する必要があります",
-          "EMBEDDED_DESCRIPTION": "Meta はこの受信トレイの接続を検証できませんでした。「構成」に移動して、埋め込み登録を使用して再構成してください。",
+          "EMBEDDED_DESCRIPTION": "Meta はこの受信箱の接続を検証できませんでした。「構成」に移動して、埋め込み登録を使用して再構成してください。",
           "MANUAL_TITLE": "WhatsApp アクセストークンには注意が必要です",
-          "MANUAL_DESCRIPTION": "Meta はこの受信トレイのアクセストークンを検証できませんでした。設定に移動して確認または交換してください。"
+          "MANUAL_DESCRIPTION": "Meta はこの受信箱のアクセストークンを検証できませんでした。設定に移動して確認または交換してください。"
         },
         "GENERIC_TITLE": "WhatsApp ヘルスデータはご利用いただけません",
         "GENERIC_DESCRIPTION": "Meta は現在の健康状態の詳細を返すことができませんでした。以下のエラーを確認して、後でもう一度試してください。",
@@ -1077,7 +1077,7 @@
       "DISPLAY_FILE_PICKER": "ウィジェットにファイルピッカーを表示する",
       "DISPLAY_EMOJI_PICKER": "ウィジェットに絵文字ピッカーを表示する",
       "ALLOW_END_CONVERSATION": "ウィジェットからユーザーが会話を終了できるようにする",
-      "USE_INBOX_AVATAR_FOR_BOT": "ボットに受信トレイの名前とアバターを使用する"
+      "USE_INBOX_AVATAR_FOR_BOT": "ボットに受信箱の名前とアバターを使用する"
     },
     "SETTINGS_POPUP": {
       "MESSENGER_HEADING": "Messengerスクリプト",
@@ -1111,7 +1111,7 @@
         }
       },
       "INBOX_AGENTS": "担当者",
-      "INBOX_AGENTS_SUB_TEXT": "この受信トレイから担当者を追加または削除する",
+      "INBOX_AGENTS_SUB_TEXT": "この受信箱から担当者を追加または削除する",
       "AGENT_ASSIGNMENT": "会話の割り当て",
       "AGENT_ASSIGNMENT_SUB_TEXT": "会話の割り当て設定を更新する",
       "UPDATE": "更新",
@@ -1125,19 +1125,19 @@
       "ENABLE_CONTINUITY_VIA_EMAIL_DISABLED_TEXT": "この機能は有料プランで利用できます。アップグレードすると、メールで会話を続けることができます。",
       "LOCK_TO_SINGLE_CONVERSATION": "会話ルーティング",
       "LOCK_TO_SINGLE_CONVERSATION_SUB_TEXT": "既存の連絡先の会話作成を設定",
-      "INBOX_UPDATE_TITLE": "受信トレイの設定",
-      "INBOX_UPDATE_SUB_TEXT": "受信トレイの設定を更新する",
-      "AUTO_ASSIGNMENT_SUB_TEXT": "この受信トレイに追加された担当者への新しい会話の自動割り当てを有効または無効にします。",
+      "INBOX_UPDATE_TITLE": "受信箱の設定",
+      "INBOX_UPDATE_SUB_TEXT": "受信箱の設定を更新する",
+      "AUTO_ASSIGNMENT_SUB_TEXT": "この受信箱に追加された担当者への新しい会話の自動割り当てを有効または無効にします。",
       "HMAC_VERIFICATION": "ユーザーIDの検証",
       "HMAC_DESCRIPTION": "ユーザーのIDを検証するために、各ユーザーに対して`identifier_hash`を渡すことができます。ここに表示されるキーを使用して`identifier`のHMAC sha256ハッシュを生成できます。",
       "HMAC_LINK_TO_DOCS": "詳細はこちらをご覧ください。",
       "HMAC_MANDATORY_VERIFICATION": "ユーザーID検証の強制",
       "HMAC_MANDATORY_DESCRIPTION": "有効にすると、`identifier_hash`が欠落しているリクエストは拒否されます。",
-      "INBOX_IDENTIFIER": "受信トレイ識別子",
+      "INBOX_IDENTIFIER": "受信箱識別子",
       "INBOX_IDENTIFIER_SUB_TEXT": "ここに表示される`inbox_identifier`トークンを使用してAPIクライアントを認証します。",
       "FORWARD_EMAIL_TITLE": "メール転送",
       "FORWARD_EMAIL_SUB_TEXT": "以下のメールアドレスにメールを転送します。",
-      "FORWARD_EMAIL_NOT_CONFIGURED": "このインストールでは、受信トレイへのメールの転送は現在無効になっています。この機能を使用するには、管理者が有効にする必要があります。管理者に連絡して続行してください。",
+      "FORWARD_EMAIL_NOT_CONFIGURED": "このインストールでは、受信箱へのメールの転送は現在無効になっています。この機能を使用するには、管理者が有効にする必要があります。管理者に連絡して続行してください。",
       "ALLOW_MESSAGES_AFTER_RESOLVED": "会話解決後のメッセージを許可する",
       "ALLOW_MESSAGES_AFTER_RESOLVED_SUB_TEXT": "会話が解決された後でもエンドユーザーがメッセージを送信できるようにします。",
       "WHATSAPP_SECTION_SUBHEADER": "このAPIキーはWhatsApp APIとの統合に使用されます。",
@@ -1157,11 +1157,11 @@
       "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_UPDATE_ERROR": "ビジネス管理トークンを更新できませんでした。WhatsApp ビジネス管理権限とアカウントアクセスを確認して、もう一度試してください。",
       "WHATSAPP_BUSINESS_MANAGEMENT_TOKEN_GUIDE_LINK": "WhatsApp ビジネス管理トークンの生成方法を学ぶ",
       "WHATSAPP_EMBEDDED_SIGNUP_TITLE": "WhatsApp エンベデッドサインアップ",
-      "WHATSAPP_EMBEDDED_SIGNUP_SUBHEADER": "この受信トレイは、WhatsApp 埋め込みサインアップを介して接続されています。",
-      "WHATSAPP_EMBEDDED_SIGNUP_DESCRIPTION": "この受信トレイを再構成して、WhatsApp ビジネス設定を更新できます。",
+      "WHATSAPP_EMBEDDED_SIGNUP_SUBHEADER": "この受信箱は、WhatsApp 埋め込みサインアップを介して接続されています。",
+      "WHATSAPP_EMBEDDED_SIGNUP_DESCRIPTION": "この受信箱を再構成して、WhatsApp ビジネス設定を更新できます。",
       "WHATSAPP_RECONFIGURE_BUTTON": "再構成",
       "WHATSAPP_MANUAL_TRANSFER_TITLE": "手動設定に切り替え",
-      "WHATSAPP_MANUAL_TRANSFER_SUBHEADER": "この受信トレイは WhatsApp 埋め込みサインアップを介して接続されましたが、現在はサポートされていません。お使いの Meta アプリから WhatsApp クラウド API 認証情報を入力して、この受信トレイを手動設定に切り替えてください。切り替え前に上記の検証トークンを使用して Meta アプリのウェブフックを設定します。",
+      "WHATSAPP_MANUAL_TRANSFER_SUBHEADER": "この受信箱は WhatsApp 埋め込みサインアップを介して接続されましたが、現在はサポートされていません。お使いの Meta アプリから WhatsApp クラウド API 認証情報を入力して、この受信箱を手動設定に切り替えてください。切り替え前に上記の検証トークンを使用して Meta アプリのウェブフックを設定します。",
       "WHATSAPP_MANUAL_TRANSFER_PHONE_NUMBER_ID_LABEL": "電話番号 ID",
       "WHATSAPP_MANUAL_TRANSFER_BUSINESS_ACCOUNT_ID_LABEL": "ビジネスアカウントID",
       "WHATSAPP_MANUAL_TRANSFER_API_KEY_LABEL": "APIキー",
@@ -1171,7 +1171,7 @@
       "WHATSAPP_MANUAL_TRANSFER_ERROR": "手動設定に切り替えられませんでした。認証情報を確認して、もう一度試してください。",
       "WHATSAPP_CONNECT_TITLE": "WhatsApp ビジネスに接続する",
       "WHATSAPP_CONNECT_SUBHEADER": "WhatsApp 組み込みサインアップにアップグレードすると、管理が容易になります。",
-      "WHATSAPP_CONNECT_DESCRIPTION": "この受信トレイをWhatsApp Businessに接続すると、機能が強化され、管理が容易になります。",
+      "WHATSAPP_CONNECT_DESCRIPTION": "この受信箱をWhatsApp Businessに接続すると、機能が強化され、管理が容易になります。",
       "WHATSAPP_CONNECT_BUTTON": "接続",
       "WHATSAPP_CONNECT_SUCCESS": "WhatsApp ビジネスに正常に接続されました！",
       "WHATSAPP_CONNECT_ERROR": "WhatsApp ビジネスに接続できませんでした。もう一度試してください。",
@@ -1189,19 +1189,19 @@
       "WHATSAPP_MANUAL_MIGRATION": {
         "BANNER": {
           "TITLE": "手動設定推奨",
-          "DESCRIPTION": "この受信トレイは、最近のMetaの制限の影響を受けた埋め込みサインアップに使用される共有Metaアプリを介して接続します。今後同様の問題が発生しないように、お使いの Meta アプリと再接続することをおすすめします。",
+          "DESCRIPTION": "この受信箱は、最近のMetaの制限の影響を受けた埋め込みサインアップに使用される共有Metaアプリを介して接続します。今後同様の問題が発生しないように、お使いの Meta アプリと再接続することをおすすめします。",
           "START": "手動移行を開始する",
           "GUIDE": "ガイドを表示"
         },
         "DIALOG": {
           "EYEBROW": "WhatsApp マニュアルマイグレーション",
-          "TITLE": "WhatsApp 受信トレイに再接続",
+          "TITLE": "WhatsApp 受信箱に再接続",
           "CLOSE": "閉じる",
           "ACTION_REQUIRED_TITLE": "お手持ちのMetaアプリと再接続してください",
-          "ACTION_REQUIRED_DESCRIPTION": "独自のMetaアプリを介して接続された受信トレイは、共有埋め込みサインアップアプリの制限の影響を受けません。このガイド付きフローでは、新しい受信トレイを作成せずに WhatsApp API 接続を更新できます。",
+          "ACTION_REQUIRED_DESCRIPTION": "独自のMetaアプリを介して接続された受信箱は、共有埋め込みサインアップアプリの制限の影響を受けません。このガイド付きフローでは、新しい受信箱を作成せずに WhatsApp API 接続を更新できます。",
           "GUIDE_LINK": "手動設定ガイドを開く",
           "PRESERVED_TITLE": "保存済み",
-          "PRESERVED_DESCRIPTION": "会話、連絡先、コラボレーター、ルーティング、営業時間、受信トレイの設定。",
+          "PRESERVED_DESCRIPTION": "会話、連絡先、コラボレーター、ルーティング、営業時間、受信箱の設定。",
           "UPDATED_TITLE": "更新済み",
           "UPDATED_DESCRIPTION": "WABA ID、電話番号 ID、アクセストークン、およびウェブフック設定。",
           "WABA_ID": "WABA ID",
@@ -1209,7 +1209,7 @@
           "WABA_HELP": "この電話番号を所有しているWhatsAppビジネスアカウント。",
           "PHONE_NUMBER_ID": "電話番号 ID",
           "PHONE_NUMBER_PLACEHOLDER": "電話番号を入力してください ID",
-          "PHONE_NUMBER_HELP": "この受信トレイに接続されているWhatsApp番号用のMeta独自のID番号。",
+          "PHONE_NUMBER_HELP": "この受信箱に接続されているWhatsApp番号用のMeta独自のID番号。",
           "DISPLAY_PHONE_NUMBER": "電話番号を表示",
           "DISPLAY_PHONE_NUMBER_PLACEHOLDER": "ディスプレイの電話番号を入力",
           "DISPLAY_PHONE_NUMBER_HELP": "お客様向けの WhatsApp 番号です。これは移行中には変更できません。",
@@ -1221,7 +1221,7 @@
           "MESSAGING_PERMISSION": "whatsapp_ビジネス_メッセージング。",
           "MANAGEMENT_PERMISSION": "whatsapp _ビジネス_マネジメント",
           "REVIEW_TITLE": "再接続する前に確認する",
-          "INBOX": "受信トレイ",
+          "INBOX": "受信箱",
           "PHONE_NUMBER": "電話番号",
           "NOT_ENTERED": "未入力",
           "VERIFY_NOTICE": "トイバコ は変更を適用する前に Meta でこれらの認証情報を確認します。検証に失敗しても、現在の設定はそのまま残ります。",
@@ -1229,12 +1229,12 @@
           "CANCEL": "キャンセル",
           "CONTINUE": "続行",
           "REVIEW_MIGRATION": "レビュー移行",
-          "RECONNECT": "WhatsApp 受信トレイに再接続"
+          "RECONNECT": "WhatsApp 受信箱に再接続"
         },
         "STEPS": {
           "BEFORE_YOU_START": {
             "TITLE": "始める前に",
-            "DESCRIPTION": "これにより、この受信トレイの WhatsApp API の詳細が再接続されます。会話、コラボレーター、ルーティング、営業時間、CSAT、ボットの設定は保持されます。"
+            "DESCRIPTION": "これにより、この受信箱の WhatsApp API の詳細が再接続されます。会話、コラボレーター、ルーティング、営業時間、CSAT、ボットの設定は保持されます。"
           },
           "BUSINESS_DETAILS": {
             "TITLE": "事業詳細",
@@ -1246,13 +1246,13 @@
           },
           "REVIEW_MIGRATION": {
             "TITLE": "レビュー移行",
-            "DESCRIPTION": "この受信トレイを再接続する前に、接続情報を確認してください。トイバコは変更を適用する前に、トークン、WABA、電話番号をMetaで検証します。"
+            "DESCRIPTION": "この受信箱を再接続する前に、接続情報を確認してください。トイバコは変更を適用する前に、トークン、WABA、電話番号をMetaで検証します。"
           }
         }
       },
       "WHATSAPP_CALLING_ENABLED": {
         "LABEL": "音声通話を有効にする",
-        "DESCRIPTION": "エージェントがこの受信トレイでWhatsApp音声通話を開始して受信できるようにします。Meta から通話許可が付与された、埋め込み登録の WhatsApp クラウドチャンネルでのみ利用できます。"
+        "DESCRIPTION": "エージェントがこの受信箱でWhatsApp音声通話を開始して受信できるようにします。Meta から通話許可が付与された、埋め込み登録の WhatsApp クラウドチャンネルでのみ利用できます。"
       },
       "UPDATE_PRE_CHAT_FORM_SETTINGS": "プレチャットフォーム設定を更新する"
     },
@@ -1262,12 +1262,12 @@
       "SELECT_PLACEHOLDER": "ヘルプセンターを選択",
       "NONE": "なし",
       "REMOVE": "ヘルプセンターを削除",
-      "SUB_TEXT": "受信トレイにヘルプセンターを添付する"
+      "SUB_TEXT": "受信箱にヘルプセンターを添付する"
     },
     "AUTO_ASSIGNMENT": {
       "MAX_ASSIGNMENT_LIMIT": "自動割り当ての制限",
       "MAX_ASSIGNMENT_LIMIT_RANGE_ERROR": "0より大きい値を入力してください",
-      "MAX_ASSIGNMENT_LIMIT_SUB_TEXT": "この受信トレイから担当者に自動割り当てできる会話の最大数を制限します"
+      "MAX_ASSIGNMENT_LIMIT_SUB_TEXT": "この受信箱から担当者に自動割り当てできる会話の最大数を制限します"
     },
     "ASSIGNMENT": {
       "TITLE": "会話の割り当て",
@@ -1278,7 +1278,7 @@
       "DEFAULT_RULE_1": "最初に作成された会話が最初",
       "DEFAULT_RULE_2": "ラウンドロビン分布",
       "CUSTOMIZE_WITH_POLICY": "割り当てポリシーによるカスタマイズ",
-      "USING_POLICY": "この受信トレイにカスタム割り当てポリシーを使用する",
+      "USING_POLICY": "この受信箱にカスタム割り当てポリシーを使用する",
       "CUSTOMIZE_POLICY": "割り当てポリシーによるカスタマイズ",
       "DELETE_POLICY": "ポリシーを削除",
       "POLICY_LABEL": "アサインメントポリシー",
@@ -1296,7 +1296,7 @@
         "ROUND_ROBIN": "ラウンドロビン",
         "BALANCED": "バランスのとれた割り当て"
       },
-      "UPGRADE_PROMPT": "ビジネスプランではカスタム割り当てポリシーを利用できます",
+      "UPGRADE_PROMPT": "有料プランではカスタム割り当てポリシーを利用できます",
       "UPGRADE_TO_BUSINESS": "ビジネスへのアップグレード",
       "DEFAULT_POLICY_LINKED": "デフォルトポリシーがリンクされました",
       "DEFAULT_POLICY_DESCRIPTION": "カスタム割り当てポリシーをリンクして、このインボックス内のエージェントに会話を割り当てる方法をカスタマイズします。",
@@ -1310,7 +1310,7 @@
     },
     "ASSIGNMENT_POLICY": {
       "DELETE_CONFIRM_TITLE": "割り当てポリシーを削除しますか?",
-      "DELETE_CONFIRM_MESSAGE": "この割り当てポリシーをこの受信トレイから削除してもよろしいですか?インボックスは既定の割り当てルールに戻ります。",
+      "DELETE_CONFIRM_MESSAGE": "この割り当てポリシーをこの受信箱から削除してもよろしいですか?インボックスは既定の割り当てルールに戻ります。",
       "CANCEL": "キャンセル",
       "CONFIRM_DELETE": "削除",
       "DELETE_SUCCESS": "割り当てポリシーが正常に削除されました",
@@ -1424,7 +1424,7 @@
       "WEEKLY_TITLE": "週間営業時間を設定する",
       "TIMEZONE_LABEL": "タイムゾーンを選択",
       "UPDATE": "営業時間設定を更新",
-      "TOGGLE_AVAILABILITY": "この受信トレイの営業時間を有効にする",
+      "TOGGLE_AVAILABILITY": "この受信箱の営業時間を有効にする",
       "UNAVAILABLE_MESSAGE_LABEL": "訪問者への不在メッセージ",
       "TOGGLE_HELP": "営業時間を有効にすると、すべての担当者がオフラインでもライブチャットウィジェットに利用可能時間が表示されます。利用可能時間外には、訪問者にメッセージとプレチャットフォームで警告できます。",
       "DAY": {
@@ -1443,7 +1443,7 @@
       "SUBTITLE": "IMAPの詳細を設定してください",
       "NOTE_TEXT": "SMTPを有効にするには、IMAPを設定してください。",
       "UPDATE": "IMAP設定を更新",
-      "TOGGLE_AVAILABILITY": "この受信トレイのIMAP設定を有効にする",
+      "TOGGLE_AVAILABILITY": "この受信箱のIMAP設定を有効にする",
       "TOGGLE_HELP": "IMAPを有効にすると、ユーザーがメールを受信できるようになります",
       "EDIT": {
         "SUCCESS_MESSAGE": "IMAP設定が正常に更新されました",
@@ -1476,7 +1476,7 @@
       "TITLE": "SMTP",
       "SUBTITLE": "SMTPの詳細を設定してください",
       "UPDATE": "SMTP設定を更新",
-      "TOGGLE_AVAILABILITY": "この受信トレイのSMTP設定を有効にする",
+      "TOGGLE_AVAILABILITY": "この受信箱のSMTP設定を有効にする",
       "TOGGLE_HELP": "SMTPを有効にすると、ユーザーがメールを送信できるようになります",
       "EDIT": {
         "SUCCESS_MESSAGE": "SMTP設定が正常に更新されました",

@@ -5,6 +5,7 @@ require 'securerandom'
 require_relative 'opening_receipt'
 require_relative 'opening_terms'
 require_relative 'paid_period'
+require_relative 'opening_operations'
 require_relative '../legal_terms'
 
 class Toybaco::Growth::OpeningFulfillment
@@ -24,7 +25,10 @@ class Toybaco::Growth::OpeningFulfillment
 
     claim!(request)
     initial = Toybaco::Growth::OpeningTerms.new(@client, request.mode, request.session_id).read
-    commit_store!(request, initial)
+    result = commit_store!(request, initial)
+    # 店舗を作ったこの実行だけが、commit の後で運営へ知らせる(重複通知・取り消された作成は知らせない)。
+    Toybaco::Growth::OpeningOperations.opened!(request) if @created
+    result
   end
 
   private
@@ -82,6 +86,7 @@ class Toybaco::Growth::OpeningFulfillment
     request.update!(state: 'account_ready', account_id: account.id, owner_id: user.id,
                     subscription_id: current.fetch(:subscription).fetch('id'), account_ready_at: Time.now.utc,
                     contract_digest: Toybaco::Growth::BillingReceipt.snapshot_digest(current.fetch(:contract)), industry: current.fetch(:industry))
+    @created = true
   end
 
   def apply_contract!(account, current)

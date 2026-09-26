@@ -7,6 +7,7 @@ require_relative 'toybaco_growth_purchase_stripe_fixture'
 require_relative 'toybaco_opening_fixture'
 require Rails.root.join('lib/toybaco/growth/opening_fulfillment')
 require Rails.root.join('lib/toybaco/growth/opening_onboarding')
+require Rails.root.join('lib/toybaco/checkout')
 
 class ToybacoOpeningOnboardingRuntimeTest < Minitest::Test
   include ActiveSupport::Testing::TimeHelpers
@@ -57,6 +58,21 @@ class ToybacoOpeningOnboardingRuntimeTest < Minitest::Test
     assert_equal NOW + 10.years, latest(row).retain_until
   end
 
+  def test_other_industry_opens_the_store_without_an_industry_pack
+    row = opening(industry: Toybaco::Checkout::Catalog::OTHER_INDUSTRY)
+    assert_nil row.industry
+    setup_opening(row)
+    assert_equal %w[ready not_selected ready], row.reload.values_at('onboarding_state', 'industry_state', 'inbox_state')
+    account = Account.find(row.account_id)
+    assert_nil account.internal_attributes['toybaco_industry']
+    assert_equal 0, account.canned_responses.count
+    Toybaco::Checkout::Catalog::INDUSTRIES.map(&:first).each do |value|
+      next if value == Toybaco::Checkout::Catalog::OTHER_INDUSTRY
+
+      assert_includes Toybaco::IndustryPack.known_industries, { 'retailec' => 'retail-ec', 'bridalphoto' => 'bridal-photo' }.fetch(value, value)
+    end
+  end
+
   def test_unready_inbound_is_not_complete_and_recovers_without_overwriting_edited_pack
     row = opening(industry: 'food')
     setup_opening(row, ready: false)
@@ -100,6 +116,25 @@ class ToybacoOpeningOnboardingRuntimeTest < Minitest::Test
     setup_opening(row)
     assert_equal 'attention', row.reload.onboarding_state
     refute latest(row)
+  end
+
+  def test_setup_that_misses_its_limit_is_logged_for_the_alarm_and_mailed_to_operations
+    row = opening(industry: 'food')
+    setup_opening(row, ready: false)
+    row.update!(onboarding_attempts: 48)
+    travel_to NOW + 31
+    log = StringIO.new
+    mails = operations_mail { Rails.stub(:logger, ActiveSupport::Logger.new(log)) { setup_opening(row, ready: false) } }
+    assert_equal 'attention', row.reload.onboarding_state
+    assert_includes log.string, "TOYBACO_OPENING_ONBOARDING_ATTENTION id=#{row.id}"
+    assert_equal ['【トイバコ】開通後の初期設定が完了しませんでした: Opening fixture'], mails.map(&:subject)
+    body = mails.first.body.decoded
+    ['店舗は作成済みですが、初期設定が期限内に完了しませんでした。', "店舗ID: #{row.account_id}", "契約者: #{@email}", '業界パック: 適用済み',
+     '転送用メール受信箱: 受信の準備が整っていないため未作成', 'お客様へのログイン案内: queued', '初期設定の試行: 48 回'].each { |line| assert_includes body, line }
+    assert_empty operations_mail { setup_opening(row, ready: false) }
+    sweep_log = StringIO.new
+    Rails.stub(:logger, ActiveSupport::Logger.new(sweep_log)) { Growth::OpeningOnboarding.sweep(now: Time.now.utc) }
+    assert_includes sweep_log.string, 'TOYBACO_OPENING_ONBOARDING_ATTENTION pending_requests=true'
   end
 
   def test_ingress_disabled_still_recovers_accepted_setup_but_closed_notice_gate_never_sends

@@ -113,6 +113,9 @@ locals {
     { name = "FRONTEND_URL", value = "https://${local.app_fqdn}" },
     { name = "TOYBACO_DEPLOYMENT_ENVIRONMENT", value = var.deployment_environment },
     { name = "TOYBACO_STRIPE_MODE", value = local.is_production ? "live" : "test" },
+    # 新しい開通経路の完了・確認待ちを運営へ知らせる宛先(Growth::OpeningOperations)。旧経路 Lambda の
+    # NOTIFY_EMAIL(provision.tf)と同じ値で、staging は fixture 名簿内の通知先だけ(locals.tf の検証と同じ)。
+    { name = "TOYBACO_OPERATIONS_EMAIL", value = local.is_production ? "info@cyber-relations.jp" : var.staging_notify_email },
     { name = "TOYBACO_STRIPE_PORTAL_CONFIGURATION", value = var.stripe_portal_configuration },
     { name = "TOYBACO_SUPPORT_OPERATIONS_OWNER_ID", value = lookup(var.support_report_owner_ids, "operations", "") },
     { name = "TOYBACO_SUPPORT_BILLING_OWNER_ID", value = lookup(var.support_report_owner_ids, "billing", "") },
@@ -165,6 +168,12 @@ locals {
     { name = "TOYBACO_POSTIZ_SECRET_VERSION", value = aws_secretsmanager_secret_version.postiz.version_id },
   ]
 
+  # staging だけ、Rails の開通照合(Growth::OpeningTerms)へ Lambda(provision.tf)と同じ fixture 名簿を渡す。
+  # 名簿が無いと staging の開通は必ず payment_mismatch になる。production のタスクにはこの変数を置かない。
+  app_staging_environment = local.is_production ? [] : [
+    { name = "TOYBACO_STAGING_FIXTURE_EMAILS", value = join(",", sort(tolist(var.staging_fixture_emails))) },
+  ]
+
   app_secrets = concat([
     { name = "SECRET_KEY_BASE", valueFrom = "${aws_secretsmanager_secret.app.arn}:SECRET_KEY_BASE::" },
     { name = "POSTGRES_PASSWORD", valueFrom = "${aws_secretsmanager_secret.app.arn}:POSTGRES_PASSWORD::" },
@@ -209,7 +218,7 @@ resource "aws_ecs_task_definition" "rails" {
     entryPoint       = ["docker/entrypoints/rails.sh"]
     command          = ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
     portMappings     = [{ containerPort = 3000, protocol = "tcp" }]
-    environment      = local.app_environment
+    environment      = concat(local.app_environment, local.app_staging_environment)
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])
@@ -232,7 +241,7 @@ resource "aws_ecs_task_definition" "sidekiq" {
     image            = local.chatwoot_image
     essential        = true
     command          = ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
-    environment      = local.app_environment
+    environment      = concat(local.app_environment, local.app_staging_environment)
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])
@@ -291,7 +300,7 @@ resource "aws_ecs_task_definition" "migrate" {
     image     = local.chatwoot_image
     essential = true
     command   = ["bundle", "exec", "rails", "db:toybaco_prepare"]
-    environment = concat(local.app_environment, [
+    environment = concat(local.app_environment, local.app_staging_environment, [
       { name = "TOYBACO_CHATWOOT_BOOTSTRAP", value = "false" },
     ])
     secrets          = local.app_secrets

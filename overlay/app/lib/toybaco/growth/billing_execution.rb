@@ -6,6 +6,7 @@ require_relative 'billing_subscription'
 require_relative 'billing_receipt'
 require_relative 'billing_mode_client'
 require_relative 'opening_fulfillment'
+require_relative 'opening_operations'
 require_relative 'renewal_ingress_verification'
 require_relative 'renewal_dispatch_queue'
 
@@ -21,16 +22,20 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
   private
 
   def claim
-    @event.with_lock do
+    expired = false
+    token = @event.with_lock do
       next unless @event.state == 'queued' || Toybaco::Growth::PaymentDispatch.due?(@event, @now)
 
       if @event.deadline_at <= @now || @event.attempts >= @event.attempt_limit
         @event.update!(state: 'attention', result: 'retry_limit', lease_token: nil, lease_expires_at: nil)
         Rails.logger.error('TOYBACO_BILLING_ATTENTION retry_limit=true')
+        expired = true
         next
       end
       super
     end
+    tell_operations('retry_limit') if expired
+    token
   end
 
   def fail!(result, final:)
@@ -38,7 +43,15 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
 
     state = final || @event.attempts >= @event.attempt_limit ? 'attention' : 'pending'
     finish!(state, result)
-    Rails.logger.error("TOYBACO_BILLING_ATTENTION receipt=#{@event.id}") if state == 'attention'
+    return unless state == 'attention'
+
+    Rails.logger.error("TOYBACO_BILLING_ATTENTION receipt=#{@event.id}")
+    tell_operations(result) if @event.state == 'attention'
+  end
+
+  # 開通の受付だけ、店舗を作れなかったことを運営へメールでも知らせる(アラームは状態が続く間ずっと赤のため)。
+  def tell_operations(result)
+    Toybaco::Growth::OpeningOperations.failed!(@event, result) if @event.action == 'opening_checkout'
   end
 
   def verify_renewal!

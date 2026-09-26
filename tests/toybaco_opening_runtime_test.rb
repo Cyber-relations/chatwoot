@@ -203,6 +203,96 @@ class ToybacoOpeningRuntimeTest < Minitest::Test
     assert_equal saved.id, opening_request(row).id
   end
 
+  def test_operations_hear_once_that_a_paid_store_opened_without_secrets
+    mails = operations_mail do
+      assert_equal 'opening_account_ready', fulfill(accept)
+      assert_equal 'opening_account_ready', fulfill(accept)
+    end
+    saved = Toybaco::OpeningRequest.find_by!(session_id: @session_id)
+    assert_equal 1, mails.size
+    assert_equal ['ops@example.invalid'], mails.first.to
+    assert_equal '【トイバコ】店舗を開通しました: Opening fixture', mails.first.subject
+    body = mails.first.body.decoded
+    ['決済を確認し、新しい店舗を作成しました。', '店舗名: Opening fixture', "店舗ID: #{saved.account_id}", "契約者: #{@email}",
+     'プラン: スタンダード(契約版 2026-09-25.1・月払い)', '業種: 指定なし(業界パックは適用しません)', "Stripe: #{@session_id} / #{@sub_id}",
+     'お客様へのログイン案内: 送信設定(GROWTH_NOTICES)が無効のため送られません。お客様へ個別にご連絡ください',
+     '状況の確認: rake toybaco:opening_attention'].each { |line| assert_includes body, line }
+    refute_match(/sk_(?:test|live)_|rk_(?:test|live)_|whsec_|pm_|password/i, body)
+  end
+
+  def test_operations_notice_does_not_depend_on_customer_notices_and_follows_the_staging_roster
+    Growth::OpeningNotices.stub(:enabled?, true) do
+      mails = operations_mail { fulfill(accept) }
+      assert_includes mails.first.body.decoded, 'お客様へのログイン案内: 初期設定のあと自動で送ります'
+    end
+    ops = Growth::OpeningOperations
+    production = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production' }
+    assert_equal 'ops@example.invalid', ops.recipient(production.merge('TOYBACO_OPERATIONS_EMAIL' => ' Ops@Example.invalid '))
+    [{}, { 'TOYBACO_OPERATIONS_EMAIL' => 'not-an-address' }, { 'TOYBACO_OPERATIONS_EMAIL' => 'a@example.invalid,b@example.invalid' }].each do |env|
+      assert_nil ops.recipient(production.merge(env))
+    end
+    # production 以外(staging・未設定・綴り違い)は名簿必須。名簿が渡っていれば production でも名簿で絞る。
+    [{ 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging' }, {}, { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'Staging' },
+     { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'prod' }, production].each do |env|
+      base = env.merge('TOYBACO_OPERATIONS_EMAIL' => 'ops@example.invalid')
+      assert_nil ops.recipient(base.merge('TOYBACO_STAGING_FIXTURE_EMAILS' => 'other@example.invalid')), env.inspect
+      assert_equal 'ops@example.invalid', ops.recipient(base.merge('TOYBACO_STAGING_FIXTURE_EMAILS' => 'other@example.invalid, OPS@example.invalid')), env.inspect
+      assert_nil ops.recipient(base), env.inspect unless env == production
+    end
+  end
+
+  # アラーム(monitoring.tf の billing_attention)は、確認待ちの受付が残る間は毎分の sweep の出力で保たれる。
+  def test_billing_sweep_repeats_the_attention_line_while_an_opening_receipt_needs_attention
+    logged = lambda do
+      io = StringIO.new
+      Rails.stub(:logger, ActiveSupport::Logger.new(io)) { Growth::BillingReceipt.sweep(now: Time.now.utc) }
+      io.string
+    end
+    marker = 'TOYBACO_BILLING_ATTENTION pending_receipts=true'
+    others = Toybaco::BillingEvent.exists?(state: 'attention')
+    others ? assert_includes(logged.call, marker) : refute_includes(logged.call, marker)
+    @client.sessions[@session_id]['total_details'] = { 'amount_discount' => 1 }
+    row = accept
+    Growth::BillingExecution.new(row, client: @client).call
+    assert_equal 'attention', row.reload.state
+    2.times { assert_includes logged.call, marker }
+  end
+
+  def test_opening_without_an_operations_address_still_creates_the_store
+    assert_empty operations_mail(address: '') { assert_equal 'opening_account_ready', fulfill(accept) }
+    assert Toybaco::OpeningRequest.find_by!(session_id: @session_id).account_id
+  end
+
+  def test_operations_hear_when_a_paid_checkout_cannot_open_a_store
+    @client.sessions[@session_id]['total_details'] = { 'amount_discount' => 1 }
+    row = accept
+    mails = operations_mail { Growth::BillingExecution.new(row, client: @client).call }
+    assert_equal %w[attention payment_mismatch], row.reload.values_at('state', 'result')
+    assert_nil opening_request(row).account_id
+    assert_equal 1, mails.size
+    assert_equal '【トイバコ】開通できませんでした(確認が必要)', mails.first.subject
+    body = mails.first.body.decoded
+    ["Checkout Session: #{@session_id}", '結果: payment_mismatch(決済の内容を開通の条件と照合できませんでした',
+     "BillingEvent #{row.id} / OpeningRequest #{row.opening_request_id} / 試行 1 回",
+     '未完の一覧: rake toybaco:billing_ingress_attention / rake toybaco:opening_attention'].each { |line| assert_includes body, line }
+    refute_includes body, @email
+  end
+
+  def test_operations_hear_when_an_opening_receipt_expires_but_not_for_retryable_failures
+    row = accept
+    mails = operations_mail do
+      @client.stub(:retrieve_checkout_session, ->(*) { raise Toybaco::Checkout::Unavailable, 'fixture transport' }) do
+        Growth::BillingExecution.new(row, client: @client).call
+      end
+    end
+    assert_equal ['pending', []], [row.reload.state, mails]
+    travel_to NOW + 86_401
+    mails = operations_mail { Growth::BillingExecution.new(row, client: @client).call }
+    assert_equal %w[attention retry_limit], row.reload.values_at('state', 'result')
+    assert_equal ['【トイバコ】開通できませんでした(確認が必要)'], mails.map(&:subject)
+    assert_includes mails.first.body.decoded, '結果: retry_limit(再試行の上限または受付の期限(24時間)を過ぎました)'
+  end
+
   def test_price_customer_metadata_and_paid_period_mismatches_do_not_create_store
     row = accept
     session = @client.sessions[@session_id]

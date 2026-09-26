@@ -51,7 +51,7 @@
     "ATTRIBUTES": {
       "STATUS": "ステータス",
       "ASSIGNEE_NAME": "担当者名",
-      "INBOX_NAME": "受信トレイ名",
+      "INBOX_NAME": "受信箱名",
       "TEAM_NAME": "チーム名",
       "CONTACT": "連絡先",
       "CONVERSATION_IDENTIFIER": "会話識別子",

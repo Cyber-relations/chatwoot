@@ -39,6 +39,7 @@ class ToybacoGrowthRepliesRuntimeTest < ActionDispatch::IntegrationTest
     travel_back
     Current.reset
     ActiveJob::Base.queue_adapter = @previous_adapter
+    GlobalConfig.clear_cache
   end
 
   def set_plan(id)
@@ -254,5 +255,94 @@ class ToybacoGrowthRepliesRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal 'business_generation', response.parsed_body['meter']
     assert_equal 'contract', response.parsed_body['period']
     assert_equal 1, response.parsed_body['remaining']
+  end
+
+  # U2: the AI bot Lambda asks Rails whether it may answer an inbox of a store outside its static list.
+  def bot_access_flag(value)
+    record = InstallationConfig.find_or_initialize_by(name: 'TOYBACO_GROWTH_BOT_ACCESS_ENABLED')
+    record.value = value
+    record.save!
+    GlobalConfig.clear_cache
+  end
+
+  def bot_mode(inbox_id: @inbox.id, bot: @bot)
+    get '/toybaco/ai_reply_mode', params: { account_id: @account.id, inbox_id: inbox_id }.compact,
+                                  headers: { 'api_access_token' => bot.access_token.token }
+    response
+  end
+
+  def bot_access(**)
+    bot_mode(**)
+    assert_response :success
+    response.parsed_body['access']
+  end
+
+  def access_log
+    output = StringIO.new
+    previous = Rails.logger
+    Rails.logger = ActiveSupport::Logger.new(output)
+    yield
+    output.string.lines.grep(/toybaco_bot_access/)
+  ensure
+    Rails.logger = previous
+  end
+
+  def test_bot_mode_adds_access_only_when_the_bot_names_an_inbox
+    bot_access_flag(true)
+    Toybaco::AiReplyMode.write_to!(@account, 'auto')
+    expected = Toybaco::AiReplyMode.payload('auto').merge('meter' => Toybaco::GrowthTerms::METER)
+    Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @admin)) do
+      get '/toybaco/ai_reply_mode', params: { account_id: @account.id, inbox_id: @inbox.id }
+    end
+    assert_response :success
+    assert_equal expected, response.parsed_body, 'the staff (cookie) answer is unchanged'
+    [nil, '', '0', '-1', 'abc', "#{@inbox.id}x"].each do |value|
+      assert_equal expected, bot_mode(inbox_id: value).parsed_body, "no access without a valid inbox ID: #{value.inspect}"
+    end
+    assert_equal expected.merge('access' => { 'allowed' => true, 'reason' => 'included' }), bot_mode.parsed_body
+    # The Lambda reads this meter as the object whose unit names the shared generation meter.
+    assert_equal 'business_generation', response.parsed_body.dig('meter', 'unit')
+    bot_mode(bot: create(:agent_bot))
+    assert_response :unauthorized, 'a bot without an inbox of this store is refused as before'
+  end
+
+  def test_bot_access_reasons_before_the_rights_check
+    Toybaco::AiReplyMode.write_to!(@account, 'auto')
+    assert_equal({ 'allowed' => false, 'reason' => 'disabled' }, bot_access, 'closed while the DB flag is unset')
+    [false, 'true'].each do |value|
+      bot_access_flag(value)
+      assert_equal 'disabled', bot_access['reason'], "only the boolean true opens it: #{value.inspect}"
+    end
+    bot_access_flag(true)
+    # D1: a Standard contract with the Lambda bot on the inbox is allowed, as BotReply and ReplyDelivery allow it.
+    assert_equal({ 'allowed' => true, 'reason' => 'included' }, bot_access)
+    other = create(:inbox, account: create(:account))
+    [other.id, other.id + 1_000_000, '9' * 25].each do |id|
+      assert_equal({ 'allowed' => false, 'reason' => 'inbox_unknown' }, bot_access(inbox_id: id), "not an inbox of this store: #{id}")
+    end
+    second = create(:inbox, account: @account)
+    assert_equal({ 'allowed' => false, 'reason' => 'bot_not_assigned' }, bot_access(inbox_id: second.id))
+    create(:agent_bot_inbox, inbox: second, agent_bot: create(:agent_bot, account: @account))
+    assert_equal 'bot_not_assigned', bot_access(inbox_id: second.id)['reason'], 'another bot on the inbox does not count'
+    @inbox.agent_bot_inbox.update!(status: :inactive)
+    assert_equal 'bot_not_assigned', bot_access['reason'], 'an inactive assignment does not count'
+    @inbox.agent_bot_inbox.update!(status: :active)
+    Toybaco::AiReplyMode.write_to!(@account, 'draft')
+    assert_equal({ 'allowed' => false, 'reason' => 'mode_draft' }, bot_access)
+    Toybaco::AiReplyMode.write_to!(@account, 'auto')
+    @account.update!(status: :suspended)
+    assert_equal({ 'allowed' => false, 'reason' => 'not_growth' }, bot_access)
+    @account.update!(status: :active)
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.legacy('standard'), cycle: 'month'))
+    assert_equal({ 'allowed' => false, 'reason' => 'not_growth' }, bot_access, 'an older contract stays on the static list')
+    assert_nil response.parsed_body['meter']
+  end
+
+  def test_bot_access_logs_one_line_of_ids_and_the_result
+    bot_access_flag(true)
+    Toybaco::AiReplyMode.write_to!(@account, 'auto')
+    lines = access_log { bot_access }
+    assert_equal ["toybaco_bot_access account=#{@account.id} inbox=#{@inbox.id} bot=#{@bot.id} allowed=true reason=included\n"], lines
+    assert_empty access_log { bot_mode(inbox_id: nil) }, 'nothing is decided without an inbox'
   end
 end

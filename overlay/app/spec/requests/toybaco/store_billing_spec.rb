@@ -8,7 +8,7 @@ RSpec.describe 'Toybaco purchased store billing', type: :request do
   let(:account) { create(:account) }
   let(:user) { create(:user, account: account) }
   let(:owner) { create(:user, account: parent) }
-  let(:contract) { Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('light', 'month'), cycle: 'month') }
+  let(:contract) { Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition('light', '2026-09-06.1'), cycle: 'month') }
 
   before do
     reader = instance_double(Toybaco::Oidc::SessionReader, user: user)

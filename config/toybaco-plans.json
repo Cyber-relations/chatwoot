@@ -5,10 +5,11 @@
   "country": "JP",
   "display_tax_rate": 0.1,
   "current_versions": {
-    "light": "2026-09-06.1",
-    "standard": "2026-09-06.1",
-    "pro": "2026-09-06.1"
+    "light": "2026-09-25.1",
+    "standard": "2026-09-25.1",
+    "pro": "2026-09-25.1"
   },
+  "free_registration_version": "2026-09-25.1",
   "plan_changes": {
     "version": "2026-09-06.1",
     "eligible_versions": {
@@ -63,7 +64,7 @@
           "name": "ライト",
           "product_name": "トイバコ ライト",
           "description": "問い合わせ管理だけを小さく始めたいお店に。LINE・メール・Webチャット/3名まで。SNS投稿機能はありません",
-          "sellable": true,
+          "sellable": false,
           "cycles": {
             "month": {
               "amount": 9800,
@@ -246,7 +247,7 @@
           "name": "ライト",
           "product_name": "トイバコ ライト",
           "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
-          "sellable": false,
+          "sellable": true,
           "billing_kind": "subscription",
           "cycles": {
             "month": {
@@ -335,7 +336,7 @@
           "name": "スタンダード",
           "product_name": "トイバコ スタンダード",
           "description": "Instagram・SNS投稿まで全部使いたいお店に。人数無制限",
-          "sellable": true,
+          "sellable": false,
           "cycles": {
             "month": {
               "amount": 29800,
@@ -518,7 +519,7 @@
           "name": "スタンダード",
           "product_name": "トイバコ スタンダード",
           "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
-          "sellable": false,
+          "sellable": true,
           "billing_kind": "subscription",
           "cycles": {
             "month": {
@@ -607,7 +608,7 @@
           "name": "プロ",
           "product_name": "トイバコ プロ",
           "description": "AI応答(月500件)で夜間・繁忙時間まで自動化したいお店に",
-          "sellable": true,
+          "sellable": false,
           "cycles": {
             "month": {
               "amount": 44800,
@@ -790,7 +791,7 @@
           "name": "プロ",
           "product_name": "トイバコ プロ",
           "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
-          "sellable": false,
+          "sellable": true,
           "billing_kind": "subscription",
           "cycles": {
             "month": {
@@ -1034,7 +1035,7 @@
           "name": "フリー",
           "product_name": "トイバコ フリー",
           "description": "1店舗分。問い合わせ・SNS投稿・AIを、スタッフ全員で。",
-          "sellable": false,
+          "sellable": true,
           "billing_kind": "free",
           "cycles": {},
           "entitlements": {
@@ -1212,7 +1213,7 @@
           "pro"
         ],
         "retained_draft_use_after_downgrade": true,
-        "sellable": false,
+        "sellable": true,
         "product_name": "トイバコ AI追加パック500回",
         "stripe": {
           "live": {

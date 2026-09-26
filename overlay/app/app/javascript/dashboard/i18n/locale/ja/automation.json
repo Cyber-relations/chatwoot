@@ -46,7 +46,7 @@
           "WHEN_LABEL": "いつ",
           "STATUS_LABEL": "ステータスは",
           "FOR_LABEL": "にとって",
-          "INBOX_LABEL": "受信トレイ",
+          "INBOX_LABEL": "受信箱",
           "ERROR": "待機時間は 10 分から 30 日の間でなければなりません",
           "OPTIONS": {
             "CONVERSATION_STATUS": "会話はステータスのままです",
@@ -220,7 +220,7 @@
       "PRIVATE_NOTE": "非公開メモ",
       "MESSAGE_CONTAINS": "メッセージコンテンツ",
       "EMAIL": "Eメール",
-      "INBOX": "受信トレイ",
+      "INBOX": "受信箱",
       "CONVERSATION_LANGUAGE": "会話言語",
       "PHONE_NUMBER": "電話番号",
       "STATUS": "状況",

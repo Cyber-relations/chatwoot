@@ -1,12 +1,12 @@
 {
   "WHATSAPP_TEMPLATE_MGMT": {
     "TITLE": "テンプレート",
-    "DESCRIPTION": "受信トレイから同期されたメッセージテンプレートを表示します。テンプレートはプロバイダー側で管理してください。",
+    "DESCRIPTION": "受信箱から同期されたメッセージテンプレートを表示します。テンプレートはプロバイダー側で管理してください。",
     "COUNT": "{n} テンプレート | {n} テンプレート",
     "LEARN_MORE": "操作ガイドを見る",
     "SYNC_TEMPLATES": "テンプレートを同期",
-    "SYNC_SUCCESS": "すべての WhatsApp 受信ボックスのテンプレート同期が開始されました。更新には数分かかる場合があります。",
-    "PARTIAL_SYNC_ERROR": "一部のWhatsApp受信トレイでテンプレートの同期が開始されましたが、他の受信トレイは同期できませんでした。",
+    "SYNC_SUCCESS": "すべての WhatsApp 受信箱のテンプレート同期が開始されました。更新には数分かかる場合があります。",
+    "PARTIAL_SYNC_ERROR": "一部のWhatsApp受信箱でテンプレートの同期が開始されましたが、他の受信箱は同期できませんでした。",
     "SYNC_ERROR": "テンプレート同期を開始できません。もう一度試してください。",
     "SEARCH_PLACEHOLDER": "コンテンツまたは名前で検索...",
     "MANAGE_IN_META": "Meta で管理",
@@ -22,7 +22,7 @@
       "UNSUBMITTED": "WhatsApp の承認を受けるために提出されていません"
     },
     "FILTERS": {
-      "ALL_INBOXES": "すべての受信トレイ",
+      "ALL_INBOXES": "すべての受信箱",
       "ALL_LANGUAGES": "すべての言語",
       "ALL_TYPES": "すべてのタイプ"
     },
@@ -47,7 +47,7 @@
       "TYPE": "コンテンツタイプ",
       "CATEGORY": "カテゴリ",
       "LANGUAGE": "言語",
-      "INBOXES": "受信トレイ"
+      "INBOXES": "受信箱"
     }
   }
 }

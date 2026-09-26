@@ -6,12 +6,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module SessionForm
       module_function
 
+      # 新規店舗の Checkout は購読の明細 1 件だけ。開通(Growth::OpeningTerms)は割引 0 と
+      # 「Session 小計 = 購読明細の小計」を要求するため、割引コードも任意オプションも載せない。
+      # 既存店舗のアプリ内購入・追加パックは別の form(Growth::PurchaseForm / PackForm)。
       def build(input)
         locale_and_country
           .merge(identity(input))
           .merge(custom_fields)
           .merge(terms_consent(input[:consent], submit_message: input.fetch(:submit_message)))
-          .merge(optional_items(input[:optional_price_ids]))
       end
 
       # 規約同意欄はアプリ内同意の有無に関係なく必須(fail-closed)。Stripe Dashboard の
@@ -38,7 +40,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           'adaptive_pricing[enabled]' => 'false',
           'automatic_tax[enabled]' => 'true',
           'tax_id_collection[enabled]' => 'true',
-          'allow_promotion_codes' => 'true'
+          'allow_promotion_codes' => 'false'
         }
       end
 
@@ -85,21 +87,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         {
           'custom_fields[1][key]' => 'industry',
           'custom_fields[1][label][type]' => 'custom',
-          'custom_fields[1][label][custom]' => '業種(初期設定パックを適用します)',
+          'custom_fields[1][label][custom]' => '業種(該当する業種は初期設定パックを適用します)',
           'custom_fields[1][type]' => 'dropdown',
           'custom_fields[1][optional]' => 'false'
         }
-      end
-
-      def optional_items(optional_price_ids)
-        items = {}
-        Array(optional_price_ids).each_with_index do |price_id, index|
-          next unless price_id.to_s.match?(Catalog::PRICE_ID)
-
-          items["optional_items[#{index}][price]"] = price_id
-          items["optional_items[#{index}][quantity]"] = '1'
-        end
-        items
       end
     end
   end

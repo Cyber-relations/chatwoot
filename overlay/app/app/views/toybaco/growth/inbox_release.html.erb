@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja"><head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>受信ボックスを再開 | トイバコ</title>
+  <title>受信箱を再開 | トイバコ</title>
   <style>
     :root{color-scheme:light;--navy:#1F3A5F;--coral:#FF6B5B;--paper:#FFFDF9;--surface:#FCFBF8;--ink:#24303F;--line:#E5E3DB;--muted:#596675}
     *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:14px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif}
@@ -14,12 +14,12 @@
   </style>
 </head><body><main>
   <a href="/toybaco/growth/held?account_id=<%= @account.id %>">接続の保留状況へ</a>
-  <h1>受信ボックスを再開</h1>
+  <h1>受信箱を再開</h1>
   <p><%= @account.name %></p>
-  <p>再開する受信ボックスを選んでください。</p>
+  <p>再開する受信箱を選んでください。</p>
   <form id="inbox-release-form">
     <section class="card" aria-labelledby="inboxes-title">
-      <h2 id="inboxes-title">受信ボックス</h2>
+      <h2 id="inboxes-title">受信箱</h2>
       <p class="note">今のプランは合計<%= @state.fetch('limit') %>件まで利用できます。</p>
       <% @state.fetch('inboxes').each do |row| %>
         <label class="connection">
@@ -31,7 +31,7 @@
     <p class="note">選んだ窓口の受信・返信を再開します。投稿の保留や予約は変わりません。</p>
     <p id="inbox-release-error" role="alert" hidden></p>
     <p id="inbox-release-status" role="status" aria-live="polite" tabindex="-1"></p>
-    <button id="inbox-release-submit" type="submit">選んだ受信ボックスを再開</button>
+    <button id="inbox-release-submit" type="submit">選んだ受信箱を再開</button>
     <p><a id="inbox-release-refresh" href="/toybaco/growth/inbox-release?account_id=<%= @account.id %>" hidden>最新の状態に更新</a></p>
   </form>
   <script id="inbox-release-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>

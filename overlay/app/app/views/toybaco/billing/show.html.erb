@@ -74,12 +74,12 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </section>
   <% end %>
   <% if growth && @admin && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
-    <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">準備が整ってから14日間・100回。カード登録は不要です。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
+    <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">オーナーが開始してから14日間または100回の早い方までです。対象は、トイバコで接続した Gmail または Microsoft のメール受信箱だけです。カード登録は不要です。メールの接続は提供元の審査完了後に開放します。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
   <% end %>
 
   <div class="card">
     <% if @plan %>
-      <div class="plan-name"><%= @plan[:name] %> プラン</div>
+      <div class="plan-name"><% if growth_free %>無料プラン<% else %><%= @plan[:name] %> プラン<% end %></div>
       <% if growth_free %>
         <div class="plan-price">¥0<span> / 月</span></div>
         <p class="note">スタッフの追加料金はかかりません。</p>
@@ -122,7 +122,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
       <% end %>
     </div>
     <div class="row">
-      <span><%= growth ? '業務AI（返信・投稿で共通）' : 'AI 自動応答' %></span>
+      <span><%= growth ? 'AIアシスタント（返信・投稿で共通）' : 'AI 自動応答' %></span>
       <% ai_reply = @contract && @contract.dig('entitlements', 'features', 'ai_reply') %>
       <% ai_limits = @contract && @contract.dig('entitlements', 'limits') %>
       <% ai_limit = ai_limits && ai_limits['ai_replies'] %>
@@ -141,14 +141,14 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <% if growth %>
       <% automatic_reply = @contract.dig('entitlements', 'features', 'ai_auto_reply') %>
       <% payment_stop = automatic_reply && @renewal_notice && @renewal_notice[:expired] %>
-      <div class="row"><span>AI 自動応答</span><span class="badge <%= automatic_reply && !payment_stop ? 'on' : 'off' %>"><%= payment_stop ? '支払い確認まで停止' : (automatic_reply ? '利用可能（設定後に開始）' : '体験の開始または上位プランで利用') %></span></div>
+      <div class="row"><span>AI 自動応答</span><span class="badge <%= automatic_reply && !payment_stop ? 'on' : 'off' %>"><%= payment_stop ? '支払い確認まで停止' : (automatic_reply ? '利用可能（設定後に開始）' : '審査完了後に体験できます（上位プランでも利用できます）') %></span></div>
       <% if @admin && (Toybaco::Growth::PackCatalog.available? || Toybaco::GrowthPackOrder.exists?(account_id: @account.id)) %>
         <p class="note"><a class="btn btn-back" href="/toybaco/growth/packs?account_id=<%= @account.id %>" target="_top">AI追加パック・残り回数を確認</a></p>
       <% end %>
     <% end %>
     <p class="note">AI の表示はご契約上の利用枠です。応答の設定・稼働状況は受信箱でご確認ください。</p>
     <% unless growth %>
-    <p class="note">オプションの追加・変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へどうぞ(<a href="https://toybaco.jp/" target="_blank" rel="noopener">toybaco.jp</a> 右下のチャットでも受け付けています)。担当者が確認してご連絡します(平日10〜18時)。</p>
+    <p class="note">オプションの追加・変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へどうぞ(<a href="https://toybaco.jp/contact/" target="_blank" rel="noopener">お問い合わせフォーム</a>でも受け付けています)。担当者が確認してご連絡します(平日10〜18時)。</p>
     <% end %>
   </div>
 
@@ -204,14 +204,14 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %>">接続と予約を確認</a></p></section>
   <% end %>
   <% if growth && !growth_free && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
-    <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信ボックス・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %>&amp;target=free">接続を選ぶ</a></p></section>
+    <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信箱・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %>&amp;target=free">接続を選ぶ</a></p></section>
   <% end %>
 
   <div class="card">
     <% if @portal_ready %>
       <button class="btn btn-navy" id="portal">お支払い方法・請求履歴</button>
       <p class="note">カード情報の確認・変更は、決済代行(Stripe)の安全なページで行います。トイバコがカード番号をお預かりすることはありません。</p>
-      <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、チャットでお知らせください。</p>
+      <p class="err" id="portal-err">ページを開けませんでした。時間をおいて再度お試しいただくか、お問い合わせフォームからお知らせください。</p>
     <% elsif growth_free %>
       <p class="note">無料プランでは請求はありません。有料化するときに決済画面でお支払い方法を設定します。</p>
     <% elsif @store_purchase %>

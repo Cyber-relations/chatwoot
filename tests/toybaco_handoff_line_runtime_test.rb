@@ -183,9 +183,39 @@ class ToybacoHandoffLineRuntimeTest < ActionDispatch::IntegrationTest
   def test_plan_limit_prevents_new_inbox_and_leaves_claim_available
     2.times { create(:inbox, account: @account) }
     claim
-    assert_raises(Handoff::Limited) { save }
+    error = assert_raises(Handoff::LineSetup::LimitReached) { save }
+    assert_equal [2, 2], [error.limit, error.count]
     assert_equal 2, @account.inboxes.count
     assert_equal 0, Channel::Line.where(account: @account).count
+    assert_equal 'claimed', @record.reload.state
+  end
+
+  def test_plan_limit_is_explained_to_the_helper_instead_of_the_attempt_limit
+    2.times { create(:inbox, account: @account) }
+    issue
+    base = "/toybaco/connections/help/#{@record.public_id}"
+    send_json("#{base}/open", { link_secret: @token })
+    send_json("#{base}/login", { link_secret: @token }, user: @helper)
+    Toybaco::Connections::LineSetupApi.stub(:new, @api) { send_json("#{base}/line", { fields: FIELDS }) }
+    assert_response :conflict
+    assert_equal 'このプランでは受信箱を2件まで接続できます(現在2件)。上位プランへの変更は「ご契約内容」の「有料プランを見る」から行えます。',
+                 response.parsed_body['error']
+    assert_equal 'claimed', @record.reload.state
+  end
+
+  # 有料の契約はアプリ内でプランを変更できないため、担当者にもサポートへの問い合わせを案内する。
+  def test_paid_plan_limit_points_the_helper_to_support
+    terms = Toybaco::PlanCatalog.default.definition('light', '2026-09-25.1')
+    Toybaco::Entitlements.apply!(@account, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'))
+    4.times { create(:inbox, account: @account) }
+    issue
+    base = "/toybaco/connections/help/#{@record.public_id}"
+    send_json("#{base}/open", { link_secret: @token })
+    send_json("#{base}/login", { link_secret: @token }, user: @helper)
+    Toybaco::Connections::LineSetupApi.stub(:new, @api) { send_json("#{base}/line", { fields: FIELDS }) }
+    assert_response :conflict
+    assert_equal 'このプランでは受信箱を4件まで接続できます(現在4件)。プランの変更やご不明な点は、サポートへお問い合わせください。',
+                 response.parsed_body['error']
     assert_equal 'claimed', @record.reload.state
   end
 

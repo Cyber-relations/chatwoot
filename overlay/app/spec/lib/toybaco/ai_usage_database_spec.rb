@@ -8,7 +8,7 @@ RSpec.describe Toybaco::AiUsage, type: :model do
   self.use_transactional_tests = false
 
   let(:contract) do
-    terms = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.sale('pro', 'month'), cycle: 'month')
+    terms = Toybaco::Entitlements.snapshot_for(Toybaco::PlanCatalog.default.definition('pro', '2026-09-06.1'), cycle: 'month')
     terms['entitlements']['limits']['ai_replies'] = 1
     terms
   end

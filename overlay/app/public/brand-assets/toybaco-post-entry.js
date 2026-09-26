@@ -67,6 +67,9 @@
   AI_MODE_LABELS[AI_MODE_DRAFT] = '下書き';
   var AI_NAV_LABEL = 'AI応答';
   var AI_MODE_TIMEOUT_MS = 10000;
+  // 自動応答が契約に含まれない新料金の店舗(無料プラン・ライト)の体験は、トイバコで接続したメール受信箱だけで動く。
+  var AI_TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
+    'メールの接続は提供元の審査完了後に開放します。';
   var aiModeStates = {};
   var aiModeInflight = {};
   var aiModeAccount = null;
@@ -1953,13 +1956,25 @@
     var allowed = hasAiSettingsLink();
     var entry = actions.querySelector('[data-toybaco-reply-ai-settings]');
     if (allowed && !entry) {
-      entry = auxiliaryButton('AIを使う受信トレイを設定', visitAiSettings);
+      entry = auxiliaryButton('AIを使う受信箱を設定', visitAiSettings);
       entry.setAttribute('data-toybaco-reply-ai-settings', '1');
       actions.insertBefore(entry, actions.lastChild);
     } else if (!allowed && entry) entry.remove();
-    var text = allowed
-      ? '対象の受信トレイを選び、「ボット設定」で「トイバコAI」を割り当てます。'
-      : 'AIを使う受信トレイの設定は管理者が行います。「受信トレイ → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。';
+    paintReplyAiSettingsNote(note, allowed);
+  }
+
+  // 体験の条件は、契約内容を確認できた新料金の店舗のうち、自動応答が契約に含まれないときだけ添える。
+  // 読込中・取得失敗・旧契約・自動応答を含む契約では添えない。
+  function aiTrialInboxNote(usage) {
+    return usage.phase === 'ready' && usage.data.meter === 'business_generation' &&
+      usage.data.automatic_included === false ? AI_TRIAL_INBOX_NOTE : '';
+  }
+
+  function paintReplyAiSettingsNote(note, allowed) {
+    var text = (allowed
+      ? '対象の受信箱を選び、「ボット設定」で「トイバコAI」を割り当てます。'
+      : 'AIを使う受信箱の設定は管理者が行います。「受信箱 → ボット設定」で「トイバコAI」の割り当てを確認してもらってください。') +
+      aiTrialInboxNote(aiUsageState());
     if (note.textContent !== text) note.textContent = text;
   }
 
@@ -2014,7 +2029,11 @@
       availability.textContent = denied ? 'このワークスペースでは投稿機能をご利用いただけません。利用をご希望の場合は契約者にご確認ください。' : 'AIの利用可否は、開いた投稿画面でご案内します。';
     }
     paintAvailability(); resolvePostingAllowed(accountId, paintAvailability);
-    host.appendChild(auxiliaryText('p', '問い合わせ返信とは別の文章支援です。返信AIの月間利用枠は使いません。', 'data-toybaco-aux-note'));
+    var quota = auxiliaryText('p', '', 'data-toybaco-aux-note');
+    quota.setAttribute('data-toybaco-posting-ai-quota', '1');
+    quota.setAttribute('data-account', accountId);
+    host.appendChild(quota);
+    paintPostingAiQuota(quota, aiUsageState(accountId));
     var guide = auxiliarySteps([
       '「投稿画面で文案を作る」から投稿先を選びます。未接続なら、先に「チャンネルを追加」で連携してください。',
       '作りたい文案・雰囲気・文字数をAIに伝えます。画像・動画のAI生成は提供していません。',
@@ -2319,8 +2338,8 @@
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
     else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
     else if (usage.data.meter === 'business_generation' && !usage.data.automatic_enabled) {
-      connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると自動応答を設定できます。' :
-        '自動応答の契約・体験・残り枠を確認してください。下書きは利用できます。';
+      connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると自動応答を設定できます。' + aiTrialInboxNote(usage) :
+        '自動応答の契約・体験・残り枠を確認してください。' + aiTrialInboxNote(usage) + '下書きは利用できます。';
     }
     var compactStatus = aiModeCompactStatus(state, readiness, usage);
     try {
@@ -2367,6 +2386,10 @@
         managedLinks[i].hidden = managedPath !== expectedPath;
         managedLinks[i].href = managedPath === expectedPath ? expectedPath : '#';
       }
+      // 契約内容が届いたら、AIアシスタントの設定の注記にも体験の条件を反映する。
+      var replyNote = auxiliaryView && auxiliaryAccount === currentAccountId() &&
+        auxiliaryView.querySelector('[data-toybaco-reply-ai-settings-note]');
+      if (replyNote) paintReplyAiSettingsNote(replyNote, hasAiSettingsLink());
       var retries = document.querySelectorAll('[data-toybaco-ai-retry]');
       for (i = 0; i < retries.length; i += 1) retries[i].hidden = state.phase !== 'error' &&
         usage.phase !== 'error' && readiness.phase !== 'error' &&
@@ -2424,7 +2447,8 @@
        isFinite(Date.parse(body.resets_at))));
     if (!body || typeof body.enabled !== 'boolean' || !count(body.used) || !count(body.reserved) ||
       (shared && (typeof body.automatic_enabled !== 'boolean' ||
-        [null, 'account_inactive', 'facts_required', 'automatic_unavailable'].indexOf(body.automatic_reason) < 0)) ||
+        [null, 'account_inactive', 'facts_required', 'automatic_unavailable'].indexOf(body.automatic_reason) < 0 ||
+        (body.automatic_included !== undefined && typeof body.automatic_included !== 'boolean'))) ||
       (shared ? body.period !== 'contract' : !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.period)) || !validReset ||
       reasons.indexOf(body.reason) < 0 ||
       (body.limit === null ? body.remaining !== null :
@@ -2459,6 +2483,25 @@
     for (var i = 0; i < cards.length; i += 1) {
       if (cards[i].getAttribute('data-account') === account) paintAiUsageCard(cards[i], state);
     }
+    var quotas = document.querySelectorAll('[data-toybaco-posting-ai-quota]');
+    for (var j = 0; j < quotas.length; j += 1) {
+      if (quotas[j].getAttribute('data-account') === account) paintPostingAiQuota(quotas[j], state);
+    }
+  }
+
+  // 投稿 AI の回数の扱いは契約の計測方式で違う(新料金版は返信と共通、旧契約は返信とは別)。
+  // 利用状況を取得するまでは、どちらとも断言しない。
+  function postingAiQuotaText(data) {
+    if (!data) return '';
+    return data.meter === 'business_generation'
+      ? '投稿用の文案です。AIで文案を作ると、返信と共通の月間AI利用回数を使います。残りの回数は「ご契約内容」で確認できます。'
+      : '投稿用の文案です。返信の月間AI利用回数とは別です。';
+  }
+
+  function paintPostingAiQuota(node, state) {
+    var text = postingAiQuotaText(state.phase === 'ready' ? state.data : null);
+    if (node.textContent !== text) node.textContent = text;
+    node.hidden = !text;
   }
 
   function paintAiUsageCard(card, state) {

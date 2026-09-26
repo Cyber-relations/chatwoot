@@ -198,6 +198,7 @@ control_file_list() {
     'tests/toybaco_growth_draft_model_test.rb' \
     'tests/toybaco-manual-draft.test.mjs' \
     'tests/toybaco-pointer-guide.test.mjs' \
+    'tests/toybaco-growth-guide.test.mjs' \
     'tests/toybaco_growth_purchase_runtime_test.rb' \
     'tests/toybaco_growth_packs_runtime_test.rb' \
     'tests/toybaco_growth_pack_stripe_fixture.rb' \
@@ -1047,6 +1048,7 @@ verify_base_and_frame_contract() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$CHATWOOT_IMAGE" ruby /contract/tests/chatwoot_locale_generator_test.rb
   node --test "$CONTROL_ROOT/tests/toybaco-pointer-guide.test.mjs"
+  node --test "$CONTROL_ROOT/tests/toybaco-growth-guide.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-manual-draft.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-connection-handoff-ui.test.mjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay

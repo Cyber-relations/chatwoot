@@ -2,7 +2,7 @@
   "GENERAL_SETTINGS": {
     "LIMIT_MESSAGES": {
       "CONVERSATION": "会話の制限を超えました。現在のプランでは 500 件の会話しかできません。",
-      "INBOXES": "受信トレイの制限を超えました。現在のプランはウェブサイトのライブチャットのみに対応しています。電子メール、WhatsApp などのその他の受信トレイには有料プランが必要です。",
+      "INBOXES": "受信箱の制限を超えました。現在のプランはウェブサイトのライブチャットのみに対応しています。電子メール、WhatsApp などのその他の受信箱には有料プランが必要です。",
       "AGENTS": "エージェントの制限を超えました。このプランでは {allowedAgents} エージェントのみが許可されています。",
       "NON_ADMIN": "管理者に連絡してプランをアップグレードし、すべての機能を引き続き使用してください。"
     },
@@ -181,14 +181,14 @@
       "GO_TO_CONVERSATION_REPORTS": "会話レポートに移動",
       "GO_TO_AGENT_REPORTS": "担当者レポートに移動",
       "GO_TO_LABEL_REPORTS": "ラベルレポートに移動",
-      "GO_TO_INBOX_REPORTS": "受信トレイレポートに移動",
+      "GO_TO_INBOX_REPORTS": "受信箱レポートに移動",
       "GO_TO_TEAM_REPORTS": "チームレポートに移動",
       "GO_TO_CSAT_REPORTS": "CSAT レポートに移動",
       "GO_TO_BOT_REPORTS": "ボットレポートに移動",
       "GO_TO_SLA_REPORTS": "SLA レポートに移動",
       "GO_TO_SETTINGS_AGENTS": "担当者設定に移動",
       "GO_TO_SETTINGS_TEAMS": "チーム設定に移動",
-      "GO_TO_SETTINGS_INBOXES": "受信トレイ設定に移動",
+      "GO_TO_SETTINGS_INBOXES": "受信箱設定に移動",
       "GO_TO_SETTINGS_TEMPLATES": "テンプレートに移動",
       "GO_TO_SETTINGS_LABELS": "ラベル設定に移動",
       "GO_TO_SETTINGS_CUSTOM_ATTRIBUTES": "カスタム属性に移動",

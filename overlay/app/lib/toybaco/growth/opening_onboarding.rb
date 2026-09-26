@@ -2,6 +2,7 @@
 
 require_relative 'opening_access'
 require_relative 'opening_notices'
+require_relative 'opening_operations'
 require_relative '../industry_pack'
 require_relative '../inbound_email'
 
@@ -13,6 +14,8 @@ class Toybaco::Growth::OpeningOnboarding
     rescue StandardError => e
       Rails.logger.warn("TOYBACO_OPENING_SETUP_PENDING id=#{request.id} class=#{e.class}")
     end
+    # 決済・契約の受付(TOYBACO_BILLING_ATTENTION)と同じく、確認待ちが残る間は毎分ログに出してアラームを保つ。
+    Rails.logger.error('TOYBACO_OPENING_ONBOARDING_ATTENTION pending_requests=true') if Toybaco::OpeningRequest.exists?(onboarding_state: 'attention')
     Toybaco::Growth::OpeningNotices.sweep
   end
 
@@ -41,17 +44,26 @@ class Toybaco::Growth::OpeningOnboarding
   def claim!
     raise Toybaco::Growth::OpeningAccess::Invalid if Account.connection.transaction_open?
 
-    @request.with_lock do
+    exhausted = false
+    claimed = @request.with_lock do
       next false unless @request.onboarding_state == 'pending'
       next false if @request.onboarding_next_at && @request.onboarding_next_at > Time.now.utc
 
       if exhausted?
         @request.update!(onboarding_state: 'attention')
+        exhausted = true
         next false
       end
       @request.update!(onboarding_attempts: @request.onboarding_attempts + 1, onboarding_next_at: Time.now.utc + 30.seconds)
       true
     end
+    attention! if exhausted
+    claimed
+  end
+
+  def attention!
+    Rails.logger.error("TOYBACO_OPENING_ONBOARDING_ATTENTION id=#{@request.id}")
+    Toybaco::Growth::OpeningOperations.setup_attention!(@request)
   end
 
   def exhausted?

@@ -1,8 +1,22 @@
 # frozen_string_literal: true
 
+require_relative 'gmail_api'
+require_relative 'inbox_limit'
+
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Connections
     class GmailMailbox
+      # 契約の受信箱上限。再試行では解消しないため、呼び出し側が上限と現在の件数を案内できるよう区別する。
+      class LimitReached < GmailApi::Error
+        attr_reader :limit, :count
+
+        def initialize(limit, count)
+          @limit = limit
+          @count = count
+          super(409, nil, 'inbox_limit')
+        end
+      end
+
       def initialize(account:, tokens:, profile:)
         @account = account
         @tokens = tokens
@@ -31,8 +45,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def create_channel!
-        limit = Toybaco::Entitlements.for_account(@account)&.dig('limits', 'inboxes')
-        raise GmailApi::Error, 409 if limit && @account.inboxes.count >= limit
+        reached = InboxLimit.reached(@account)
+        raise LimitReached.new(*reached) if reached
 
         channel = Channel::Email.create!(email: @email, account: @account)
         @account.inboxes.create!(account: @account, channel: channel, name: @email)
