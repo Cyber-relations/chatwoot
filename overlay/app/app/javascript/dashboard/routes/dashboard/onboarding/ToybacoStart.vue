@@ -45,6 +45,20 @@ const fields = reactive({
 });
 const edited = ref(false);
 const factsSaved = ref(false);
+// 「店舗情報を保存しました」は、保存した時点の段と目的(保存直後の 1 画面)でだけ出す。段か目的が変わったら消す。
+// 目的が未設定から値になっただけ(状態の読み直し)では消さない。
+let factsSavedStep = [];
+watch(
+  [() => state.value?.phase, () => state.value?.preference?.purpose],
+  ([phase, purpose]) => {
+    const [savedPhase, savedPurpose] = factsSavedStep;
+    if (
+      phase !== savedPhase ||
+      (savedPurpose != null && purpose !== savedPurpose)
+    )
+      factsSaved.value = false;
+  },
+);
 // 店舗情報は、ガイドの最初の画面と設定メニューからいつでも開ける(接続の段を通らなくても入力できる)。
 const settingsView = computed(
   () => route.name === "toybaco_store_facts_settings",
@@ -76,6 +90,23 @@ const atLimit = computed(
     connections.value.limit !== undefined &&
     connections.value.count >= connections.value.limit,
 );
+// 画面の案内(ToybacoGrowthGuide の wantedStep)がこの段で出るときは、見出しの下の場所を先に取っておく。
+// 案内が出た瞬間に内容が下がらないようにするため。閉じた案内・案内が指せない段では取らない(空白を残さない)。
+// 設定メニューの店舗情報ページでは初回の案内は出ない(サポートの案内だけ)ので、先には取らない。
+function keepsGuidePlace(phase) {
+  const current = state.value;
+  if (
+    settingsView.value ||
+    !current ||
+    current.preference?.dismissed ||
+    current.phase !== phase
+  )
+    return false;
+  if (phase === "connect")
+    return Boolean(current.administrator) && !atLimit.value;
+  if (phase === "facts") return Boolean(current.administrator);
+  return true;
+}
 const stepNumber = computed(() => {
   const steps = state.value?.steps || [];
   const index = steps.indexOf(state.value?.phase);
@@ -187,6 +218,7 @@ async function saveFacts() {
   if (!result) return;
   edited.value = false;
   factsSaved.value = true;
+  factsSavedStep = [state.value?.phase, state.value?.preference?.purpose];
   factsRequested.value = false;
 }
 
@@ -247,6 +279,11 @@ async function openPosting() {
       </p>
       <template v-if="showFacts">
         <h1>{{ settingsView ? "店舗情報" : "AIにお店のことを伝える" }}</h1>
+        <!-- 画面の案内は見出しの下のこの場所に出す(見出しと選択肢に重ねない)。案内が出る段では先に場所を取り、長い案内のときだけ案内側が高さを足す。設定メニューの店舗情報ページでもサポートの案内はここに出る。 -->
+        <div
+          data-toybaco-guide-slot
+          :class="{ reserved: keepsGuidePlace('facts') }"
+        ></div>
         <p>
           AIの返信案や投稿文に使います。分かる内容だけで大丈夫です。空欄をAIが推測することはありません。
         </p>
@@ -322,6 +359,10 @@ async function openPosting() {
       </template>
       <template v-else-if="state?.phase === 'purpose'">
         <h1>最初に何をしますか</h1>
+        <div
+          data-toybaco-guide-slot
+          :class="{ reserved: keepsGuidePlace('purpose') }"
+        ></div>
         <div class="choices">
           <button
             type="button"
@@ -355,6 +396,10 @@ async function openPosting() {
       </template>
       <template v-else-if="state?.phase === 'connect'">
         <h1>使う窓口をつなぎましょう</h1>
+        <div
+          data-toybaco-guide-slot
+          :class="{ reserved: keepsGuidePlace('connect') }"
+        ></div>
         <p>アカウントを選んで、トイバコの利用を許可します。</p>
         <p class="summary">
           接続済みの受信箱: {{ connections.count }}件<span
@@ -527,6 +572,10 @@ async function openPosting() {
       </template>
       <template v-else-if="state?.phase === 'reply'">
         <h1>メッセージが届きました</h1>
+        <div
+          data-toybaco-guide-slot
+          :class="{ reserved: keepsGuidePlace('reply') }"
+        ></div>
         <button
           class="primary"
           type="button"
@@ -549,6 +598,10 @@ async function openPosting() {
       </template>
       <template v-else-if="state?.phase === 'posting'">
         <h1>お店の発信を始めましょう</h1>
+        <div
+          data-toybaco-guide-slot
+          :class="{ reserved: keepsGuidePlace('posting') }"
+        ></div>
         <p>投稿先をつないで、最初の投稿を準備します。</p>
         <button
           class="primary"
@@ -856,7 +909,13 @@ async function openPosting() {
   padding: 0;
 }
 .change-purpose {
+  display: block;
   margin-top: 28px;
+}
+/* 案内の場所: 1 行の案内(82.4px)+ 間隔 16px。toybaco-pointer-guide.mjs の slotPlacement と同じ基準で、
+   1280・768・390 幅の実測値。案内が折り返して高くなるときだけ、案内側が高さを足す。 */
+[data-toybaco-guide-slot].reserved {
+  min-height: 99px;
 }
 .toybaco-start .later {
   margin-top: 20px;

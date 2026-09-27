@@ -243,7 +243,7 @@ onMounted(async () => {
   let module;
   try {
     const moduleUrl = new URL(
-      '/brand-assets/toybaco-pointer-guide.mjs?v=354fb2dac804544992dc00cc2c62fd6cbf782405f2f681c6afdf5be58760bf15',
+      '/brand-assets/toybaco-pointer-guide.mjs?v=8ba90f163fe5131724b90fb16fd010600b20081b121085f3dc2d174ef8dafa91',
       window.location.origin
     ).href;
     module = await import(/* @vite-ignore */ moduleUrl);

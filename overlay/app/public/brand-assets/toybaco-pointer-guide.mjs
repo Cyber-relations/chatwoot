@@ -1,5 +1,16 @@
 const SAFE_ID = /^[a-z][a-z0-9_.:-]{1,79}$/;
 const GAP = 16;
+const CONTROLS =
+  'button, input, textarea, select, [contenteditable="true"], [role="button"], a[href], summary';
+// A page can keep a place for the prompt right under its heading (the first-run
+// guide screen). The prompt then sits in that place instead of floating near the
+// target, and the place keeps the prompt's height, so the heading and the choices
+// stay uncovered at every width.
+const SLOT = '[data-toybaco-guide-slot]';
+// A paused prompt never covers the logo or the header: the page header and the
+// dashboard sidebar heading, which holds the logo.
+const LANDMARKS = 'header, [data-toybaco-sidebar-header]';
+const WAITING = '対象の画面に戻ると案内を再開します。';
 
 export function guidePosition(target, panel, viewport, occupied = []) {
   const left = viewport.left || 0;
@@ -46,6 +57,63 @@ export function guidePosition(target, panel, viewport, occupied = []) {
       (position) => !occupied.some((box) => overlaps(position, panel, box))
     ) || null
   );
+}
+
+// The prompt takes the reserved place from its top-left corner at the place's
+// full width. The place keeps the prompt's height and one gap, so the content
+// after the place starts below the prompt instead of under it.
+export function slotPlacement(slot, panel) {
+  return {
+    left: slot.left,
+    top: slot.top,
+    width: slot.width,
+    reserve: Math.ceil(panel.height) + GAP,
+  };
+}
+
+const usable = (box) =>
+  [box.left, box.top, box.right, box.bottom].every(Number.isFinite) &&
+  box.right > box.left &&
+  box.bottom > box.top;
+
+// A paused prompt stays visible and never covers the logo or the header. It
+// takes the first free place, moving down past the logo, the header and the
+// controls in its column: the right column first, then the middle one. When
+// controls fill both, it stays at the right just under the logo and the header,
+// over the controls. It is hidden only when the viewport cannot hold it.
+export function waitingPosition(panel, viewport, landmarks = [], controls = []) {
+  const left = viewport.left || 0;
+  const top = viewport.top || 0;
+  const bottom = top + viewport.height;
+  if (
+    !(panel.width > 0 && panel.height > 0) ||
+    panel.width + GAP * 2 > viewport.width ||
+    panel.height + GAP * 2 > viewport.height
+  )
+    return null;
+  const marks = landmarks.filter(usable);
+  const parts = controls.filter(usable);
+  const columns = [
+    left + viewport.width - panel.width - GAP,
+    left + (viewport.width - panel.width) / 2,
+  ];
+  const slide = (x, boxes) => {
+    const position = { left: x, top: top + GAP };
+    const column = boxes.filter((box) => box.left - 4 < x + panel.width && box.right + 4 > x);
+    // Every round moves below at least one more box, so the rounds are bounded.
+    for (let round = 0; round <= column.length; round += 1) {
+      const covered = column.filter((box) => overlaps(position, panel, box));
+      if (!covered.length) return position;
+      position.top = Math.max(...covered.map((box) => box.bottom)) + GAP;
+      if (position.top + panel.height > bottom - GAP) return null;
+    }
+    return null;
+  };
+  for (const x of columns) {
+    const position = slide(x, [...marks, ...parts]);
+    if (position) return position;
+  }
+  return slide(columns[0], marks);
 }
 
 function overlaps(position, panel, box) {
@@ -115,7 +183,15 @@ export class PointerGuide {
     this.listeners = [];
     this.position = null;
     this.frame = null;
+    this.slotElement = null;
+    this.slotParent = null;
     this.create();
+    // A font swap or a wrapped text changes the prompt's height and the page
+    // around the place after the first measure; measure again when sizes change.
+    this.resizer = this.win.ResizeObserver
+      ? new this.win.ResizeObserver(() => this.schedule())
+      : null;
+    this.resizer?.observe(this.panel);
     this.listen(this.win, 'resize', () => this.schedule());
     this.listen(this.doc, 'scroll', () => this.schedule(), true);
     this.listen(this.doc, 'pointermove', (event) => this.interact(event), true);
@@ -232,26 +308,24 @@ export class PointerGuide {
 
   update() {
     if (!this.step) return;
+    // The page may have removed the place (another step); find the current one.
+    if (this.slotElement && !this.slotElement.isConnected) this.release();
     const target = this.registry.find(this.step.actionId, this.doc);
     const view = this.viewport();
+    const slot = this.slot();
+    if (slot) {
+      this.settle(slot, target, view);
+      return;
+    }
+    this.release();
+    this.panel.style.width = '';
     this.panel.style.maxWidth = `${Math.max(160, Math.min(300, view.width - GAP * 2))}px`;
-    if (!target) {
+    const box = target?.getBoundingClientRect();
+    if (!target || !this.pointable(target, box, view)) {
       this.wait(view);
       return;
     }
-    const box = target.getBoundingClientRect();
-    const inView =
-      box.top >= view.top &&
-      box.bottom <= view.top + view.height &&
-      box.left >= view.left &&
-      box.right <= view.left + view.width;
-    const center = this.doc
-      .elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2)
-      .find((node) => !this.root.contains(node));
-    if (!inView || !(center === target || target.contains(center))) {
-      this.wait(view);
-      return;
-    }
+    this.say(this.step.text);
     const panelBox = this.panel.getBoundingClientRect();
     const panelPosition = guidePosition(box, panelBox, view, this.occupied());
     if (!panelPosition) {
@@ -259,10 +333,91 @@ export class PointerGuide {
       return;
     }
     this.attachDescription(target);
-    if (this.text.textContent !== this.step.text)
-      this.text.textContent = this.step.text;
     this.panel.style.left = `${panelPosition.left}px`;
     this.panel.style.top = `${panelPosition.top}px`;
+    this.point(box);
+  }
+
+  // On the first-run guide screen the prompt keeps the step text in the place
+  // under the heading while the step lasts; the paused text is never shown there.
+  // The outline and the pointer appear only while the target itself is in view.
+  settle(slot, target, view) {
+    this.panel.style.maxWidth = 'none';
+    this.panel.style.width = `${slot.getBoundingClientRect().width}px`;
+    this.say(this.step.text);
+    const panelBox = this.panel.getBoundingClientRect();
+    this.reserve(slot, slotPlacement(slot.getBoundingClientRect(), panelBox).reserve);
+    // Keeping the place can move the page (scroll anchoring), so read it again.
+    const slotBox = slot.getBoundingClientRect();
+    const place = slotPlacement(slotBox, panelBox);
+    this.panel.style.left = `${place.left}px`;
+    this.panel.style.top = `${place.top}px`;
+    this.panel.hidden = !this.visible(slot, slotBox);
+    if (!target) {
+      this.detachDescription();
+      this.unpoint();
+      return;
+    }
+    this.attachDescription(target);
+    const box = target.getBoundingClientRect();
+    if (this.pointable(target, box, view)) this.point(box);
+    else this.unpoint();
+  }
+
+  slot() {
+    const slots = [...this.doc.querySelectorAll(SLOT)].filter(
+      (element) => element.getBoundingClientRect().width > 0
+    );
+    return slots.length === 1 ? slots[0] : null;
+  }
+
+  // The page keeps the usual place already (min-height), so the prompt appears
+  // without moving the page. The prompt only adds the height a wrapped text needs,
+  // never shrinks the page's own place, and never shrinks what it added while the
+  // place is in use; release gives back only that addition.
+  reserve(slot, height) {
+    if (this.slotElement !== slot) {
+      this.release();
+      this.slotElement = slot;
+      this.slotParent = slot.parentElement;
+      if (this.slotParent) this.resizer?.observe(this.slotParent);
+    }
+    const kept = parseFloat(this.win.getComputedStyle(slot).minHeight) || 0;
+    const need = Math.max(height, parseFloat(slot.style.height) || 0);
+    const value = need > kept ? `${need}px` : '';
+    if (slot.style.height !== value) slot.style.height = value;
+  }
+
+  release() {
+    if (this.slotParent) this.resizer?.unobserve(this.slotParent);
+    this.slotParent = null;
+    if (!this.slotElement) return;
+    this.slotElement.style.height = '';
+    this.slotElement = null;
+  }
+
+  say(text) {
+    this.panel.hidden = false;
+    if (this.text.textContent !== text) this.text.textContent = text;
+  }
+
+  pointable(target, box, view) {
+    const inView =
+      box.top >= view.top &&
+      box.bottom <= view.top + view.height &&
+      box.left >= view.left &&
+      box.right <= view.left + view.width;
+    return inView && this.visible(target, box);
+  }
+
+  visible(element, box) {
+    const center = this.doc
+      .elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      .find((node) => !this.root.contains(node));
+    return Boolean(center) && (center === element || element.contains(center));
+  }
+
+  point(box) {
     this.outline.hidden = false;
     Object.assign(this.outline.style, {
       left: `${box.left - 5}px`,
@@ -273,23 +428,49 @@ export class PointerGuide {
     this.movePointer(box);
   }
 
-  wait(view) {
-    this.detachDescription();
+  unpoint() {
     this.outline.hidden = true;
     this.pointer.hidden = true;
-    const waiting = '対象の画面に戻ると案内を再開します。';
-    if (this.text.textContent !== waiting) this.text.textContent = waiting;
-    this.panel.style.left = `${view.left + GAP}px`;
-    this.panel.style.top = `${view.top + GAP}px`;
+  }
+
+  wait(view) {
+    this.detachDescription();
+    this.unpoint();
+    this.say(WAITING);
+    const position = waitingPosition(
+      this.panel.getBoundingClientRect(),
+      view,
+      this.boxes(LANDMARKS),
+      this.boxes(CONTROLS, true)
+    );
+    this.panel.hidden = !position;
+    if (!position) return;
+    this.panel.style.left = `${position.left}px`;
+    this.panel.style.top = `${position.top}px`;
   }
 
   occupied() {
-    const selector =
-      'button, input, textarea, select, [contenteditable="true"], [role="button"], a[href], summary';
+    return this.boxes(CONTROLS);
+  }
+
+  // shownOnly skips controls that are drawn invisible until hover (opacity 0 or
+  // visibility hidden), so they do not push a paused prompt away.
+  boxes(selector, shownOnly = false) {
     return [...this.doc.querySelectorAll(selector)]
       .filter((element) => !this.root.contains(element))
+      .filter(
+        (element) =>
+          !shownOnly ||
+          (element.checkVisibility?.({
+            opacityProperty: true,
+            visibilityProperty: true,
+            checkOpacity: true,
+            checkVisibilityCSS: true,
+          }) ??
+            true)
+      )
       .map((element) => element.getBoundingClientRect())
-      .filter((box) => box.width > 0 && box.height > 0);
+      .filter((box) => usable(box) && box.width > 0 && box.height > 0);
   }
 
   movePointer(box) {
@@ -362,6 +543,7 @@ export class PointerGuide {
   hide() {
     this.step = null;
     this.detachDescription();
+    this.release();
     this.root.hidden = true;
   }
 
@@ -372,9 +554,11 @@ export class PointerGuide {
 
   destroy() {
     this.hide();
+    this.release();
     if (this.frame !== null) this.win.cancelAnimationFrame(this.frame);
     this.listeners.forEach((remove) => remove());
     this.observer.disconnect();
+    this.resizer?.disconnect();
     this.root.remove();
   }
 }
