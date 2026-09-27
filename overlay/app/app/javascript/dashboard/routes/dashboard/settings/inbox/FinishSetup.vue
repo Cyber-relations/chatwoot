@@ -1,6 +1,6 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useStore } from 'vuex';
 import { useI18n } from 'vue-i18n';
 import QRCode from 'qrcode';
@@ -12,10 +12,35 @@ import WhatsappChannelAPI from 'dashboard/api/channel/whatsappChannel';
 import { useAlert } from 'dashboard/composables';
 import { useInbox } from 'dashboard/composables/useInbox';
 import { INBOX_TYPES } from 'dashboard/helper/inbox';
+import { useAccount } from 'dashboard/composables/useAccount';
+import {
+  growthGuideState,
+  updateGrowthGuide,
+} from 'dashboard/composables/toybacoGrowthGuide';
 
 const { t } = useI18n();
 const route = useRoute();
+const router = useRouter();
 const store = useStore();
+const { accountId, currentAccount } = useAccount();
+
+// トイバコ: 初回ガイド(お店の準備)の途中で受信箱を作ったら、この画面から準備の続きへ戻れるようにする。
+// 上部の案内(ToybacoGrowthGuide の「設定を続ける」)と同じ条件で出し、同じように案内を再開してから開く。
+const growthGuideOpen = computed(
+  () =>
+    currentAccount.value?.toybaco_growth_onboarding === true &&
+    Boolean(growthGuideState.value) &&
+    growthGuideState.value.phase !== 'complete'
+);
+
+async function returnToGrowthGuide() {
+  await updateGrowthGuide({ dismissed: false });
+  if (growthGuideState.value)
+    router.push({
+      name: 'toybaco_growth_start',
+      params: { accountId: accountId.value },
+    });
+}
 
 const qrCodes = reactive({
   sms: '',
@@ -329,6 +354,14 @@ watch(
               class="rounded-lg size-48 dark:invert"
             />
           </div>
+        </div>
+        <div v-if="growthGuideOpen" class="flex justify-center mt-6">
+          <NextButton
+            solid
+            label="お店の準備に戻る"
+            data-toybaco-guide-return
+            @click="returnToGrowthGuide"
+          />
         </div>
         <div class="flex gap-2 justify-center mt-4">
           <router-link

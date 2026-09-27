@@ -48,6 +48,11 @@ const selectors = {
   'connection.google': '[data-toybaco-guide-action="connection.google"]',
   'connection.microsoft': '[data-toybaco-guide-action="connection.microsoft"]',
   'connection.line': '[data-toybaco-guide-action="connection.line"]',
+  'connection.web_widget':
+    '[data-toybaco-guide-action="connection.web_widget"]',
+  'connection.instagram': '[data-toybaco-guide-action="connection.instagram"]',
+  'connection.next': '[data-toybaco-guide-action="connection.next"]',
+  'connection.skip': '[data-toybaco-guide-action="connection.skip"]',
   'facts.confirm': '[data-toybaco-guide-action="facts.confirm"]',
   'reply.open': '[data-toybaco-guide-action="reply.open"]',
   'reply.ai_draft': '[data-toybaco-guide-action="reply.ai_draft"]',
@@ -58,11 +63,55 @@ const selectors = {
 };
 const setupSteps = {
   purpose: ['purpose.inbox', '最初に使いたい仕事を選んでください。'],
-  connect: ['connection.google', 'Googleのアカウントを選んで接続します。'],
+  connect: [
+    'connection.google',
+    '使う窓口を1つ選んでください。あとから追加できます。',
+  ],
   facts: ['facts.confirm', 'お店情報を確認して保存してください。'],
   reply: ['reply.open', '届いたメッセージを開いてみましょう。'],
   posting: ['posting.open', '投稿画面で発信の準備を始めます。'],
 };
+// 接続の段: 案内は段の指示(setupSteps.connect)にして、カードに focus/hover している間だけ、そのカードで何が開くかを出す。
+const connectionHints = {
+  'connection.google': 'Googleのアカウントを選んで接続します。',
+  'connection.microsoft': 'Microsoftのアカウントを選んで接続します。',
+  'connection.line': 'LINE公式の接続設定を開きます。',
+  'connection.web_widget': 'Webチャットの作成画面を開きます。',
+  'connection.instagram': 'Instagramの接続画面を開きます。',
+};
+// 押せるカードが 1 つも無い(上限に達した・すべて準備中)ときは、カードではなく先へ進むボタン
+// (「つないだ窓口で次へ」、無ければ「あとで設定する」)を指す。
+const connectionFallback = [
+  ['connection.next', 'connection.skip'],
+  '接続はあとからでも追加できます。次へ進みましょう。',
+];
+// 窓口のカード(data-toybaco-connection を持つもの)だけ。先へ進むボタンは含めない。
+const connectionCards = '[data-toybaco-connection][data-toybaco-guide-action]';
+let hoveredCard = null;
+let focusedCard = null;
+let connectionTouched = false;
+
+function hasConnectionHint(id) {
+  return Object.prototype.hasOwnProperty.call(connectionHints, id);
+}
+
+function connectionStep() {
+  if (!state.value.administrator) return null;
+  const touched = hoveredCard || focusedCard;
+  if (
+    touched &&
+    hasConnectionHint(touched) &&
+    registry.find(touched, document)
+  )
+    return [touched, connectionHints[touched]];
+  // 指す先は、並びの先頭にある押せるカード(押せる未接続のカードが上に並ぶ)。
+  const first = [...document.querySelectorAll(connectionCards)]
+    .map(card => card.dataset.toybacoGuideAction)
+    .find(id => hasConnectionHint(id) && registry.find(id, document));
+  if (first) return [first, setupSteps.connect[1]];
+  const next = connectionFallback[0].find(id => registry.find(id, document));
+  return next ? [next, connectionFallback[1]] : null;
+}
 
 function wantedStep() {
   if (
@@ -73,16 +122,7 @@ function wantedStep() {
     return supportGuideStep(supportStep.articleId);
   if (!state.value || paused.value || state.value.preference.dismissed)
     return null;
-  if (inSetup.value && state.value.phase === 'connect') {
-    if (!state.value.administrator) return null;
-    if (state.value.gmail_available) return setupSteps.connect;
-    if (state.value.microsoft_available)
-      return [
-        'connection.microsoft',
-        'Microsoftのアカウントを選んで接続します。',
-      ];
-    return ['connection.line', 'LINE公式の接続設定を開きます。'];
-  }
+  if (inSetup.value && state.value.phase === 'connect') return connectionStep();
   if (inSetup.value) return setupSteps[state.value.phase] || null;
   if (
     state.value.phase !== 'reply' ||
@@ -145,6 +185,14 @@ function scan() {
   const key = `${accountId.value}:${step.join(':')}`;
   if (key !== lastStep) {
     guide.show({ actionId: step[0], text: step[1] });
+    // 接続の段でカードに触れたあとは、指す先と文言が替わってもポインタを戻さない(枠と案内文だけを替える)。
+    if (
+      !supportStep &&
+      connectionTouched &&
+      inSetup.value &&
+      state.value?.phase === 'connect'
+    )
+      guide.suppress();
     lastStep = key;
   } else guide.schedule();
 }
@@ -153,6 +201,39 @@ function scheduleScan() {
   if (scanFrame === undefined && !disposed)
     scanFrame = requestAnimationFrame(scan);
 }
+
+// 接続の段で、利用者が hover・focus しているカード。案内の文言を、そのカードで何が開くかに替える。
+function cardOf(node) {
+  return node?.closest?.(connectionCards)?.dataset.toybacoGuideAction || null;
+}
+function trackConnectionHover(event) {
+  if (!inSetup.value) return;
+  const card = cardOf(
+    event.type === 'pointerout' ? event.relatedTarget : event.target
+  );
+  if (card === hoveredCard) return;
+  hoveredCard = card;
+  if (card) connectionTouched = true;
+  scheduleScan();
+}
+function trackConnectionFocus(event) {
+  if (!inSetup.value) return;
+  const card = cardOf(
+    event.type === 'focusout' ? event.relatedTarget : event.target
+  );
+  if (card === focusedCard) return;
+  focusedCard = card;
+  if (card) connectionTouched = true;
+  scheduleScan();
+}
+watch(
+  [() => String(accountId.value), () => state.value?.phase, inSetup],
+  () => {
+    hoveredCard = null;
+    focusedCard = null;
+    connectionTouched = false;
+  }
+);
 
 async function resume() {
   supportStep = null;
@@ -290,6 +371,10 @@ onMounted(async () => {
   document.addEventListener('input', scheduleScan, true);
   document.addEventListener('click', finishSupportGuide, true);
   document.addEventListener('input', finishSupportGuide, true);
+  document.addEventListener('pointerover', trackConnectionHover, true);
+  document.addEventListener('pointerout', trackConnectionHover, true);
+  document.addEventListener('focusin', trackConnectionFocus, true);
+  document.addEventListener('focusout', trackConnectionFocus, true);
   window.addEventListener('toybaco:support-guide', requestSupportGuide);
   window.addEventListener(
     'toybaco:support-guide-refresh',
@@ -316,6 +401,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('input', scheduleScan, true);
   document.removeEventListener('click', finishSupportGuide, true);
   document.removeEventListener('input', finishSupportGuide, true);
+  document.removeEventListener('pointerover', trackConnectionHover, true);
+  document.removeEventListener('pointerout', trackConnectionHover, true);
+  document.removeEventListener('focusin', trackConnectionFocus, true);
+  document.removeEventListener('focusout', trackConnectionFocus, true);
   window.removeEventListener('toybaco:support-guide', requestSupportGuide);
   window.removeEventListener(
     'toybaco:support-guide-refresh',

@@ -955,7 +955,52 @@ REPLACEMENTS = {
   'app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue' => [
     replacement('alt="WhatsApp QR Code"', 'alt="WhatsApp用QRコード"'),
     replacement('alt="Messenger QR Code"', 'alt="Messenger用QRコード"'),
-    replacement('alt="Telegram QR Code"', 'alt="Telegram用QRコード"')
+    replacement('alt="Telegram QR Code"', 'alt="Telegram用QRコード"'),
+    # 初回ガイド(お店の準備)の途中で受信箱を作ったら、この完了画面から準備の続きへ戻れるようにする(U4-4)。
+    replacement("import { useRoute } from 'vue-router';", "import { useRoute, useRouter } from 'vue-router';"),
+    replacement("import { INBOX_TYPES } from 'dashboard/helper/inbox';", <<~JS.chomp),
+      import { INBOX_TYPES } from 'dashboard/helper/inbox';
+      import { useAccount } from 'dashboard/composables/useAccount';
+      import {
+        growthGuideState,
+        updateGrowthGuide,
+      } from 'dashboard/composables/toybacoGrowthGuide';
+    JS
+    replacement("const route = useRoute();\nconst store = useStore();\n", <<~JS),
+      const route = useRoute();
+      const router = useRouter();
+      const store = useStore();
+      const { accountId, currentAccount } = useAccount();
+
+      // トイバコ: 初回ガイド(お店の準備)の途中で受信箱を作ったら、この画面から準備の続きへ戻れるようにする。
+      // 上部の案内(ToybacoGrowthGuide の「設定を続ける」)と同じ条件で出し、同じように案内を再開してから開く。
+      const growthGuideOpen = computed(
+        () =>
+          currentAccount.value?.toybaco_growth_onboarding === true &&
+          Boolean(growthGuideState.value) &&
+          growthGuideState.value.phase !== 'complete'
+      );
+
+      async function returnToGrowthGuide() {
+        await updateGrowthGuide({ dismissed: false });
+        if (growthGuideState.value)
+          router.push({
+            name: 'toybaco_growth_start',
+            params: { accountId: accountId.value },
+          });
+      }
+    JS
+    replacement('        <div class="flex gap-2 justify-center mt-4">', <<~VUE.chomp.gsub(/^/, '        '))
+      <div v-if="growthGuideOpen" class="flex justify-center mt-6">
+        <NextButton
+          solid
+          label="お店の準備に戻る"
+          data-toybaco-guide-return
+          @click="returnToGrowthGuide"
+        />
+      </div>
+      <div class="flex gap-2 justify-center mt-4">
+    VUE
   ],
   'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue' => [
     replacement('const codesText = `Chatwoot Two-Factor Authentication Backup Codes\\n\\n${props.backupCodes.join(\'\\n\')}\\n\\nKeep these codes in a safe place.`;',

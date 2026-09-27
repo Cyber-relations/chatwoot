@@ -132,9 +132,10 @@ test('the place under the heading is kept before the prompt appears, never for a
     assert.equal(keeps(guide(phase)), true, `${phase}: kept while the guide is open`);
     assert.equal(keeps(guide(phase, closed)), false, `${phase}: no blank place once the guide is closed`);
   }
-  // The guide points at nothing for staff on the connect and facts steps or at the plan limit: nothing is kept.
+  // The guide points at nothing for staff on the connect and facts steps: nothing is kept.
   assert.equal(keeps(guide('connect', { administrator: false })), false);
-  assert.equal(keeps(guide('connect', { connections: { count: 4, limit: 4, channels: [] } })), false);
+  // U4-R(V3): 上限到達時にも案内を出す(先へ進むボタンを指す)ため、場所を取る。
+  assert.equal(keeps(guide('connect', { connections: { count: 4, limit: 4, channels: [] } })), true);
   assert.equal(keeps(guide('facts', { administrator: false })), false);
   // Store facts opened from the first screen are not the facts step; the guide stays on the purpose step there.
   assert.equal(keeps(guide('purpose'), 'facts'), false);
@@ -206,7 +207,8 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start') {
     },
   };
   const page = runInNewContext(`(function (modules) {${body}
-    return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace };
+    return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace,
+      connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink };
   })`, {})(modules);
   // The template shows「店舗情報を保存しました。」with exactly this condition.
   const notice = () => page.factsSaved.value && !page.showFacts.value;
@@ -360,4 +362,222 @@ test('first-login wording names the guide, the password setting and the inbox co
   assert(!mail.includes('お店の準備'));
   const release = readFileSync(new URL('../overlay/app/public/toybaco-growth-inbox-release.mjs', import.meta.url), 'utf8');
   assert(!release.includes('受信ボックス') && release.includes('再開する受信箱を選んでください。'));
+});
+
+// U4 (2026-09-27, staging store 14): while Gmail/Microsoft wait for their review and Instagram for Meta, a store
+// connects LINE or Web chat. The guide counts those windows (Ruby runtime test), and the guide screen follows.
+// Objects made inside the page script belong to another realm; compare them as plain data.
+const plain = (value) => JSON.parse(JSON.stringify(value));
+const connectState = (extra = {}) => ({
+  phase: 'connect', administrator: true, inboxes: [], connections: { count: 1, limit: 4, channels: [] },
+  preference: { purpose: 'inbox', dismissed: false, skipped: [], opened: [] }, ...extra,
+});
+
+test('connection cards: pressable first, then connected or set up, reviews pending last under「審査完了後に使えます」', () => {
+  const row = (key, state) => ({ key, state, count: ['connected', 'ready'].includes(state) ? 1 : 0 });
+  const groups = (channels) =>
+    plain(startScript(connectState({ connections: { count: 1, limit: 4, channels } }), (value) => value).page.connectionGroups.value);
+  // Staging store 14: LINE and Web chat can be pressed; the forwarding mail is set up; three wait for a review.
+  assert.deepEqual(groups([row('email_forward', 'ready'), row('gmail', 'preparing'), row('microsoft', 'preparing'),
+    row('line', 'available'), row('web_widget', 'available'), row('instagram', 'preparing')]),
+  [{ id: 'main', keys: ['line', 'web_widget', 'email_forward'] }, { id: 'preparing', keys: ['gmail', 'microsoft', 'instagram'] }]);
+  // Within a group the former order stays (Google, Microsoft, LINE, Web chat, Instagram).
+  assert.deepEqual(groups([row('email_forward', 'ready'), row('gmail', 'available'), row('microsoft', 'preparing'),
+    row('line', 'available'), row('web_widget', 'connected'), row('instagram', 'available')]),
+  [{ id: 'main', keys: ['gmail', 'line', 'instagram', 'email_forward', 'web_widget'] }, { id: 'preparing', keys: ['microsoft'] }]);
+  // No forwarding mail and nothing waiting: one group and no heading.
+  assert.deepEqual(groups([row('gmail', 'available'), row('microsoft', 'available'), row('line', 'connected'),
+    row('web_widget', 'available'), row('instagram', 'available')]),
+  [{ id: 'main', keys: ['gmail', 'microsoft', 'web_widget', 'instagram', 'line'] }]);
+  // A card whose row is missing or whose state is unknown stays on the pressable side (the card decides whether it can be
+  // pressed); a missing forwarding mail is still not drawn.
+  assert.deepEqual(groups([]), [{ id: 'main', keys: ['gmail', 'microsoft', 'line', 'web_widget', 'instagram'] }]);
+  assert.deepEqual(groups([row('gmail', 'connected'), row('microsoft', 'unknown'), row('line', 'available')]),
+    [{ id: 'main', keys: ['microsoft', 'line', 'web_widget', 'instagram', 'gmail'] }]);
+  // Everything waiting: no empty frame for the pressable group, only the waiting group under its heading.
+  assert.deepEqual(groups(['gmail', 'microsoft', 'line', 'web_widget', 'instagram'].map((key) => row(key, 'preparing'))),
+    [{ id: 'preparing', keys: ['gmail', 'microsoft', 'line', 'web_widget', 'instagram'] }]);
+  // The page renders the groups in that order: the heading only before the waiting group, which is a labelled group.
+  const connect = block(`<template v-else-if="state?.phase === 'connect'">`);
+  const loop = connect.indexOf('<template v-for="group in connectionGroups" :key="group.id">');
+  const cards = connect.indexOf('<template v-for="key in group.keys" :key="key">');
+  assert(loop > 0 && cards > loop, 'the cards are drawn group by group');
+  assert(/<h2\s+v-if="group\.id === 'preparing'"\s+id="toybaco-connections-preparing"\s+class="group-heading"\s*>\s*審査完了後に使えます\s*<\/h2>/
+    .test(connect.slice(loop, cards)));
+  assert(/:role="group\.id === 'preparing' \? 'group' : undefined"/.test(connect.slice(loop, cards)));
+  assert(/:aria-labelledby="\s*group\.id === 'preparing'\s*\? 'toybaco-connections-preparing'\s*: undefined\s*"/.test(connect.slice(loop, cards)));
+  for (const key of ['email_forward', 'gmail', 'microsoft', 'line', 'web_widget', 'instagram'])
+    assert(connect.indexOf(`data-toybaco-connection="${key}"`) > cards, `${key} is drawn in its group`);
+  assert.equal(connect.split('審査完了後に使えます').length - 1, 1);
+  // LINE waiting like Web chat cannot be pressed either.
+  for (const key of ['line', 'web_widget']) {
+    const card = connect.slice(connect.indexOf(`data-toybaco-connection="${key}"`), connect.indexOf('</button>', connect.indexOf(`data-toybaco-connection="${key}"`)));
+    assert(card.includes(`channel('${key}')?.state === 'preparing'`), `${key} is disabled while it waits`);
+  }
+});
+
+test('「つないだ窓口で次へ」moves on with the connected window and never marks the step as left for later', () => {
+  const connect = block(`<template v-else-if="state?.phase === 'connect'">`);
+  assert(/<button\s+v-if="canProceed"\s+class="primary"\s+type="button"\s+data-toybaco-guide-next="connect"\s+data-toybaco-guide-action="connection\.next"\s+:disabled="busy"\s+@click="proceed"\s*>\s*つないだ窓口で次へ\s*<\/button>/
+    .test(connect));
+  // 「あとで設定する」is the main button only while no window can be guided, otherwise a secondary link.
+  assert(/:class="canProceed \? 'text-button' : 'primary'"\s+data-toybaco-guide-skip="connect"\s+data-toybaco-guide-action="connection\.skip"/.test(connect));
+  assert(connect.indexOf('data-toybaco-guide-next="connect"') < connect.indexOf('data-toybaco-guide-skip="connect"'));
+  assert.equal(template.split('data-toybaco-guide-next="connect"').length - 1, 1);
+  assert(!template.includes('この内容で次へ'));
+  const script = start.slice(start.indexOf('<script setup>'), start.indexOf('</script>'));
+  const proceed = script.slice(script.indexOf('function proceed()'), script.indexOf('\n}\n', script.indexOf('function proceed()')));
+  assert(proceed.includes('updateGrowthGuide({ inbox_id: state.value.inbox_id ?? first.id });'));
+  assert(!/skip/.test(proceed), 'moving on never records the connection step as left for later');
+  // Two connected windows and none chosen yet keep the connection step; the button records the first listed one.
+  const inboxes = [{ id: 5, provider: 'line', label: '店 · LINE公式' }, { id: 7, provider: 'web_widget', label: '店 · Webチャット' }];
+  const sent = [];
+  const two = startScript(connectState({ inboxes }), (current, body) => {
+    sent.push(plain(body));
+    return { ...current, phase: 'facts', inbox_id: body.preference.inbox_id };
+  });
+  assert.equal(two.page.canProceed.value, true);
+  two.page.proceed();
+  assert.deepEqual(sent, [{ preference: { inbox_id: 5 } }]);
+  assert.equal(two.state.value.phase, 'facts');
+  // A window already chosen for the guide is kept.
+  const chosen = startScript(connectState({ inboxes, inbox_id: 7 }), (current, body) => {
+    sent.push(plain(body));
+    return current;
+  });
+  chosen.page.proceed();
+  assert.deepEqual(sent.at(-1), { preference: { inbox_id: 7 } });
+  // Nothing the guide can guide (for example a staff member outside every window): no button, and nothing is sent.
+  const none = startScript(connectState(), (current, body) => {
+    sent.push(plain(body));
+    return current;
+  });
+  assert.equal(none.page.canProceed.value, false);
+  none.page.proceed();
+  assert.equal(sent.length, 2);
+});
+
+test('the pointer names the connection step and describes a card only while it is hovered or focused', () => {
+  const guide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
+  const script = guide.slice(guide.indexOf('<script setup>'), guide.indexOf('</script>'));
+  const code = script.slice(script.indexOf('const setupSteps = {'), script.indexOf('\n}\n', script.indexOf('function wantedStep()')) + 3);
+  const step = '使う窓口を1つ選んでください。あとから追加できます。';
+  // cards: the connection cards in page order; enabled: the ones the registry finds (drawn, not disabled).
+  const pointed = ({ cards, enabled = cards, hovered = null, focused = null, administrator = true }) => JSON.parse(runInNewContext(
+    `${code}\nhoveredCard = ${JSON.stringify(hovered)};\nfocusedCard = ${JSON.stringify(focused)};\nJSON.stringify(wantedStep());`, {
+      supportStep: null, supportEnabled: { value: false }, accountId: { value: 1 }, paused: { value: false },
+      inSetup: { value: true }, route: { params: {} }, supportGuideStep: () => null,
+      state: { value: { phase: 'connect', administrator, preference: { dismissed: false } } },
+      registry: { find: (id) => (enabled.includes(id) ? { id } : null) },
+      document: { querySelectorAll: () => cards.map((id) => ({ dataset: { toybacoGuideAction: id } })) },
+    }));
+  // Staging store 14: LINE and Web chat come first; Google and Microsoft wait (disabled) below.
+  const staging = { cards: ['connection.line', 'connection.web_widget', 'connection.google', 'connection.microsoft'],
+    enabled: ['connection.line', 'connection.web_widget'] };
+  assert.deepEqual(pointed(staging), ['connection.line', step]);
+  assert.deepEqual(pointed({ ...staging, hovered: 'connection.web_widget' }), ['connection.web_widget', 'Webチャットの作成画面を開きます。']);
+  assert.deepEqual(pointed({ ...staging, focused: 'connection.line' }), ['connection.line', 'LINE公式の接続設定を開きます。']);
+  assert.deepEqual(pointed({ ...staging, hovered: 'connection.web_widget', focused: 'connection.line' }),
+    ['connection.web_widget', 'Webチャットの作成画面を開きます。']);
+  // A card that cannot be pressed never takes the prompt.
+  assert.deepEqual(pointed({ ...staging, hovered: 'connection.google' }), ['connection.line', step]);
+  // Once Google is open it is the first card, as before; its description still waits for hover or focus.
+  assert.deepEqual(pointed({ cards: ['connection.google', 'connection.line'] }), ['connection.google', step]);
+  assert.deepEqual(pointed({ cards: ['connection.google', 'connection.instagram'], focused: 'connection.instagram' }),
+    ['connection.instagram', 'Instagramの接続画面を開きます。']);
+  assert.equal(pointed({ ...staging, administrator: false }), null);
+  // No card can be pressed (at the plan limit, or everything waiting): never Google, but the button that moves on —
+  // 「つないだ窓口で次へ」when it is there, otherwise「あとで設定する」.
+  const fallback = '接続はあとからでも追加できます。次へ進みましょう。';
+  const blocked = { cards: ['connection.google', 'connection.microsoft', 'connection.line', 'connection.web_widget'], enabled: [] };
+  assert.deepEqual(pointed({ ...blocked, enabled: ['connection.next', 'connection.skip'] }), ['connection.next', fallback]);
+  assert.deepEqual(pointed({ ...blocked, enabled: ['connection.skip'] }), ['connection.skip', fallback]);
+  assert.equal(pointed(blocked), null);
+  // The buttons that move on are not cards: hovering one never swaps in a card description.
+  assert.deepEqual(pointed({ ...staging, enabled: [...staging.enabled, 'connection.skip'], hovered: 'connection.skip' }),
+    ['connection.line', step]);
+  assert(script.includes(`const connectionCards = '[data-toybaco-connection][data-toybaco-guide-action]';`));
+  // Every text fits the pointer prompt (PointerGuide.show accepts at most 40 characters).
+  const hints = code.slice(code.indexOf('const connectionHints = {'), code.indexOf('};', code.indexOf('const connectionHints = {')));
+  const moveOn = code.match(/const connectionFallback = \[\n\s+\['connection\.next', 'connection\.skip'\],\n\s+'([^']+)',\n\];/);
+  assert.equal(moveOn?.[1], fallback);
+  const texts = [step, ...[...hints.matchAll(/: '([^']+)',/g)].map(([, text]) => text), moveOn[1]];
+  assert.equal(texts.length, 7);
+  for (const text of texts) assert([...text].length <= 40, text);
+  // Hover and focus are followed on the whole page and released with the guide; after a card was touched the
+  // pointer stays away while only the outline and the text move.
+  for (const [type, handler] of [['pointerover', 'trackConnectionHover'], ['pointerout', 'trackConnectionHover'],
+    ['focusin', 'trackConnectionFocus'], ['focusout', 'trackConnectionFocus']]) {
+    assert(guide.includes(`document.addEventListener('${type}', ${handler}, true);`), `${type} followed`);
+    assert(guide.includes(`document.removeEventListener('${type}', ${handler}, true);`), `${type} released`);
+  }
+  assert(/guide\.show\(\{ actionId: step\[0\], text: step\[1\] \}\);\n\s+\/\/[^\n]*\n\s+if \(\n\s+!supportStep &&\n\s+connectionTouched &&\n\s+inSetup\.value &&\n\s+state\.value\?\.phase === 'connect'\n\s+\)\n\s+guide\.suppress\(\);/
+    .test(guide));
+});
+
+test('the receive step speaks to each kind of window', () => {
+  const receive = block(`<template v-else-if="state?.phase === 'receive'">`);
+  assert(receive.includes('ご自身のLINEから、この公式アカウントにメッセージを送ってください。'));
+  assert(receive.includes('別のメールアドレスから、次の窓口にテストメールを送ってください。'));
+  const web = receive.slice(receive.indexOf(`v-else-if="selectedInbox?.provider === 'web_widget'"`),
+    receive.indexOf(`v-else-if="selectedInbox?.provider === 'instagram'"`));
+  assert(web.includes('サイトに設置コードを貼ると問い合わせが届きます。今すぐ試すなら、プレビューから1件送ってください。'));
+  assert(/<a\s+v-if="widgetPreviewUrl"\s+class="preview-link"\s+:href="widgetPreviewUrl"\s+target="_blank"\s+rel="noopener noreferrer"\s*>プレビューで送る<\/a/.test(web));
+  assert(receive.includes('接続したInstagramのDMを受け取ります。テスト用に1件送ってください。'));
+  // The preview is the store's own widget on this origin, opened with its public website token.
+  const receiving = (inbox) => startScript({ ...connectState({ phase: 'receive', inbox_id: 3, inboxes: [inbox] }) }, (value) => value).page;
+  assert.equal(receiving({ id: 3, provider: 'web_widget', website_token: 'tok en/1' }).widgetPreviewUrl.value, '/widget?website_token=tok%20en%2F1');
+  assert.equal(receiving({ id: 3, provider: 'gmail', email: 'shop@example.test' }).widgetPreviewUrl.value, '');
+});
+
+test('the completion screen makes「ホームへ」the main button and adds one next step for the connected window', () => {
+  const complete = block(`<template v-else-if="state?.phase === 'complete'">`);
+  assert(/<RouterLink\s+class="home-link"\s+:class="\{ secondary: state\.replied \}"/.test(complete));
+  const style = start.slice(start.indexOf('<style scoped>'));
+  assert(/\n\.toybaco-start \.home-link \{[^}]*min-height: 46px;[^}]*background: #1f3a5f;[^}]*color: #fff;[^}]*text-decoration: none;\n\}/.test(style));
+  assert(/\n\.toybaco-start \.home-link\.secondary \{\n  background: #fff;\n  color: #1f3a5f;\n\}/.test(style));
+  assert(complete.indexOf('data-toybaco-next-step') > 0 && complete.indexOf('data-toybaco-next-step') < complete.indexOf('class="home-link"'));
+  assert(/<RouterLink v-if="snippetLink" :to="snippetLink"\s*>設置コードを見る<\/RouterLink/.test(complete));
+  const done = (inboxes, extra = {}) => startScript(connectState({ phase: 'complete', replied: false, pending: [],
+    inbox_id: inboxes[0]?.id, inboxes, ...extra }), (value) => value).page;
+  const web = done([{ id: 4, provider: 'web_widget' }]);
+  assert.equal(web.nextStep.value, 'Webチャットの設置コードを、お店のサイトに貼る');
+  // The snippet sits in the inbox settings (configuration tab), which only administrators can open.
+  assert.deepEqual(plain(web.snippetLink.value), { name: 'settings_inbox_show', params: { accountId: 1, inboxId: 4, tab: 'configuration' } });
+  assert.equal(done([{ id: 4, provider: 'web_widget' }], { administrator: false }).snippetLink.value, null);
+  assert.equal(done([{ id: 5, provider: 'instagram' }]).nextStep.value, 'InstagramのDMに、受信箱から返信する');
+  assert.equal(done([{ id: 6, provider: 'line' }]).nextStep.value, 'LINEのメッセージに、受信箱から返信する');
+  for (const provider of ['gmail', 'microsoft'])
+    assert.equal(done([{ id: 7, provider }]).nextStep.value, '届いたメールに、受信箱から返信する');
+  assert.equal(done([{ id: 5, provider: 'instagram' }]).snippetLink.value, null);
+  // The posting purpose completes without an inbox id: the first listed window decides the line.
+  assert.equal(done([{ id: 8, provider: 'web_widget' }], { inbox_id: undefined }).nextStep.value, 'Webチャットの設置コードを、お店のサイトに貼る');
+  // Nothing connected: no next step (the list of what is left offers「受信箱の接続」instead).
+  assert.equal(done([]).nextStep.value, '');
+});
+
+test('the inbox finish screen leads back to the store setup while the guide is not complete', () => {
+  const finish = readFileSync(new URL('../overlay/app/app/javascript/dashboard/routes/dashboard/settings/inbox/FinishSetup.vue', import.meta.url), 'utf8');
+  assert(/const growthGuideOpen = computed\(\s*\(\) =>\s*currentAccount\.value\?\.toybaco_growth_onboarding === true &&\s*Boolean\(growthGuideState\.value\) &&\s*growthGuideState\.value\.phase !== 'complete'\s*\);/.test(finish));
+  assert(/<div v-if="growthGuideOpen" class="flex justify-center mt-6">\s*<NextButton\s+solid\s+label="お店の準備に戻る"\s+data-toybaco-guide-return\s+@click="returnToGrowthGuide"\s*\/>\s*<\/div>/.test(finish));
+  const back = finish.slice(finish.indexOf('async function returnToGrowthGuide()'), finish.indexOf('\n}\n', finish.indexOf('async function returnToGrowthGuide()')));
+  assert(back.includes('await updateGrowthGuide({ dismissed: false });'));
+  assert(/router\.push\(\{\s*name: 'toybaco_growth_start',\s*params: \{ accountId: accountId\.value \},\s*\}\);/.test(back));
+  // The banner「設定を続ける」opens the same screen the same way.
+  const guide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
+  const resume = guide.slice(guide.indexOf('async function resume()'), guide.indexOf('\n}\n', guide.indexOf('async function resume()')));
+  assert(resume.includes('await updateGrowthGuide({ dismissed: false });') && resume.includes("name: 'toybaco_growth_start',"));
+});
+
+// U4: at the mobile width (≤ 680px) the connection step's prompt is two lines (2 × 22.4px + padding, border and
+// 「あとで続ける」= 104.8px, headless Chrome at 390 and 375 wide). The page keeps two lines there in advance, so the
+// cards never move down when the prompt appears (A10). Wider screens keep the one-line place.
+test('the connection step keeps two lines for its prompt at the mobile width so the cards never move', () => {
+  const style = start.slice(start.indexOf('<style scoped>'));
+  const mobile = style.slice(style.indexOf('@media (max-width: 680px) {'));
+  const kept = mobile.match(/\n  \.toybaco-start\.connect-step \[data-toybaco-guide-slot\]\.reserved \{\n    min-height: (\d+)px;\n  \}/);
+  assert(kept, 'the connection step keeps a two-line place on narrow screens');
+  assert.equal(Number(kept[1]), slotPlacement({ left: 0, top: 0, width: 316 }, { height: 104.8 }).reserve);
+  assert(!style.slice(0, style.indexOf('@media (max-width: 680px) {')).includes('.connect-step'), 'wide screens keep one line');
+  assert(/'connect-step': !settingsView && !showFacts && state\?\.phase === 'connect',/.test(template));
 });
