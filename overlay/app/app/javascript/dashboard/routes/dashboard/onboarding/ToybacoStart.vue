@@ -74,6 +74,36 @@ const showFacts = computed(
 const selectedInbox = computed(() =>
   state.value?.inboxes.find((inbox) => inbox.id === state.value.inbox_id),
 );
+// Web チャットの受信の確認: サイトに設置する前でも、同じ origin のウィジェット(/widget)を新しいタブで開けば 1 件送れる。
+const widgetPreviewUrl = computed(() => {
+  const token = selectedInbox.value?.website_token;
+  return token ? `/widget?website_token=${encodeURIComponent(token)}` : "";
+});
+// 完了画面の「次にやること」1 行。案内した窓口(完了の段で決まっていないときは一覧の先頭)の媒体で出し分ける。
+const nextSteps = {
+  web_widget: "Webチャットの設置コードを、お店のサイトに貼る",
+  instagram: "InstagramのDMに、受信箱から返信する",
+  line: "LINEのメッセージに、受信箱から返信する",
+  gmail: "届いたメールに、受信箱から返信する",
+  microsoft: "届いたメールに、受信箱から返信する",
+};
+const nextInbox = computed(
+  () => selectedInbox.value || state.value?.inboxes?.[0],
+);
+const nextStep = computed(() => nextSteps[nextInbox.value?.provider] || "");
+// Web チャットの設置コードは、受信箱の設定の「設定」タブ(configuration)にある。受信箱の設定は管理者だけが開ける。
+const snippetLink = computed(() =>
+  nextInbox.value?.provider === "web_widget" && state.value?.administrator
+    ? {
+        name: "settings_inbox_show",
+        params: {
+          accountId: accountId.value,
+          inboxId: nextInbox.value.id,
+          tab: "configuration",
+        },
+      }
+    : null,
+);
 const skipped = computed(() => state.value?.preference?.skipped || []);
 // 画面を開いて済ませた段(投稿画面を開いた投稿の段)。「あとで設定する」とは分けて記録する。
 const opened = computed(() => state.value?.preference?.opened || []);
@@ -102,8 +132,8 @@ function keepsGuidePlace(phase) {
     current.phase !== phase
   )
     return false;
-  if (phase === "connect")
-    return Boolean(current.administrator) && !atLimit.value;
+  // 接続の段は、上限に達していても案内が出る(押せるカードが無ければ先へ進むボタンを指す)ので、管理者なら場所を取る。
+  if (phase === "connect") return Boolean(current.administrator);
   if (phase === "facts") return Boolean(current.administrator);
   return true;
 }
@@ -153,6 +183,41 @@ function channel(key) {
 function channelState(key) {
   return channelStates[channel(key)?.state] || "";
 }
+
+// 接続の段のカードの並び。押せる未接続 → 接続済み・設定済み → 準備中の順にし、準備中は見出し「審査完了後に使えます」の下に
+// まとめる。同じ群の中は、これまでの並び(転送用メール・Google・Microsoft・LINE・Webチャット・Instagram)のまま。
+const connectionKeys = [
+  "email_forward",
+  "gmail",
+  "microsoft",
+  "line",
+  "web_widget",
+  "instagram",
+];
+const connectionGroups = computed(() => {
+  const open = [];
+  const done = [];
+  const preparing = [];
+  for (const key of connectionKeys) {
+    const rowState = channel(key)?.state;
+    // 転送用メールは、開通時に作った店舗にだけ出す。
+    if (key === "email_forward" && !rowState) continue;
+    if (rowState === "preparing") preparing.push(key);
+    else if (rowState === "connected" || rowState === "ready") done.push(key);
+    // 押せる未接続と、行が無い・状態が分からないカードは押せる側に置く(押せるかどうかはカードが自分で決める)。
+    else open.push(key);
+  }
+  const main = [...open, ...done];
+  // 群が空なら、その群の枠(.choices)は描かない。
+  return [
+    ...(main.length ? [{ id: "main", keys: main }] : []),
+    ...(preparing.length ? [{ id: "preparing", keys: preparing }] : []),
+  ];
+});
+// 接続の段で「つないだ窓口で次へ」を主ボタンにするのは、ガイドが受信・返信まで案内できる窓口(この利用者に見える受信箱)が
+// 1 件以上あるとき。接続済みでもガイドが案内できない窓口(提供元が閉じたメール、再認可待ち、所属していない受信箱)しか
+// 無いときは押しても進めないので出さず、「あとで設定する」を主ボタンのままにする。
+const canProceed = computed(() => (state.value?.inboxes?.length || 0) > 0);
 
 async function connectProvider(provider) {
   const selected = providers[provider];
@@ -227,6 +292,14 @@ function skipStep(step) {
   updateGrowthGuide({ skipped: [...new Set([...skipped.value, step])] });
 }
 
+// 「つないだ窓口で次へ」: つないだ窓口のまま先へ進む。「あとで設定する」ではないので、段を skipped に記録しない。
+// 窓口がつながっていても接続の段が残るのは、案内する窓口を 1 つに決められない(複数ある)ときなので、決まっている窓口が
+// あればそれを、無ければ一覧の先頭を案内する窓口として記録する(あとから「案内する窓口」で選び直せる)。次の段はサーバーが決める。
+function proceed() {
+  const [first] = state.value?.inboxes || [];
+  if (first) updateGrowthGuide({ inbox_id: state.value.inbox_id ?? first.id });
+}
+
 function resumeSteps(...steps) {
   updateGrowthGuide({
     skipped: skipped.value.filter((step) => !steps.includes(step)),
@@ -247,7 +320,13 @@ async function openPosting() {
 </script>
 
 <template>
-  <section class="toybaco-start" :class="{ settings: settingsView }">
+  <section
+    class="toybaco-start"
+    :class="{
+      settings: settingsView,
+      'connect-step': !settingsView && !showFacts && state?.phase === 'connect',
+    }"
+  >
     <header v-if="!settingsView">
       <img :src="brandLogoPath" alt="トイバコ" width="152" />
       <RouterLink
@@ -416,104 +495,145 @@ async function openPosting() {
             >プランの変更やご不明な点は、サポートへお問い合わせください。</span
           >
         </p>
-        <div class="choices">
+        <!-- カードは connectionGroups の順(押せる未接続 → 接続済み・設定済み → 準備中)。準備中は見出しの下にまとめる。 -->
+        <template v-for="group in connectionGroups" :key="group.id">
+          <h2
+            v-if="group.id === 'preparing'"
+            id="toybaco-connections-preparing"
+            class="group-heading"
+          >
+            審査完了後に使えます
+          </h2>
           <div
-            v-if="channel('email_forward')"
-            class="unavailable"
-            data-toybaco-connection="email_forward"
+            class="choices"
+            :data-toybaco-connection-group="group.id"
+            :role="group.id === 'preparing' ? 'group' : undefined"
+            :aria-labelledby="
+              group.id === 'preparing'
+                ? 'toybaco-connections-preparing'
+                : undefined
+            "
           >
-            <strong>メール(転送用)</strong
-            ><span v-if="channel('email_forward').address"
-              >お店のメールを {{ channel("email_forward").address }}
-              へ転送すると、受信箱に届きます。</span
-            ><span class="state">{{ channelState("email_forward") }}</span>
+            <template v-for="key in group.keys" :key="key">
+              <div
+                v-if="key === 'email_forward'"
+                class="unavailable"
+                data-toybaco-connection="email_forward"
+              >
+                <strong>メール(転送用)</strong
+                ><span v-if="channel('email_forward').address"
+                  >お店のメールを {{ channel("email_forward").address }}
+                  へ転送すると、受信箱に届きます。</span
+                ><span class="state">{{ channelState("email_forward") }}</span>
+              </div>
+              <button
+                v-else-if="key === 'gmail'"
+                type="button"
+                data-toybaco-guide-action="connection.google"
+                data-toybaco-connection="gmail"
+                :disabled="
+                  !state.gmail_available ||
+                  !state.administrator ||
+                  connecting ||
+                  atLimit
+                "
+                @click="connectProvider('google')"
+              >
+                <strong>{{
+                  connecting === "google"
+                    ? "接続画面を開いています…"
+                    : "Googleで接続"
+                }}</strong
+                ><span>Gmail・Google Workspace</span
+                ><span class="state">{{ channelState("gmail") }}</span>
+              </button>
+              <button
+                v-else-if="key === 'microsoft'"
+                type="button"
+                data-toybaco-guide-action="connection.microsoft"
+                data-toybaco-connection="microsoft"
+                :disabled="
+                  !state.microsoft_available ||
+                  !state.administrator ||
+                  connecting ||
+                  atLimit
+                "
+                @click="connectProvider('microsoft')"
+              >
+                <strong>{{
+                  connecting === "microsoft"
+                    ? "接続画面を開いています…"
+                    : "Microsoftで接続"
+                }}</strong
+                ><span>Outlook・Microsoft 365</span
+                ><span class="state">{{ channelState("microsoft") }}</span>
+              </button>
+              <button
+                v-else-if="key === 'line'"
+                type="button"
+                data-toybaco-guide-action="connection.line"
+                data-toybaco-connection="line"
+                :disabled="
+                  !state.administrator ||
+                  connecting ||
+                  atLimit ||
+                  channel('line')?.state === 'preparing'
+                "
+                @click="openChannel('line')"
+              >
+                <strong>LINE公式</strong
+                ><span>管理者による初期設定が必要です</span
+                ><span class="state">{{ channelState("line") }}</span>
+              </button>
+              <button
+                v-else-if="key === 'web_widget'"
+                type="button"
+                data-toybaco-guide-action="connection.web_widget"
+                data-toybaco-connection="web_widget"
+                :disabled="
+                  !state.administrator ||
+                  connecting ||
+                  atLimit ||
+                  channel('web_widget')?.state === 'preparing'
+                "
+                @click="openChannel('website')"
+              >
+                <strong>Webチャット</strong
+                ><span>お店のサイトに問い合わせ窓口を置きます</span
+                ><span class="state">{{ channelState("web_widget") }}</span>
+              </button>
+              <button
+                v-else-if="
+                  key === 'instagram' &&
+                  channel('instagram')?.state !== 'preparing'
+                "
+                type="button"
+                data-toybaco-guide-action="connection.instagram"
+                data-toybaco-connection="instagram"
+                :disabled="
+                  !state.administrator ||
+                  connecting ||
+                  atLimit ||
+                  channel('instagram')?.state === 'connected'
+                "
+                @click="openChannel('instagram')"
+              >
+                <strong>Instagram</strong
+                ><span>InstagramのDMを受け取ります</span
+                ><span class="state">{{ channelState("instagram") }}</span>
+              </button>
+              <div
+                v-else-if="key === 'instagram'"
+                class="unavailable"
+                data-toybaco-connection="instagram"
+              >
+                <strong>Instagram</strong
+                ><span>InstagramのDMを受け取ります</span
+                ><span class="state">{{ channelState("instagram") }}</span>
+              </div>
+            </template>
           </div>
-          <button
-            type="button"
-            data-toybaco-guide-action="connection.google"
-            data-toybaco-connection="gmail"
-            :disabled="
-              !state.gmail_available ||
-              !state.administrator ||
-              connecting ||
-              atLimit
-            "
-            @click="connectProvider('google')"
-          >
-            <strong>{{
-              connecting === "google"
-                ? "接続画面を開いています…"
-                : "Googleで接続"
-            }}</strong
-            ><span>Gmail・Google Workspace</span
-            ><span class="state">{{ channelState("gmail") }}</span>
-          </button>
-          <button
-            type="button"
-            data-toybaco-guide-action="connection.microsoft"
-            data-toybaco-connection="microsoft"
-            :disabled="
-              !state.microsoft_available ||
-              !state.administrator ||
-              connecting ||
-              atLimit
-            "
-            @click="connectProvider('microsoft')"
-          >
-            <strong>{{
-              connecting === "microsoft"
-                ? "接続画面を開いています…"
-                : "Microsoftで接続"
-            }}</strong
-            ><span>Outlook・Microsoft 365</span
-            ><span class="state">{{ channelState("microsoft") }}</span>
-          </button>
-          <button
-            type="button"
-            data-toybaco-guide-action="connection.line"
-            data-toybaco-connection="line"
-            :disabled="!state.administrator || connecting || atLimit"
-            @click="openChannel('line')"
-          >
-            <strong>LINE公式</strong
-            ><span>管理者による初期設定が必要です</span
-            ><span class="state">{{ channelState("line") }}</span>
-          </button>
-          <button
-            type="button"
-            data-toybaco-connection="web_widget"
-            :disabled="
-              !state.administrator ||
-              connecting ||
-              atLimit ||
-              channel('web_widget')?.state === 'preparing'
-            "
-            @click="openChannel('website')"
-          >
-            <strong>Webチャット</strong
-            ><span>お店のサイトに問い合わせ窓口を置きます</span
-            ><span class="state">{{ channelState("web_widget") }}</span>
-          </button>
-          <button
-            v-if="channel('instagram')?.state !== 'preparing'"
-            type="button"
-            data-toybaco-connection="instagram"
-            :disabled="
-              !state.administrator ||
-              connecting ||
-              atLimit ||
-              channel('instagram')?.state === 'connected'
-            "
-            @click="openChannel('instagram')"
-          >
-            <strong>Instagram</strong><span>InstagramのDMを受け取ります</span
-            ><span class="state">{{ channelState("instagram") }}</span>
-          </button>
-          <div v-else class="unavailable" data-toybaco-connection="instagram">
-            <strong>Instagram</strong><span>InstagramのDMを受け取ります</span
-            ><span class="state">{{ channelState("instagram") }}</span>
-          </div>
-        </div>
+        </template>
         <p v-if="state.administrator && state.handoff_mail_available?.length">
           設定を任せる：
           <a
@@ -534,11 +654,25 @@ async function openPosting() {
           >
         </p>
         <p v-if="!state.administrator">窓口の接続は店舗の管理者が行えます。</p>
-        <div class="later">
+        <!-- 案内できる窓口があれば「つないだ窓口で次へ」が主ボタンで、「あとで設定する」は副リンク。無ければ「あとで設定する」が主ボタン。
+             押せるカードが 1 つも無いとき、画面の案内はこのどちらかを指す(connection.next / connection.skip)。 -->
+        <div class="later" :class="{ next: canProceed }">
+          <button
+            v-if="canProceed"
+            class="primary"
+            type="button"
+            data-toybaco-guide-next="connect"
+            data-toybaco-guide-action="connection.next"
+            :disabled="busy"
+            @click="proceed"
+          >
+            つないだ窓口で次へ
+          </button>
           <button
             type="button"
-            class="text-button"
+            :class="canProceed ? 'text-button' : 'primary'"
             data-toybaco-guide-skip="connect"
+            data-toybaco-guide-action="connection.skip"
             :disabled="busy"
             @click="skipStep('connect')"
           >
@@ -550,6 +684,28 @@ async function openPosting() {
         <h1>メッセージを受け取ってみましょう</h1>
         <p v-if="selectedInbox?.provider === 'line'">
           ご自身のLINEから、この公式アカウントにメッセージを送ってください。
+        </p>
+        <div
+          v-else-if="selectedInbox?.provider === 'web_widget'"
+          data-toybaco-receive="web_widget"
+        >
+          <p>
+            サイトに設置コードを貼ると問い合わせが届きます。今すぐ試すなら、プレビューから1件送ってください。
+          </p>
+          <a
+            v-if="widgetPreviewUrl"
+            class="preview-link"
+            :href="widgetPreviewUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            >プレビューで送る</a
+          >
+        </div>
+        <p
+          v-else-if="selectedInbox?.provider === 'instagram'"
+          data-toybaco-receive="instagram"
+        >
+          接続したInstagramのDMを受け取ります。テスト用に1件送ってください。
         </p>
         <p v-else>
           別のメールアドレスから、次の窓口にテストメールを送ってください。
@@ -699,8 +855,18 @@ async function openPosting() {
             </button>
           </li>
         </ul>
+        <p v-if="nextStep" class="next-step" data-toybaco-next-step>
+          <strong>次にやること</strong><span>{{ nextStep }}</span
+          ><RouterLink v-if="snippetLink" :to="snippetLink"
+            >設置コードを見る</RouterLink
+          ><span v-else-if="nextInbox?.provider === 'web_widget'"
+            >(店舗の管理者が行えます)</span
+          >
+        </p>
+        <!-- 「ホームへ」は主ボタン。最初の返信を送った画面では「受信箱を開く」が主ボタンなので、枠線のボタンにする。 -->
         <RouterLink
           class="home-link"
+          :class="{ secondary: state.replied }"
           :to="{
             name: 'home',
             params: { accountId },
@@ -957,8 +1123,72 @@ async function openPosting() {
   font-size: 14px;
 }
 .toybaco-start .home-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
   margin-top: 8px;
+  padding: 12px 20px;
+  background: #1f3a5f;
+  border: 1px solid #1f3a5f;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.toybaco-start .home-link:hover {
+  background: #163049;
+}
+.toybaco-start .home-link.secondary {
+  background: #fff;
+  color: #1f3a5f;
+}
+.toybaco-start .home-link.secondary:hover {
+  background: #f5f7fa;
+}
+.toybaco-start .group-heading {
+  margin: 24px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #566579;
+}
+.toybaco-start .later.next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.toybaco-start .preview-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 0 0 20px;
+  padding: 10px 18px;
+  background: #fff;
+  border: 1px solid #1f3a5f;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.toybaco-start .preview-link:hover {
+  background: #f5f7fa;
+}
+.toybaco-start .next-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 12px 16px;
+  background: #eef2f7;
+  border-left: 3px solid #1f3a5f;
+  color: #24303f;
+}
+.toybaco-start .next-step strong {
+  font-size: 12px;
+  color: #1f3a5f;
 }
 .toybaco-start .mailbox {
   font-size: 18px;
@@ -996,6 +1226,11 @@ async function openPosting() {
   }
   .toybaco-start h1 {
     font-size: 22px;
+  }
+  /* 接続の段の案内「使う窓口を1つ選んでください。あとから追加できます。」は、この幅では 2 行(104.8px)になる。
+     案内が出た瞬間に窓口のカードが下がらないよう、2 行分(+ 間隔 16px)を先に取る。 */
+  .toybaco-start.connect-step [data-toybaco-guide-slot].reserved {
+    min-height: 121px;
   }
 }
 </style>

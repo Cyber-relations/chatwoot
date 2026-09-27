@@ -131,7 +131,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       # 完了画面に出す「まだの準備」。受信の確認・返信の練習は任意なので含めない。接続は、店舗にガイドで受信・返信まで
-      # 案内できる受信箱(Gmail・Microsoft・LINE)が 1 件も無いとき。開通時に自動作成する転送用メールだけでは済みにしない。
+      # 案内できる受信箱(Gmail・Microsoft・LINE・Webチャット・Instagram)が 1 件も無いとき。開通時に自動作成する転送用メールだけでは済みにしない。
       # 所属で絞った一覧(mailboxes)が空でも、店舗にあれば出さない(接続できるのは管理者だけで、スタッフの所属は管理者が決める)。
       # 上限の数え方(Connections::InboxLimit・接続一覧の件数)は転送用を含めたまま。
       def pending(mailboxes)
@@ -162,7 +162,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def inbox_progress(inbox)
-        incoming = inbox.messages.where(message_type: :incoming, private: false).where.not(source_id: [nil, '']).order(:created_at, :id).first
+        incoming = guide_inboxes.first_incoming(inbox)
         unless incoming
           return { 'phase' => 'complete', 'inbox_id' => inbox.id, 'replied' => false } if skipped?('receive')
 

@@ -148,7 +148,9 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     forwarding = @account.inboxes.create!(channel: channel, name: 'メール')
     @account.update!(internal_attributes: Toybaco::Entitlements.attributes(@account)
                                             .merge(Toybaco::InboundEmail::ATTR_KEY => { 'status' => 'ready', 'address' => address }))
-    create(:inbox, account: @account)
+    # website_token が空の Web チャットは OnboardingInboxes#usable? が偽なので、ガイドの案内対象外(U4)。
+    # 接続一覧では種類を問わず数え、Web チャットの行は接続済みになる。
+    create(:inbox, account: @account).channel.update_columns(website_token: nil)
     authenticated do
       connections = read_guide['connections']
       assert_equal [2, 2], connections.values_at('count', 'limit')
@@ -197,6 +199,24 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       assert_equal 'connect', skip('facts')['phase']
       connect
       assert_equal ['facts'], read_guide['pending']
+    end
+  end
+
+  # U4: 転送用メール + Web チャットの店舗。接続一覧では Web チャットを接続済みと数え(件数・上限は転送用を含む全受信箱)、
+  # Web チャットはガイドが案内する窓口なので、接続の段は済みで、完了画面の「まだ」にも接続は出ない。
+  def test_forwarding_mail_and_web_chat_are_counted_and_the_guide_moves_on
+    forwarding_inbox!
+    web_widget_inbox
+    authenticated do
+      connections = read_guide['connections']
+      assert_equal [2, 2], connections.values_at('count', 'limit')
+      assert_equal Toybaco::Connections::InboxLimit.reached(@account), connections.values_at('limit', 'count')
+      rows = connections['channels'].index_by { |row| row['key'] }
+      assert_equal %w[available preparing available connected preparing],
+                   %w[gmail microsoft line web_widget instagram].map { |key| rows[key]['state'] }
+      update_preference({ purpose: 'inbox' })
+      assert_equal ['facts', ['facts']], response.parsed_body.values_at('phase', 'pending')
+      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive').values_at('phase', 'pending')
     end
   end
 
@@ -581,4 +601,169 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # U4: メールの提供元が審査中でも店舗がつなげる Web チャット・Instagram も、ガイドが接続・受信・返信まで案内する。
+  def web_widget_inbox(account = @account)
+    create(:inbox, account: account, name: 'テスト店舗 Webチャット')
+  end
+
+  # Instagram の接続時に Meta へ購読を申し込む HTTP は、試験では呼ばない。
+  def instagram_inbox(account = @account)
+    channel = HTTParty.stub(:post, nil) do
+      Channel::Instagram.create!(account: account, instagram_id: "ig-#{SecureRandom.hex(8)}", access_token: 'instagram-fixture-token',
+                                 expires_at: 60.days.from_now)
+    end
+    account.inboxes.create!(channel: channel, name: 'テスト店舗 Instagram')
+  end
+
+  # 実際のウィジェットと同じ経路(設定の取得 → 最初のメッセージで会話を作る)で、お客さまから 1 件送る。
+  def send_from_widget(inbox, content = '営業時間を教えてください')
+    token = inbox.channel.website_token
+    post '/api/v1/widget/config', params: { website_token: token }, as: :json
+    assert_response :success
+    auth = response.parsed_body.dig('website_channel_config', 'auth_token')
+    post "/api/v1/widget/conversations?website_token=#{token}", params: { message: { content: content, timestamp: Time.now.utc.to_s } },
+                                                                headers: { 'X-Auth-Token' => auth }, as: :json
+    assert_response :success
+    inbox.messages.incoming.order(:id).last
+  end
+
+  def reply_from_dashboard(incoming)
+    post "/api/v1/accounts/#{@account.id}/conversations/#{incoming.conversation.display_id}/messages",
+         params: { content: '本日は18時までです。' }, headers: @user.create_new_auth_token, as: :json
+    assert_response :success
+    incoming.inbox.messages.outgoing.order(:id).last
+  end
+
+  def outgoing_reply(incoming, sender: @user, private_note: false)
+    create(:message, account: @account, inbox: incoming.inbox, conversation: incoming.conversation,
+                     message_type: :outgoing, private: private_note, sender: sender, content: '本日は18時までです。', status: :sent)
+  end
+
+  def test_web_chat_alone_moves_the_guide_from_connection_to_completion
+    authenticated do
+      update_preference({ purpose: 'inbox' })
+      assert_equal ['connect', %w[facts connect], []], response.parsed_body.values_at('phase', 'pending', 'inboxes')
+      inbox = web_widget_inbox
+      state = read_guide
+      assert_equal ['facts', inbox.id, ['facts']], state.values_at('phase', 'inbox_id', 'pending')
+      # 受信の段の案内は媒体で出し分ける(Web チャットは設置コードとプレビュー)。プレビューには公開用の website_token を使う。
+      assert_equal [{ 'id' => inbox.id, 'name' => inbox.name, 'email' => nil, 'provider' => 'web_widget',
+                      'label' => "#{inbox.name} · Webチャット", 'website_token' => inbox.channel.website_token }], state['inboxes']
+      assert_equal ['receive', inbox.id, []], save_facts.values_at('phase', 'inbox_id', 'pending')
+      incoming = send_from_widget(inbox)
+      assert_nil incoming.source_id
+      assert_equal ['reply', incoming.conversation.display_id], read_guide.values_at('phase', 'conversation_id')
+      reply = reply_from_dashboard(incoming)
+      assert_equal [@user, 'sent'], [reply.sender, reply.status]
+      state = read_guide
+      assert_equal ['complete', true, [], incoming.conversation.display_id], state.values_at('phase', 'replied', 'pending', 'conversation_id')
+    end
+  end
+
+  # 非公開メモ・ボット・送信失敗・削除・状態が未設定の返信では、ガイドは返信済みにならない。
+  def test_web_chat_notes_bot_failed_deleted_or_unset_replies_do_not_finish_the_guide
+    authenticated do
+      inbox = web_widget_inbox
+      update_preference({ purpose: 'inbox' })
+      save_facts
+      assert_equal 'receive', read_guide['phase']
+      incoming = send_from_widget(inbox)
+      outgoing_reply(incoming, private_note: true)
+      outgoing_reply(incoming, sender: create(:agent_bot, account: @account))
+      outgoing_reply(incoming).update!(status: :failed)
+      outgoing_reply(incoming).update!(content_attributes: { deleted: true })
+      outgoing_reply(incoming).update_columns(status: nil)
+      assert_equal 'reply', read_guide['phase']
+      outgoing_reply(incoming)
+      assert_equal ['complete', true], read_guide.values_at('phase', 'replied')
+    end
+  end
+
+  # Web チャットの受信は、お客さま(Contact)が送ったメッセージだけを数える。送り手の無い自動のメッセージは数えない。
+  def test_web_chat_counts_only_messages_from_the_customer
+    authenticated do
+      inbox = web_widget_inbox
+      update_preference({ purpose: 'inbox' })
+      save_facts
+      conversation = create(:conversation, account: @account, inbox: inbox)
+      # factory は受信の送り手を補うので、作ったあとで送り手を外す。
+      create(:message, account: @account, inbox: inbox, conversation: conversation, message_type: :incoming, private: false)
+        .update_columns(sender_type: nil, sender_id: nil)
+      assert_equal 'receive', read_guide['phase']
+      create(:message, account: @account, inbox: inbox, conversation: conversation, message_type: :incoming, private: false,
+                       sender: conversation.contact)
+      assert_equal ['reply', conversation.display_id], read_guide.values_at('phase', 'conversation_id')
+    end
+  end
+
+  # 受信の確認を「あとで」にしても、接続の段を「あとで」にしても、完了画面に「受信箱の接続」は出ない(Web チャットがある)。
+  def test_web_chat_completion_never_asks_to_connect_an_inbox
+    authenticated do
+      web_widget_inbox
+      update_preference({ purpose: 'inbox' })
+      assert_equal ['complete', false, ['facts']], skip('facts', 'receive').values_at('phase', 'replied', 'pending')
+      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive').values_at('phase', 'pending')
+    end
+  end
+
+  def test_web_chat_requires_current_inbox_membership_for_staff
+    authenticated do
+      inbox = web_widget_inbox
+      update_preference({ purpose: 'inbox' })
+      @account.account_users.find_by!(user: @user).update!(role: 'agent')
+      assert_equal ['connect', []], read_guide.values_at('phase', 'inboxes')
+      member = inbox.inbox_members.create!(user: @user)
+      assert_equal ['facts', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
+      member.destroy!
+      assert_empty read_guide['inboxes']
+    end
+  end
+
+  def test_staff_outside_the_web_chat_inbox_is_not_asked_to_connect_one
+    assert_staff_outside_the_store_inbox_is_not_asked_to_connect { web_widget_inbox }
+  end
+
+  def test_instagram_alone_moves_the_guide_on_a_provider_message_and_a_reply
+    authenticated do
+      update_preference({ purpose: 'inbox' })
+      assert_equal 'connect', response.parsed_body['phase']
+      inbox = instagram_inbox
+      state = read_guide
+      assert_equal ['facts', inbox.id, ['facts']], state.values_at('phase', 'inbox_id', 'pending')
+      assert_equal [{ 'id' => inbox.id, 'name' => inbox.name, 'email' => nil, 'provider' => 'instagram',
+                      'label' => "#{inbox.name} · Instagram" }], state['inboxes']
+      refute_includes response.body, 'instagram-fixture-token'
+      assert_equal ['receive', inbox.id], save_facts.values_at('phase', 'inbox_id')
+      conversation = create(:conversation, account: @account, inbox: inbox)
+      # Instagram は、メール・LINE と同じく提供元のメッセージ ID(mid)がある取り込みだけを受信として数える。
+      create(:message, account: @account, inbox: inbox, conversation: conversation, message_type: :incoming, private: false)
+      assert_equal 'receive', read_guide['phase']
+      incoming = create(:message, account: @account, inbox: inbox, conversation: conversation, message_type: :incoming,
+                                  private: false, source_id: "ig-mid-#{SecureRandom.hex(8)}")
+      assert_equal ['reply', conversation.display_id], read_guide.values_at('phase', 'conversation_id')
+      outgoing_reply(incoming).update!(status: :failed)
+      outgoing_reply(incoming, private_note: true)
+      assert_equal 'reply', read_guide['phase']
+      outgoing_reply(incoming)
+      assert_equal ['complete', true, []], read_guide.values_at('phase', 'replied', 'pending')
+    end
+  end
+
+  def test_instagram_needing_reauthorization_is_not_guided
+    inbox = instagram_inbox
+    authenticated do
+      update_preference({ purpose: 'inbox' })
+      assert_equal ['facts', [inbox.id]], [response.parsed_body['phase'], response.parsed_body['inboxes'].pluck('id')]
+      inbox.channel.prompt_reauthorization!
+      assert_equal ['connect', [], %w[facts connect]], read_guide.values_at('phase', 'inboxes', 'pending')
+      inbox.channel.reauthorized!
+      assert_equal ['facts', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
+    end
+  ensure
+    inbox&.channel&.reauthorized!
+  end
+
+  def test_staff_outside_the_instagram_inbox_is_not_asked_to_connect_one
+    assert_staff_outside_the_store_inbox_is_not_asked_to_connect { instagram_inbox }
+  end
 end
