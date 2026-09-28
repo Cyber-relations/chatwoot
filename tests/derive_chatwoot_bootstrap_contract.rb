@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'json'
 
 source, root, contract_mode = ARGV
 contract_mode ||= 'target'
@@ -35,6 +36,21 @@ target_count = preflight.scan(/^TARGET_COUNT='([0-9]+)'$/).flatten
 target_sha = preflight.scan(/^TARGET_SHA256='([0-9a-f]{64})'$/).flatten
 abort 'deployed preflight target differs from reviewed migrations' unless
   target_count == [combined.length.to_s] && target_sha == [combined_sha]
+
+# 販売開始(2026-09-27)時点のスキーマ(preflight の LAUNCH)は、販売開始後に最初に追加した overlay migration
+# (運営監査ログ 20260928000000)より前の版の集合。LAUNCH_* が誤っていると、その migration を含む deploy の
+# 事前 preflight が稼働中の DB を unreviewed として NO-GO にする。
+launch_boundary = '20260928000000'
+launch = combined.select { |version| version < launch_boundary }
+abort 'deployed preflight launch state differs from reviewed migrations' unless
+  preflight.scan(/^LAUNCH_COUNT='([0-9]+)'$/).flatten == [launch.length.to_s] &&
+  preflight.scan(/^LAUNCH_SHA256='([0-9a-f]{64})'$/).flatten == [Digest::SHA256.hexdigest(canonical.call(launch))]
+
+# durable rollback guard の probe は、全 capability の schema_sha256 が DB の schema hash と一致しないと拒否する。
+# migrate 後の DB は target になるため、manifest の値が target と食い違うと deploy も rollback も止まる。
+capabilities = JSON.parse(File.read(File.join(root, 'overlay/app/config/toybaco-durable-capabilities.json'))).fetch('capabilities')
+abort 'durable capability schema differs from the deployed preflight target' unless
+  capabilities.is_a?(Hash) && capabilities.any? && capabilities.values.all? { |value| value['schema_sha256'] == combined_sha }
 
 # Rails schema loading also records overlay migrations older than the schema
 # version, even though the upstream schema does not contain their effects.
