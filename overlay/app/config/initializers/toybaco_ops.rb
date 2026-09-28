@@ -13,3 +13,15 @@ Rails.application.config.after_initialize do
                               class: 'Toybaco::OpsDigestJob', active_job: true, queue: 'scheduled_jobs', source: 'toybaco')
   end
 end
+
+# 運営操作の監査(S1-1)。SuperAdmin の店舗の更新・削除と、利用者からの報告の状態変更を toybaco_operator_actions に残す。
+# フック(lib/toybaco/ops/super_admin_audit.rb)は super を包む around 型で、Toybaco::BillingAdminStatus など
+# ほかの prepend と順序に依存せず共存する。rake の toybaco:* は lib/tasks/toybaco_ops.rake が包む。
+Rails.application.config.to_prepare do
+  {
+    SuperAdmin::AccountsController => Toybaco::Ops::SuperAdminAudit::Accounts,
+    SuperAdmin::SupportReportsController => Toybaco::Ops::SuperAdminAudit::SupportReports
+  }.each do |controller, hook|
+    controller.prepend(hook) unless controller < hook
+  end
+end
