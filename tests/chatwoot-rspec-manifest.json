@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 211,
-  "examples_sha256": "187992e439656f6740845e2b7d4a8fc889ad1b34fa57b520ed054fee87aed7f4",
+  "example_count": 232,
+  "examples_sha256": "9884bbc0e113541a572e73927010c14102357d4fe53197c94d7a1f68503a54c5",
   "spec_files": [
     "spec/lib/toybaco/ai_usage_database_spec.rb",
     "spec/lib/toybaco/checkout/plan_change_lock_spec.rb",
@@ -48,6 +48,7 @@
     "spec/requests/toybaco/inbound_email_ingress_spec.rb",
     "spec/requests/toybaco/oidc_spec.rb",
     "spec/lib/toybaco/store_fulfillment_spec.rb",
-    "spec/requests/toybaco/store_billing_spec.rb"
+    "spec/requests/toybaco/store_billing_spec.rb",
+    "spec/lib/toybaco/ops_digest_spec.rb"
   ]
 }

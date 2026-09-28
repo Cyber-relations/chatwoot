@@ -294,6 +294,8 @@ integration_ruby_file_list() {
       printf '%s\n' overlay/app/lib/toybaco/subscription_reconciliation/execution.rb overlay/app/lib/toybaco/subscription_reconciliation/processing.rb
       find overlay/app/lib/toybaco/support -type f -name '*.rb' -print
       printf '%s\n' overlay/app/config/initializers/toybaco_support.rb
+      find overlay/app/lib/toybaco/ops -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/config/initializers/toybaco_ops.rb
       find overlay/app/app/models/toybaco -type f -name '*.rb' -print
       printf '%s\n' overlay/app/lib/toybaco/growth_terms.rb overlay/app/db/migrate/20260918133000_create_toybaco_growth_ai_ledger.rb overlay/app/config/initializers/toybaco_growth.rb overlay/app/config/initializers/toybaco_growth_onboarding.rb
       printf '%s\n' overlay/app/config/initializers/toybaco_growth_purchases.rb overlay/app/lib/tasks/toybaco_growth_purchase.rake
