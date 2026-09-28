@@ -1,0 +1,63 @@
+<%#
+# 店舗一覧(トイバコ運営 S1-2)。読み取り専用。列と値は CSV と同じ(Toybaco::Ops::StoreColumns)。時刻は日本時間。
+%>
+<% content_for(:title) { '店舗一覧' } %>
+<% query = { plan: @index.plan, state: @index.state, sort: (@index.sort == 'activity' ? nil : @index.sort) }.compact %>
+<% plan_options = [['すべて', '']] + Toybaco::Ops::StoreIndex.plans.map { |id| [id == Toybaco::Ops::StoreIndex::NO_PLAN ? '未設定' : id, id] } %>
+<% state_options = [['すべて', ''], ['利用中(停止以外)', 'active'], ['停止', 'suspended'], ['解約予約', 'cancel_scheduled'],
+                    ['支払保留', 'payment_pending'], ['請求確認中', 'billing_review'], ['要確認', 'attention']] %>
+<header class="main-content__header">
+  <h1 class="main-content__page-title">店舗一覧</h1>
+</header>
+<section class="main-content__body">
+  <p>全店舗の契約・利用状況を100件ずつ表示します。読み取り専用で、契約・請求・店舗の設定はこの画面では変更されません。時刻は日本時間です。</p>
+  <form method="get" action="/super_admin/toybaco_stores" aria-label="店舗の絞込">
+    <label>プラン <%= select_tag 'plan', options_for_select(plan_options, @index.plan) %></label>
+    <label>状態 <%= select_tag 'state', options_for_select(state_options, @index.state) %></label>
+    <label>並び <%= select_tag 'sort', options_for_select([['最終活動の新しい順', 'activity'], ['開通日の新しい順', 'opened']], @index.sort) %></label>
+    <button type="submit">表示</button>
+  </form>
+  <details>
+    <summary>列の見方</summary>
+    <dl>
+      <dt>要確認</dt><dd>支払保留・請求確認中・停止・照合要確認・人数超過のいずれかに当たる店舗。当たる理由を表示します。</dd>
+      <dt>プラン・契約版・周期</dt><dd>保存された契約の plan_id・版・請求周期(month は月払い、year は年払い)。未設定は契約の無い店舗、契約不正は保存された契約を確認できない店舗です。プランの絞込は保存された契約の plan_id をそのまま使うため、契約不正の店舗もその plan_id の絞込に出ます。</dd>
+      <dt>Stripe 状態</dt><dd>最後に同期した Stripe の購読状態(active、past_due など)。</dd>
+      <dt>契約の状態</dt><dd>解約予約(期間末で解約)、支払保留、請求確認中、停止(店舗の停止または請求による停止)、照合中(購読の照合を処理中)、照合要確認(購読の照合が確認待ち。手順は docs/tenant-onboarding-runbook.md 5.5.5)。</dd>
+      <dt>担当者数・担当者上限</dt><dd>店舗に所属する人数と契約の上限(— は上限なし)。上限を超えると人数超過です。</dd>
+      <dt>受信箱数・受信箱内訳</dt><dd>受信箱の総数と種類ごとの件数(Channel::Email は Email のように末尾の名前で表示)。</dd>
+      <dt>投稿・投稿権限</dt><dd>投稿機能の有効・無効と、投稿連携の現在の権限の状態(pending・active・stale、権限を外した店舗は解除済み、権限の行が見つからない店舗は記録なし、— は権限の記録が無い店舗)。</dd>
+      <dt>AI・AI 使用・AI 上限・AI 残り</dt><dd>店舗の AI 生成の有効・無効と、付与枠の使用数・上限・残り(処理中の予約を差し引いた数)。今期の枠は店舗が AI を使うか利用状況を開いた時に発行されるため、未発行の店舗は数値を出しません(AI は「未発行」)。更新失敗が未解消の店舗(猶予中、または猶予が切れて支払いが回復していない)と予約ダウングレードの記録がある店舗(AI は「要確認」)、契約不正の店舗も数値を出しません。</dd>
+      <dt>最終活動</dt><dd>会話の最終活動と、所属者の直近のログイン時刻の新しい方。</dd>
+      <dt>開通日</dt><dd>店舗を作成した日。</dd>
+    </dl>
+  </details>
+  <div style="overflow-x: auto;">
+    <table aria-label="店舗一覧">
+      <thead>
+        <tr><% Toybaco::Ops::StoreColumns::HEADERS.each do |header| %><th scope="col"><%= header %></th><% end %></tr>
+      </thead>
+      <tbody>
+        <% @index.rows.each do |row| %>
+          <tr data-store-id="<%= row.id %>" data-attention="<%= row.attention? %>">
+            <% Toybaco::Ops::StoreColumns.values(row).each_with_index do |value, column| %>
+              <td><% if column == Toybaco::Ops::StoreColumns::ATTENTION_COLUMN && row.attention? %><strong><%= value %></strong><% else %><%= value %><% end %></td>
+            <% end %>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+  <% if @index.rows.empty? %>
+    <p>条件に当たる店舗はありません。</p>
+  <% end %>
+  <nav aria-label="店舗一覧のページ">
+    <% if @index.page > 1 %>
+      <%= link_to '前の100件', "/super_admin/toybaco_stores?#{query.merge(page: @index.page - 1).to_query}" %>
+    <% end %>
+    <% if @index.next_page? %>
+      <%= link_to '次の100件', "/super_admin/toybaco_stores?#{query.merge(page: @index.page + 1).to_query}" %>
+    <% end %>
+    <%= link_to 'このページを CSV で保存', "/super_admin/toybaco_stores.csv?#{query.merge(page: @index.page).to_query}" %>
+  </nav>
+</section>
