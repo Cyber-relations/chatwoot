@@ -87,5 +87,20 @@ async function update(path, body) {
 
 export const updateGrowthGuide = (preference) =>
   update('/toybaco/growth/onboarding', { preference });
-export const saveGrowthFacts = (fields) =>
-  update('/toybaco/growth/facts', { fields, confirmed: true });
+
+// 会話画面の AI 応答パネル(注入 JS)は取得済みの AI 利用状況を持ち続ける。店舗情報を保存できたら
+// その店舗を知らせて、「店舗情報を確認すると自動応答を設定できます。」を取り直してもらう。
+export async function saveGrowthFacts(fields) {
+  const savedAccountId = accountId;
+  const data = await update('/toybaco/growth/facts', {
+    fields,
+    confirmed: true,
+  });
+  if (data && savedAccountId)
+    window.dispatchEvent(
+      new CustomEvent('toybaco:store-facts-saved', {
+        detail: { accountId: savedAccountId },
+      })
+    );
+  return data;
+}

@@ -274,7 +274,7 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     refute_includes client.lookups, 'opt-store'
   end
 
-  def test_lp_plan_buttons_pass_query_into_signup
+  def test_lp_plan_buttons_preserve_selected_plan_to_signup_or_checkout
     index_path = File.join(ROOT, 'site/index.html')
     pricing_path = File.join(ROOT, 'site/pricing/index.html')
     skip 'site HTML はこの品質スナップショットに含まれない' unless File.file?(index_path) && File.file?(pricing_path)
@@ -285,11 +285,22 @@ class ChatwootCheckoutSessionTest < Minitest::Test
         href = html[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
         refute_nil href, "#{path}: #{plan} has a plan link"
         uri = URI.parse(CGI.unescapeHTML(href))
-        assert_equal '/signup/', uri.path
-        assert_nil uri.host
-        expected = { 'plan' => plan, 'version' => '2026-09-25.1' }
-        expected['cycle'] = 'month' unless plan == 'free'
-        assert_equal expected, URI.decode_www_form(uri.query).to_h
+        if path == index_path
+          assert_equal 'app.toybaco.jp', uri.host
+          if plan == 'free'
+            assert_equal '/toybaco/free/signup', uri.path
+            assert_nil uri.query
+          else
+            assert_equal '/toybaco/checkout', uri.path
+            assert_equal({ 'plan' => plan, 'version' => '2026-09-25.1', 'cycle' => 'month' }, URI.decode_www_form(uri.query).to_h)
+          end
+        else
+          assert_equal '/signup/', uri.path
+          assert_nil uri.host
+          expected = { 'plan' => plan, 'version' => '2026-09-25.1' }
+          expected['cycle'] = 'month' unless plan == 'free'
+          assert_equal expected, URI.decode_www_form(uri.query).to_h
+        end
       end
     end
   end

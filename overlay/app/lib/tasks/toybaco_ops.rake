@@ -9,6 +9,9 @@
 # 引数は digest だけを残す(宣言していない余剰引数 extras も含める)。監査を書けなければタスクも失敗させ、
 # テーブルが無い DB でも握りつぶさない(fail-closed)。
 # rake は Rails の初期化前にこのファイルを読むため、モジュールは入れ子で定義し、Toybaco::Ops::Audit は実行時に参照する。
+# 運営フラグの定義と読み手(Toybaco::Ops::OpsFlag)も同じ理由で入れ子に定義してあり、ここで先に読む。
+require_relative '../toybaco/ops/ops_flag'
+
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
     module RakeAudit
@@ -55,5 +58,37 @@ namespace :toybaco do
 
     limit = raw.empty? ? 50 : Integer(raw, 10)
     Toybaco::OperatorAction.order(id: :desc).limit(limit).each { |row| puts Toybaco::Ops::Audit.tail_line(row) }
+  end
+
+  # 監査行(started / ok|failed)は上の RakeAudit が書き、params_digest に name と value が入る。
+  # 出力はフラグ名・値・前の値の 1 行と、3 つのフラグの現在値の 3 行。値は OpsFlag.state で表し、文字列の中身は出さない。
+  desc '運営フラグを JSON の boolean で切り替える(rake "toybaco:ops_flag[フラグ名,true|false]"。フラグ名は OPS_FLAGS の 3 つ)'
+  task :ops_flag, %i[name value] => :environment do |_t, args|
+    flag = Toybaco::Ops::OpsFlag
+    name = args[:name]
+    raw = args[:value]
+    abort "フラグ名は #{flag::OPS_FLAGS.join(' / ')} のいずれかを指定してください。" unless flag::OPS_FLAGS.include?(name)
+    # 検査と代入を同じ判定にする(通すのは文字列の 'true' / 'false' だけで、Ruby から boolean を渡しても通さない)。
+    abort '値は true か false を指定してください。' unless raw.is_a?(String) && %w[true false].include?(raw)
+    abort '引数はフラグ名と値の 2 つだけを指定してください(1 回に切り替えるフラグは 1 つ)。' unless args.extras.empty?
+
+    value = raw == 'true'
+    config = InstallationConfig.find_or_initialize_by(name: name)
+    previous = config.value
+    config.value = value
+    # SuperAdmin の installation_configs 画面は locked: false の行を一覧・編集でき、画面で編集すると文字列に化けるため隠す。
+    config.locked = true
+    # 読み直しは読み手と同じ DB 直読で、同じ接続・同じ transaction の中で行う。合わなければ abort(SystemExit)で rollback して
+    # 保存しない(監査の failed は未保存)。GlobalConfig の cache の消去はモデルの after_commit が行う(読み手は cache を読まない)。
+    InstallationConfig.transaction do
+      config.save!
+      unless flag.enabled?(name) == value && flag.current(name).equal?(value)
+        abort "#{name} の読み直しが boolean の #{value} にならないため保存しません。installation_configs を確認してください。"
+      end
+    end
+
+    puts "TOYBACO_OPS_FLAG name=#{name} value=#{value} previous=#{flag.state(previous)}"
+    # 監査行は引数の digest しか持たないため、run ログで 3 つのフラグの状態全体を読めるようにする。
+    flag::OPS_FLAGS.each { |key| puts "TOYBACO_OPS_FLAG_STATE name=#{key} value=#{flag.state(flag.current(key))}" }
   end
 end

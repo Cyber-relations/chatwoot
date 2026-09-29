@@ -568,7 +568,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
     },
   };
   vm.runInNewContext(instrumented, sandbox, { filename: entryPath });
-  return { api: window.__TOYBACO_POST_ENTRY_TEST__, fetches, window, document, body, observers: sandboxObservers, docListeners, windowListeners };
+  return { api: window.__TOYBACO_POST_ENTRY_TEST__, fetches, window, document, body, observers: sandboxObservers, docListeners, windowListeners, sandbox };
 }
 
 function postingEntry(document) {
@@ -1130,10 +1130,14 @@ assert.match(original, /requestAnimationFrame/);
   const sitePath = path.join(root, 'site/index.html');
   if (fs.existsSync(sitePath)) {
     const site = fs.readFileSync(sitePath, 'utf8');
-    assert.match(site, /\.app\.night\{--ab:#121A26/);
-    assert.match(site, /--af:#0F151E/);
-    assert.match(site, /--al:#22304A/);
-    assert.match(site, /--at:#D6E4F2/);
+    assert.match(site, /src="\/assets\/service-home\/feature-inbox-demo\.html"/);
+    const demo = fs.readFileSync(path.join(root, 'site/assets/service-home/feature-inbox-demo.html'), 'utf8');
+    assert.match(demo, /href="assets\/tour-demo\.css"/);
+    const demoCss = fs.readFileSync(path.join(root, 'site/assets/service-home/assets/tour-demo.css'), 'utf8');
+    assert.match(demoCss, /\.app\.night\{--ab:#121A26/);
+    assert.match(demoCss, /--af:#0F151E/);
+    assert.match(demoCss, /--al:#22304A/);
+    assert.match(demoCss, /--at:#D6E4F2/);
   }
 }
 
@@ -2986,6 +2990,150 @@ for (const included of [true, false, undefined]) {
   assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
   assert.doesNotMatch(collectText(env.body), /自動応答の体験は/);
   env.api.closeAiModePanel();
+}
+
+// U5 (2026-09-29, staging store 15): the first-run guide saves the store facts and moves on to the conversation with
+// router.push, so the AI panel kept the usage read at login (automatic_reason facts_required) until a reload. The guide
+// now names the store that saved its facts (toybaco:store-facts-saved); that store reads its usage again and the panel
+// repaints from the new answer.
+const FACTS_REQUIRED = { meter: 'business_generation', period: 'contract', resets_at: null,
+  automatic_enabled: false, automatic_reason: 'facts_required' };
+const FACTS_CONFIRMED = { ...FACTS_REQUIRED, automatic_enabled: true, automatic_reason: null };
+function storeFactsSaved(env, detail) {
+  env.window.dispatchEvent({ type: 'toybaco:store-facts-saved', detail });
+}
+for (const accountId of ['1', 1]) {
+  let saved = false;
+  const env = createAiUsageEnv(() => Promise.resolve(usageResponse(saved ? FACTS_CONFIRMED : FACTS_REQUIRED)));
+  await flush();
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  const readiness = () => collectText(panel.querySelector('[data-toybaco-ai-readiness]'));
+  assert.equal(readiness(), '店舗情報を確認すると自動応答を設定できます。');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assertAiCompact(env, 'AI：自動応答を確認', 'unavailable');
+  env.api.inject(); env.api.inject();
+  assert.equal(env.usageCalls.length, 1, 'moving around the app keeps the usage read at login');
+  saved = true;
+  storeFactsSaved(env, { accountId });
+  await flush();
+  assert.equal(env.usageCalls.length, 2, `the store that saved its facts reads its usage again (${typeof accountId} id)`);
+  assert.equal(env.usageCalls[1].url, '/toybaco/ai_usage?account_id=1');
+  assert.equal(env.usageCalls[1].opts.cache, 'no-store');
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  assert.equal(readiness(), '接続設定あり（受信箱 1 / 1 件）。利用可否・残り枠は「AI応答」の設定で確認できます。');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, false);
+  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.equal(env.fetches.filter(call => call.opts?.method && call.opts.method !== 'GET').length, 0,
+    'reading the usage again never saves a mode or spends AI');
+  env.api.closeAiModePanel();
+}
+{
+  // Another store's save reads that store again; the store on screen keeps its own answer.
+  const env = createAiUsageEnv(url => Promise.resolve(usageResponse(String(url).endsWith('=2') ? FACTS_CONFIRMED : FACTS_REQUIRED)));
+  await flush();
+  storeFactsSaved(env, { accountId: '2' });
+  await flush();
+  assert.deepEqual(env.usageCalls.map(call => call.url), ['/toybaco/ai_usage?account_id=1', '/toybaco/ai_usage?account_id=2']);
+  assert.match(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/, 'another store\'s answer never repaints this store');
+  // Nothing that is not a store id reads anything.
+  for (const detail of [undefined, null, {}, { accountId: null }, { accountId: '' }, { accountId: '0' }, { accountId: 0 },
+    { accountId: '1&account_id=2' }, { accountId: '../1' }, { accountId: 1.5 }, { accountId: ['1'] }, { accountId: { id: 1 } }]) {
+    storeFactsSaved(env, detail);
+  }
+  await flush();
+  assert.equal(env.usageCalls.length, 2, 'an event without a store id reads nothing');
+  env.api.closeAiModePanel();
+}
+{
+  // A read that started before the save may carry the old answer: once it lands, the store reads again (not doubled).
+  const reads = [deferred(), deferred()];
+  let next = 0;
+  const env = createAiUsageEnv(() => reads[next++].promise);
+  storeFactsSaved(env, { accountId: '1' });
+  await flush();
+  assert.equal(env.usageCalls.length, 1, 'the read in progress is not doubled');
+  reads[0].resolve(usageResponse(FACTS_REQUIRED));
+  await flush();
+  assert.equal(env.usageCalls.length, 2, 'the store reads again after the earlier read landed');
+  reads[1].resolve(usageResponse(FACTS_CONFIRMED));
+  await flush();
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  assertAiCompact(env, 'AI：全自動', 'configured');
+  env.api.closeAiModePanel();
+}
+// The read on the way fails (network or HTTP): the store still reads again once it settled.
+for (const failure of ['network', 'http 503']) {
+  const reads = [deferred(), deferred()];
+  let next = 0;
+  const env = createAiUsageEnv(() => reads[next++].promise);
+  storeFactsSaved(env, { accountId: '1' });
+  if (failure === 'network') reads[0].reject(new Error('offline'));
+  else reads[0].resolve({ ok: false, status: 503, json: async () => ({}) });
+  await flush();
+  assert.equal(env.usageCalls.length, 2, `${failure}: the store reads again once the failed read settled`);
+  reads[1].resolve(usageResponse(FACTS_CONFIRMED));
+  await flush();
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  assert.equal(env.usageCalls.length, 2, `${failure}: read again only once`);
+  env.api.closeAiModePanel();
+}
+{
+  // Saved twice while a read is on the way: read again once. A save while that read is on the way reads once more.
+  const reads = [deferred(), deferred(), deferred()];
+  let next = 0;
+  const env = createAiUsageEnv(() => reads[next++].promise);
+  storeFactsSaved(env, { accountId: '1' });
+  storeFactsSaved(env, { accountId: '1' });
+  reads[0].resolve(usageResponse(FACTS_REQUIRED));
+  await flush();
+  assert.equal(env.usageCalls.length, 2, 'two saves during one read are read again once');
+  storeFactsSaved(env, { accountId: '1' });
+  reads[1].resolve(usageResponse(FACTS_REQUIRED));
+  await flush();
+  assert.equal(env.usageCalls.length, 3, 'a save after the read again started is read once more');
+  reads[2].resolve(usageResponse(FACTS_CONFIRMED));
+  await flush();
+  assert.equal(env.usageCalls.length, 3);
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  env.api.closeAiModePanel();
+}
+{
+  // The script runs once per window (__TOYBACO_POST_ENTRY_LOADED__): loaded twice, it still listens once.
+  const env = createAiUsageEnv(() => Promise.resolve(usageResponse(FACTS_CONFIRMED)));
+  await flush();
+  vm.runInNewContext(instrumented, env.sandbox, { filename: entryPath });
+  assert.equal(env.windowListeners['toybaco:store-facts-saved'].length, 1, 'one listener after loading the script twice');
+  storeFactsSaved(env, { accountId: '1' });
+  await flush();
+  assert.equal(env.usageCalls.length, 2, 'one save reads once');
+  env.api.closeAiModePanel();
+}
+// U5: while no inbox is connected to the AI (or the connection is still being read or cannot be read), the panel says
+// so first, in the order of the compact status「AI：未接続」, instead of the conditions for automatic replies.
+for (const usage of [FACTS_REQUIRED, { ...FACTS_REQUIRED, automatic_reason: 'automatic_unavailable', automatic_included: false }]) {
+  const env = createAiContractEnv(() => Promise.resolve(usageResponse(usage)), { connection: 'unconnected', configured_inboxes: 0 });
+  await flush();
+  assert.equal(collectText(env.aiBar.querySelector('[data-toybaco-ai-readiness]')), 'AI応答は未接続です。担当者が返信してください。');
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると|自動応答の契約・体験・残り枠/);
+  assertAiCompact(env, 'AI：未接続', 'unconnected');
+}
+for (const outcome of ['configured', 'error']) {
+  const connection = deferred();
+  const env = loadInjectEntry((url, opts) => {
+    if (String(url).includes('/ai_readiness')) return connection.promise;
+    if (String(url).includes('/ai_usage')) return Promise.resolve(usageResponse(FACTS_REQUIRED));
+    return aiModeAwareFetch(url, opts);
+  });
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  await flush();
+  const readiness = env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-readiness]');
+  assert.equal(collectText(readiness), 'AI応答の接続設定を確認しています…');
+  if (outcome === 'configured') connection.resolve(readinessResponse());
+  else connection.resolve({ ok: false, status: 503, json: async () => ({}) });
+  await flush();
+  assert.equal(collectText(readiness), outcome === 'configured' ? '店舗情報を確認すると自動応答を設定できます。'
+    : 'AI応答の接続状態を確認できません。再確認してください。');
 }
 
 for (const [reason, expected] of [

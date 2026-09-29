@@ -2,9 +2,11 @@
 
 require 'sidekiq/api'
 require_relative '../growth/opening_operations'
+require_relative 'ops_flag'
 
 # 運営の日次ダイジェスト(S0-2)。確認待ちと直近 24 時間の動きを件数だけで集計し、固定形式のログ 1 行を常に出す。
-# メールは DB flag(TOYBACO_OPS_DIGEST_ENABLED)が true の時だけ、Growth::OpeningOperations.recipient の宛先へ送る。
+# メールは DB flag(TOYBACO_OPS_DIGEST_ENABLED)が JSON の true の時だけ(cache を経由せず DB を直接読む)、
+# Growth::OpeningOperations.recipient の宛先へ送る。
 # 宛先は job の引数に載せず、OperationsMailer#digest が配送時に同じ規則で引く(ActiveJob のログにメールアドレスを出さない)。
 # DB は読むだけ。本文とログに店舗名・メールアドレス・Stripe の ID・秘密を載せない(件数と区画名だけ)。
 # 集計は区画ごとに失敗を閉じ込め、1 区画の失敗で他の区画・ログ・メールを止めない。
@@ -61,7 +63,7 @@ class Toybaco::Ops::Digest
   def run!
     Rails.logger.info(log_line)
     Rails.logger.error('TOYBACO_SIDEKIQ_DEAD pending_jobs=true') if summary.dig(:sidekiq, :dead).to_i.positive?
-    unless GlobalConfigService.load(FLAG, false) == true
+    unless Toybaco::Ops::OpsFlag.enabled?(FLAG)
       Rails.logger.info('TOYBACO_OPS_DIGEST_SKIPPED reason=disabled')
       return false
     end

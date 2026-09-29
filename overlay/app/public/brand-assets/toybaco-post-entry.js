@@ -77,6 +77,7 @@
   var aiReadinessInflight = {};
   var aiUsageStates = {};
   var aiUsageInflight = {};
+  var aiUsageRetake = {};
   var CANNED_NAMES = {
     'access-annai': 'アクセス案内',
     'after-uketsuke': 'アフター受付',
@@ -2337,7 +2338,9 @@
     else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
     else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
-    else if (usage.data.meter === 'business_generation' && !usage.data.automatic_enabled) {
+    // 自動応答の条件(店舗情報・契約)は、AI応答が接続済みと確認できてから伝える。未接続・確認中・確認できない
+    // ときは接続の状態を先に出す(簡易表示の「AI：未接続」と同じ順)。
+    else if (usage.data.meter === 'business_generation' && !usage.data.automatic_enabled && connection === 'configured') {
       connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると自動応答を設定できます。' + aiTrialInboxNote(usage) :
         '自動応答の契約・体験・残り枠を確認してください。' + aiTrialInboxNote(usage) + '下書きは利用できます。';
     }
@@ -2579,6 +2582,20 @@
       return null;
     });
     return aiUsageInflight[id];
+  }
+
+  // 店舗情報を保存した店舗の利用状況を取り直す(描画は取得処理が行う)。保存前に始まった取得の
+  // 結果は古いことがあるので、取得中なら成否にかかわらず完了を待ってから、もう一度だけ取る。
+  // 待っている間に届いた保存は、同じ取り直しにまとめる(店舗ごとに予約は 1 本)。
+  function refreshAiUsageAfterFactsSaved(id) {
+    var inflight = aiUsageInflight[id];
+    if (!inflight) { prefetchAiUsage(id, true); return; }
+    if (aiUsageRetake[id]) return;
+    aiUsageRetake[id] = true;
+    inflight.catch(function () {}).then(function () {
+      delete aiUsageRetake[id];
+      prefetchAiUsage(id, true);
+    });
   }
 
   function appendAiUsage(host) {
@@ -3675,6 +3692,14 @@
       } else {
         proceed();
       }
+    });
+    // 初回ガイド・店舗情報の画面で店舗情報を保存したら、取得済みの「店舗情報を確認すると自動応答を
+    // 設定できます。」を会話画面へ持ち込まないよう、その店舗の AI 利用状況を取り直す。
+    window.addEventListener('toybaco:store-facts-saved', function (event) {
+      var id = event && event.detail ? event.detail.accountId : null;
+      if (typeof id !== 'string' && typeof id !== 'number') return;
+      if (!/^[1-9]\d*$/.test(String(id))) return;
+      refreshAiUsageAfterFactsSaved(String(id));
     });
   } catch (e) { /* start 後の再試行で入口は出す */ }
 

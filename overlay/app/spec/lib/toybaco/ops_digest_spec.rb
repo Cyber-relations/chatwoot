@@ -28,7 +28,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     allow(ActionMailer::Base).to receive(:logger).and_return(logger)
     ActionMailer::Base.deliveries.clear
     stub_sidekiq(0, 0)
-    stub_flag(nil)
+    write_flag(nil)
     stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production', 'TOYBACO_OPERATIONS_EMAIL' => 'ops@example.invalid')
   end
 
@@ -37,9 +37,11 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     allow(Sidekiq::DeadSet).to receive(:new).and_return(instance_double(Sidekiq::DeadSet, size: dead))
   end
 
-  def stub_flag(value)
-    allow(GlobalConfigService).to receive(:load).and_call_original
-    allow(GlobalConfigService).to receive(:load).with('TOYBACO_OPS_DIGEST_ENABLED', false).and_return(value)
+  # フラグは installation_configs を直接読む(Toybaco::Ops::OpsFlag)ので、stub ではなく toybaco:ops_flag と同じ形の行
+  # (locked: true)を置く。nil は行なし。
+  def write_flag(value)
+    InstallationConfig.unscoped.where(name: 'TOYBACO_OPS_DIGEST_ENABLED').delete_all
+    InstallationConfig.create!(name: 'TOYBACO_OPS_DIGEST_ENABLED', value: value, locked: true) unless value.nil?
   end
 
   def stub_operations_env(values)
@@ -199,7 +201,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   describe 'フラグが無効の時' do
     [nil, false, 'true'].each do |value|
       it "メールを送らず、TOYBACO_OPS_DIGEST 行と reason=disabled を出す(DB flag: #{value.inspect})" do
-        stub_flag(value)
+        write_flag(value)
         result = nil
 
         expect { result = digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
@@ -210,10 +212,21 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
         expect(log.string).not_to include('reason=recipient')
       end
     end
+
+    it 'GlobalConfig の cache に古い true が残っていても、DB に行が無ければ送らない(フラグは DB を直接読む)' do
+      Redis::Alfred.set("#{GlobalConfig::VERSION}:#{GlobalConfig::KEY_PREFIX}:TOYBACO_OPS_DIGEST_ENABLED", { value: true }.to_json)
+      result = nil
+
+      expect { result = digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+      expect(result).to be(false)
+      expect(log.string).to include("INFO TOYBACO_OPS_DIGEST_SKIPPED reason=disabled\n")
+    ensure
+      GlobalConfig.clear_cache
+    end
   end
 
   describe 'フラグが有効で production 相当(名簿なし)の時' do
-    before { stub_flag(true) }
+    before { write_flag(true) }
 
     it '宛先を含まない params で 1 通 enqueue し、配送時に運営の通知先へ送る。enqueue までの DB は読むだけ' do
       statements = []
@@ -247,7 +260,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   end
 
   describe '宛先が決まらない時' do
-    before { stub_flag(true) }
+    before { write_flag(true) }
 
     it 'staging 相当で名簿に運営の宛先が無ければ送らず reason=recipient を出す' do
       stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_OPERATIONS_EMAIL' => 'ops@example.invalid',
@@ -287,7 +300,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   end
 
   it '件名・本文と、ActiveJob・ActionMailer を含む全ログ(本番と同じ info)に @・店舗名・メール・Stripe の ID・秘密の接頭辞を載せない' do
-    stub_flag(true)
+    write_flag(true)
     billing_event('attention', action: 'opening_checkout', opening: opening)
     opening(state: 'account_ready', onboarding: 'attention')
     support_report('received', now + 1.day)
@@ -313,7 +326,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   # LOG_LEVEL=debug では ActionMailer が配送したメールの全文(To ヘッダを含む)を記録するので、宛先がログに出る。
   # 本番を info に保つ理由の確認と、ActionMailer のロガーが収集先へ繋がっていることの確認を兼ねる。
   it 'LOG_LEVEL=debug では ActionMailer が配送したメールの全文を記録し、宛先が出る(本番は info なので出ない)' do
-    stub_flag(true)
+    write_flag(true)
     logger.level = :debug
     reset_log
 
@@ -336,7 +349,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     end
     expect(counts).to eq([{ opened_stores: 1, pack_orders_paid: 1 }, { opened_stores: 2, pack_orders_paid: 2 },
                           { opened_stores: 2, pack_orders_paid: 2 }])
-    stub_flag(true)
+    write_flag(true)
     described_class.new(now: runs[1]).run!
     expect(digest_mails.sole[:subject]).to eq('【トイバコ】運営ダイジェスト 2026-09-29')
     expect(digest_mails.sole[:body]).to include('■ 直近 24 時間(2026-09-28 08:00 から 2026-09-29 08:00 まで、JST。開始時刻は含まない)')
@@ -347,7 +360,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
 
   describe 'Sidekiq の dead キュー' do
     it 'dead が 1 件以上なら TOYBACO_SIDEKIQ_DEAD を error で出し、本文に確認の手順を添える' do
-      stub_flag(true)
+      write_flag(true)
       stub_sidekiq(0, 2)
 
       digest.run!
@@ -377,7 +390,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   end
 
   it '1 区画の失敗はその区画だけを nil と「取得できませんでした」にし、他の区画とメールを止めない' do
-    stub_flag(true)
+    write_flag(true)
     allow(Toybaco::GrowthPackOrder).to receive(:where).and_raise(RuntimeError, 'secret detail')
 
     expect { digest.run! }.to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
@@ -416,7 +429,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     it '登録する cron の時と、直近 24 時間の窓の終わり(anchor)は同じ定数 SCHEDULED_HOUR_UTC から決まる' do
       stub_const("#{described_class}::SCHEDULED_HOUR_UTC", 5)
       allow(Sidekiq).to receive(:server?).and_return(true)
-      stub_flag(true)
+      write_flag(true)
 
       load initializer
       expect(Fugit.parse_cron(registered.sole[:cron]).hours).to eq([described_class::SCHEDULED_HOUR_UTC])

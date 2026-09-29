@@ -2,6 +2,7 @@
 
 require_relative 'context'
 require_relative 'diagnostics'
+require_relative '../ops/ops_flag'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Support
@@ -28,7 +29,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def self.available?
-        GlobalConfigService.load('TOYBACO_SUPPORT_REPORTS_ENABLED', false) == true && owner('product').present? && owner('billing').present?
+        # 受付の可否(運営フラグ)は cache を経由せず DB を直接読む(Toybaco::Ops::OpsFlag)。
+        Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_REPORTS_ENABLED') && owner('product').present? && owner('billing').present?
       end
 
       def initialize(account, user, now: Time.now.utc)

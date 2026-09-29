@@ -42,7 +42,9 @@
         %>
 
       <% end %>
-      <% if defined?(Toybaco::Ops::Console) && Toybaco::Ops::Console.enabled? %>
+      <%# 店舗一覧の controller が読んだ判定があればそれを使い、フラグの DB 直読を 1 リクエスト 1 回にする %>
+      <% ops_console_enabled = @toybaco_ops_console_enabled.nil? ? (defined?(Toybaco::Ops::Console) && Toybaco::Ops::Console.enabled?) : @toybaco_ops_console_enabled %>
+      <% if ops_console_enabled %>
         <%= render partial: 'nav_item', locals: { icon: 'icon-menu-search-line', url: '/super_admin/toybaco_stores', label: '店舗一覧' } %>
       <% end %>
       <% if defined?(Toybaco::Support::Reports) && Toybaco::Support::Reports::CATEGORIES.keys.any? { |category| Toybaco::Support::Reports.owner(category)&.id == current_super_admin.id } %>

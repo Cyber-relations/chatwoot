@@ -24,8 +24,10 @@ class SuperAdmin::ToybacoStoresController < SuperAdmin::ApplicationController
 
   private
 
+  # フラグは DB を直接読むので、ナビゲーション(_navigation.html.erb)は同じリクエストではこの結果を使い、読むのを 1 回にする。
   def require_ops_console
-    head :not_found unless Toybaco::Ops::Console.enabled?
+    @toybaco_ops_console_enabled = Toybaco::Ops::Console.enabled?
+    head :not_found unless @toybaco_ops_console_enabled
   end
 
   def send_stores_csv

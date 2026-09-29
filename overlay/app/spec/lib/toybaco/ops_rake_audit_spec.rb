@@ -144,4 +144,149 @@ RSpec.describe Toybaco::Ops::RakeAudit do # rubocop:disable RSpec/SpecFilePathFo
       expect(new_rows.pluck(:action, :result)).to eq([%w[rake.toybaco:audit_tail started], %w[rake.toybaco:audit_tail failed]] * 3)
     end
   end
+
+  describe 'toybaco:ops_flag' do
+    # 実装の定数に頼らず、機能側が JSON の boolean で判定する 3 つのフラグをここで固定する。
+    let(:flags) { %w[TOYBACO_OPS_DIGEST_ENABLED TOYBACO_OPS_CONSOLE_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED] }
+    let(:name_error) { "フラグ名は #{flags.join(' / ')} のいずれかを指定してください。\n" }
+    let(:value_error) { "値は true か false を指定してください。\n" }
+    let(:extras_error) { "引数はフラグ名と値の 2 つだけを指定してください(1 回に切り替えるフラグは 1 つ)。\n" }
+
+    def run_ops_flag(*values)
+      Rake::Task['toybaco:ops_flag'].execute(Rake::TaskArguments.new(%i[name value], values))
+    end
+
+    # 成功するはずの呼び出し。想定外の abort(SystemExit)は RSpec の実行全体を止めるため、この例の失敗に置き換える。
+    def ops_flag(*values)
+      run_ops_flag(*values)
+    rescue SystemExit
+      raise RSpec::Expectations::ExpectationNotMetError, "toybaco:ops_flag[#{values.join(',')}] が abort しました"
+    end
+
+    def config_rows
+      InstallationConfig.unscoped.order(:id).map { |row| [row.id, row.name, row.value, row.locked, row.updated_at] }
+    end
+
+    # 出力の期待値。切り替えの結果の 1 行に、3 つのフラグの現在値の 3 行(行が無ければ unset)が続く。
+    def flag_output(line, states = {})
+      [line, *flags.map { |flag| "TOYBACO_OPS_FLAG_STATE name=#{flag} value=#{states.fetch(flag, 'unset')}" }].map { |text| "#{text}\n" }.join
+    end
+
+    it '許可一覧は機能側(ダイジェスト・店舗一覧・利用者からの報告)が判定するフラグと一致する' do
+      expect(Toybaco::Ops::OpsFlag::OPS_FLAGS).to eq(flags)
+      expect(flags).to include(Toybaco::Ops::Digest::FLAG, Toybaco::Ops::Console::FLAG)
+      allow(Toybaco::Ops::OpsFlag).to receive(:enabled?).and_call_original
+      Toybaco::Support::Reports.available?
+      expect(Toybaco::Ops::OpsFlag).to have_received(:enabled?).with('TOYBACO_SUPPORT_REPORTS_ENABLED')
+    end
+
+    it 'true で JSON の boolean true を locked: true で保存し、読み手(DB 直読)が有効と読む' do
+      states = {}
+      flags.each do |name|
+        states[name] = 'true'
+        expect { ops_flag(name, 'true') }.to output(flag_output("TOYBACO_OPS_FLAG name=#{name} value=true previous=unset", states)).to_stdout
+        expect(InstallationConfig.find_by(name: name)).to have_attributes(value: true, locked: true)
+        expect(Toybaco::Ops::OpsFlag.enabled?(name)).to be(true)
+      end
+      expect(Toybaco::Ops::Console.enabled?).to be(true)
+    end
+
+    it 'false で JSON の boolean false を保存し、読み手(DB 直読)が無効と読む' do
+      states = {}
+      flags.each do |name|
+        capture(:stdout) { ops_flag(name, 'true') }
+        states[name] = 'false'
+        expect { ops_flag(name, 'false') }.to output(flag_output("TOYBACO_OPS_FLAG name=#{name} value=false previous=true", states)).to_stdout
+        expect(InstallationConfig.find_by(name: name)).to have_attributes(value: false, locked: true)
+        expect(Toybaco::Ops::OpsFlag.enabled?(name)).to be(false)
+      end
+      expect(Toybaco::Ops::Console.enabled?).to be(false)
+    end
+
+    it 'SuperAdmin 画面で保存された文字列の "true" を boolean に置き換え、文字列は "true" / "false" だけ引用符付きで出して他は中身を出さない' do
+      InstallationConfig.create!(name: 'TOYBACO_OPS_CONSOLE_ENABLED', value: 'true', locked: false)
+      InstallationConfig.create!(name: 'TOYBACO_OPS_DIGEST_ENABLED', value: 'x' * 100, locked: false)
+      InstallationConfig.create!(name: 'TOYBACO_SUPPORT_REPORTS_ENABLED', value: 'true', locked: false)
+      expect(Toybaco::Ops::Console.enabled?).to be(false)
+      expect { ops_flag('TOYBACO_OPS_CONSOLE_ENABLED', 'true') }.to output(
+        flag_output('TOYBACO_OPS_FLAG name=TOYBACO_OPS_CONSOLE_ENABLED value=true previous="true"',
+                    'TOYBACO_OPS_DIGEST_ENABLED' => 'non_boolean', 'TOYBACO_OPS_CONSOLE_ENABLED' => 'true',
+                    'TOYBACO_SUPPORT_REPORTS_ENABLED' => '"true"')
+      ).to_stdout
+      expect(Toybaco::Ops::Console.enabled?).to be(true)
+      expect { ops_flag('TOYBACO_OPS_DIGEST_ENABLED', 'false') }.to output(
+        flag_output('TOYBACO_OPS_FLAG name=TOYBACO_OPS_DIGEST_ENABLED value=false previous=non_boolean',
+                    'TOYBACO_OPS_DIGEST_ENABLED' => 'false', 'TOYBACO_OPS_CONSOLE_ENABLED' => 'true', 'TOYBACO_SUPPORT_REPORTS_ENABLED' => '"true"')
+      ).to_stdout
+      expect(InstallationConfig.find_by(name: 'TOYBACO_SUPPORT_REPORTS_ENABLED')).to have_attributes(value: 'true', locked: false)
+    end
+
+    it '保存した行は locked: true で SuperAdmin の画面(InstallationConfig.editable)に出ず、locked: false の既存行も true に上書きする' do
+      InstallationConfig.create!(name: 'TOYBACO_OPS_CONSOLE_ENABLED', value: true, locked: false)
+      expect(InstallationConfig.editable.where(name: 'TOYBACO_OPS_CONSOLE_ENABLED')).to exist
+      capture(:stdout) do
+        ops_flag('TOYBACO_OPS_CONSOLE_ENABLED', 'true')
+        ops_flag('TOYBACO_OPS_DIGEST_ENABLED', 'false')
+      end
+      expect(InstallationConfig.where(name: flags).pluck(:name, :locked)).to contain_exactly(
+        ['TOYBACO_OPS_CONSOLE_ENABLED', true], ['TOYBACO_OPS_DIGEST_ENABLED', true]
+      )
+      expect(InstallationConfig.editable.where(name: flags)).to be_empty
+    end
+
+    it '読み直しが指定の boolean にならなければ abort して transaction を rollback し、保存しない(監査は failed)' do
+      InstallationConfig.create!(name: 'TOYBACO_OPS_DIGEST_ENABLED', value: false, locked: true)
+      before_rows = config_rows
+      # 読み直しの 2 つの条件(読み手の判定と生値)をそれぞれ崩す。行の書き込み自体は本物のまま。
+      allow(Toybaco::Ops::OpsFlag).to receive(:current).and_call_original
+      allow(Toybaco::Ops::OpsFlag).to receive(:current).with('TOYBACO_OPS_DIGEST_ENABLED').and_return('true')
+      allow(Toybaco::Ops::OpsFlag).to receive(:current).with('TOYBACO_OPS_CONSOLE_ENABLED').and_return(nil)
+      [%w[TOYBACO_OPS_DIGEST_ENABLED true], %w[TOYBACO_OPS_CONSOLE_ENABLED false]].each do |name, value|
+        message = "#{name} の読み直しが boolean の #{value} にならないため保存しません。installation_configs を確認してください。\n"
+        expect { run_ops_flag(name, value) }.to raise_error(SystemExit).and output(message).to_stderr
+      end
+      expect(config_rows).to eq(before_rows)
+      expect(new_rows.pluck(:action, :result)).to eq([%w[rake.toybaco:ops_flag started], %w[rake.toybaco:ops_flag failed]] * 2)
+    end
+
+    it 'Ruby から boolean の true / false を渡しても(文字列でないので)abort し、保存しない' do
+      [true, false].each do |value|
+        expect { run_ops_flag('TOYBACO_OPS_DIGEST_ENABLED', value) }.to raise_error(SystemExit).and output(value_error).to_stderr
+      end
+      expect(InstallationConfig.find_by(name: 'TOYBACO_OPS_DIGEST_ENABLED')).to be_nil
+    end
+
+    it '許可一覧にないフラグ名(大文字小文字違い・Symbol・空を含む)は abort し、installation_configs を変えずに failed を残す' do
+      InstallationConfig.create!(name: 'TOYBACO_SUPPORT_ENABLED', value: false, locked: false)
+      before_rows = config_rows
+      names = ['TOYBACO_SUPPORT_ENABLED', 'toybaco_ops_digest_enabled', 'Toybaco_Ops_Console_Enabled', ' TOYBACO_OPS_DIGEST_ENABLED',
+               :TOYBACO_OPS_DIGEST_ENABLED, '', nil]
+      names.each do |name|
+        expect { run_ops_flag(name, 'true') }.to raise_error(SystemExit).and output(name_error).to_stderr
+      end
+      expect(config_rows).to eq(before_rows)
+      expect(new_rows.pluck(:action, :result)).to eq([%w[rake.toybaco:ops_flag started], %w[rake.toybaco:ops_flag failed]] * names.size)
+    end
+
+    it "値が 'true' / 'false' 以外('TRUE'・'1' など)や余分な引数があれば abort し、保存済みの値を変えない" do
+      capture(:stdout) { ops_flag('TOYBACO_SUPPORT_REPORTS_ENABLED', 'false') }
+      before_rows = config_rows
+      ['TRUE', 'True', 'FALSE', '1', '0', 'yes', 'true ', '', nil].each do |value|
+        expect { run_ops_flag('TOYBACO_SUPPORT_REPORTS_ENABLED', value) }.to raise_error(SystemExit).and output(value_error).to_stderr
+      end
+      extras = %w[TOYBACO_SUPPORT_REPORTS_ENABLED true TOYBACO_OPS_CONSOLE_ENABLED true]
+      expect { run_ops_flag(*extras) }.to raise_error(SystemExit).and output(extras_error).to_stderr
+      expect(config_rows).to eq(before_rows)
+      expect(Toybaco::Ops::OpsFlag.current('TOYBACO_SUPPORT_REPORTS_ENABLED')).to be(false)
+    end
+
+    it '監査行に started と ok が残り、params_digest は name と value の digest と一致する' do
+      capture(:stdout) { ops_flag('TOYBACO_OPS_DIGEST_ENABLED', 'true') }
+      digest = Toybaco::Ops::Audit.params_digest({ 'name' => 'TOYBACO_OPS_DIGEST_ENABLED', 'value' => 'true' })
+      expect(new_rows.pluck(:actor_kind, :actor_id, :action, :result, :source, :target_type, :params_digest)).to eq(
+        [['rake', 'unknown', 'rake.toybaco:ops_flag', 'started', 'rake:unspecified', nil, digest],
+         ['rake', 'unknown', 'rake.toybaco:ops_flag', 'ok', 'rake:unspecified', nil, digest]]
+      )
+    end
+  end
 end
