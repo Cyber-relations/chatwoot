@@ -19,9 +19,11 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
     console(true)
   end
 
+  # フラグは installation_configs を直接読む(Toybaco::Ops::OpsFlag)ので、stub ではなく toybaco:ops_flag と同じ形の行
+  # (locked: true)を置く。nil は行なし。
   def console(value)
-    allow(GlobalConfigService).to receive(:load).and_call_original
-    allow(GlobalConfigService).to receive(:load).with('TOYBACO_OPS_CONSOLE_ENABLED', false).and_return(value)
+    InstallationConfig.unscoped.where(name: 'TOYBACO_OPS_CONSOLE_ENABLED').delete_all
+    InstallationConfig.create!(name: 'TOYBACO_OPS_CONSOLE_ENABLED', value: value, locked: true) unless value.nil?
   end
 
   def contract(plan, version, cycle: 'month')
@@ -121,6 +123,18 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
       console(true)
       get '/super_admin/accounts'
       expect(response.body).to include('href="/super_admin/toybaco_stores"')
+    end
+
+    it 'GlobalConfig の cache に古い true が残っていても、DB に行が無ければ 404 にしてリンクも出さない(フラグは DB を直接読む)' do
+      sign_in(super_admin, scope: :super_admin)
+      console(nil)
+      Redis::Alfred.set("#{GlobalConfig::VERSION}:#{GlobalConfig::KEY_PREFIX}:TOYBACO_OPS_CONSOLE_ENABLED", { value: true }.to_json)
+      get '/super_admin/toybaco_stores'
+      expect(response).to have_http_status(:not_found)
+      get '/super_admin/accounts'
+      expect(response.body).not_to include('href="/super_admin/toybaco_stores"')
+    ensure
+      GlobalConfig.clear_cache
     end
   end
 

@@ -581,3 +581,80 @@ test('the connection step keeps two lines for its prompt at the mobile width so 
   assert(!style.slice(0, style.indexOf('@media (max-width: 680px) {')).includes('.connect-step'), 'wide screens keep one line');
   assert(/'connect-step': !settingsView && !showFacts && state\?\.phase === 'connect',/.test(template));
 });
+
+// U5 (2026-09-29, staging store 15): the conversation screen's AI panel (toybaco-post-entry.js) keeps the AI usage it
+// read at login. Saving the store facts names the store that saved them (toybaco:store-facts-saved), so the panel reads
+// that store's usage again instead of keeping「店舗情報を確認すると自動応答を設定できます。」until a reload.
+function guideComposable(respond) {
+  const source = readFileSync(new URL('../overlay/app/app/javascript/dashboard/composables/toybacoGrowthGuide.js', import.meta.url), 'utf8')
+    .replace("import { ref } from 'vue';", 'const ref = (value) => ({ value });')
+    .replace(/^export /gm, '');
+  assert(!/^import /m.test(source), 'every import is replaced');
+  const events = [];
+  const requests = [];
+  const answers = [];
+  const api = runInNewContext(`${source}\n({ selectGrowthGuideAccount, saveGrowthFacts, updateGrowthGuide, growthGuideError });`, {
+    AbortController,
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
+    window: { dispatchEvent: (event) => { events.push(plain({ type: event.type, detail: event.detail })); return true; } },
+    // Each request waits until the test answers it, so a store can change while a save is on the way.
+    fetch: (url, options) => {
+      requests.push({ url, method: options.method, body: options.body && JSON.parse(options.body) });
+      return new Promise((resolve) => answers.push(() => resolve(respond(url, options))));
+    },
+  });
+  const answer = async () => { answers.shift()(); for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
+  return { api, events, requests, answer };
+}
+const guideResponse = (status, body = {}) => ({ status, ok: status >= 200 && status < 300, redirected: false, json: async () => body });
+
+test('saving the store facts tells the AI panel which store saved them, only when the save succeeded', async () => {
+  const saved = guideComposable(() => guideResponse(200, { account_id: 15, phase: 'receive' }));
+  saved.api.selectGrowthGuideAccount(15);
+  const pending = saved.api.saveGrowthFacts({ name: 'トイバコ食堂' });
+  assert.deepEqual(saved.events, [], 'nothing is announced before the server answers');
+  await saved.answer();
+  assert.equal((await pending).phase, 'receive', 'the page still gets the saved guide state');
+  assert.deepEqual(saved.requests, [{ url: '/toybaco/growth/facts?account_id=15', method: 'PUT',
+    body: { fields: { name: 'トイバコ食堂' }, confirmed: true } }]);
+  assert.deepEqual(saved.events, [{ type: 'toybaco:store-facts-saved', detail: { accountId: '15' } }]);
+
+  // A refused or failed save announces nothing (the facts are unchanged on the server).
+  for (const status of [401, 403, 404, 422, 500]) {
+    const refused = guideComposable(() => guideResponse(status, { error: '店舗情報の入力内容を確認してください。' }));
+    refused.api.selectGrowthGuideAccount(15);
+    const result = refused.api.saveGrowthFacts({ name: 'トイバコ食堂' });
+    await refused.answer();
+    assert.equal(await result, undefined, `${status}: the page keeps the form`);
+    assert.notEqual(refused.api.growthGuideError.value, '', `${status}: the page shows the error`);
+    assert.deepEqual(refused.events, [], `${status}: nothing is announced`);
+  }
+
+  // The store changed while the save was on the way, or the answer belongs to another store: the page ignores the
+  // answer and nothing is announced for the store now on screen.
+  const moved = guideComposable(() => guideResponse(200, { account_id: 15, phase: 'receive' }));
+  moved.api.selectGrowthGuideAccount(15);
+  const late = moved.api.saveGrowthFacts({ name: 'トイバコ食堂' });
+  moved.api.selectGrowthGuideAccount(16);
+  await moved.answer();
+  assert.equal(await late, null);
+  assert.deepEqual(moved.events, []);
+  const foreign = guideComposable(() => guideResponse(200, { account_id: 16, phase: 'receive' }));
+  foreign.api.selectGrowthGuideAccount(15);
+  const other = foreign.api.saveGrowthFacts({ name: 'トイバコ食堂' });
+  await foreign.answer();
+  assert.equal(await other, null);
+  assert.deepEqual(foreign.events, []);
+
+  // Guide choices are not store facts, and nothing is sent without a store.
+  const choice = guideComposable(() => guideResponse(200, { account_id: 15, phase: 'connect' }));
+  choice.api.selectGrowthGuideAccount(15);
+  const chosen = choice.api.updateGrowthGuide({ purpose: 'inbox' });
+  await choice.answer();
+  await chosen;
+  assert.equal(choice.requests[0].url, '/toybaco/growth/onboarding?account_id=15');
+  assert.deepEqual(choice.events, []);
+  const none = guideComposable(() => guideResponse(200, { account_id: 15 }));
+  assert.equal(await none.api.saveGrowthFacts({ name: 'トイバコ食堂' }), undefined);
+  assert.deepEqual([none.requests, none.events], [[], []]);
+});
