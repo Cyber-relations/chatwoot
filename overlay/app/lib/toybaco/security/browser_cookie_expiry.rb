@@ -9,7 +9,7 @@ class Toybaco::Security::BrowserCookieExpiry
 
   def call(env)
     status, headers, body = @app.call(env)
-    ended = status == 401 || (env['toybaco.browser_logout'] && status == 404)
+    ended = (status == 401 && !env['toybaco.browser_authenticated']) || (env['toybaco.browser_logout'] && status == 404)
     if env['toybaco.browser_authentication'] && ended
       %w[cw_d_session_info cw_d_authenticated].each do |name|
         Rack::Utils.delete_cookie_header!(headers, name, path: '/', secure: true, httponly: true, same_site: :lax)

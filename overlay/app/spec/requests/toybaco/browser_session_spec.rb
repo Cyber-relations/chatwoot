@@ -40,6 +40,11 @@ RSpec.describe 'Toybaco browser session boundary', type: :request do
     get '/api/v1/profile', headers: browser_headers
     expect(response).to have_http_status(:ok)
     expect(response.parsed_body['id']).to eq(user.id)
+    # A forbidden admin operation uses upstream 401 without ending a valid login.
+    get "/api/v1/accounts/#{user.accounts.first.id}/webhooks", headers: browser_headers
+    expect(response).to have_http_status(:unauthorized)
+    get '/api/v1/profile', headers: browser_headers
+    expect(response).to have_http_status(:ok)
   end
 
   it 'does not authenticate from a forged marker or browser token headers' do

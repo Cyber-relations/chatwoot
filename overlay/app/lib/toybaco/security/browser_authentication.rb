@@ -25,11 +25,17 @@ module Toybaco::Security::BrowserAuthentication
     copy_toybaco_cookie_to_request
   end
 
+  def set_user_by_token(mapping = nil)
+    user = super
+    request.env['toybaco.browser_authenticated'] = true if user && @token&.client
+    user
+  end
+
   def update_auth_header
     super
     return unless toybaco_browser_auth_path? && toybaco_browser_request?
 
-    if response.status == 401 || toybaco_logout?
+    if (response.status == 401 && !request.env['toybaco.browser_authenticated']) || toybaco_logout?
       clear_toybaco_browser_cookie
     else
       publish_toybaco_browser_cookie
