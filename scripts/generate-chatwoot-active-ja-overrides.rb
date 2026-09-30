@@ -386,6 +386,7 @@ REPLACEMENTS = {
     replacement('alt="No image"', 'alt=""')
   ],
   'app/javascript/dashboard/components/auth/MfaVerification.vue' => [
+    replacement("import axios from 'axios';", "import axios from 'v3/api/apiClient';"),
     replacement("  parseAPIErrorResponse,\n", ''),
     replacement("  } catch (error) {\n    errorMessage.value =\n      parseAPIErrorResponse(error) || t('MFA_VERIFICATION.VERIFICATION_FAILED');",
                 "  } catch {\n    errorMessage.value = t('MFA_VERIFICATION.VERIFICATION_FAILED');")
