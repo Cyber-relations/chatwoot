@@ -30,6 +30,7 @@ ENV HUSKY=0 \
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
 COPY tests/chatwoot-cache-upgrade.test.mjs /opt/toybaco/tests/cache-upgrade.test.mjs
 COPY tests/chatwoot-logout-cleanup.test.mjs /opt/toybaco/tests/logout-cleanup.test.mjs
+COPY tests/chatwoot-browser-session.test.mjs /opt/toybaco/tests/browser-session.test.mjs
 RUN node --version \
     && test "$(node --version)" = 'v24.21.0' \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -38,6 +39,7 @@ RUN node --version \
     && pnpm install --frozen-lockfile \
     && node /opt/toybaco/tests/cache-upgrade.test.mjs /app /app /app \
     && node /opt/toybaco/tests/logout-cleanup.test.mjs /app /app /app \
+    && node /opt/toybaco/tests/browser-session.test.mjs /app \
     && rm -rf /app/public/vite \
     && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \

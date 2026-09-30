@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 const frameHarnesses = new WeakMap();
 // Older navigation/theme fixtures now perform the real parent handshake before
@@ -32,7 +32,7 @@ const entryPath = path.join(root, 'overlay/app/public/brand-assets/toybaco-post-
 const original = fs.readFileSync(entryPath, 'utf8');
 const instrumented = original.replace(
   /\n\}\)\(\);\s*$/,
-  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, onHashMaybeChanged: onHashMaybeChanged, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, readSessionHeaders: readSessionHeaders, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode, openAuxiliaryView: openAuxiliaryView, closeAuxiliaryView: closeAuxiliaryView };\n})();\n'
+  '\nwindow.__TOYBACO_POST_ENTRY_TEST__ = { buildSrc: buildSrc, validatePath: validatePath, postOrigin: POST_ORIGIN, postizLogoutUrl: postizLogoutUrl, installLogoutBridge: installLogoutBridge, findMenu: findMenu, placeEntry: placeEntry, inject: inject, openPanel: openPanel, closePanel: closePanel, hideStockNav: hideStockNav, start: start, onHashMaybeChanged: onHashMaybeChanged, afterNavChange: afterNavChange, primaryNavList: primaryNavList, rowLooksStock: rowLooksStock, annotateCannedLabels: annotateCannedLabels, hideCaptainWord: hideCaptainWord, CANNED_NAMES: CANNED_NAMES, isComposeTarget: isComposeTarget, cannedQueryFromText: cannedQueryFromText, filterCannedItems: filterCannedItems, cannedResponsesUrl: cannedResponsesUrl, normalizeCannedRecords: normalizeCannedRecords, prefetchCannedResponses: prefetchCannedResponses, openCannedSlash: openCannedSlash, closeCannedSlash: closeCannedSlash, onComposeSlashKeydown: onComposeSlashKeydown, onComposeSlashInput: onComposeSlashInput, insertCannedIntoComposer: insertCannedIntoComposer, pickCannedItem: pickCannedItem, cannedFetchHeaders: cannedFetchHeaders, normalizeAiMode: normalizeAiMode, aiModeLabel: aiModeLabel, aiModeUrl: aiModeUrl, applyAiMode: applyAiMode, prefetchAiMode: prefetchAiMode, saveAiMode: saveAiMode, ensureComposerAiBar: ensureComposerAiBar, openAiModePanel: openAiModePanel, closeAiModePanel: closeAiModePanel, currentAiMode: currentAiMode, openAuxiliaryView: openAuxiliaryView, closeAuxiliaryView: closeAuxiliaryView };\n})();\n'
 );
 assert.notEqual(instrumented, original, 'test instrumentation anchor was not found');
 
@@ -1894,20 +1894,19 @@ function fireSlashKey(api, editor, key, extra = {}) {
     client: 'client-test',
     uid: 'agent@example.com',
   }))}`;
-  const auth = env.api.readSessionHeaders();
-  assert.equal(auth.token, 'tok-test');
-  assert.equal(auth.client, 'client-test');
-  assert.equal(auth.uid, 'agent@example.com');
   const headers = env.api.cannedFetchHeaders();
-  assert.equal(headers['access-token'], 'tok-test');
-  assert.equal(headers['token-type'], 'Bearer');
+  assert.equal(headers['X-Toybaco-Browser'], '1');
+  assert.equal(headers['access-token'], undefined);
+  assert.equal(headers.client, undefined);
+  assert.equal(headers.uid, undefined);
   env.api.prefetchCannedResponses('1');
   const cannedCall = env.fetches.find((item) => String(item.url).includes('/canned_responses'));
   assert.ok(cannedCall, 'compose slash must prefetch Chatwoot canned responses');
   assert.equal(cannedCall.url, '/api/v1/accounts/1/canned_responses');
   assert.equal(cannedCall.opts.credentials, 'same-origin');
-  assert.equal(cannedCall.opts.headers['access-token'], 'tok-test');
-  assert.equal(cannedCall.opts.headers.uid, 'agent@example.com');
+  assert.equal(cannedCall.opts.headers['X-Toybaco-Browser'], '1');
+  assert.equal(cannedCall.opts.headers['access-token'], undefined);
+  assert.equal(cannedCall.opts.headers.uid, undefined);
 }
 
 {
@@ -5482,7 +5481,7 @@ console.log('TOYBACO_AI_ENTRY_RETRY=PASS pre-ready-same-account-only normal-no-i
 // No SSO server or child self-verification is simulated as a completed login.
 const renewalOwner = { id: 'e5360bd2-0e13-4a98-84c5-d71c4c9f2d61', orgId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', role: 'ADMIN', providerName: 'GENERIC' };
 function renewalActorCookie(uid = 'fixture-owner@example.test', client = 'fixture-client') {
-  return 'cw_d_session_info=' + encodeURIComponent(JSON.stringify({ 'access-token': 'fixture-unused', uid, client }));
+  return 'cw_d_authenticated=' + createHash('sha256').update(JSON.stringify({ uid, client })).digest('hex');
 }
 function postingRenewalFixture(owner = renewalOwner) {
   const f = postingContextFixture();

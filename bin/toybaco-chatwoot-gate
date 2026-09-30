@@ -231,6 +231,7 @@ control_file_list() {
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
     'tests/chatwoot-logout-cleanup.test.mjs' \
+    'tests/chatwoot-browser-session.test.mjs' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
@@ -1052,6 +1053,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/toybaco-growth-posting-release-ui.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
+  node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \

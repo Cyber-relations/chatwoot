@@ -1,5 +1,3 @@
-import fromUnixTime from 'date-fns/fromUnixTime';
-import differenceInDays from 'date-fns/differenceInDays';
 import Cookies from 'js-cookie';
 import { LOCAL_STORAGE_KEYS } from 'dashboard/constants/localStorage';
 import { SESSION_STORAGE_KEYS } from 'dashboard/constants/sessionStorage';
@@ -19,36 +17,29 @@ import {
   CHATWOOT_SET_USER,
 } from '../../constants/appEvents';
 
-// Authentication cookies must be Secure and root-scoped at the instant they
-// are created. A later dashboard script cannot safely repair the login cookie.
+// Authentication cookies are issued and expired only by the server.
 
-export const getLoadingStatus = state => state.fetchAPIloadingStatus;
+export const getLoadingStatus = (state) => state.fetchAPIloadingStatus;
 export const setLoadingStatus = (state, status) => {
   state.fetchAPIloadingStatus = status;
 };
 
-export const setUser = user => {
+export const setUser = (user) => {
   emitter.emit(CHATWOOT_SET_USER, { user });
   emitter.emit(ANALYTICS_IDENTITY, { user });
 };
 
-export const getHeaderExpiry = response =>
-  fromUnixTime(response.headers.expiry);
+export const getHeaderExpiry = () => undefined;
 
-export const setAuthCredentials = response => {
+export const setAuthCredentials = (response) => {
   if (isSessionEnding())
     throw new Error('ログアウト処理が完了するまでお待ちください。');
-  const expiryDate = getHeaderExpiry(response);
-  Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
-    expires: differenceInDays(expiryDate, new Date()),
-    secure: true,
-    sameSite: 'Lax',
-    path: '/',
-  });
-  setUser(response.data.data, expiryDate);
+  setUser(response.data.data);
 };
 
 export const clearBrowserSessionCookies = () => {
+  // The API clears the HttpOnly credential; this marker has no authority.
+  Cookies.remove('cw_d_authenticated', { path: '/' });
   Cookies.remove('cw_d_session_info', { path: '/' });
   Cookies.remove('auth_data');
   Cookies.remove('user');
@@ -59,10 +50,10 @@ export const clearLocalStorageOnLogout = () => {
     LOCAL_STORAGE_KEYS.DRAFT_MESSAGES,
     LOCAL_STORAGE_KEYS.MESSAGE_REPLY_TO,
     LOCAL_STORAGE_KEYS.RECENT_SEARCHES,
-  ].forEach(key => LocalStorage.remove(key));
+  ].forEach((key) => LocalStorage.remove(key));
   Object.keys(localStorage)
-    .filter(key => key.startsWith(LOCAL_STORAGE_KEYS.WIDGET_BUILDER))
-    .forEach(key => localStorage.removeItem(key));
+    .filter((key) => key.startsWith(LOCAL_STORAGE_KEYS.WIDGET_BUILDER))
+    .forEach((key) => localStorage.removeItem(key));
 };
 
 export const clearSessionStorageOnLogout = () => {
@@ -87,7 +78,7 @@ export const clearCookiesOnLogout = () =>
 
 onRemoteSessionEnd(clearCookiesOnLogout);
 
-export const parseAPIErrorResponse = error => {
+export const parseAPIErrorResponse = (error) => {
   if (error?.response?.data?.message) {
     return error?.response?.data?.message;
   }
@@ -100,7 +91,7 @@ export const parseAPIErrorResponse = error => {
   return error;
 };
 
-export const throwErrorMessage = error => {
+export const throwErrorMessage = (error) => {
   const errorMessage = parseAPIErrorResponse(error);
   throw new Error(errorMessage);
 };

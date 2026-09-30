@@ -16,7 +16,7 @@ export default {
       response = await axios.delete(urlData.url);
     } catch (error) {
       // An expired/revoked server session still needs local data cleanup.
-      if (error?.response?.status !== 401) throw error;
+      if (![401, 404].includes(error?.response?.status)) throw error;
       response = error.response;
     }
     if (!(await clearCookiesOnLogout())) {
@@ -27,18 +27,17 @@ export default {
     return response;
   },
   hasAuthCookie() {
-    return !!Cookies.get('cw_d_session_info');
+    // Legacy cookie presence only routes an existing user to server validation.
+    return !!(
+      Cookies.get('cw_d_authenticated') || Cookies.get('cw_d_session_info')
+    );
   },
   getAuthData() {
-    if (this.hasAuthCookie()) {
-      const savedAuthInfo = Cookies.get('cw_d_session_info');
-      return JSON.parse(savedAuthInfo || '{}');
-    }
-    return false;
+    return {}; // Credential material is never available to JavaScript.
   },
   profileUpdate({ displayName, avatar, ...profileAttributes }) {
     const formData = new FormData();
-    Object.keys(profileAttributes).forEach(key => {
+    Object.keys(profileAttributes).forEach((key) => {
       const hasValue = profileAttributes[key] === undefined;
       if (!hasValue) {
         formData.append(`profile[${key}]`, profileAttributes[key]);
