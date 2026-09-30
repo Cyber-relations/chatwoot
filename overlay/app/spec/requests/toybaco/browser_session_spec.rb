@@ -166,8 +166,9 @@ RSpec.describe 'Toybaco browser session boundary', type: :request do
   end
 
   it 'revokes all existing device tokens atomically on password and email changes' do
-    credentials = user.create_new_auth_token
-    other_device = user.create_new_auth_token
+    # Use another loaded model instance to reproduce an already-stale token column.
+    credentials = User.find(user.id).create_new_auth_token
+    other_device = User.find(user.id).create_new_auth_token
     user.update!(password: 'ChangedPassword1!')
     expect(user.reload.valid_token?(credentials['access-token'], credentials['client'])).to be(false)
     expect(user.valid_token?(other_device['access-token'], other_device['client'])).to be(false)

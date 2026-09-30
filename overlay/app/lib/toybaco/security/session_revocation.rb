@@ -14,6 +14,7 @@ module Toybaco::Security::SessionRevocation
 
     # Revoke all devices atomically with the credential change. A password
     # change must invalidate a copied old token, not merely its browser cookie.
+    tokens_will_change!
     self.tokens = {}
   end
 end
