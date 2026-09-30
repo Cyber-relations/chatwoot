@@ -76,8 +76,8 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpa
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
     && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
-      -exec grep -h -o -E '\.set\("cw_d_session_info",JSON\.stringify\([^)]*\.headers\),\{expires:[^}]+,secure:!0,sameSite:"Lax",path:"/"\}\)' {} + \
-      | wc -l | tr -d ' ')" = '1' \
+      -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
+      | wc -l | tr -d ' ')" = '0' \
     && for path in \
       etc/apk/world \
       lib/apk/db/installed lib/apk/db/scripts.tar lib/apk/db/triggers \

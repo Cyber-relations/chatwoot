@@ -1,5 +1,5 @@
 <script setup>
-import axios from 'axios';
+import axios from 'v3/api/apiClient';
 import { ref, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { handleOtpPaste } from 'shared/helpers/clipboard';

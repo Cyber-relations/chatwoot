@@ -405,8 +405,8 @@ assert_auth_cookie_production_block() {
 content = File.binread(ARGV.fetch(0))
 expected = <<'DOCKER'.chomp
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
-      -exec grep -h -o -E '\.set\("cw_d_session_info",JSON\.stringify\([^)]*\.headers\),\{expires:[^}]+,secure:!0,sameSite:"Lax",path:"/"\}\)' {} + \
-      | wc -l | tr -d ' ')" = '1' \
+      -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
+      | wc -l | tr -d ' ')" = '0' \
 DOCKER
 abort 'production auth cookie検証blockがexact 1件ではありません' unless
   content.scan(Regexp.new(Regexp.escape(expected))).length == 1
@@ -485,7 +485,7 @@ assert_control_contract() {
   grep -Fq "'Woot[[:space:]]*サーバー|Chatwootにログイン'" "$CONTROL_ROOT/Dockerfile" || fail \
     'production日本語served JS assetの旧brand文言拒否がありません'
   assert_auth_cookie_production_block "$CONTROL_ROOT/Dockerfile" || fail \
-    'production auth bundleのroot path Secure cookie検証がありません'
+    'production auth bundleの認証Cookie書込み拒否検証がありません'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
     'FROM ${CHATWOOT_IMAGE} AS overlay-normalizer'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
@@ -497,13 +497,14 @@ assert_control_contract() {
   ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
     "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
     "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js"
-  sed 's/secure: true/secure: false/g' \
-    "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
+  cat "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
     > "$RUN_ROOT/insecure-delayed-login-api.js"
+  printf "\nCookies.set('cw_d_session_info', 'unsafe-browser-token');\n" \
+    >> "$RUN_ROOT/insecure-delayed-login-api.js"
   if ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
     "$RUN_ROOT/insecure-delayed-login-api.js" \
     "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js" >/dev/null 2>&1; then
-    fail '遅延loginで非Secure auth cookieを作る負例をverifierが拒否しません'
+    fail 'ブラウザーが認証Cookieを作る負例をverifierが拒否しません'
   fi
 
   for required_path in \

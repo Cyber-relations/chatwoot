@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module Toybaco::Security::CredentialRevocation
+module Toybaco::Security::SessionRevocation
   extend ActiveSupport::Concern
 
   included do
