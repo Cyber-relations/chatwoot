@@ -15,11 +15,13 @@ class Toybaco::Growth::RenewalDispatchSyncGuard
     @environment = environment
   end
 
-  # A closed flag creates no row for a new invoice, so only this invoice's row keeps
-  # the dispatch barrier. Otherwise a flag rollback would leave later renewals waiting.
+  # A closed flag, or a store outside the dispatch eligibility, creates no row for a new invoice (the
+  # admission rule), so only this invoice's own row keeps the dispatch barrier. Otherwise a flag rollback
+  # or an excluded contract, such as the earlier growth version with its paid coverage, would leave
+  # renewals waiting.
   def pending?
     return false unless covered? && new_invoice? && !exempt? && renewal?
-    return false unless @environment[Toybaco::Growth::RenewalDispatch::FLAG] == 'true' || invoice_rows.exists?
+    return false unless expected_row? || invoice_rows.exists?
 
     !invoice_rows.exists?(state: 'idle', phase: accepted_phases)
   end
@@ -33,6 +35,10 @@ class Toybaco::Growth::RenewalDispatchSyncGuard
   end
 
   private
+
+  def expected_row?
+    @environment[Toybaco::Growth::RenewalDispatch::FLAG] == 'true' && Toybaco::Growth::RenewalDispatch.eligible?(@subscription['id'])
+  end
 
   # Initial activation, legacy and Free have no coverage of this subscription.
   def covered?

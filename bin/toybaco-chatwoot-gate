@@ -148,6 +148,7 @@ control_file_list() {
     'tests/toybaco_growth_renewal_dispatch_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_continuation_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_sync_cases.rb' \
+    'tests/toybaco_growth_renewal_dispatch_free_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_posting_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_runtime_test.rb' \
     'tests/toybaco_growth_renewal_dispatch_posting_runtime_test.rb' \

@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require 'digest'
+require_relative '../entitlements'
+require_relative '../subscription_reconciliation'
+require_relative 'period_end_cancel'
 require_relative 'renewal_dispatch_sync_guard'
 
 # Admission and synchronization barrier are committed with the signed N1 fact.
@@ -37,12 +40,31 @@ module Toybaco::Growth::RenewalDispatch
     raise Invalid unless Account.connection.transaction_open?
 
     row = model.find_by(renewal_operation_id: operation.id)
-    return unless row || environment[FLAG] == 'true'
+    return unless row || (environment[FLAG] == 'true' && eligible?(operation.subscription_id))
 
     row ||= model.create!(renewal_operation_id: operation.id, requested_fact_id: fact.id, due_at: operation.due_at,
                           deadline_at: now + DEADLINE, next_attempt_at: now, next_enqueue_at: now)
     row.with_lock { update_request!(row, operation, fact, now) }
     row
+  end
+
+  # The single dispatch eligibility, shared by admission and the Sync guard: the subscription is bound
+  # to exactly one store whose contract has the terms the period-end return accepts (current version,
+  # not legacy, no add-ons, growth meter, not Free). Anything else keeps the existing observation and
+  # the ordinary Sync. A failure to decide (database, connection) is not "not eligible": it propagates,
+  # so admission rolls back and Stripe retries the webhook, and a Sync fails and is retried.
+  def eligible?(subscription_id)
+    accounts = Toybaco::SubscriptionReconciliation.accounts_for(subscription_id).limit(2).to_a
+    accounts.one? && eligible_contract?(accounts.first)
+  end
+
+  # Only contract data that cannot be read or interpreted counts as not eligible: what stored data can
+  # raise in Entitlements.contract_for is the catalog check, a missing key, a value of the wrong type
+  # and an uncomparable add-on quantity. It reads no database.
+  def eligible_contract?(account)
+    Toybaco::Growth::PeriodEndCancel.paid_contract?(Toybaco::Entitlements.contract_for(account))
+  rescue Toybaco::PlanCatalog::Invalid, KeyError, TypeError, ArgumentError
+    false
   end
 
   def update_request!(row, operation, fact, now)

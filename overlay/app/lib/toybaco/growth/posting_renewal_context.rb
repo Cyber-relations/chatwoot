@@ -5,6 +5,7 @@ require_relative 'posting_renewal_authority'
 require_relative 'posting_renewal_fence'
 require_relative 'ordinary_renewal_fact'
 require_relative 'posting_authority_source'
+require_relative 'renewal_purchase'
 
 module Toybaco::Growth::PostingRenewalContext
   Record = Toybaco::Growth::PostingPreparationRecord
@@ -68,13 +69,11 @@ module Toybaco::Growth::PostingRenewalContext
 
   def local_binding
     attrs = attributes
-    purchase = attrs[Toybaco::Growth::PurchaseIntent::KEY]
-    raise Record::Invalid unless purchase.is_a?(Hash) && purchase['state'] == 'complete' &&
-                                 purchase['subscription_id'] == attrs['toybaco_subscription_id'] &&
-                                 purchase['livemode'] == (@environment['TOYBACO_STRIPE_MODE'] == 'live')
+    nonce = Toybaco::Growth::RenewalPurchase.nonce!(@account, subscription_id: attrs['toybaco_subscription_id'],
+                                                              live: @environment['TOYBACO_STRIPE_MODE'] == 'live', error: Record::Invalid)
 
     { 'contract' => Toybaco::Entitlements.contract_for(@account), 'subscription_id' => attrs['toybaco_subscription_id'],
-      'customer_id' => attrs['toybaco_stripe_customer_id'], 'mode' => @environment['TOYBACO_STRIPE_MODE'], 'purchase_nonce' => purchase['nonce'] }
+      'customer_id' => attrs['toybaco_stripe_customer_id'], 'mode' => @environment['TOYBACO_STRIPE_MODE'], 'purchase_nonce' => nonce }
   end
 
   def billing_idle?(attrs)
