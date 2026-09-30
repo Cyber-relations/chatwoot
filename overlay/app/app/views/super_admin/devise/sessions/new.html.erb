@@ -39,6 +39,18 @@
                   <%= f.password_field :password, autocomplete: "current-password",  placeholder: "パスワード", class: "block w-full rounded-md border-0 px-3 py-3 appearance-none shadow-sm ring-1 ring-inset text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-woot-500 sm:text-sm sm:leading-6 outline-none dark:bg-slate-700 dark:ring-slate-600 dark:focus:ring-woot-500 ring-slate-200" %>
                 </div>
               </div>
+              <div class="mb-5">
+                <%= f.label :otp_code, '認証アプリの確認コード', class: 'block text-sm font-medium dark:text-white' %>
+                <%= f.text_field :otp_code, value: nil, autocomplete: 'one-time-code', inputmode: 'numeric', maxlength: 6,
+                    class: 'block w-full rounded-md border px-3 py-3 dark:bg-slate-700 dark:text-white' %>
+              </div>
+              <details class="mb-5 text-sm dark:text-white">
+                <summary>認証アプリが使えない場合</summary>
+                <%= f.label :backup_code, '未使用のバックアップコード', class: 'block mt-3' %>
+                <%= f.password_field :backup_code, value: nil, autocomplete: 'off', maxlength: 8,
+                    class: 'block w-full rounded-md border px-3 py-3 dark:bg-slate-700 dark:text-white' %>
+              </details>
+              <p class="mb-5 text-sm dark:text-white">二段階認証を未設定の場合は、<a href="/app/login" class="underline">トイバコにログイン</a>してプロフィールから設定してください。</p>
               <button type="submit" class="flex items-center w-full justify-center rounded-md bg-woot-500 py-3 px-3 text-base font-medium text-white shadow-sm hover:bg-woot-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-woot-500 cursor-pointer">
                 <span>ログイン</span>
               </button>

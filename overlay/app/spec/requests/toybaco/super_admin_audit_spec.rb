@@ -16,7 +16,7 @@ RSpec.describe 'SuperAdmin 操作の監査', type: :request do
     end.new
   end
 
-  before { sign_in(super_admin, scope: :super_admin) }
+  before { sign_in_admin_with_mfa(super_admin) }
 
   # failed は別の DB セッションで確定させるため、transactional test のロールバックでは消えない。
   after { delete_committed_rows(baseline) }

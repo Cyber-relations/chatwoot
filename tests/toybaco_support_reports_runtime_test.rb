@@ -6,11 +6,13 @@ require 'factory_bot_rails'
 require 'ostruct'
 require 'devise/test/integration_helpers'
 require Rails.root.join('lib/toybaco/support/reports')
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 
 FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
 class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
   include Devise::Test::IntegrationHelpers
+  include ToybacoAdminMfaLoginHelper
   self.use_transactional_tests = true
   Reports = Toybaco::Support::Reports
 
@@ -143,7 +145,7 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
       product = Toybaco::SupportReport.last
       submit(category: 'billing', article: 'billing')
       billing = Toybaco::SupportReport.last
-      sign_in @operations, scope: :super_admin
+      sign_in_admin_with_mfa(@operations)
       # Ruby-only fixtures render the real controller, layout, forms and rows.
       # Compiled assets are verified separately in the production image smoke.
       ViteRuby.instance.stub(:dev_server_running?, true) do
@@ -171,7 +173,7 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
     first = Toybaco::SupportReport.last
     attributes = first.attributes.except('id')
     Toybaco::SupportReport.insert_all!(Array.new(100) { attributes.merge('request_id' => SecureRandom.uuid) })
-    sign_in @operations, scope: :super_admin
+    sign_in_admin_with_mfa(@operations)
     ViteRuby.instance.stub(:dev_server_running?, true) do
       get '/super_admin/toybaco_support'
       assert_response :success
@@ -189,7 +191,7 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
 
   def test_queue_rejects_invalid_cursor_and_keeps_roles_on_following_pages
     enabled { submit(category: 'billing', article: 'billing') }
-    sign_in @operations, scope: :super_admin
+    sign_in_admin_with_mfa(@operations)
     get '/super_admin/toybaco_support', params: { before: 'not-an-id' }
     assert_response :bad_request
     ViteRuby.instance.stub(:dev_server_running?, true) do
@@ -201,7 +203,7 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
 
   def test_owner_rotation_revokes_previous_queue_access
     enabled { submit }
-    sign_in @operations, scope: :super_admin
+    sign_in_admin_with_mfa(@operations)
     ENV['TOYBACO_SUPPORT_OPERATIONS_OWNER_ID'] = @billing.id.to_s
     get '/super_admin/toybaco_support'
     assert_response :forbidden
