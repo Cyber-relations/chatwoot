@@ -1398,23 +1398,16 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_line_setup_api_test.rb
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_line_runtime_test.rb
 
+  # These readers share the fixture DB with earlier MFA/channel tests. Use the
+  # same isolated keys as its writers; changing keys here is not a migration.
   STAGE='標準キーの旧アプリ読取りprobe・全媒体とMFAの実型変換'
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/native_encryption_probe_runtime_test.rb
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --env 'PGOPTIONS=-c default_transaction_read_only=on' \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec rails runner /contract/scripts/native-encryption-probe.rb
