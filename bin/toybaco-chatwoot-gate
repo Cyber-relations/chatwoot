@@ -230,6 +230,7 @@ control_file_list() {
     'tests/chatwoot-post-entry.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
+    'tests/chatwoot-logout-cleanup.test.mjs' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \

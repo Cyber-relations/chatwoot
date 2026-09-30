@@ -6,6 +6,12 @@ import { SESSION_STORAGE_KEYS } from 'dashboard/constants/sessionStorage';
 import { LocalStorage } from 'shared/helpers/localStorage';
 import SessionStorage from 'shared/helpers/sessionStorage';
 import { emitter } from 'shared/helpers/mitt';
+import { stopBrowserCache } from 'dashboard/helper/CacheHelper/DataManager';
+import {
+  clearBrowserData,
+  isSessionEnding,
+  onRemoteSessionEnd,
+} from 'dashboard/helper/sessionCleanup';
 import {
   ANALYTICS_IDENTITY,
   ANALYTICS_RESET,
@@ -30,6 +36,8 @@ export const getHeaderExpiry = response =>
   fromUnixTime(response.headers.expiry);
 
 export const setAuthCredentials = response => {
+  if (isSessionEnding())
+    throw new Error('ログアウト処理が完了するまでお待ちください。');
   const expiryDate = getHeaderExpiry(response);
   Cookies.set('cw_d_session_info', JSON.stringify(response.headers), {
     expires: differenceInDays(expiryDate, new Date()),
@@ -47,49 +55,37 @@ export const clearBrowserSessionCookies = () => {
 };
 
 export const clearLocalStorageOnLogout = () => {
-  LocalStorage.remove(LOCAL_STORAGE_KEYS.DRAFT_MESSAGES);
+  [
+    LOCAL_STORAGE_KEYS.DRAFT_MESSAGES,
+    LOCAL_STORAGE_KEYS.MESSAGE_REPLY_TO,
+    LOCAL_STORAGE_KEYS.RECENT_SEARCHES,
+  ].forEach(key => LocalStorage.remove(key));
+  Object.keys(localStorage)
+    .filter(key => key.startsWith(LOCAL_STORAGE_KEYS.WIDGET_BUILDER))
+    .forEach(key => localStorage.removeItem(key));
 };
 
 export const clearSessionStorageOnLogout = () => {
   SessionStorage.remove(SESSION_STORAGE_KEYS.IMPERSONATION_USER);
 };
 
-export const deleteIndexedDBOnLogout = async () => {
-  let dbs = [];
-  try {
-    dbs = await window.indexedDB.databases();
-    dbs = dbs.map(db => db.name);
-  } catch (e) {
-    dbs = JSON.parse(localStorage.getItem('cw-idb-names') || '[]');
-  }
-
-  dbs.forEach(dbName => {
-    const deleteRequest = window.indexedDB.deleteDatabase(dbName);
-
-    deleteRequest.onerror = event => {
-      // eslint-disable-next-line no-console
-      console.error(`Error deleting database ${dbName}.`, event);
-    };
-
-    deleteRequest.onsuccess = () => {
-      // eslint-disable-next-line no-console
-      console.log(`Database ${dbName} deleted successfully.`);
-    };
+export const clearCookiesOnLogout = () =>
+  clearBrowserData({
+    stopBrowserCache,
+    clearSession: () => {
+      emitter.emit(CHATWOOT_RESET);
+      emitter.emit(ANALYTICS_RESET);
+      clearBrowserSessionCookies();
+      clearLocalStorageOnLogout();
+      clearSessionStorageOnLogout();
+    },
+    redirect: () => {
+      const globalConfig = window.globalConfig || {};
+      window.location = globalConfig.LOGOUT_REDIRECT_LINK || '/';
+    },
   });
 
-  localStorage.removeItem('cw-idb-names');
-};
-
-export const clearCookiesOnLogout = () => {
-  emitter.emit(CHATWOOT_RESET);
-  emitter.emit(ANALYTICS_RESET);
-  clearBrowserSessionCookies();
-  clearLocalStorageOnLogout();
-  clearSessionStorageOnLogout();
-  const globalConfig = window.globalConfig || {};
-  const logoutRedirectLink = globalConfig.LOGOUT_REDIRECT_LINK || '/';
-  window.location = logoutRedirectLink;
-};
+onRemoteSessionEnd(clearCookiesOnLogout);
 
 export const parseAPIErrorResponse = error => {
   if (error?.response?.data?.message) {

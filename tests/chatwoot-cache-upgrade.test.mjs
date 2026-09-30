@@ -12,7 +12,7 @@ const { openDB, deleteDB } = require('idb');
 const versionSource = readFileSync(resolve(upstream, 'app/javascript/dashboard/helper/CacheHelper/version.js'), 'utf8');
 const version = Number(versionSource.match(/INBOX_CACHE_INVALIDATION_VERSION = (\d+)/)[1]);
 const managerSource = readFileSync(resolve(overlay, 'app/javascript/dashboard/helper/CacheHelper/DataManager.js'), 'utf8')
-  .replace(/^import .*;\n/gm, '').replace('export class DataManager', 'class DataManager');
+  .replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
 const apiSource = readFileSync(resolve(upstream, 'app/javascript/dashboard/api/CacheEnabledApiClient.js'), 'utf8')
   .replace(/^import .*;\n/gm, '').replace('export default CacheEnabledApiClient;', '');
 const storage = new Map();

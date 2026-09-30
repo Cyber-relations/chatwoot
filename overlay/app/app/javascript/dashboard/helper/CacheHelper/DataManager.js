@@ -1,13 +1,29 @@
 import { openDB } from 'idb';
 import { DATA_VERSION, INBOX_CACHE_INVALIDATION_VERSION } from './version';
 
+const managers = new Set();
+let sessionEnded = false;
+
+export const stopBrowserCache = () => {
+  sessionEnded = true;
+  const names = [];
+  managers.forEach(manager => {
+    names.push(`cw-store-${manager.accountId}`);
+    manager.cacheDisabled = true;
+    manager.db?.close();
+    manager.db = null;
+  });
+  return names;
+};
+
 export class DataManager {
   constructor(accountId) {
     this.modelsToSync = ['inbox', 'label', 'team', 'canned_response'];
     this.accountId = accountId;
     this.db = null;
     this.dbOpening = null;
-    this.cacheDisabled = false;
+    this.cacheDisabled = sessionEnded;
+    managers.add(this);
   }
 
   async initDb() {
@@ -75,7 +91,12 @@ export class DataManager {
     const timeout = setTimeout(disableCache, 1000);
     this.dbOpening = Promise.race([opening, unavailable]);
     try {
-      this.db = await this.dbOpening;
+      const db = await this.dbOpening;
+      if (this.cacheDisabled) {
+        db.close();
+        throw new Error('Browser cache is unavailable');
+      }
+      this.db = db;
       // Store the database name in LocalStorage
       const dbNames = JSON.parse(localStorage.getItem('cw-idb-names') || '[]');
       if (!dbNames.includes(dbName)) {
