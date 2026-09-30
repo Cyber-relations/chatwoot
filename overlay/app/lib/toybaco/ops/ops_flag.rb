@@ -1,7 +1,10 @@
 # frozen_string_literal: true
 
-# 運営フラグ(S0-2 日次ダイジェスト、S1-2 店舗一覧、S0-1 利用者からの報告)の定義と読み手の正本。
-# 値は installation_configs に JSON の boolean で置き、書くのは toybaco:ops_flag(lib/tasks/toybaco_ops.rake)だけ。
+# 運営フラグ(S0-2 日次ダイジェスト、S1-2 店舗一覧、S0-1 利用者からの報告、使い方サポートの入口と AI 回答)の定義と読み手の正本。
+# TOYBACO_SUPPORT_ENABLED は使い方サポートの入口(無効の間、/toybaco/support の API はすべて 404 を返す)。
+# TOYBACO_SUPPORT_AI_ENABLED は使い方サポートの AI 回答(入口と両方が有効の時だけ、AI が登録済みの手順を選ぶ)。
+# 値は installation_configs に JSON の boolean で置き、書くのは toybaco:ops_flag(lib/tasks/toybaco_ops.rake)だけ
+# (staging の使い方サポートの 2 キーは scripts/support_staging_flags.rb も書くため、staging では ops_flag と併用しない)。
 # 読み手は GlobalConfig の cache(Redis)を経由せず DB を直接読む(読むたびに SQL 1 本)。upstream の GlobalConfig.load_from_cache は
 # cache miss の時に DB から読んだ値を無条件に SET する(CAS なし、TTL 1 日)ため、書き込みの前に DB を読んだ reader が
 # 書き込みの後で古い値を cache に戻すと、DB と異なる判定が最大 1 日続く。
@@ -9,7 +12,10 @@
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
     module OpsFlag
-      OPS_FLAGS = %w[TOYBACO_OPS_DIGEST_ENABLED TOYBACO_OPS_CONSOLE_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED].freeze
+      # ops-rake workflow の契約テスト(tests/ops-rake-workflow.test.mjs)がこの定義を 1 行の %w として照合するため、行の長さの検査だけを外す。
+      # rubocop:disable Layout/LineLength
+      OPS_FLAGS = %w[TOYBACO_OPS_DIGEST_ENABLED TOYBACO_OPS_CONSOLE_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED TOYBACO_SUPPORT_ENABLED TOYBACO_SUPPORT_AI_ENABLED].freeze
+      # rubocop:enable Layout/LineLength
 
       module_function
 

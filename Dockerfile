@@ -29,6 +29,8 @@ ENV HUSKY=0 \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
 COPY tests/chatwoot-cache-upgrade.test.mjs /opt/toybaco/tests/cache-upgrade.test.mjs
+COPY tests/chatwoot-logout-cleanup.test.mjs /opt/toybaco/tests/logout-cleanup.test.mjs
+COPY tests/chatwoot-browser-session.test.mjs /opt/toybaco/tests/browser-session.test.mjs
 RUN node --version \
     && test "$(node --version)" = 'v24.21.0' \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
@@ -36,6 +38,8 @@ RUN node --version \
     && test "$(pnpm --version)" = '10.2.0' \
     && pnpm install --frozen-lockfile \
     && node /opt/toybaco/tests/cache-upgrade.test.mjs /app /app /app \
+    && node /opt/toybaco/tests/logout-cleanup.test.mjs /app /app /app \
+    && node /opt/toybaco/tests/browser-session.test.mjs /app \
     && rm -rf /app/public/vite \
     && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \
@@ -72,8 +76,8 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpa
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
     && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
-      -exec grep -h -o -E '\.set\("cw_d_session_info",JSON\.stringify\([^)]*\.headers\),\{expires:[^}]+,secure:!0,sameSite:"Lax",path:"/"\}\)' {} + \
-      | wc -l | tr -d ' ')" = '1' \
+      -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
+      | wc -l | tr -d ' ')" = '0' \
     && for path in \
       etc/apk/world \
       lib/apk/db/installed lib/apk/db/scripts.tar lib/apk/db/triggers \

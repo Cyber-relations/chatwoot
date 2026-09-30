@@ -86,7 +86,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def authorize!
-        raise Forbidden unless GlobalConfigService.load('TOYBACO_SUPPORT_ENABLED', false) == true && self.class.available? &&
+        # 入口の可否(運営フラグ)も cache を経由せず DB を直接読む(Toybaco::Ops::OpsFlag)。
+        raise Forbidden unless Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_ENABLED') && self.class.available? &&
                                Context.new(@account, @user).member?
       end
 

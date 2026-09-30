@@ -170,7 +170,7 @@ class ChatwootAgentLoginTest < Minitest::Test
     assert_includes controller, '&.set_user(user, scope: :user)'
     assert_includes controller, 'User.from_email'
     assert_includes controller, "cookies[:cw_d_session_info]"
-    assert_includes controller, 'httponly: false'
+    assert_includes controller, 'httponly: true'
     assert_includes controller, "redirect_to '/app/'"
     refute_includes controller, 'puts '
     refute_match(/FIXTURE_TOKEN|sk_live|AKIA/, controller)

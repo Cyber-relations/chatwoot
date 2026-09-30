@@ -213,16 +213,15 @@
     if (postRenewal && !postRenewal.isCurrent()) clearPostRenewal();
   }
 
-  // Compare the existing parent session identity locally; no token is retained
-  // or copied into a frame URL/message. The server independently binds the grant.
+  // A non-secret server-issued marker detects parent login changes. It grants
+  // no access; the OIDC server separately validates the HttpOnly credential.
   function postingActor() {
-    var auth = readSessionHeaders();
-    return auth ? { uid: auth.uid, client: auth.client } : null;
+    var match = String(document.cookie || '').match(/(?:^|;\s*)cw_d_authenticated=([a-f0-9]{64})(?:;|$)/);
+    return match ? match[1] : null;
   }
 
   function samePostingActor(actor) {
-    var current = postingActor();
-    return !!(actor && current && actor.uid === current.uid && actor.client === current.client);
+    return !!(actor && actor === postingActor());
   }
 
   window.addEventListener('pagehide', clearPostRenewal);
@@ -3071,7 +3070,6 @@
   }
 
   var SLASH_MARK = 'toybaco-slash-canned';
-  var AUTH_COOKIE_NAME = 'cw_d_session_info';
   var cannedPrefetch = { accountId: '', items: null, error: false, inflight: null };
   var slashState = { open: false, query: '', index: 0, editor: null };
 
@@ -3155,38 +3153,8 @@
     return '/api/v1/accounts/' + accountId + '/canned_responses';
   }
 
-  function readSessionHeaders() {
-    try {
-      var parts = String(document.cookie || '').split(';');
-      var i;
-      for (i = 0; i < parts.length; i += 1) {
-        var part = parts[i].replace(/^\s+/, '');
-        if (part.indexOf(AUTH_COOKIE_NAME) !== 0 || part.charAt(AUTH_COOKIE_NAME.length) !== '=') continue;
-        var info = JSON.parse(decodeURIComponent(part.slice(AUTH_COOKIE_NAME.length + 1)));
-        if (!info || typeof info !== 'object') return null;
-        var token = info['access-token'];
-        var client = info.client;
-        var uid = info.uid;
-        if (!token || !client || !uid) return null;
-        return {
-          token: String(token),
-          client: String(client),
-          uid: String(uid)
-        };
-      }
-      return null;
-    } catch (e) { return null; }
-  }
-
   function cannedFetchHeaders() {
-    var headers = { Accept: 'application/json' };
-    var auth = readSessionHeaders();
-    if (!auth) return headers;
-    headers['access-token'] = auth.token;
-    headers.client = auth.client;
-    headers.uid = auth.uid;
-    headers['token-type'] = 'Bearer';
-    return headers;
+    return { Accept: 'application/json', 'X-Toybaco-Browser': '1' };
   }
 
   function normalizeCannedRecords(payload) {

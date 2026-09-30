@@ -68,10 +68,18 @@ class Toybaco::AgentLoginController < ActionController::Base # rubocop:disable R
         'token-type' => headers['token-type']
       }.to_json,
       expires: cookie_expiry(headers['expiry']),
-      httponly: false,
+      httponly: true,
       secure: true,
       same_site: :lax,
       path: '/'
+    }
+    write_browser_marker(user, headers)
+  end
+
+  def write_browser_marker(user, headers)
+    cookies[:cw_d_authenticated] = {
+      value: Digest::SHA256.hexdigest([user.id, headers['client']].to_json), expires: cookie_expiry(headers['expiry']),
+      httponly: false, secure: true, same_site: :lax, path: '/'
     }
   end
 

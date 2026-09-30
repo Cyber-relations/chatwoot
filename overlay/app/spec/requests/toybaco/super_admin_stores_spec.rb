@@ -110,7 +110,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
     end
 
     it 'DB flag が true 以外なら 404 にし、ナビゲーションにもリンクを出さない' do
-      sign_in(super_admin, scope: :super_admin)
+      sign_in_admin_with_mfa(super_admin)
       [false, nil, 'true'].each do |value|
         console(value)
         get '/super_admin/toybaco_stores'
@@ -126,7 +126,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
     end
 
     it 'GlobalConfig の cache に古い true が残っていても、DB に行が無ければ 404 にしてリンクも出さない(フラグは DB を直接読む)' do
-      sign_in(super_admin, scope: :super_admin)
+      sign_in_admin_with_mfa(super_admin)
       console(nil)
       Redis::Alfred.set("#{GlobalConfig::VERSION}:#{GlobalConfig::KEY_PREFIX}:TOYBACO_OPS_CONSOLE_ENABLED", { value: true }.to_json)
       get '/super_admin/toybaco_stores'
@@ -139,7 +139,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
   end
 
   describe '一覧' do
-    before { sign_in(super_admin, scope: :super_admin) }
+    before { sign_in_admin_with_mfa(super_admin) }
 
     it '店舗ごとに契約・Stripe 状態・担当者・受信箱・投稿・AI・最終活動・開通日を JST で出す' do
       stores = build_stores
@@ -203,7 +203,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
   end
 
   describe 'CSV' do
-    before { sign_in(super_admin, scope: :super_admin) }
+    before { sign_in_admin_with_mfa(super_admin) }
 
     it 'BOM 付き UTF-8 で、画面と同じ列・JST の日付のファイル名で渡す' do
       stores = build_stores
@@ -233,7 +233,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
   end
 
   describe '絞込・並び・ページ' do
-    before { sign_in(super_admin, scope: :super_admin) }
+    before { sign_in_admin_with_mfa(super_admin) }
 
     it 'プラン・状態で絞り込み、開通日の降順にも並べ替える' do
       light, standard, unset, broken = build_stores
@@ -265,7 +265,7 @@ RSpec.describe 'SuperAdmin toybaco stores', type: :request do
   end
 
   describe 'SQL の本数' do
-    before { sign_in(super_admin, scope: :super_admin) }
+    before { sign_in_admin_with_mfa(super_admin) }
 
     def count_queries(&)
       count = 0

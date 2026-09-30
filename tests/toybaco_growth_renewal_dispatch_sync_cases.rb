@@ -196,6 +196,38 @@ module ToybacoGrowthRenewalDispatchSyncCases
     assert_equal 1, sync_base_rows.size
   end
 
+  # The earlier growth version has paid coverage, but no dispatch eligibility: its paid renewal fact
+  # creates no row, and its Sync never waits for one (no status-only), completing the ordinary Sync.
+  def test_dispatch_sync_previous_growth_version_takes_the_ordinary_sync_without_waiting
+    dispatch_contract!('standard', '2026-09-18.1')
+    sync_fixture(paid: true)
+    assert_equal ['2026-09-18.1', @sub], sync_coverage.values_at('plan_version', 'subscription_id')
+    sync = sync_notice!
+    refute Dispatch.sync_pending?(@account.reload, @subscription)
+    assert_nil Dispatch.guard_sync!(@account, @subscription, now: NOW)
+    receipt = accept(event(type: 'invoice.paid', created: NOW.to_i))
+    assert_nil Dispatch.for_event(receipt)
+    Growth::BillingExecution.new(receipt, client: @client, now: NOW).call
+    assert_equal %w[completed subscription_accepted], receipt.reload.values_at(:state, :result)
+    refute sync_rows.exists?
+    assert_equal 'completed', sync_execute(sync)
+    assert_equal ['completed', 'applied'], sync.reload.values_at(:state, :result)
+    assert_equal [@invoice, @sync_period.first, '2026-09-18.1'], sync_coverage.values_at('invoice_id', 'term_start', 'plan_version')
+    assert_equal 1, sync_base_rows.size
+  end
+
+  # The Sync guard decides with the same eligibility: a database failure while the contract is read
+  # propagates out of the guard, so the Sync fails and is retried instead of skipping the barrier.
+  def test_dispatch_sync_guard_eligibility_database_failure_propagates
+    sync_fixture(paid: true)
+    assert Dispatch.sync_pending?(@account.reload, @subscription)
+    Toybaco::Entitlements.stub(:contract_for, ->(*) { raise ActiveRecord::ConnectionNotEstablished, 'fixture connection lost' }) do
+      assert_raises(ActiveRecord::ConnectionNotEstablished) { Dispatch.sync_pending?(@account, @subscription) }
+      assert_raises(ActiveRecord::ConnectionNotEstablished) { Dispatch.guard_sync!(@account, @subscription, now: NOW) }
+    end
+    assert Dispatch.sync_pending?(@account, @subscription)
+  end
+
   def test_dispatch_sync_flag_unset_without_rows_keeps_legacy_sync
     sync_legacy_flow { ENV.delete(Dispatch::FLAG) }
   end

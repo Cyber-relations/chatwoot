@@ -178,4 +178,144 @@ module ToybacoGrowthRenewalDispatchCases
     assert_raises(ActiveRecord::ReadOnlyRecord) { row.update!(paid_context: { 'fixture' => false }) }
     assert_equal true, row.reload.paid_context['fixture']
   end
+
+  def dispatch_terms(plan_id, version)
+    catalog = Toybaco::PlanCatalog.default
+    terms = version == 'legacy-unversioned' ? catalog.legacy(plan_id) : catalog.definition(plan_id, version)
+    cycle = terms.fetch('cycles', {}).empty? ? nil : 'month'
+    Toybaco::Entitlements.snapshot_for(terms, cycle: cycle).merge('stripe_price_id' => 'price_renewal', 'subscription_item_id' => 'si_renewal')
+  end
+
+  def dispatch_contract!(plan_id, version)
+    @account.update_columns(internal_attributes: @account.internal_attributes.merge('toybaco_contract' => dispatch_terms(plan_id, version)))
+  end
+
+  def dispatch_subscription_rows
+    Toybaco::GrowthRenewalDispatch.joins(Growth::RenewalDispatchSyncGuard::JOIN).where('o.subscription_id = ?', @sub)
+  end
+
+  # Older terms and Free never take the dispatch phases: no row is created, the existing observation
+  # records outside_terms and the billing worker hands the fact to the ordinary Sync.
+  { 'previous_meter' => %w[pro 2026-09-06.1], 'legacy' => %w[standard legacy-unversioned],
+    'free' => %w[free 2026-09-25.1] }.each do |label, (plan_id, version)|
+    define_method("test_dispatch_#{label}_contract_keeps_the_existing_observation_and_sync") do
+      dispatch_contract!(plan_id, version)
+      event = accept
+      refute dispatch_subscription_rows.exists?
+      assert_nil Dispatch.for_event(event)
+      Growth::BillingExecution.new(event, client: @client, now: NOW).call
+      assert_equal %w[completed subscription_accepted], event.reload.values_at(:state, :result)
+      assert_equal ['outside_terms', @account.id], [operation.state, operation.account_id]
+      assert_nil failure
+      refute Dispatch.blocked?('test', @sub, now: NOW)
+      assert_nil Dispatch.guard_sync!(@account.reload, @subscription, now: NOW)
+      sync = Toybaco::SubscriptionSyncRequest.find(event.subscription_sync_request_id)
+      assert_equal 'pending', sync.state
+      assert(ActiveJob::Base.queue_adapter.enqueued_jobs.any? { |job| job[:job] == Toybaco::SubscriptionReconciliationJob && job[:args] == [sync.id] })
+    end
+  end
+
+  # The current paid growth contract keeps the dispatch phases.
+  def test_dispatch_current_growth_contract_takes_the_dispatch_phases
+    dispatch_contract!('standard', '2026-09-25.1')
+    event = accept
+    assert Dispatch.eligible?(@sub)
+    assert_equal %w[pending received], dispatch_row.values_at(:state, :phase)
+    assert_equal dispatch_row, Dispatch.for_event(event)
+  end
+
+  # Growth contracts outside the terms the Free return accepts, the earlier growth version and a contract
+  # with add-ons, get no row: the existing observation of a growth store and the ordinary Sync take them.
+  { 'previous_growth' => -> { dispatch_contract!('standard', '2026-09-18.1') },
+    'addon' => -> { dispatch_addon_contract! } }.each do |label, contract|
+    define_method("test_dispatch_#{label}_contract_keeps_the_existing_observation_and_sync") do
+      instance_exec(&contract)
+      event = accept
+      refute Dispatch.eligible?(@sub)
+      refute dispatch_subscription_rows.exists?
+      Growth::BillingExecution.new(event, client: @client, now: NOW).call
+      assert_equal %w[completed subscription_accepted], event.reload.values_at(:state, :result)
+      assert_equal 'observed_failure', operation.state
+      assert_nil Dispatch.guard_sync!(@account.reload, @subscription, now: NOW)
+    end
+  end
+
+  def dispatch_addon_contract!
+    terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
+    addon = Toybaco::Entitlements.new_addon('opt-store', quantity: 1, source: 'manual').merge('account_id' => @account.id + 1_000_000)
+    contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month', addons: [addon])
+                                    .merge('stripe_price_id' => 'price_renewal', 'subscription_item_id' => 'si_renewal')
+    @account.update_columns(internal_attributes: @account.internal_attributes.merge('toybaco_contract' => contract))
+  end
+
+  # A contract that cannot be read is not eligible and never fails the admission: the signed fact,
+  # revision and operation commit without a row, and the billing worker takes the existing path.
+  def test_dispatch_unreadable_contract_creates_no_row_and_keeps_the_existing_path
+    event = Toybaco::Entitlements.stub(:contract_for, ->(*) { raise TypeError, 'fixture unreadable contract' }) { accept }
+    assert Toybaco::RenewalInvoiceFact.exists?(billing_event_id: event.id)
+    assert_equal 1, Toybaco::RenewalOperation.where(subscription_id: @sub).count
+    refute dispatch_subscription_rows.exists?
+    Growth::BillingExecution.new(event, client: @client, now: NOW).call
+    assert_equal %w[completed subscription_accepted], event.reload.values_at(:state, :result)
+    assert_equal 'observed_failure', operation.state
+  end
+
+  # Stored contract data that cannot be read is not eligible, never a failed admission: the fact and
+  # operation commit without a row (a missing key and an unknown cycle, as saved).
+  def test_dispatch_malformed_stored_contract_is_not_eligible_and_admission_commits
+    contract = @account.internal_attributes['toybaco_contract']
+    { 'missing' => contract.except('entitlements'), 'cycle' => contract.merge('cycle' => 'week') }.each do |label, broken|
+      @account.update_columns(internal_attributes: @account.internal_attributes.merge('toybaco_contract' => broken))
+      refute Dispatch.eligible?(@sub), label
+      value = event
+      value['data']['object']['id'] = "in_#{label}#{SecureRandom.hex(4)}"
+      receipt = accept(value)
+      assert Toybaco::RenewalInvoiceFact.exists?(billing_event_id: receipt.id), label
+      refute dispatch_subscription_rows.exists?, label
+    end
+    assert_equal 2, Toybaco::RenewalOperation.where(subscription_id: @sub).count
+  end
+
+  # A failure to decide eligibility is not "not eligible": a lost database connection while the store
+  # is looked up propagates, the whole admission rolls back, and the retried webhook is admitted.
+  def test_dispatch_eligibility_database_failure_rolls_back_the_admission
+    value = event
+    original = Toybaco::SubscriptionReconciliation.method(:accounts_for)
+    lost = lambda do |id|
+      raise ActiveRecord::ConnectionNotEstablished, 'fixture connection lost' if caller_locations.any? { |frame| frame.path.end_with?('growth/renewal_dispatch.rb') }
+
+      original.call(id)
+    end
+    Toybaco::SubscriptionReconciliation.stub(:accounts_for, lost) do
+      assert_raises(ActiveRecord::ConnectionNotEstablished) { accept(value) }
+    end
+    refute Toybaco::BillingEvent.exists?(event_id: value['id'])
+    refute Toybaco::RenewalInvoiceFact.exists?(subscription_id: @sub)
+    refute Toybaco::RenewalOperation.exists?(subscription_id: @sub)
+    refute Toybaco::SubscriptionSyncRequest.exists?(subscription_id: @sub)
+    accept(value)
+    assert_equal %w[pending received], dispatch_row.values_at(:state, :phase)
+  end
+
+  # A subscription bound to no store gets no row; its fact stays for the existing observation. With
+  # two stores bound the ingress already rejects the fact, and the predicate refuses the row as well.
+  def test_dispatch_unbound_or_ambiguous_subscription_creates_no_row
+    attrs = @account.internal_attributes
+    @account.update_columns(internal_attributes: attrs.merge('toybaco_subscription_id' => "sub_unbound#{SecureRandom.hex(4)}"))
+    first = accept
+    refute dispatch_subscription_rows.exists?
+    assert_nil Toybaco::SubscriptionSyncRequest.find(first.subscription_sync_request_id).account_id
+    refute Dispatch.eligible?(@sub)
+    @account.update_columns(internal_attributes: attrs)
+    assert Dispatch.eligible?(@sub)
+    other = Account.create!(name: 'Duplicate binding fixture', locale: 'ja', internal_attributes: attrs.slice('toybaco_contract', 'toybaco_subscription_id'))
+    refute Dispatch.eligible?(@sub)
+    second = event
+    second['data']['object']['id'] = "in_second#{SecureRandom.hex(4)}"
+    assert_raises(Toybaco::SubscriptionReconciliation::Invalid) { accept(second) }
+    assert_equal 1, Toybaco::RenewalOperation.where(subscription_id: @sub).count
+    refute dispatch_subscription_rows.exists?
+  ensure
+    other&.destroy!
+  end
 end

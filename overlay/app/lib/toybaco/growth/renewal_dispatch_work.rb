@@ -5,10 +5,14 @@ require_relative 'scheduled_downgrade'
 require_relative 'renewal_dispatch_continuation'
 require_relative 'renewal_coordinator'
 require_relative 'renewal_coordinator_settlement'
+require_relative 'period_end_free_return'
 
 class Toybaco::Growth::RenewalDispatchWork
   Attention = Class.new(StandardError)
   Record = Toybaco::Growth::PostingPreparationRecord
+  # The failure path returns to Free under the rollout flags and hold error rules of the period-end return.
+  FREE_FLAGS = Toybaco::Growth::PeriodEndCancel::FLAGS
+  HOLD_ATTENTION = Toybaco::Growth::PeriodEndFreeReturn::ATTENTION
 
   def initialize(row, client:, environment:, clock:, **options)
     @row = row
@@ -111,11 +115,23 @@ class Toybaco::Growth::RenewalDispatchWork
     raise Attention, 'payment_review' if result['phase'] == 'payment_review'
     return 'free_completed' if result['phase'] == 'free_completed'
     return 'due_waiting' unless result['phase'] == 'provider_closed'
-    return 'provider_closed' unless @environment['TOYBACO_GROWTH_FREE_RETURN_ENABLED'] == 'true'
+    return 'provider_closed' unless FREE_FLAGS.all? { |flag| @environment[flag] == 'true' }
 
+    hold!
     result = service.complete_free!
     raise Record::Invalid unless result['phase'] == 'free_completed'
 
     'free_completed'
+  end
+
+  # Stripe is closed. The posting hold, then the inbox hold of this transition, in the period-end order;
+  # both are idempotent for the same transition. A busy fence or lock, the provider or the Postiz
+  # transport leaves the row pending until its deadline; a changed binding or an invalid record stops it.
+  def hold!
+    account = @account || Account.find(@operation.account_id)
+    Toybaco::Growth::PostingRetention.new(account, environment: @environment, clock: @clock).call
+    Toybaco::Growth::InboxRetention.new(account, environment: @environment, clock: @clock).call
+  rescue *HOLD_ATTENTION
+    raise Attention, 'hold_attention'
   end
 end

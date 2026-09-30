@@ -1963,9 +1963,11 @@ end
 # Exercise the actual authenticated administrative update, including a repeated
 # suspended value that does not trigger an ActiveRecord status-change callback.
 require 'devise/test/integration_helpers'
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 
 class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::IntegrationTest
   include Devise::Test::IntegrationHelpers
+  include ToybacoAdminMfaLoginHelper
   self.use_transactional_tests = false
 
   def setup
@@ -1991,7 +1993,7 @@ class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::Integratio
   end
 
   def test_repeated_admin_suspension_clears_automatic_resume_ownership_and_preserves_history
-    sign_in @administrator, scope: :super_admin
+    sign_in_admin_with_mfa(@administrator)
     update_status(status: 'suspended', suspension_category: 'other', suspension_reason: 'Fixture administrative suspension')
     assert_response :redirect
     assert_equal 'suspended', @account.reload.status
@@ -2007,7 +2009,7 @@ class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::Integratio
   end
 
   def test_edit_without_status_does_not_change_billing_resume_ownership
-    sign_in @administrator, scope: :super_admin
+    sign_in_admin_with_mfa(@administrator)
     update_status(name: 'Fixture renamed store')
     assert_response :redirect
     assert_equal 'Fixture renamed store', @account.reload.name
@@ -2016,7 +2018,7 @@ class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::Integratio
   end
 
   def test_unsaved_invalid_admin_change_does_not_clear_billing_ownership
-    sign_in @administrator, scope: :super_admin
+    sign_in_admin_with_mfa(@administrator)
     original = @account.internal_attributes.deep_dup
     update_status(name: '', status: 'suspended', suspension_category: 'other', suspension_reason: 'Fixture administrative suspension')
     assert_response :unprocessable_entity

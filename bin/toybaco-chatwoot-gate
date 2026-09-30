@@ -148,6 +148,7 @@ control_file_list() {
     'tests/toybaco_growth_renewal_dispatch_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_continuation_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_sync_cases.rb' \
+    'tests/toybaco_growth_renewal_dispatch_free_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_posting_cases.rb' \
     'tests/toybaco_growth_renewal_dispatch_runtime_test.rb' \
     'tests/toybaco_growth_renewal_dispatch_posting_runtime_test.rb' \
@@ -230,6 +231,8 @@ control_file_list() {
     'tests/chatwoot-post-entry.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
+    'tests/chatwoot-logout-cleanup.test.mjs' \
+    'tests/chatwoot-browser-session.test.mjs' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
@@ -286,6 +289,8 @@ integration_ruby_file_list() {
     cd "$source_root"
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
+      find overlay/app/lib/toybaco/security -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/app/controllers/super_admin/devise/sessions_controller.rb overlay/app/config/initializers/toybaco_admin_mfa.rb overlay/app/spec/support/toybaco_admin_mfa.rb
       printf '%s\n' overlay/app/app/controllers/super_admin/support_reports_controller.rb overlay/app/db/migrate/20260920000000_create_toybaco_support_reports.rb
       find overlay/app/app/jobs/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/connections -type f -name '*.rb' -print
@@ -401,8 +406,8 @@ assert_auth_cookie_production_block() {
 content = File.binread(ARGV.fetch(0))
 expected = <<'DOCKER'.chomp
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
-      -exec grep -h -o -E '\.set\("cw_d_session_info",JSON\.stringify\([^)]*\.headers\),\{expires:[^}]+,secure:!0,sameSite:"Lax",path:"/"\}\)' {} + \
-      | wc -l | tr -d ' ')" = '1' \
+      -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
+      | wc -l | tr -d ' ')" = '0' \
 DOCKER
 abort 'production auth cookie検証blockがexact 1件ではありません' unless
   content.scan(Regexp.new(Regexp.escape(expected))).length == 1
@@ -481,7 +486,7 @@ assert_control_contract() {
   grep -Fq "'Woot[[:space:]]*サーバー|Chatwootにログイン'" "$CONTROL_ROOT/Dockerfile" || fail \
     'production日本語served JS assetの旧brand文言拒否がありません'
   assert_auth_cookie_production_block "$CONTROL_ROOT/Dockerfile" || fail \
-    'production auth bundleのroot path Secure cookie検証がありません'
+    'production auth bundleの認証Cookie書込み拒否検証がありません'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
     'FROM ${CHATWOOT_IMAGE} AS overlay-normalizer'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
@@ -493,13 +498,14 @@ assert_control_contract() {
   ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
     "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
     "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js"
-  sed 's/secure: true/secure: false/g' \
-    "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
+  cat "$CONTROL_ROOT/overlay/app/app/javascript/dashboard/store/utils/api.js" \
     > "$RUN_ROOT/insecure-delayed-login-api.js"
+  printf "\nCookies.set('cw_d_session_info', 'unsafe-browser-token');\n" \
+    >> "$RUN_ROOT/insecure-delayed-login-api.js"
   if ruby "$CONTROL_ROOT/tests/verify_chatwoot_auth_cookie.rb" source \
     "$RUN_ROOT/insecure-delayed-login-api.js" \
     "$CONTROL_ROOT/overlay/app/public/brand-assets/toybaco-post-entry.js" >/dev/null 2>&1; then
-    fail '遅延loginで非Secure auth cookieを作る負例をverifierが拒否しません'
+    fail 'ブラウザーが認証Cookieを作る負例をverifierが拒否しません'
   fi
 
   for required_path in \
@@ -867,6 +873,9 @@ test_env_args() {
   printf '%s\n' \
     '--env' 'RAILS_ENV=test' \
     '--env' 'NODE_ENV=test' \
+    '--env' 'ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=toybaco-isolated-test-primary-key' \
+    '--env' 'ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=toybaco-isolated-test-deterministic-key' \
+    '--env' 'ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=toybaco-isolated-test-salt' \
     '--env' 'SECRET_KEY_BASE=0000000000000000000000000000000000000000000000000000000000000000' \
     '--env' 'POSTGRES_HOST=postgres' \
     '--env' 'POSTGRES_PORT=5432' \
@@ -1046,6 +1055,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/toybaco-growth-posting-release-ui.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
+  node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
@@ -1392,23 +1402,16 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_line_setup_api_test.rb
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_line_runtime_test.rb
 
+  # These readers share the fixture DB with earlier MFA/channel tests. Use the
+  # same isolated keys as its writers; changing keys here is not a migration.
   STAGE='標準キーの旧アプリ読取りprobe・全媒体とMFAの実型変換'
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/native_encryption_probe_runtime_test.rb
   run_test_container \
-    --env ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=fixture-primary-key-32-characters \
-    --env ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=fixture-deterministic-key-32chars \
-    --env ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=fixture-derivation-salt-32-charsxx \
     --env 'PGOPTIONS=-c default_transaction_read_only=on' \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec rails runner /contract/scripts/native-encryption-probe.rb

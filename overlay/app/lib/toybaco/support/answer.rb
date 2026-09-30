@@ -5,6 +5,7 @@ require_relative 'context'
 require_relative 'question'
 require_relative 'prompt'
 require_relative 'capacity'
+require_relative '../ops/ops_flag'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Support
@@ -48,8 +49,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def ready!
         raise Forbidden unless current_context.member?
-        raise Unavailable unless GlobalConfigService.load('TOYBACO_SUPPORT_ENABLED', false) == true &&
-                                 GlobalConfigService.load('TOYBACO_SUPPORT_AI_ENABLED', false) == true
+        # 入口と AI 回答の可否(運営フラグ)は cache を経由せず DB を直接読む(Toybaco::Ops::OpsFlag)。
+        raise Unavailable unless Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_ENABLED') &&
+                                 Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_AI_ENABLED')
       end
     end
   end

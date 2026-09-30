@@ -313,6 +313,37 @@ class ToybacoGrowthPeriodEndCancelRuntimeTest < ActiveSupport::TestCase
     assert_existing_suspension_and_no_return('addons')
   end
 
+  # A store opened from the sign-up checkout has no purchase record, only its opening request. The
+  # period-end return reads neither, completes as before, records no purchase and keeps the request.
+  def test_opening_store_without_purchase_record_returns_to_free_at_period_end
+    request = Toybaco::OpeningRequest.create!(mode: 'test', session_id: "cs_test_periodend#{SecureRandom.hex(8)}", state: 'account_ready',
+                                              deadline_at: NOW, subscription_id: 'sub_periodend', account_id: @account.id, owner_id: @owner.id,
+                                              contract_digest: 'c' * 64, account_ready_at: NOW - 31.days)
+    refute @account.reload.internal_attributes.key?(Toybaco::Growth::PurchaseIntent::KEY)
+    before = request.attributes
+    assert_equal 'applied', synchronize
+    assert_equal 'free_completed', finalize
+    receipt = FreeRecord.current(@account.reload)
+    assert_nil receipt['purchase']
+    assert_equal [FreeRecord.free_contract, nil], [Toybaco::Entitlements.contract_for(@account), @account.internal_attributes['toybaco_subscription_id']]
+    refute @account.internal_attributes.key?(Toybaco::Growth::PurchaseIntent::KEY)
+    assert_equal before, request.reload.attributes
+    assert_equal 1, free_returns.count
+  ensure
+    Toybaco::OpeningRequest.where(id: request.id).delete_all if request
+  end
+
+  # The earlier growth version has the growth meter, but the retention snapshot and the Free return
+  # are defined for the current terms only: it keeps the existing suspension and never starts a return.
+  def test_previous_growth_version_keeps_the_existing_suspension
+    store_contract('2026-09-18.1')
+    assert_equal Toybaco::GrowthTerms::METER, @contract.dig('entitlements', 'ai_meter')
+    refute_equal Toybaco::GrowthTerms::VERSION, @contract['plan_version']
+    @provider.sub = ended_subscription
+    assert_existing_suspension_and_no_return('previous growth version')
+    assert_equal true, @account.internal_attributes['toybaco_billing_suspended']
+  end
+
   def test_direct_synchronize_without_the_reconciliation_opt_in_keeps_the_existing_suspension
     assert_existing_suspension_and_no_return('no opt-in with all rollout flags', opt_in: false)
     assert_equal true, @account.internal_attributes['toybaco_billing_suspended']

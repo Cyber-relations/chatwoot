@@ -32,9 +32,11 @@ module Toybaco::Growth::PeriodEndCancel
     account.active? && paid_contract?(attrs['toybaco_contract']) && unblocked?(attrs) && ended_status?(attrs) && journal?(attrs)
   end
 
+  # Only the current growth terms: the retention snapshot and the Free return are defined for them,
+  # so an earlier growth version keeps the existing suspension instead of a return that cannot finish.
   def paid_contract?(contract)
-    contract.is_a?(Hash) && contract['plan_id'] != 'free' && contract['legacy'] != true && contract['addons'] == [] &&
-      contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER
+    contract.is_a?(Hash) && contract['plan_id'] != 'free' && contract['plan_version'] == Toybaco::GrowthTerms::VERSION &&
+      contract['legacy'] != true && contract['addons'] == [] && contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER
   end
 
   def unblocked?(attrs)

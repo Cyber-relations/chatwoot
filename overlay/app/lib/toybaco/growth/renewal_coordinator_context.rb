@@ -4,6 +4,7 @@ require_relative 'renewal_coordinator_record'
 require_relative 'renewal_transition'
 require_relative 'paid_period'
 require_relative 'purchase_intent'
+require_relative 'renewal_purchase'
 require_relative 'posting_owner_inventory'
 
 # Local source capture only. The shared ordinary-renewal reader owns all
@@ -39,16 +40,13 @@ module Toybaco::Growth::RenewalCoordinatorContext
     raise Record::Changed unless operation.source_hash == Toybaco::Growth::BillingReceipt.snapshot_digest(source)
     raise Record::Changed unless source.values_at('subscription_id', 'customer_id') == failure.values_at('subscription_id', 'customer_id')
 
-    source.merge('purchase_nonce' => purchase_nonce!(attrs, failure),
+    source.merge('purchase_nonce' => purchase_nonce!(account, failure),
                  'coverage' => attrs[Toybaco::Growth::PaidPeriod::KEY]&.except('current_period_start', 'current_base_limit'))
   end
 
-  def purchase_nonce!(attrs, failure)
-    purchase = attrs[Toybaco::Growth::PurchaseIntent::KEY]
-    raise Record::Changed unless purchase.is_a?(Hash) && purchase['state'] == 'complete' &&
-                                 purchase['subscription_id'] == failure['subscription_id'] && purchase['livemode'] == (failure['mode'] == 'live')
-
-    purchase['nonce']
+  def purchase_nonce!(account, failure)
+    Toybaco::Growth::RenewalPurchase.nonce!(account, subscription_id: failure['subscription_id'], live: failure['mode'] == 'live',
+                                                     error: Record::Changed)
   end
 
   def billing_hash!(account, attrs)
