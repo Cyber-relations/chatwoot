@@ -6,6 +6,7 @@ require Rails.root.join('lib/toybaco/checkout/plan_change')
 RSpec.describe 'Toybaco authenticated plan changes', type: :request do
   let(:account) { create(:account, internal_attributes: { 'toybaco_subscription_id' => 'sub_fixture' }) }
   let(:user) { create(:user, account: account) }
+  let(:api_headers) { sign_in_user_with_mfa(user) }
   let(:service) { instance_double(Toybaco::Checkout::PlanChange) }
   let(:headers) { { 'Origin' => 'http://www.example.com', 'Sec-Fetch-Site' => 'same-origin' } }
   let(:selection) { { 'plan_id' => 'standard', 'plan_version' => '2026-09-06.1', 'cycle' => 'month' } }
@@ -96,12 +97,12 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
                                          'subscription_status' => 'active', 'subscription_ends_on' => '2099-01-01',
                                          'website' => 'https://example.invalid' })
     billing_keys = %w[plan_name subscribed_quantity subscription_status subscription_ends_on billing_currency]
-    get "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token
+    get "/api/v1/accounts/#{account.id}", headers: api_headers
     expect(response).to have_http_status(:ok)
     expect(response.parsed_body.dig('custom_attributes', 'plan_name')).to eq('Private billing plan')
     [create(:user).id, nil].each do |owner|
       account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => owner))
-      get "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token
+      get "/api/v1/accounts/#{account.id}", headers: api_headers
       expect(response).to have_http_status(:ok)
       attrs = response.parsed_body.fetch('custom_attributes')
       expect(attrs.keys & billing_keys).to be_empty
@@ -131,13 +132,13 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
   it '通常のaccount更新とprofile取得から契約者を変更したり契約値を取得できない' do
     other_owner = create(:user).id
     account.update!(internal_attributes: account.internal_attributes.merge(Toybaco::BillingAccess::OWNER_KEY => other_owner))
-    patch "/api/v1/accounts/#{account.id}", headers: user.create_new_auth_token,
+    patch "/api/v1/accounts/#{account.id}", headers: api_headers,
                                             params: { internal_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id },
                                                       custom_attributes: { Toybaco::BillingAccess::OWNER_KEY => user.id } }, as: :json
     expect(response).to have_http_status(:ok)
     expect(account.reload.internal_attributes[Toybaco::BillingAccess::OWNER_KEY]).to eq(other_owner)
     expect(account.custom_attributes).not_to have_key(Toybaco::BillingAccess::OWNER_KEY)
-    get '/api/v1/profile', headers: user.create_new_auth_token
+    get '/api/v1/profile', headers: api_headers
     expect(response).to have_http_status(:ok)
     expect(response.body).not_to include(Toybaco::BillingAccess::OWNER_KEY, 'sub_fixture', 'toybaco_contract', 'internal_attributes')
   end
@@ -149,11 +150,11 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
     expect(Enterprise::Billing::CreateSessionService).not_to receive(:new)
     expect(Enterprise::Billing::TopupCheckoutService).not_to receive(:new)
     %w[checkout subscription select_billing_currency toggle_deletion topup_checkout].each do |action|
-      post "/enterprise/api/v1/accounts/#{account.id}/#{action}", headers: user.create_new_auth_token,
+      post "/enterprise/api/v1/accounts/#{account.id}/#{action}", headers: api_headers,
                                                                   params: { credits: 10, currency: 'usd', action_type: 'delete' }, as: :json
       expect(response).to have_http_status(:forbidden)
     end
-    get "/enterprise/api/v1/accounts/#{account.id}/topup_options", headers: user.create_new_auth_token
+    get "/enterprise/api/v1/accounts/#{account.id}/topup_options", headers: api_headers
     expect(response).to have_http_status(:forbidden)
   end
 

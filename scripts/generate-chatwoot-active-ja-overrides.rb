@@ -855,6 +855,7 @@ REPLACEMENTS = {
     replacement('alt="Someone is typing"', 'alt="入力中"')
   ],
   'app/javascript/v3/api/auth.js' => [
+    replacement("    // Check if MFA is required\n", "    if (response.status === 206 && response.data.mfa_enrollment_required) {\n      window.location = '/toybaco/mfa-enrollment';\n      return null;\n    }\n\n    // Check if MFA is required\n"),
     replacement("  throwErrorMessage,\n", ''),
     replacement('const loginError = new Error(parseAPIErrorResponse(error));',
                 "const parsedError = parseAPIErrorResponse(error);\n    const loginError = new Error(\n      typeof parsedError === 'string' && /[ぁ-んァ-ヶ一-龠々ー]/.test(parsedError)\n        ? parsedError\n        : 'ログインできませんでした。入力内容を確認して、もう一度お試しください。'\n    );"),

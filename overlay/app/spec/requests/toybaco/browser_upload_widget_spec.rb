@@ -53,14 +53,24 @@ RSpec.describe 'Browser session upload and public widget boundaries', type: :req
     expect(cookies['cw_d_session_info']).to eq(original)
   end
 
-  it 'keeps add-account credentials server-issued and usable without exposing bearer headers' do
+  it 'keeps add-account credentials server-issued and usable without exposing bearer headers' do # rubocop:disable RSpec/MultipleExpectations
     allow(GlobalConfigService).to receive(:account_signup_enabled?).and_return(true)
     allow(ChatwootCaptcha).to receive(:new).and_return(instance_double(ChatwootCaptcha, valid?: true))
-    cookies['cw_d_session_info'] = user.create_new_auth_token.to_json
+    user.update!(otp_secret: User.generate_otp_secret, otp_required_for_login: true, otp_backup_codes: ['ABCD1234'])
+    post '/auth/sign_in', params: { email: user.email, password: 'Password1!' },
+                          headers: staff_headers.merge('X-CSRF-Token' => staff_csrf), as: :json
+    challenge = response.parsed_body.fetch('mfa_token')
+    post '/auth/sign_in', params: { mfa_token: challenge, backup_code: 'ABCD1234' },
+                          headers: staff_headers.merge('X-CSRF-Token' => staff_csrf), as: :json
+    expect(response).to have_http_status(:ok)
+    original_client = JSON.parse(cookies['cw_d_session_info']).fetch('client')
+    original_proof = user.reload.tokens.fetch(original_client).fetch('toybaco_mfa_at')
     post '/api/v1/accounts', params: { account_name: 'Synthetic additional account' },
                              headers: staff_headers.merge('X-CSRF-Token' => staff_csrf), as: :json
     expect(response).to have_http_status(:success)
     expect(user.reload.accounts.count).to eq(2)
+    new_client = JSON.parse(cookies['cw_d_session_info']).fetch('client')
+    expect(user.tokens.fetch(new_client).fetch('toybaco_mfa_at')).to eq(original_proof)
     %w[access-token client uid authorization].each { |header| expect(response.headers[header]).to be_nil }
     expect(Array(response.headers['Set-Cookie']).join).to match(/cw_d_session_info=.*httponly/i)
     get '/api/v1/profile', headers: staff_headers

@@ -10,7 +10,9 @@ module Toybaco::Security::SessionRevocation
   private
 
   def revoke_toybaco_sessions_on_credential_change
-    return unless will_save_change_to_encrypted_password? || will_save_change_to_email? || will_save_change_to_unconfirmed_email?
+    changed = will_save_change_to_encrypted_password? || will_save_change_to_email? || will_save_change_to_unconfirmed_email? ||
+              will_save_change_to_otp_secret? || will_save_change_to_otp_required_for_login?
+    return unless changed
 
     # Revoke all devices atomically with the credential change. A password
     # change must invalidate a copied old token, not merely its browser cookie.
