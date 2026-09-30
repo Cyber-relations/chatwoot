@@ -5,6 +5,7 @@
 require 'rails/test_help'
 require 'minitest/mock'
 require 'factory_bot_rails'
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 require 'ostruct'
 require 'uri'
 
@@ -12,6 +13,7 @@ FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
 class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
+  include ToybacoAdminMfaLoginHelper
   self.use_transactional_tests = true
 
   Microsoft = Toybaco::Connections::Microsoft
@@ -118,7 +120,7 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def authorize
-    post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: @user.create_new_auth_token, as: :json
+    post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: sign_in_user_with_mfa(@user), as: :json
     assert_response :success
     URI.decode_www_form(URI(response.parsed_body.fetch('url')).query).to_h.fetch('state')
   end
@@ -159,14 +161,14 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
 
   def test_api_token_without_browser_cookie_cannot_start_connection
     Microsoft.stub(:allowed?, true) do
-      post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: @user.create_new_auth_token, as: :json
+      post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :unauthorized
     end
   end
 
   def test_closed_release_does_not_fall_back_to_old_mail_configuration
     Microsoft.stub(:allowed?, false) do
-      post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: @user.create_new_auth_token, as: :json
+      post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: { return_to: 'growth' }, headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :service_unavailable
       assert_nil response.parsed_body['url']
     end
@@ -365,7 +367,7 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
     refute built.content_attributes.key?('toybaco_microsoft_received')
     assert_nil built.source_id
     message.update!(status: :failed, content_attributes: { Send::KEY => { 'state' => 'uncertain', 'attempt_id' => 'fixture' } })
-    post "/api/v1/accounts/#{@account.id}/conversations/#{message.conversation.display_id}/messages/#{message.id}/retry", headers: @user.create_new_auth_token, as: :json
+    post "/api/v1/accounts/#{@account.id}/conversations/#{message.conversation.display_id}/messages/#{message.id}/retry", headers: sign_in_user_with_mfa(@user), as: :json
     assert_response :success
     assert_equal 'uncertain', message.reload.content_attributes.dig(Send::KEY, 'state')
   end

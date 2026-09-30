@@ -3,6 +3,7 @@
 require 'rails/test_help'
 require 'minitest/mock'
 require 'factory_bot_rails'
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 require 'timeout'
 require 'action_mailbox/test_helper'
 require Rails.root.join('lib/toybaco/growth/renewal_settlement')
@@ -2123,8 +2124,9 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
     ActiveJob::Base.queue_adapter.enqueued_jobs.clear
     session = ActionDispatch::Integration::Session.new(Rails.application)
     session.host! 'app.example.com'
+    session.extend(ToybacoAdminMfaLoginHelper)
     session.post "/api/v1/accounts/#{@account.id}/conversations/#{message.conversation.display_id}/messages/#{message.id}/retry",
-      headers: user.create_new_auth_token, as: :json
+      headers: session.sign_in_user_with_mfa(user), as: :json
     result = ActiveJob::Base.queue_adapter.enqueued_jobs.find { |job| job['job_class'] == 'SendReplyJob' }
     [session.response.status, result && JSON.parse(JSON.generate(result.select { |key, _| key.is_a?(String) }))]
   ensure
@@ -4224,7 +4226,8 @@ class ToybacoGrowthRenewalTransitionRuntimeTest
   def membership_http(method, target, actor: @owner)
     session = ActionDispatch::Integration::Session.new(Rails.application)
     session.host! 'app.example.com'
-    options = { headers: actor ? actor.create_new_auth_token : {}, as: :json }
+    session.extend(ToybacoAdminMfaLoginHelper)
+    options = { headers: actor ? session.sign_in_user_with_mfa(actor) : {}, as: :json }
     options[:params] = { agent: { role: 'agent' } } if method == :patch
     session.public_send(method, "/api/v1/accounts/#{@account.id}/agents/#{target.id}", **options)
     session.response

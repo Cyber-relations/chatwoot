@@ -47,7 +47,8 @@ RSpec.describe Toybaco::Oidc::SessionReader do
   describe 'renewal session binding' do
     let(:now) { Time.utc(2026, 9, 17) }
     let(:record) { { 'token' => 'server-hashed-token', 'expiry' => now.to_i + 3600 } }
-    let(:valid_user) { instance_double(User, confirmed?: true, tokens: { client => record }) }
+    let(:memberships) { instance_double(ActiveRecord::Relation, exists?: false) }
+    let(:valid_user) { instance_double(User, confirmed?: true, mfa_enabled?: false, account_users: memberships, tokens: { client => record }) }
     let(:reader) { described_class.new(cookie) }
     let(:binding) do
       reader.user

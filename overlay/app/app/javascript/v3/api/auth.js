@@ -17,6 +17,11 @@ export const login = async ({
   try {
     const response = await wootAPI.post('auth/sign_in', credentials);
 
+    if (response.status === 206 && response.data.mfa_enrollment_required) {
+      window.location = '/toybaco/mfa-enrollment';
+      return null;
+    }
+
     // Check if MFA is required
     if (response.status === 206 && response.data.mfa_required) {
       // Return MFA data instead of throwing error

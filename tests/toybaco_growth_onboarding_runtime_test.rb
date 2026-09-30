@@ -3,6 +3,7 @@
 require 'rails/test_help'
 require 'minitest/mock'
 require 'factory_bot_rails'
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 require 'ostruct'
 require Rails.root.join('lib/toybaco/growth/onboarding')
 
@@ -10,6 +11,7 @@ FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
 class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
+  include ToybacoAdminMfaLoginHelper
   self.use_transactional_tests = true
   Gmail = Toybaco::Connections::Gmail
   Facts = Toybaco::Growth::StoreFacts
@@ -538,11 +540,11 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       prepare_line(inbox)
       incoming = receive_line(inbox)
       path = "/api/v1/accounts/#{@account.id}/conversations/#{incoming.conversation.display_id}/messages"
-      post path, params: { content: '返信', status: 'delivered', message_type: 'outgoing' }, headers: @user.create_new_auth_token, as: :json
+      post path, params: { content: '返信', status: 'delivered', message_type: 'outgoing' }, headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :success
       reply = inbox.messages.outgoing.order(:id).last
       refute reply.delivered?
-      patch "#{path}/#{reply.id}", params: { status: 'delivered' }, headers: @user.create_new_auth_token, as: :json
+      patch "#{path}/#{reply.id}", params: { status: 'delivered' }, headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :forbidden
       assert_equal 'reply', read_guide['phase']
     end
@@ -629,7 +631,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
 
   def reply_from_dashboard(incoming)
     post "/api/v1/accounts/#{@account.id}/conversations/#{incoming.conversation.display_id}/messages",
-         params: { content: '本日は18時までです。' }, headers: @user.create_new_auth_token, as: :json
+         params: { content: '本日は18時までです。' }, headers: sign_in_user_with_mfa(@user), as: :json
     assert_response :success
     incoming.inbox.messages.outgoing.order(:id).last
   end

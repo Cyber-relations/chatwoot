@@ -1,0 +1,20 @@
+<h1>管理操作のために2段階認証を設定してください</h1>
+<p>パスワードに加えて、認証アプリの確認コードでアカウントを保護します。Google Authenticatorなどの認証アプリをご用意ください。</p>
+<% if @error %><p class="error" role="alert"><%= @error %></p><% end %>
+<% if @user.otp_secret.blank? %>
+  <%= form_with url: '/toybaco/mfa-enrollment', local: true do %>
+    <button type="submit">設定を始める</button>
+  <% end %>
+<% else %>
+  <p>認証アプリでアカウントを追加し、このQRコードを読み取ってください。</p>
+  <canvas id="toybaco-mfa-qr" data-uri="<%= @user.two_factor_provisioning_uri %>" aria-label="認証アプリ登録用QRコード"></canvas>
+  <details><summary>QRコードを読み取れない場合</summary><p>時間ベースのキーとして、次の値を認証アプリへ入力してください。</p><code><%= @user.otp_secret %></code></details>
+  <%= form_with url: '/toybaco/mfa-enrollment/verify', local: true do %>
+    <label for="otp-code">認証アプリの6桁の確認コード</label>
+    <input id="otp-code" name="otp_code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus>
+    <button type="submit">確認して設定を完了する</button>
+  <% end %>
+<% end %>
+<%= form_with url: '/toybaco/mfa-enrollment/cancel', local: true do %>
+  <button class="secondary" type="submit">ログイン画面に戻る</button>
+<% end %>
