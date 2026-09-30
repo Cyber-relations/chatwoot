@@ -5,6 +5,7 @@ require_relative '../../../lib/toybaco/support/knowledge'
 require_relative '../../../lib/toybaco/support/answer'
 require_relative '../../../lib/toybaco/support/diagnostics'
 require_relative '../../../lib/toybaco/support/reports'
+require_relative '../../../lib/toybaco/ops/ops_flag'
 
 class Toybaco::SupportController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
@@ -22,7 +23,7 @@ class Toybaco::SupportController < ActionController::Base # rubocop:disable Rail
   def show
     render json: { version: Toybaco::Support::Knowledge::VERSION, account_id: @account.id,
                    articles: Toybaco::Support::Knowledge.articles(@context), status: @context.status,
-                   ai_available: GlobalConfigService.load('TOYBACO_SUPPORT_AI_ENABLED', false) == true,
+                   ai_available: Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_AI_ENABLED'),
                    reports_available: Toybaco::Support::Reports.available?, billing_report: @context.allowed?('billing') }
   end
 
@@ -83,7 +84,8 @@ class Toybaco::SupportController < ActionController::Base # rubocop:disable Rail
 
   def load_context
     response.headers['Cache-Control'] = 'no-store'
-    return head :not_found unless GlobalConfigService.load('TOYBACO_SUPPORT_ENABLED', false) == true
+    # 入口の可否(運営フラグ)は cache を経由せず DB を直接読む(Toybaco::Ops::OpsFlag)。
+    return head :not_found unless Toybaco::Ops::OpsFlag.enabled?('TOYBACO_SUPPORT_ENABLED')
 
     @user = Toybaco::Oidc::SessionReader.new(cookies[:cw_d_session_info]).user
     return head :unauthorized unless @user&.confirmed?

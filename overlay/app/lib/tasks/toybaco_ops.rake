@@ -61,8 +61,8 @@ namespace :toybaco do
   end
 
   # 監査行(started / ok|failed)は上の RakeAudit が書き、params_digest に name と value が入る。
-  # 出力はフラグ名・値・前の値の 1 行と、3 つのフラグの現在値の 3 行。値は OpsFlag.state で表し、文字列の中身は出さない。
-  desc '運営フラグを JSON の boolean で切り替える(rake "toybaco:ops_flag[フラグ名,true|false]"。フラグ名は OPS_FLAGS の 3 つ)'
+  # 出力はフラグ名・値・前の値の 1 行と、OPS_FLAGS の各キーの現在値(1 キー 1 行)。値は OpsFlag.state で表し、文字列の中身は出さない。
+  desc '運営フラグを JSON の boolean で切り替える(rake "toybaco:ops_flag[フラグ名,true|false]"。フラグ名は OPS_FLAGS のキー)'
   task :ops_flag, %i[name value] => :environment do |_t, args|
     flag = Toybaco::Ops::OpsFlag
     name = args[:name]
@@ -88,7 +88,7 @@ namespace :toybaco do
     end
 
     puts "TOYBACO_OPS_FLAG name=#{name} value=#{value} previous=#{flag.state(previous)}"
-    # 監査行は引数の digest しか持たないため、run ログで 3 つのフラグの状態全体を読めるようにする。
+    # 監査行は引数の digest しか持たないため、run ログで全運営フラグの状態を読めるようにする。
     flag::OPS_FLAGS.each { |key| puts "TOYBACO_OPS_FLAG_STATE name=#{key} value=#{flag.state(flag.current(key))}" }
   end
 end

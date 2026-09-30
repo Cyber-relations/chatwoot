@@ -146,8 +146,11 @@ RSpec.describe Toybaco::Ops::RakeAudit do # rubocop:disable RSpec/SpecFilePathFo
   end
 
   describe 'toybaco:ops_flag' do
-    # 実装の定数に頼らず、機能側が JSON の boolean で判定する 3 つのフラグをここで固定する。
-    let(:flags) { %w[TOYBACO_OPS_DIGEST_ENABLED TOYBACO_OPS_CONSOLE_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED] }
+    # 実装の定数に頼らず、機能側が JSON の boolean で判定する 5 つのフラグをここで固定する。
+    let(:flags) do
+      %w[TOYBACO_OPS_DIGEST_ENABLED TOYBACO_OPS_CONSOLE_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED TOYBACO_SUPPORT_ENABLED
+         TOYBACO_SUPPORT_AI_ENABLED]
+    end
     let(:name_error) { "フラグ名は #{flags.join(' / ')} のいずれかを指定してください。\n" }
     let(:value_error) { "値は true か false を指定してください。\n" }
     let(:extras_error) { "引数はフラグ名と値の 2 つだけを指定してください(1 回に切り替えるフラグは 1 つ)。\n" }
@@ -167,12 +170,12 @@ RSpec.describe Toybaco::Ops::RakeAudit do # rubocop:disable RSpec/SpecFilePathFo
       InstallationConfig.unscoped.order(:id).map { |row| [row.id, row.name, row.value, row.locked, row.updated_at] }
     end
 
-    # 出力の期待値。切り替えの結果の 1 行に、3 つのフラグの現在値の 3 行(行が無ければ unset)が続く。
+    # 出力の期待値。切り替えの結果の 1 行に、5 つのフラグの現在値の 5 行(行が無ければ unset)が続く。
     def flag_output(line, states = {})
       [line, *flags.map { |flag| "TOYBACO_OPS_FLAG_STATE name=#{flag} value=#{states.fetch(flag, 'unset')}" }].map { |text| "#{text}\n" }.join
     end
 
-    it '許可一覧は機能側(ダイジェスト・店舗一覧・利用者からの報告)が判定するフラグと一致する' do
+    it '許可一覧は機能側(ダイジェスト・店舗一覧・利用者からの報告・使い方サポートの入口と AI 回答)が判定するフラグと一致する' do
       expect(Toybaco::Ops::OpsFlag::OPS_FLAGS).to eq(flags)
       expect(flags).to include(Toybaco::Ops::Digest::FLAG, Toybaco::Ops::Console::FLAG)
       allow(Toybaco::Ops::OpsFlag).to receive(:enabled?).and_call_original
@@ -257,9 +260,9 @@ RSpec.describe Toybaco::Ops::RakeAudit do # rubocop:disable RSpec/SpecFilePathFo
     end
 
     it '許可一覧にないフラグ名(大文字小文字違い・Symbol・空を含む)は abort し、installation_configs を変えずに failed を残す' do
-      InstallationConfig.create!(name: 'TOYBACO_SUPPORT_ENABLED', value: false, locked: false)
+      InstallationConfig.create!(name: 'TOYBACO_GROWTH_NOTICES_ENABLED', value: false, locked: false)
       before_rows = config_rows
-      names = ['TOYBACO_SUPPORT_ENABLED', 'toybaco_ops_digest_enabled', 'Toybaco_Ops_Console_Enabled', ' TOYBACO_OPS_DIGEST_ENABLED',
+      names = ['TOYBACO_GROWTH_NOTICES_ENABLED', 'toybaco_ops_digest_enabled', 'Toybaco_Ops_Console_Enabled', ' TOYBACO_OPS_DIGEST_ENABLED',
                :TOYBACO_OPS_DIGEST_ENABLED, '', nil]
       names.each do |name|
         expect { run_ops_flag(name, 'true') }.to raise_error(SystemExit).and output(name_error).to_stderr

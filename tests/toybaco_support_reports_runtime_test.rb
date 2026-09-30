@@ -36,17 +36,12 @@ class ToybacoSupportReportsRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def enabled(user: @user, reports: true)
-    # 報告の受付のフラグは installation_configs を直接読む(Toybaco::Ops::OpsFlag)ので、stub ではなく
-    # toybaco:ops_flag と同じ形の行(locked: true)を置く。transactional test なので例ごとに戻る。
-    InstallationConfig.unscoped.where(name: 'TOYBACO_SUPPORT_REPORTS_ENABLED').delete_all
+    # 使い方サポートの入口と報告の受付のフラグは installation_configs を直接読む(Toybaco::Ops::OpsFlag)ので、stub ではなく
+    # toybaco:ops_flag と同じ形の行(boolean、locked: true)を置く。transactional test なので例ごとに戻る。
+    InstallationConfig.unscoped.where(name: %w[TOYBACO_SUPPORT_ENABLED TOYBACO_SUPPORT_REPORTS_ENABLED]).delete_all
+    InstallationConfig.create!(name: 'TOYBACO_SUPPORT_ENABLED', value: true, locked: true)
     InstallationConfig.create!(name: 'TOYBACO_SUPPORT_REPORTS_ENABLED', value: true, locked: true) if reports
-    original = GlobalConfigService.method(:load)
-    config = lambda do |name, *args|
-      name == 'TOYBACO_SUPPORT_ENABLED' ? true : original.call(name, *args)
-    end
-    GlobalConfigService.stub(:load, config) do
-      Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: user)) { yield }
-    end
+    Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: user)) { yield }
   end
 
   def submit(category: 'product', article: 'reply', request_id: SecureRandom.uuid, account: @account, origin: 'http://www.example.com')

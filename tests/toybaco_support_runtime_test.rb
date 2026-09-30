@@ -31,13 +31,11 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def authenticated(enabled: true, user: @user, ai: false)
-    original = GlobalConfigService.method(:load)
-    config = lambda do |name, *args|
-      case name
-      when 'TOYBACO_SUPPORT_ENABLED' then enabled
-      when 'TOYBACO_SUPPORT_AI_ENABLED' then ai
-      else original.call(name, *args)
-      end
+    # 使い方サポートの入口と AI 回答のフラグは installation_configs を直接読む(Toybaco::Ops::OpsFlag)ので、stub ではなく
+    # toybaco:ops_flag と同じ形の行(boolean、locked: true)を置く。transactional test なので例ごとに戻る。
+    { 'TOYBACO_SUPPORT_ENABLED' => enabled, 'TOYBACO_SUPPORT_AI_ENABLED' => ai }.each do |name, value|
+      InstallationConfig.unscoped.where(name: name).delete_all
+      InstallationConfig.create!(name: name, value: value, locked: true)
     end
     constructor = Toybaco::Support::Capacity.method(:new)
     capacity = lambda do |account_id, user_id|
@@ -46,9 +44,7 @@ class ToybacoSupportRuntimeTest < ActionDispatch::IntegrationTest
       result
     end
     Toybaco::Support::Capacity.stub(:new, capacity) do
-      GlobalConfigService.stub(:load, config) do
-        Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: user)) { yield }
-      end
+      Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: user)) { yield }
     end
   end
 
