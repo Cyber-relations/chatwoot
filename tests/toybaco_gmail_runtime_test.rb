@@ -7,6 +7,7 @@
 require 'rails/test_help'
 require 'minitest/mock'
 require 'factory_bot_rails'
+require Rails.root.join('spec/support/toybaco_admin_mfa')
 require 'ostruct'
 require 'uri'
 
@@ -14,6 +15,7 @@ FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
 class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
   include FactoryBot::Syntax::Methods
+  include ToybacoAdminMfaLoginHelper
   self.use_transactional_tests = true
 
   Gmail = Toybaco::Connections::Gmail
@@ -106,7 +108,7 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
 
   def authorize(return_to: 'onboarding')
     post "/api/v1/accounts/#{@account.id}/google/authorization", params: { return_to: return_to },
-         headers: @user.create_new_auth_token, as: :json
+         headers: sign_in_user_with_mfa(@user), as: :json
     assert_response :success
     URI.decode_www_form(URI(response.parsed_body.fetch('url')).query).to_h.fetch('state')
   end
@@ -197,7 +199,7 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
   def test_growth_authorization_never_falls_back_to_legacy_mail_setup
     Gmail.stub(:allowed?, false) do
       post "/api/v1/accounts/#{@account.id}/google/authorization", params: { return_to: 'growth' },
-           headers: @user.create_new_auth_token, as: :json
+           headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :service_unavailable
       assert_nil response.parsed_body['url']
       assert_equal 0, @account.inboxes.count
@@ -329,7 +331,7 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
     post "/api/v1/accounts/#{@account.id}/conversations/#{conversation.display_id}/messages",
          params: { content: 'テストの返信', message_type: 'outgoing', source_id: 'forged@example.test',
                    content_attributes: { toybaco_gmail_send: { state: 'accepted', provider_id: 'forged' } } },
-         headers: @user.create_new_auth_token, as: :json
+         headers: sign_in_user_with_mfa(@user), as: :json
     assert_response :success
     created = conversation.messages.outgoing.last
     assert_nil created.content_attributes['toybaco_gmail_send']
@@ -343,7 +345,7 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
       Email::SendOnEmailService.new(message: message).perform
       before = message.reload.content_attributes.fetch('toybaco_gmail_send').dup
       post "/api/v1/accounts/#{@account.id}/conversations/#{message.conversation.display_id}/messages/#{message.id}/retry",
-           headers: @user.create_new_auth_token, as: :json
+           headers: sign_in_user_with_mfa(@user), as: :json
       assert_response :success
       assert_equal before, message.reload.content_attributes.fetch('toybaco_gmail_send')
       Email::SendOnEmailService.new(message: message).perform
