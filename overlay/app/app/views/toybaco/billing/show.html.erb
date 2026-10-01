@@ -57,6 +57,8 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 <div class="wrap" id="billing-content">
   <% growth = @contract && @contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER %>
   <% growth_free = growth && @contract['plan_id'] == 'free' %>
+  <%# 自動応答の体験で使えるメール接続(開放済みの表示名)。自動応答が契約に含まれない新料金の店舗でだけ読む(TrialConnectionRelease)。 %>
+  <% trial_mail = Toybaco::Growth::TrialConnectionRelease.released_providers(@account) if growth && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
   <h1>ご契約内容</h1>
   <p class="lead"><%= @account.name %></p>
   <% if @renewal_notice %>
@@ -74,7 +76,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </section>
   <% end %>
   <% if growth && @admin && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
-    <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">オーナーが開始してから14日間または100回の早い方までです。対象は、トイバコで接続した Gmail または Microsoft のメール受信箱だけです。カード登録は不要です。メールの接続は提供元の審査完了後に開放します。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
+    <div class="card"><h2 class="change-title">自動応答を体験する</h2><p class="note">オーナーが開始してから14日間または100回の早い方までです。対象は、トイバコで接続した <%= Toybaco::Growth::TrialConnectionRelease.label(trial_mail) %> のメール受信箱だけです。カード登録は不要です。<%= 'メールの接続は提供元の審査完了後に開放します。' if trial_mail.empty? %></p><p class="note"><a class="btn btn-back" href="/toybaco/growth/trial?account_id=<%= @account.id %>" target="_top">回答例と体験状況を確認</a></p></div>
   <% end %>
 
   <div class="card">
@@ -141,7 +143,9 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <% if growth %>
       <% automatic_reply = @contract.dig('entitlements', 'features', 'ai_auto_reply') %>
       <% payment_stop = automatic_reply && @renewal_notice && @renewal_notice[:expired] %>
-      <div class="row"><span>AI 自動応答</span><span class="badge <%= automatic_reply && !payment_stop ? 'on' : 'off' %>"><%= payment_stop ? '支払い確認まで停止' : (automatic_reply ? '利用可能（設定後に開始）' : '審査完了後に体験できます（上位プランでも利用できます）') %></span></div>
+      <%# 体験は、開放済みのメール接続があればその名前で、無ければ提供元の審査の完了後として案内する。 %>
+      <% trial_when = trial_mail.empty? ? '審査完了後に' : "#{Toybaco::Growth::TrialConnectionRelease.label(trial_mail)} で" unless automatic_reply %>
+      <div class="row"><span>AI 自動応答</span><span class="badge <%= automatic_reply && !payment_stop ? 'on' : 'off' %>"><%= payment_stop ? '支払い確認まで停止' : (automatic_reply ? '利用可能（設定後に開始）' : "#{trial_when}体験できます（上位プランでも利用できます）") %></span></div>
       <% if @admin && (Toybaco::Growth::PackCatalog.available? || Toybaco::GrowthPackOrder.exists?(account_id: @account.id)) %>
         <p class="note"><a class="btn btn-back" href="/toybaco/growth/packs?account_id=<%= @account.id %>" target="_top">AI追加パック・残り回数を確認</a></p>
       <% end %>

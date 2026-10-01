@@ -238,8 +238,9 @@ module ToybacoRenewalProviderRuntimeCases
   end
 
   def n2p_holds
-    keys = [N2::PostingRetention::KEY, N2::InboxRetention::KEY, N2::InboxDeliveryEpoch::KEY, N2::InboxReleaseRecord::KEY, N2::FreeReturnRecord::KEY]
-    # This replaces only the earlier synthetic fixture hold baseline. It is not a next-generation hold exchange.
+    keys = [N2::PostingRetention::KEY, N2::InboxRetention::KEY, N2::InboxDeliveryEpoch::KEY, N2::InboxReleaseRecord::KEY]
+    # This replaces only the earlier synthetic fixture hold baseline. The Free return pointer stays: a
+    # completed return without it stops before HTTP, so this stop names that return as its parent.
     @account.reload.update_columns(internal_attributes: @account.internal_attributes.except(*keys))
     response = lambda do |payload|
       { 'version' => 1, 'request_sha256' => Digest::SHA256.hexdigest(JSON.generate(payload)),

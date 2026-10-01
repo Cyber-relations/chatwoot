@@ -2,6 +2,7 @@
 
 require_relative 'ai_ledger'
 require_relative 'reply_policy'
+require_relative 'trial_connection_release'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -18,11 +19,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         sources = %w[included grace]
         normal = grants.select { |grant| sources.include?(grant['source']) }
         # automatic_included: 自動応答が契約に含まれるか(含まれない店舗の画面にだけ、体験の条件を添える)。
+        # trial_connections: 体験で使える開放済みのメール接続の表示名(0 件なら [])。画面は 0 件の時だけ審査を待つ案内を添える。
         { 'meter' => 'business_generation', 'period' => 'contract', 'enabled' => enabled,
           'used' => total(grants, 'used'), 'limit' => total(grants, 'limit'), 'reserved' => total(grants, 'reserved'),
           'remaining' => result.fetch('remaining'), 'resets_at' => normal.pluck('expires_at').min,
           'reason' => reason(enabled, result.fetch('remaining')), 'grants' => grants,
-          'automatic_included' => terms.dig('features', 'ai_auto_reply') == true }.merge(ReplyPolicy.new(@account).automatic)
+          'automatic_included' => terms.dig('features', 'ai_auto_reply') == true,
+          'trial_connections' => TrialConnectionRelease.released_providers(@account) }.merge(ReplyPolicy.new(@account).automatic)
       end
 
       private

@@ -84,10 +84,21 @@ class Toybaco::Growth::PeriodEndFreeReturn < Toybaco::Growth::FreeReturn
     @now = @clock.call
     raise Changed unless self.class.applicable?(@account)
 
+    returned_journal!
     idle!
     transition = Toybaco::Growth::RenewalTransition.new(@account, now: @now, mode: mode, cancel: cancel)
     transition.prepare!(inventory: @inventory || Toybaco::Growth::RetentionInventory.new(@account))
     transition.advance!('provider_closed')
+  end
+
+  # A completed journal is the earlier return this store came back from. It must
+  # still match its immutable receipt before this subscription's journal replaces
+  # it: a missing or changed record waits for an operator, never for a retry.
+  def returned_journal!
+    journal = Toybaco::Entitlements.attributes(@account)[Toybaco::Growth::RenewalTransition::KEY]
+    return unless journal.is_a?(Hash) && journal['state'] == 'free_completed'
+
+    raise Changed unless Toybaco::Growth::FreeReturnRecord.completed?(@account, journal)
   end
 
   # An unfinished posting execution or automatic request, or a live automatic lease.

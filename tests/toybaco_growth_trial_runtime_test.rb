@@ -156,11 +156,12 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
     end
     other = create(:user, :administrator, account: @account)
     assert_equal NOT_OWNER, start_refusal(user: other)
+    # start! opens only the Gmail connection, so the refusals name Gmail alone (B5; every release is fixed below).
     assert_equal '現在の店舗情報と最新の問い合わせで作成した回答例が必要です。画面を更新して回答例を選び直してください。' \
-                 '表示されない場合は、ボット設定で「トイバコAI」を割り当てた Gmail または Microsoft の受信箱で、AIの下書きを1件作成してください。',
+                 '表示されない場合は、ボット設定で「トイバコAI」を割り当てた Gmail の受信箱で、AIの下書きを1件作成してください。',
                  start_refusal(confirmed: false)
     start!.update!(account_id: @account.id + 1_000_000)
-    assert_equal '接続中の Gmail・Microsoft の受信箱に、別の店舗の体験で使ったものがあります。体験は同じ接続先につき1回です。' \
+    assert_equal '接続中の Gmail の受信箱に、別の店舗の体験で使ったものがあります。体験は同じ接続先につき1回です。' \
                  '元の店舗をご利用いただくか、Standard以上のプランをご検討ください。', start_refusal
     # toybaco-growth-trial.js shows a refusal reason only up to 160 characters.
     Growth::TrialStart::MESSAGES.each_value { |message| assert_operator message.length, :<=, 160, message }
@@ -233,27 +234,97 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
       original.call(inbox)
     end
     refusal = Growth::TrialConnection.stub(:identity, expiring) { start_refusal }
-    assert_equal 'Gmail または Microsoft の受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。', refusal
+    # start! opens only the Gmail connection, so the refusal names Gmail alone.
+    assert_equal 'Gmail の受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。', refusal
     assert_equal 2, reads
     assert_empty Toybaco::GrowthTrial.where(account_id: @account.id)
   ensure
     @inbox.channel.reauthorized!
   end
 
-  def test_empty_state_once_the_mail_connection_opens_does_not_ask_to_wait
+  # B2: the mail connections a store may use follow each connection's release for that store (allowed?). Until one opens
+  # the pages keep the review wording; once one opens they name only the opened connections and drop the review sentence.
+  RELEASES = { [false, false] => [], [true, false] => ['Gmail'], [false, true] => ['Microsoft'],
+               [true, true] => %w[Gmail Microsoft] }.freeze
+
+  def with_released(gmail, microsoft, &block)
+    Gmail.stub(:allowed?, gmail) { Toybaco::Connections::Microsoft.stub(:allowed?, microsoft, &block) }
+  end
+
+  def test_empty_state_names_only_the_opened_mail_connections_and_asks_to_wait_until_one_opens
     # The draft no longer answers the latest question, so no answer example is offered.
     @incoming.update!(content: '予約変更は？')
-    [Gmail, Toybaco::Connections::Microsoft].each do |provider|
-      Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @owner)) do
-        provider.stub(:allowed?, true) { get '/toybaco/growth/trial', params: { account_id: @account.id } }
+    guide = 'のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。' \
+            'LINE・Webチャットで作った下書きは体験の対象外です。</p>'
+    RELEASES.each do |(gmail, microsoft), released|
+      with_released(gmail, microsoft) do
+        Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @owner)) { get '/toybaco/growth/trial', params: { account_id: @account.id } }
       end
       assert_response :success
-      assert_includes response.body, '<p>トイバコで Gmail または Microsoft のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。' \
-                                     '店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p>',
-                      provider.name
-      refute_includes response.body, '審査完了後', provider.name
-      refute_includes response.body, 'id="trial-form"', provider.name
+      head = released.empty? ? '<p>メールの接続は提供元の審査完了後に順次開放します。開放されたら、トイバコで Gmail または Microsoft ' : "<p>トイバコで #{released.join(' または ')} "
+      assert_includes response.body, head + guide, released.inspect
+      names = released.empty? ? 'Gmail または Microsoft' : released.join(' または ')
+      assert_includes response.body, "<p class=\"lead\">トイバコで接続した #{names} のメール受信箱で、14日間・100回まで。カード登録は不要です。</p>"
+      assert_equal released.empty?, response.body.include?('審査完了後'), released.inspect
+      refute_includes response.body, 'id="trial-form"', released.inspect
     end
+  end
+
+  # The refusals that name the mail connections, with %s for the names (「・」 for used_elsewhere, 「または」 for the others).
+  REFUSALS = {
+    'used_elsewhere' => '接続中の %s の受信箱に、別の店舗の体験で使ったものがあります。体験は同じ接続先につき1回です。' \
+                        '元の店舗をご利用いただくか、Standard以上のプランをご検討ください。',
+    'example_outdated' => '現在の店舗情報と最新の問い合わせで作成した回答例が必要です。画面を更新して回答例を選び直してください。' \
+                          '表示されない場合は、ボット設定で「トイバコAI」を割り当てた %s の受信箱で、AIの下書きを1件作成してください。',
+    'example_inbox' => '回答例を作った受信箱では体験を開始できません。体験は、トイバコで接続した %s の受信箱のうち、' \
+                       'ボット設定で「トイバコAI」を割り当てたものが対象です。接続の期限が切れている場合は再接続してください。',
+    'no_mail_inbox' => '%s の受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。'
+  }.freeze
+
+  def test_every_refusal_names_only_the_opened_mail_connections_and_keeps_the_waiting_wording_until_one_opens
+    trial = Growth::TrialStart.new(@account, @owner)
+    RELEASES.slice([false, false], [true, false], [true, true]).each do |(gmail, microsoft), released|
+      with_released(gmail, microsoft) do
+        REFUSALS.each do |key, text|
+          names = (released.empty? ? %w[Gmail Microsoft] : released).join(key == 'used_elsewhere' ? '・' : ' または ')
+          expected = format(text, names) + (key == 'example_inbox' && released.empty? ? 'メールの接続は提供元の審査完了後に開放します。' : '')
+          assert_equal expected, trial.send(:message, key), [key, released].inspect
+          assert_operator expected.length, :<=, 160, expected
+          assert_equal expected, Growth::TrialStart::MESSAGES.fetch(key) if released.empty?
+        end
+        assert_equal Growth::TrialStart::MESSAGES.fetch('start_unconfirmed'), trial.send(:message, 'start_unconfirmed')
+      end
+    end
+  end
+
+  def test_billing_trial_refusal_and_usage_name_only_the_opened_mail_connections
+    # The example's inbox needs reconnecting, so the start is refused for that inbox whether or not a connection is open.
+    @inbox.channel.prompt_reauthorization!
+    card = 'オーナーが開始してから14日間または100回の早い方までです。対象は、トイバコで接続した %s のメール受信箱だけです。カード登録は不要です。'
+    refusal = '回答例を作った受信箱では体験を開始できません。体験は、トイバコで接続した %s の受信箱のうち、' \
+              'ボット設定で「トイバコAI」を割り当てたものが対象です。接続の期限が切れている場合は再接続してください。'
+    review = 'メールの接続は提供元の審査完了後に開放します。'
+    RELEASES.slice([false, false], [true, false], [true, true]).each do |(gmail, microsoft), released|
+      names = released.empty? ? 'Gmail または Microsoft' : released.join(' または ')
+      with_released(gmail, microsoft) do
+        Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @owner)) do
+          get "/toybaco/billing?account_id=#{@account.id}"
+          assert_includes response.body, format(card, names) + (released.empty? ? review : '</p>'), released.inspect
+          assert_includes response.body, "#{released.empty? ? '審査完了後に' : "#{names} で"}体験できます（上位プランでも利用できます）"
+          assert_equal released.empty?, response.body.include?('審査完了後'), released.inspect
+          get '/toybaco/ai_usage', params: { account_id: @account.id }
+          assert_equal released, response.parsed_body['trial_connections']
+        end
+        message = assert_raises(Growth::TrialStart::Unavailable) do
+          Growth::TrialStart.new(@account, @owner).start!(example_id: @example.id, revision: @facts['revision'], confirmed: true)
+        end.message
+        assert_equal format(refusal, names) + (released.empty? ? review : ''), message
+        assert_operator message.length, :<=, 160, message
+      end
+    end
+    assert_empty Toybaco::GrowthTrial.where(account_id: @account.id)
+  ensure
+    @inbox.channel.reauthorized!
   end
 
   def test_trial_identity_contains_no_address_and_is_not_reissued_after_account_change
