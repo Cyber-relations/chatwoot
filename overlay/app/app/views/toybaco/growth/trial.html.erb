@@ -14,7 +14,9 @@
   <p class="eyebrow"><%= @account.name %></p>
   <h1>返信を、AIに任せてみる</h1>
   <% unless @state['state'] == 'included' %>
-    <p class="lead">トイバコで接続した Gmail または Microsoft のメール受信箱で、14日間・100回まで。カード登録は不要です。</p>
+    <%# 体験で使えるメール接続。開放済みがあればその名前だけ、無ければ審査を待つ 2 つを書く(接続の公開判定をそのまま使う)。 %>
+    <% trial_mail = Toybaco::Growth::TrialConnectionRelease.released_providers(@account) %>
+    <p class="lead">トイバコで接続した <%= Toybaco::Growth::TrialConnectionRelease.label(trial_mail) %> のメール受信箱で、14日間・100回まで。カード登録は不要です。</p>
   <% end %>
   <p id="trial-status" role="status" aria-live="polite"></p>
   <p id="trial-error" role="alert" hidden></p>
@@ -28,9 +30,8 @@
   <% elsif @state['state'] == 'completed' %>
     <section class="trial-card"><h2>体験が終了しました</h2><p>下書きと履歴はそのまま使えます。</p><a href="/toybaco/billing?account_id=<%= @account.id %>">自動応答を続けるプランを見る</a></section>
   <% elsif @state.fetch('examples', []).empty? %>
-    <%# メールの接続がこの店舗に開放済みなら、審査を待つ案内は出さない(接続の公開判定をそのまま使う)。 %>
-    <% mail_open = Toybaco::Connections::Gmail.allowed?(@account) || Toybaco::Connections::Microsoft.allowed?(@account) %>
-    <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p><%= 'メールの接続は提供元の審査完了後に順次開放します。開放されたら、' unless mail_open %>トイバコで Gmail または Microsoft のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
+    <%# メールの接続がこの店舗に開放済みなら、審査を待つ案内は出さず、開放済みの接続の名前だけを書く(trial_mail は lead と同じ)。 %>
+    <section class="trial-card"><h2>まず、回答例を確認しましょう</h2><p><%= 'メールの接続は提供元の審査完了後に順次開放します。開放されたら、' if trial_mail.empty? %>トイバコで <%= Toybaco::Growth::TrialConnectionRelease.label(trial_mail) %> のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p><a href="/app/accounts/<%= @account.id %>/toybaco/start">接続と店舗情報を確認する</a></section>
   <% else %>
     <form id="trial-form" class="trial-card">
       <h2>お店の回答として使えますか？</h2>

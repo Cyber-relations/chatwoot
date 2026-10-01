@@ -3,6 +3,7 @@
 require_relative '../billing_access'
 require_relative 'ai_grants'
 require_relative 'trial_connection'
+require_relative 'trial_connection_release'
 require_relative 'trial_example'
 require_relative '../ai_reply_mode'
 require_relative '../legal_terms'
@@ -12,10 +13,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     class TrialStart
       DAYS = 14
       UNITS = 100
+      # メール接続の名前を含む理由。%<providers>s には、開放済みのメール接続があればその名前だけが入り、審査を待つ文は出さない
+      # (TrialConnectionRelease)。開放済みが無い時の文は MESSAGES に固定し(審査を待つ 2 つを書く)、example_inbox だけ審査の文を足す。
+      PROVIDER_MESSAGES = {
+        'used_elsewhere' => '接続中の %<providers>s の受信箱に、別の店舗の体験で使ったものがあります。体験は同じ接続先につき1回です。' \
+                            '元の店舗をご利用いただくか、Standard以上のプランをご検討ください。',
+        'example_outdated' => '現在の店舗情報と最新の問い合わせで作成した回答例が必要です。画面を更新して回答例を選び直してください。' \
+                              '表示されない場合は、ボット設定で「トイバコAI」を割り当てた %<providers>s の受信箱で、AIの下書きを1件作成してください。',
+        'example_inbox' => '回答例を作った受信箱では体験を開始できません。体験は、トイバコで接続した %<providers>s の受信箱のうち、' \
+                           'ボット設定で「トイバコAI」を割り当てたものが対象です。接続の期限が切れている場合は再接続してください。',
+        'no_mail_inbox' => '%<providers>s の受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。'
+      }.freeze
+      # 名前のつなぎ方。used_elsewhere は接続先を並べる文なので「・」、ほかは「または」。
+      JOINERS = { 'used_elsewhere' => '・' }.freeze
+      REVIEW_PENDING = 'メールの接続は提供元の審査完了後に開放します。'
       # 開始画面(toybaco-growth-trial.js)は160文字以内の理由をそのまま表示する。次に何をすればよいかが分かる文にする。
       MESSAGES = {
-        'used_elsewhere' => '接続中の Gmail・Microsoft の受信箱に、別の店舗の体験で使ったものがあります。体験は同じ接続先につき1回です。' \
-                            '元の店舗をご利用いただくか、Standard以上のプランをご検討ください。',
+        'used_elsewhere' => format(PROVIDER_MESSAGES['used_elsewhere'], providers: TrialConnectionRelease.label([], JOINERS['used_elsewhere'])),
         'start_unconfirmed' => '開始状況を確認できませんでした。画面を更新して確認してください。',
         'account_inactive' => 'この店舗はいま利用できない状態です。サポートへお問い合わせください。',
         'email_unconfirmed' => 'メールアドレスの確認が終わってから開始できます。確認を完了して、もう一度お試しください。',
@@ -23,12 +37,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         'not_trial_plan' => '体験は、2026年9月25日改定の新料金プランの無料プラン・ライトで開始できます。' \
                             '現在のご契約では対象外です。ご契約内容をご確認ください。',
         'included' => 'このプランでは自動応答が契約に含まれています。受信箱の「AI応答」から設定してください。',
-        'example_outdated' => '現在の店舗情報と最新の問い合わせで作成した回答例が必要です。画面を更新して回答例を選び直してください。' \
-                              '表示されない場合は、ボット設定で「トイバコAI」を割り当てた Gmail または Microsoft の受信箱で、AIの下書きを1件作成してください。',
-        'example_inbox' => '回答例を作った受信箱では体験を開始できません。体験は、トイバコで接続した Gmail または Microsoft の受信箱のうち、' \
-                           'ボット設定で「トイバコAI」を割り当てたものが対象です。接続の期限が切れている場合は再接続してください。' \
-                           'メールの接続は提供元の審査完了後に開放します。',
-        'no_mail_inbox' => 'Gmail または Microsoft の受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。'
+        'example_outdated' => format(PROVIDER_MESSAGES['example_outdated'], providers: TrialConnectionRelease.label([])),
+        'example_inbox' => format(PROVIDER_MESSAGES['example_inbox'], providers: TrialConnectionRelease.label([])) + REVIEW_PENDING,
+        'no_mail_inbox' => format(PROVIDER_MESSAGES['no_mail_inbox'], providers: TrialConnectionRelease.label([]))
       }.freeze
       # 同じ接続先での再体験を止める一意索引(create_toybaco_growth_trials の migration)。同じ店舗の同時開始は店舗側の索引に当たる。
       IDENTITY_INDEX = 'toybaco_trial_external_identity'
@@ -51,7 +62,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           create!(example, revision, identities)
         end
       rescue ActiveRecord::RecordNotUnique => e
-        raise Unavailable, MESSAGES.fetch(e.message.include?(IDENTITY_INDEX) ? 'used_elsewhere' : 'start_unconfirmed')
+        raise Unavailable, message(e.message.include?(IDENTITY_INDEX) ? 'used_elsewhere' : 'start_unconfirmed')
       end
 
       private
@@ -83,18 +94,26 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         facts = StoreFacts.new(@account).read
         valid = confirmed == true && facts['confirmed'] && facts['revision'] == revision
         example = TrialExample.new(@account).find(id, revision: revision) if valid
-        raise Unavailable, MESSAGES.fetch('example_outdated') unless example
+        raise Unavailable, message('example_outdated') unless example
 
         example
       end
 
       def identities!(example)
-        raise Unavailable, MESSAGES.fetch('example_inbox') unless TrialConnection.identity(example.inbox)
+        raise Unavailable, message('example_inbox') unless TrialConnection.identity(example.inbox)
 
         identities = @account.inboxes.includes(:channel, :agent_bot_inbox).filter_map { |inbox| TrialConnection.identity(inbox) }.uniq
-        raise Unavailable, MESSAGES.fetch('no_mail_inbox') if identities.empty?
+        raise Unavailable, message('no_mail_inbox') if identities.empty?
 
         identities
+      end
+
+      # 理由の文。メール接続の名前を含む理由は、開放済みの接続があればその名前だけで書く(開放済みが無ければ MESSAGES の固定の文)。
+      def message(key)
+        released = PROVIDER_MESSAGES.key?(key) ? TrialConnectionRelease.released_providers(@account) : []
+        return MESSAGES.fetch(key) if released.empty?
+
+        format(PROVIDER_MESSAGES.fetch(key), providers: TrialConnectionRelease.label(released, JOINERS.fetch(key, ' または ')))
       end
 
       def create!(example, revision, identities)

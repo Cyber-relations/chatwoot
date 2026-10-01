@@ -13,6 +13,8 @@ module Toybaco::Growth::PeriodEndCancel
   FAILURE_KEY = 'toybaco_growth_renewal_failure'
   STORE_PURCHASE_KEY = 'toybaco_store_purchase'
   JOURNAL_KEY = 'toybaco_growth_renewal_transition'
+  SUBSCRIPTION = /\Asub_[A-Za-z0-9]+\z/
+  UNFINISHED = %w[prepared provider_closed].freeze
   SETTLED_INVOICES = %w[paid void].freeze
   REASON = 'cancellation_requested'
   TIMES = %w[canceled_at cancel_at ended_at].freeze
@@ -29,7 +31,18 @@ module Toybaco::Growth::PeriodEndCancel
   # An active paid growth store whose saved status is the ended period-end
   # cancellation, without a renewal failure, billing hold or another journal.
   def account?(account, attrs)
-    account.active? && paid_contract?(attrs['toybaco_contract']) && unblocked?(attrs) && ended_status?(attrs) && journal?(attrs)
+    store?(account, attrs) && paid_contract?(attrs['toybaco_contract']) && unblocked?(attrs) && ended_status?(attrs) && journal?(attrs)
+  end
+
+  # Active, or billing-suspended after this return ended in attention: it already closed
+  # this subscription under a provider_closed cancel journal, so a re-armed return may
+  # continue and lifts the suspension when it completes. No other suspension resumes.
+  def store?(account, attrs)
+    account.active? || (account.status.to_s == 'suspended' && attrs['toybaco_billing_suspended'] == true && closed_journal?(attrs))
+  end
+
+  def closed_journal?(attrs)
+    unfinished_journal?(attrs) && attrs[JOURNAL_KEY]['state'] == 'provider_closed'
   end
 
   # Only the current growth terms: the retention snapshot and the Free return are defined for them,
@@ -48,14 +61,56 @@ module Toybaco::Growth::PeriodEndCancel
     attrs['toybaco_subscription_status'] == 'canceled' && attrs['toybaco_cancel_at_period_end'] == true
   end
 
-  # No journal, or the unfinished journal of this cancellation. A renewal failure
-  # journal and the completed return of an earlier subscription keep the existing
-  # suspension: the hold receipts of one store take a single return.
+  # No journal, the unfinished cancel journal of this subscription, or the completed
+  # return of an earlier subscription: a store that bought again after a Free return
+  # returns anew, and its holds replace the returned generation. A renewal failure
+  # journal, a recovered payment, another subscription's unfinished journal and this
+  # subscription's own completed return keep the existing suspension.
   def journal?(attrs)
     return true unless attrs.key?(JOURNAL_KEY)
 
     value = attrs[JOURNAL_KEY]
-    value.is_a?(Hash) && value['binding'].is_a?(Hash) && value['binding'].key?('cancel') && value['state'] != 'free_completed'
+    return false unless value.is_a?(Hash) && value['binding'].is_a?(Hash)
+
+    return earlier_subscription?(value['binding']['subscription_id'], attrs['toybaco_subscription_id']) if value['state'] == 'free_completed'
+
+    unfinished_journal?(attrs)
+  end
+
+  # This subscription's unfinished cancel journal: its return started and is not complete.
+  # Both subscription ids must be present Stripe ids (never nil == nil) and the cancel
+  # binding must hold Stripe's closure evidence.
+  def unfinished_journal?(attrs)
+    value = attrs[JOURNAL_KEY]
+    value.is_a?(Hash) && value['binding'].is_a?(Hash) && evidence?(value['binding']['cancel']) && UNFINISHED.include?(value['state']) &&
+      same_subscription?(value['binding']['subscription_id'], attrs['toybaco_subscription_id'])
+  end
+
+  # The latch of SubscriptionReconciliation.suspension_due?: the store still holds the
+  # request's subscription under a cancel journal of it that is not complete. Looser than
+  # unfinished_journal? on purpose (the cancel evidence is not checked): a malformed
+  # binding still falls back to the suspension, while it never resumes from one.
+  def return_latched?(attrs, subscription_id)
+    value = attrs[JOURNAL_KEY]
+    same_subscription?(subscription_id, attrs['toybaco_subscription_id']) && value.is_a?(Hash) && value['binding'].is_a?(Hash) &&
+      value['binding'].key?('cancel') && UNFINISHED.include?(value['state']) && value['binding']['subscription_id'] == subscription_id
+  end
+
+  # The mark a Sync leaves when it skips the suspension for the Free return, journal or not:
+  # this subscription's ended period-end cancellation saved on a paid growth contract (the
+  # attributes account? reads). With the request in attention the store falls back to the
+  # suspension (SubscriptionReconciliation.suspension_due?); without a journal of this
+  # subscription it never resumes from there.
+  def suspension_skipped?(attrs, subscription_id)
+    same_subscription?(subscription_id, attrs['toybaco_subscription_id']) && paid_contract?(attrs['toybaco_contract']) && ended_status?(attrs)
+  end
+
+  def same_subscription?(bound, current)
+    bound.is_a?(String) && bound.match?(SUBSCRIPTION) && bound == current
+  end
+
+  def earlier_subscription?(bound, current)
+    [bound, current].all? { |id| id.is_a?(String) && id.match?(SUBSCRIPTION) } && bound != current
   end
 
   # cancel_at_period_end stays true after the end. A reason is absent in some API

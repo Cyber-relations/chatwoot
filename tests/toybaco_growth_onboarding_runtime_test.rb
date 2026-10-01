@@ -173,6 +173,22 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # B2: メールの行は店舗ごとの接続の公開判定(allowed?)に従う。開放済みの接続だけを選べる状態(available)で返し、
+  # 未開放の接続は準備中(preparing)のまま(ガイドは準備中の行を「審査完了後に使えます」に並べる)。
+  def test_mail_rows_follow_the_release_of_each_connection
+    { [false, false] => %w[preparing preparing], [true, false] => %w[available preparing],
+      [true, true] => %w[available available] }.each do |(gmail, microsoft), states|
+      Gmail.stub(:allowed?, gmail) do
+        Toybaco::Connections::Microsoft.stub(:allowed?, microsoft) do
+          Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @user)) do
+            rows = read_guide['connections']['channels'].index_by { |row| row['key'] }
+            assert_equal states, %w[gmail microsoft].map { |key| rows[key]['state'] }, [gmail, microsoft].inspect
+          end
+        end
+      end
+    end
+  end
+
   # 上限の案内の出し分け(無料プランは「有料プランを見る」、それ以外はサポート)に使う印。数え方には使わない。
   def test_connection_list_says_whether_the_plan_is_free
     authenticated do

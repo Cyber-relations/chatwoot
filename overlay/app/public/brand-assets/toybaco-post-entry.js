@@ -68,8 +68,10 @@
   var AI_NAV_LABEL = 'AI応答';
   var AI_MODE_TIMEOUT_MS = 10000;
   // 自動応答が契約に含まれない新料金の店舗(無料プラン・ライト)の体験は、トイバコで接続したメール受信箱だけで動く。
+  // 開放済みのメール接続(利用状況の trial_connections)が無ければ審査を待つ案内のまま、あれば開放済みの名前だけを書く。
   var AI_TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
     'メールの接続は提供元の審査完了後に開放します。';
+  var AI_TRIAL_CONNECTIONS = ['Gmail', 'Microsoft'];
   var aiModeStates = {};
   var aiModeInflight = {};
   var aiModeAccount = null;
@@ -1966,8 +1968,18 @@
   // 体験の条件は、契約内容を確認できた新料金の店舗のうち、自動応答が契約に含まれないときだけ添える。
   // 読込中・取得失敗・旧契約・自動応答を含む契約では添えない。
   function aiTrialInboxNote(usage) {
-    return usage.phase === 'ready' && usage.data.meter === 'business_generation' &&
-      usage.data.automatic_included === false ? AI_TRIAL_INBOX_NOTE : '';
+    if (!(usage.phase === 'ready' && usage.data.meter === 'business_generation' &&
+      usage.data.automatic_included === false)) return '';
+    var released = usage.data.trial_connections || [];
+    return released.length ? '自動応答の体験は、トイバコで接続した ' + released.join(' または ') +
+      ' のメール受信箱だけが対象です。' : AI_TRIAL_INBOX_NOTE;
+  }
+
+  // 開放済みのメール接続の表示名は、既知の名前だけを重複なく並べた配列(0 件なら空)。
+  function validTrialConnections(value) {
+    return Array.isArray(value) && value.every(function (name, index) {
+      return AI_TRIAL_CONNECTIONS.indexOf(name) >= 0 && value.indexOf(name) === index;
+    });
   }
 
   function paintReplyAiSettingsNote(note, allowed) {
@@ -2450,7 +2462,8 @@
     if (!body || typeof body.enabled !== 'boolean' || !count(body.used) || !count(body.reserved) ||
       (shared && (typeof body.automatic_enabled !== 'boolean' ||
         [null, 'account_inactive', 'facts_required', 'automatic_unavailable'].indexOf(body.automatic_reason) < 0 ||
-        (body.automatic_included !== undefined && typeof body.automatic_included !== 'boolean'))) ||
+        (body.automatic_included !== undefined && typeof body.automatic_included !== 'boolean') ||
+        (body.trial_connections !== undefined && !validTrialConnections(body.trial_connections)))) ||
       (shared ? body.period !== 'contract' : !/^\d{4}-(0[1-9]|1[0-2])$/.test(body.period)) || !validReset ||
       reasons.indexOf(body.reason) < 0 ||
       (body.limit === null ? body.remaining !== null :

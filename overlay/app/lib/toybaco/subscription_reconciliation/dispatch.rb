@@ -23,4 +23,24 @@ module Toybaco::SubscriptionReconciliation::Dispatch
     Rails.logger.warn('TOYBACO_SUBSCRIPTION_SYNC_QUEUE_UNAVAILABLE')
     nil
   end
+
+  # An attention request that SubscriptionReconciliation.suspension_due? keeps: one Execution
+  # a minute retries the suspension until it commits and the request is no longer due.
+  def enqueue_suspension(record, now: Time.now.utc)
+    reserved = record.with_lock do
+      next false unless Toybaco::SubscriptionReconciliation.suspension_due?(record) && record.next_enqueue_at <= now
+
+      record.update!(next_enqueue_at: now + 60)
+      true
+    end
+    return unless reserved
+
+    queued = Toybaco::SubscriptionReconciliationJob.perform_later(record.id)
+    raise ActiveJob::EnqueueError unless queued
+
+    queued
+  rescue StandardError
+    Rails.logger.warn('TOYBACO_SUBSCRIPTION_SYNC_QUEUE_UNAVAILABLE')
+    nil
+  end
 end

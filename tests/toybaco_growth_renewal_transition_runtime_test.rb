@@ -1954,8 +1954,10 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
     @account.update!(internal_attributes: attrs.merge(InboxHold::KEY => changed))
     assert_raises(InboxHold::Invalid) { inbox_hold(clock: -> { now }) }
     assert_equal attrs[ReleaseRecord::KEY], @account.reload.internal_attributes[ReleaseRecord::KEY]
+    # An unarchived predecessor (the completed return without its pointer) now stops at the
+    # posting stage before any HTTP, as Changed (attention), never as a retried invalid response.
     @account.update!(internal_attributes: attrs.except(FreeRecord::KEY))
-    assert_raises(InboxHold::Invalid) { inbox_hold(clock: -> { now }) }
+    assert_raises(Journal::Changed) { inbox_hold(clock: -> { now }) }
     assert_equal attrs[ReleaseRecord::KEY], @account.reload.internal_attributes[ReleaseRecord::KEY]
   end
 

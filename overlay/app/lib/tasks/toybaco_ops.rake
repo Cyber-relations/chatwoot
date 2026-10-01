@@ -11,6 +11,8 @@
 # rake は Rails の初期化前にこのファイルを読むため、モジュールは入れ子で定義し、Toybaco::Ops::Audit は実行時に参照する。
 # 運営フラグの定義と読み手(Toybaco::Ops::OpsFlag)も同じ理由で入れ子に定義してあり、ここで先に読む。
 require_relative '../toybaco/ops/ops_flag'
+# メール接続の開放(Toybaco::Ops::ConnectionReleaseOps)も同じ。
+require_relative '../toybaco/ops/connection_release_ops'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
@@ -90,5 +92,40 @@ namespace :toybaco do
     puts "TOYBACO_OPS_FLAG name=#{name} value=#{value} previous=#{flag.state(previous)}"
     # 監査行は引数の digest しか持たないため、run ログで全運営フラグの状態を読めるようにする。
     flag::OPS_FLAGS.each { |key| puts "TOYBACO_OPS_FLAG_STATE name=#{key} value=#{flag.state(flag.current(key))}" }
+  end
+end
+
+# メール接続(Gmail / Microsoft)の開放(審査・評価・実測の記録、緊急停止、担当者依頼メールの登録)。実装と読み直しは
+# Toybaco::Ops::ConnectionReleaseOps にあり、ここは出力だけを行う。監査行(started / ok|failed)は上の RakeAudit が書く。
+# provider は開放判定のキー gmail_rest / microsoft_graph(担当者依頼メールだけは gmail / microsoft)。時刻は UTC の YYYY-MM-DDTHH:MM:SSZ。
+namespace :toybaco do
+  desc 'メール接続の開放判定と記録を表示する(rake "toybaco:connection_release_show[gmail_rest|microsoft_graph]")'
+  task :connection_release_show, %i[provider] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.show(args)
+  end
+
+  desc '提供元の承認・セキュリティ評価を記録する(rake "toybaco:connection_release_approve[provider,approval|qualification,証跡ID,確認時刻,期限|none]")'
+  task :connection_release_approve, %i[provider kind evidence_ref observed_at expires_at] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.approve(args)
+  end
+
+  desc '実測した接続確認を記録する(rake "toybaco:connection_release_smoke[provider,証跡ID,確認時刻,合格項目を.で区切る]")'
+  task :connection_release_smoke, %i[provider evidence_ref observed_at checks] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.smoke(args)
+  end
+
+  desc 'メール接続を緊急停止・解除する(rake "toybaco:connection_release_disable[provider,on|off]")'
+  task :connection_release_disable, %i[provider state] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.disable(args)
+  end
+
+  desc 'staging の開放記録を消す(fixture の後片付け。rake "toybaco:connection_release_clear[provider]")'
+  task :connection_release_clear, %i[provider] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.clear(args)
+  end
+
+  desc '担当者依頼メールの登録を書く・依頼の有効化を戻す(rake "toybaco:connection_handoff_mail[gmail|microsoft,enable|keep|disable]")'
+  task :connection_handoff_mail, %i[provider mode] => :environment do |_t, args|
+    puts Toybaco::Ops::ConnectionReleaseOps.handoff_mail(args)
   end
 end

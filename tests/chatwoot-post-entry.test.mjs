@@ -2991,6 +2991,41 @@ for (const included of [true, false, undefined]) {
   env.api.closeAiModePanel();
 }
 
+// B2 (2026-09-30): once a mail connection opens for the store, the usage names it in trial_connections. The note then
+// names only the opened connections and no longer asks to wait for the providers' review; no opened connection (an
+// empty list, or a usage read without the field) keeps the review note.
+for (const [connections, expected] of [
+  [undefined, TRIAL_INBOX_NOTE],
+  [[], TRIAL_INBOX_NOTE],
+  [['Gmail'], '自動応答の体験は、トイバコで接続した Gmail のメール受信箱だけが対象です。'],
+  [['Microsoft'], '自動応答の体験は、トイバコで接続した Microsoft のメール受信箱だけが対象です。'],
+  [['Gmail', 'Microsoft'], '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。'],
+]) {
+  const label = JSON.stringify(connections);
+  const env = loadInjectEntry((url, opts) => String(url).includes('/ai_usage')
+    ? Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract', resets_at: null, automatic_enabled: false,
+      automatic_reason: 'facts_required', automatic_included: false, trial_connections: connections }))
+    : aiModeAwareFetch(url, opts));
+  env.api.inject(); env.api.openAuxiliaryView('ai'); await flush();
+  const note = collectText(env.document.querySelector('[data-toybaco-reply-ai-settings-note]'));
+  env.api.openAiModePanel(); await flush();
+  const readiness = collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]').querySelector('[data-toybaco-ai-readiness]'));
+  assert.ok(note.endsWith('してもらってください。' + expected), `${label}: ${note}`);
+  assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。' + expected, label);
+  assert.equal(collectText(env.body).includes('審査完了後'), expected === TRIAL_INBOX_NOTE, label);
+  env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
+}
+// A list with an unknown or repeated name, or a value that is not a list, is a malformed usage read.
+for (const connections of [['Gmail', 'Gmail'], ['Outlook'], ['gmail'], 'Gmail', null, [1], {}]) {
+  const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract',
+    resets_at: null, automatic_enabled: false, automatic_reason: 'facts_required', automatic_included: false,
+    trial_connections: connections })));
+  await flush();
+  assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error', JSON.stringify(connections));
+  assert.doesNotMatch(collectText(env.body), /自動応答の体験は/);
+  env.api.closeAiModePanel();
+}
+
 // U5 (2026-09-29, staging store 15): the first-run guide saves the store facts and moves on to the conversation with
 // router.push, so the AI panel kept the usage read at login (automatic_reason facts_required) until a reload. The guide
 // now names the store that saved its facts (toybaco:store-facts-saved); that store reads its usage again and the panel

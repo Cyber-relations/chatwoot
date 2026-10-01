@@ -28,7 +28,9 @@ class Toybaco::SubscriptionReconciliation::Execution
       begin
         return defer_behind_barrier! if renewal_barrier?
 
-        run
+        state = run
+        suspend_after_attention
+        state
       ensure
         Account.uncached { connection.select_value("SELECT pg_advisory_unlock(#{key})") }
       end
@@ -57,7 +59,7 @@ class Toybaco::SubscriptionReconciliation::Execution
       next unless Toybaco::SubscriptionReconciliation::STATES.include?(@record.state)
 
       if @record.state == 'pending' && @record.deadline_at <= now
-        @record.update!(state: 'attention', result: expired_result)
+        @record.update!(state: 'attention', result: expired_result, next_enqueue_at: now)
         Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION')
       else
         @record.update!(next_attempt_at: deferred_slot, next_enqueue_at: now + 60)
@@ -78,7 +80,7 @@ class Toybaco::SubscriptionReconciliation::Execution
   end
 
   def run
-    return @record.reload.state unless claim!
+    return idle_state unless claim!
 
     result = reconcile
     return renewal_pending! if result == 'renewal_pending'
@@ -105,7 +107,8 @@ class Toybaco::SubscriptionReconciliation::Execution
       if @record.attempts >= Toybaco::SubscriptionReconciliation::ATTEMPTS || @record.deadline_at <= now
         next reclaim_orphan! if orphan_rearmable?
 
-        @record.update!(state: 'attention', result: expired_result)
+        @expired_return = @record.result == 'free_return_pending'
+        @record.update!(state: 'attention', result: expired_result, next_enqueue_at: now)
         next false
       end
 
@@ -114,6 +117,15 @@ class Toybaco::SubscriptionReconciliation::Execution
       @lease = @record.next_attempt_at
       true
     end
+  end
+
+  # A request that was not due. When it already was in attention, the sweep brought it back
+  # only because its store still skips the suspension for an unfinished Free return
+  # (SubscriptionReconciliation.suspension_due?), which suspend_after_attention retries.
+  def idle_state
+    state = @record.reload.state
+    @suspension_due = state == 'attention' && !@expired_return && Toybaco::SubscriptionReconciliation.suspension_due?(@record)
+    state
   end
 
   # claim! holds the session lock, so a running row here lost its worker, and a dispatch
@@ -177,6 +189,9 @@ class Toybaco::SubscriptionReconciliation::Execution
       values[:state] = 'pending' if @record.requested_revision > @revision
     end
     pending_values(values, result) if values[:state] == 'pending'
+    # An attention row is never dispatched; its next_enqueue_at only paces the sweep's
+    # suspension retry (Dispatch.enqueue_suspension), which may start at once.
+    values[:next_enqueue_at] = now if values[:state] == 'attention'
     values
   end
 

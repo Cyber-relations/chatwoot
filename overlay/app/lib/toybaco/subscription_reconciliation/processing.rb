@@ -5,6 +5,10 @@ require_relative '../growth/period_end_free_return'
 
 module Toybaco::SubscriptionReconciliation::Processing
   FREE_RETURN_RESULTS = { nil => 'applied', 'free_completed' => 'applied', 'free_pending' => 'free_return_pending' }.freeze
+  # What the suspension Sync must leave as it found them: the return's journal, the store's
+  # subscription, the holds and the pointer of the Free record.
+  RETURN_KEYS = [Toybaco::Growth::RenewalTransition::KEY, 'toybaco_subscription_id', Toybaco::Growth::PostingRetention::KEY,
+                 Toybaco::Growth::InboxRetention::KEY, Toybaco::Growth::FreeReturnRecord::KEY].freeze
 
   private
 
@@ -15,8 +19,7 @@ module Toybaco::SubscriptionReconciliation::Processing
     return 'superseded' if account == :superseded
     return retry_missing_account unless account
 
-    client = @client || Toybaco::Checkout::Client.new(@environment.fetch('TOYBACO_STRIPE_KEY', ''))
-    checked = ModeClient.new(client, @record.mode)
+    checked = mode_client
     # This method retains the existing subscription lock, complete parent /
     # child transaction and current-subscription checks. The request claim
     # was committed separately before any Stripe read or business update.
@@ -33,8 +36,67 @@ module Toybaco::SubscriptionReconciliation::Processing
   def period_end_free_return(account, client)
     account.reload
     finalizer = Toybaco::Growth::PeriodEndFreeReturn
-    result = finalizer.new(account, client: client, environment: @environment, now: @fixed_now).call if finalizer.applicable?(account)
-    FREE_RETURN_RESULTS.fetch(result, 'attention')
+    return 'applied' unless finalizer.applicable?(account)
+
+    @returning = [account, client]
+    FREE_RETURN_RESULTS.fetch(finalizer.new(account, client: client, environment: @environment, now: @fixed_now).call, 'attention')
+  end
+
+  # The Sync skips the suspension only while the Free return is in progress. A run that
+  # leaves the request in attention after the return (its own attention, or the retries
+  # and deadline of free_return_pending spent) runs the same Sync once more without the
+  # opt-in, which takes the existing suspension (fail-closed). It writes no journal, hold
+  # or Free record; a re-armed return continues from the suspension and lifts it. This is
+  # the fast path: when it fails or never runs, the sweep retries it from durable facts.
+  def suspend_after_attention
+    return unless @record.reload.state == 'attention'
+
+    account, client = @returning || ((@expired_return || @suspension_due) && expired_target)
+    suspend_unchanged(account.reload, client) if account
+  rescue Toybaco::SubscriptionReconciliation::SuspensionChanged
+    # Rolled back whole: the request stays in attention and the sweep keeps retrying.
+    Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_INVARIANT')
+    nil
+  rescue StandardError => e
+    # SubscriptionReconciliation.suspension_due? keeps the sweep retrying every minute.
+    Rails.logger.error("TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_RETRY #{e.class}")
+    nil
+  end
+
+  # The suspension Sync may only suspend. Its facts are read under its lock before any
+  # write (the guard) and again before its commit (the block, same transaction): a Sync
+  # that changed the journal, the store's subscription, a hold or the pointer, wrote a
+  # Free contract or a Free record, or turned the paid contract into one that
+  # PeriodEndCancel.paid_contract? refuses (a re-armed return could not continue from
+  # it), is rolled back whole. The store then stays active under its unfinished journal,
+  # which keeps the suspension due for the sweep.
+  def suspend_unchanged(account, client)
+    before = nil
+    guard = lambda do |locked, subscription|
+      before = return_facts(locked)
+      renewal_guard.call(locked, subscription)
+    end
+    Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: client, guard: guard,
+                                                   environment: @environment) do
+      raise Toybaco::SubscriptionReconciliation::SuspensionChanged unless before && return_facts(Account.find(account.id)) == before
+    end
+  end
+
+  def return_facts(account)
+    attrs = Toybaco::Entitlements.attributes(account)
+    contract = attrs['toybaco_contract']
+    { 'values' => attrs.slice(*RETURN_KEYS).deep_dup, 'free' => contract.is_a?(Hash) && contract['plan_id'] == 'free',
+      'paid' => Toybaco::Growth::PeriodEndCancel.paid_contract?(contract),
+      'records' => Toybaco::GrowthFreeReturn.where(account_id: account.id).count }
+  end
+
+  def expired_target
+    account = bound_account if @environment['TOYBACO_STRIPE_MODE'] == @record.mode
+    [account, mode_client] if account.is_a?(Account)
+  end
+
+  def mode_client
+    ModeClient.new(@client || Toybaco::Checkout::Client.new(@environment.fetch('TOYBACO_STRIPE_KEY', '')), @record.mode)
   end
 
   # Webhook reconciliation only. The guard runs after the fresh provider read and

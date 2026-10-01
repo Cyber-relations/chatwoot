@@ -113,11 +113,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @cancel
       end
 
-      # The saved status is the ended period-end cancellation of an active store
-      # that has no renewal failure: the same account side as the Sync decision.
+      # The saved status is the ended period-end cancellation of an active store (or one
+      # this return left billing-suspended under its closed journal) that has no renewal
+      # failure: the same account side as the Sync decision.
       def cancel_base
         attrs = Entitlements.attributes(@account)
-        raise Changed unless %w[test live].include?(@mode) && @account.active? && !attrs.key?(PeriodEndCancel::FAILURE_KEY) &&
+        raise Changed unless %w[test live].include?(@mode) && PeriodEndCancel.store?(@account, attrs) && !attrs.key?(PeriodEndCancel::FAILURE_KEY) &&
                              PeriodEndCancel.ended_status?(attrs)
 
         { 'account_id' => @account.id, 'source' => Entitlements.contract_for(@account),
