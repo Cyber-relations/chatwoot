@@ -9,6 +9,8 @@ require_relative '../growth/renewal_dispatch'
 
 class Toybaco::SubscriptionReconciliation::Execution
   include Toybaco::SubscriptionReconciliation::Processing
+  # The Sync's own rule for a suspension (SubscriptionSyncStatus#suspended_status?), used as is.
+  STATUS_RULES = Object.new.extend(Toybaco::SubscriptionSyncStatus).freeze
 
   def initialize(record, client: nil, now: nil, environment: ENV)
     @record = record
@@ -26,7 +28,11 @@ class Toybaco::SubscriptionReconciliation::Execution
       return 'busy' unless acquired
 
       begin
-        return defer_behind_barrier! if renewal_barrier?
+        if renewal_barrier?
+          state = defer_behind_barrier!
+          suspend_behind_barrier if state == 'attention'
+          return state
+        end
 
         state = run
         suspend_after_attention
@@ -44,7 +50,9 @@ class Toybaco::SubscriptionReconciliation::Execution
   end
 
   # Dispatch progress beyond 'received', a started N2 or a due grace row keeps the whole
-  # Sync out. Otherwise a blocked subscription runs only the status-only Sync.
+  # Sync out. Otherwise a blocked subscription runs only the status-only Sync. Behind the
+  # barrier, only the suspension-only path of an attention request may still run
+  # (suspend_behind_barrier).
   def renewal_barrier?
     dispatch = Toybaco::Growth::RenewalDispatch
     dispatch.blocked?(@record.mode, @record.subscription_id, now: now) &&
@@ -66,6 +74,45 @@ class Toybaco::SubscriptionReconciliation::Execution
       end
     end
     @record.state == 'attention' ? 'attention' : 'renewal_pending'
+  end
+
+  # Behind the barrier the Sync waits, so a Free return's attention would wait for good when
+  # only terminal attention dispatch rows hold it: nothing re-arms the request or lifts the
+  # barrier. This path alone still falls back to the suspension, inside the same session
+  # lock, for an attention request that is due for it (SubscriptionReconciliation.suspension_due?)
+  # while no dispatch row can re-arm it (rearming_dispatch?). A pending renewal coordinator
+  # keeps its fence (RenewalCoordinatorFence.pending, the fence's own predicate): no Stripe
+  # read and no write is tried, and one log line hands it to the operator.
+  def suspend_behind_barrier
+    return unless Toybaco::SubscriptionReconciliation.suspension_due?(@record) &&
+                  !Toybaco::SubscriptionReconciliation.rearming_dispatch?(@record.mode, @record.subscription_id)
+    return coordinator_blocked if Toybaco::Growth::RenewalCoordinatorFence.pending(@record.account_id)
+
+    @behind_barrier = @suspension_due = true
+    suspend_after_attention
+  end
+
+  def coordinator_blocked
+    Rails.logger.error("TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_BLOCKED reason=coordinator subscription=#{@record.subscription_id} " \
+                       "account=#{@record.account_id}")
+  end
+
+  # The suspension-only path's guard. The renewal guard decides first; its :wait becomes the
+  # full Sync only while terminal attention rows alone hold the barrier, the fresh
+  # subscription is exempt (RenewalDispatchSyncGuard#exempt?: canceled or incomplete_expired,
+  # or its latest invoice void or uncollectible), which no dispatch renews any more, and its
+  # status is one the Sync suspends on (the store's billing policy). An active subscription
+  # with a void latest invoice is exempt but would not be suspended: the full Sync would only
+  # overwrite the saved cancellation. Any other decision stands, and a :wait writes nothing.
+  def suspension_guard
+    lambda do |account, subscription|
+      decision = renewal_guard.call(account, subscription)
+      policy = Toybaco::Entitlements.attributes(account).dig('toybaco_contract', 'billing_policy')
+      through = decision == :wait && !Toybaco::SubscriptionReconciliation.rearming_dispatch?(@record.mode, @record.subscription_id) &&
+                Toybaco::Growth::RenewalDispatchSyncGuard.new(account, subscription, environment: @environment).exempt? &&
+                STATUS_RULES.send(:suspended_status?, policy.is_a?(Hash) ? policy : {}, subscription['status'])
+      through ? nil : decision
+    end
   end
 
   # The deferral writes now + 60 without a due check, so inside the claim's own microsecond

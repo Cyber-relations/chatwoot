@@ -618,6 +618,24 @@ module ToybacoGrowthRenewalDispatchSyncCases
     sync_assert_deferred(sync, at: Time.now.utc)
   end
 
+  # A terminal attention row (a grace whose N2 failed for good) holds the barrier: an ordinary
+  # pending Sync keeps waiting behind it and reads nothing. The suspension-only path is only for
+  # an attention request whose store falls back to the suspension.
+  def test_dispatch_sync_pre_claim_barrier_keeps_a_pending_sync_behind_a_terminal_attention_row
+    sync_fixture(paid: false)
+    sync_fact!(type: 'invoice.payment_failed', created: NOW.to_i - 30)
+    assert_equal 'idle', dispatch_real_execute
+    dispatch_row.update_columns(state: 'attention', result: 'stop_attention')
+    assert_equal %w[attention grace_ready], dispatch_row.values_at(:state, :phase)
+    sync = sync_notice!
+    before = sync_state
+    refute Dispatch.repair_admissible?('test', @sub, now: NOW)
+    refute Reconciliation.rearming_dispatch?('test', @sub)
+    assert_equal 'renewal_pending', sync_execute(sync, client: sync_unreachable)
+    assert_equal before, sync_state
+    sync_assert_deferred(sync, at: NOW)
+  end
+
   # The pre-claim barrier only moves the retry slot; attempts, deadline and state stay.
   def sync_assert_deferred(sync, at:)
     deadline = sync.deadline_at

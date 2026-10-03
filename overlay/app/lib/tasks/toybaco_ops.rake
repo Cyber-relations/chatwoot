@@ -129,3 +129,94 @@ namespace :toybaco do
     puts Toybaco::Ops::ConnectionReleaseOps.handoff_mail(args)
   end
 end
+
+# 規約同意の記録の確認(法務チェックリスト第 2 節)。記録は Account の internal_attributes の toybaco_legal_consents
+# (追記のみの配列)にあり、正本の読み手 Toybaco::LegalTerms.records で読む。読み取りだけで書き込まない。
+# 監査行(started / ok|failed)は上の RakeAudit が書く。出力は 1 件 1 行の TOYBACO_LEGAL_CONSENT と、最後に件数と
+# 経路ごとの件数を示す TOYBACO_LEGAL_CONSENTS の 1 行。各値は LegalTerms の検査(書き込み時と同じ)を通るものだけを出し、
+# 通らなければ中身を出さずに invalid と出す。利用者は id だけ、Session は先頭 8 字だけを出し、メールアドレス・氏名・
+# Session の全体・Stripe の顧客 ID は出さない。rake は Rails の初期化前にこのファイルを読むため、LegalTerms は実行時に参照する。
+# 経路の表記はマスク回避のためハイフン(記録の値は ROUTES のまま)。ops-rake の Step Summary のマスクは「小文字 2〜8 字 + _ +
+# 英数字 8 字以上」を ID として伏せ、opening_checkout などを <id> にするため、行と集計では _ を - に置き換えて出す。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module LegalConsentsReport
+      ACCOUNT_ID_FORMAT = /\A[1-9]\d{0,9}\z/
+      FIELDS = %w[route terms_version accepted_at user_id session stripe_consent].freeze
+      SESSION_PREFIX_LENGTH = 8
+      INVALID = 'invalid'
+      NONE = '-'
+
+      module_function
+
+      def lines(account)
+        rows = Toybaco::LegalTerms.records(account).map { |record| row(record) }
+        rows.map { |row| entry_line(account.id, row) } + [summary_line(account.id, rows)]
+      end
+
+      # 出力の項目は FIELDS の順。Hash でない記録は全項目を invalid にする。
+      def row(record)
+        return FIELDS.index_with(INVALID) unless record.is_a?(Hash)
+
+        legal = Toybaco::LegalTerms
+        { 'route' => legal::ROUTES.include?(record['route']) ? route_label(record['route']) : INVALID,
+          'terms_version' => checked { legal.version!(record['terms_version']) },
+          'accepted_at' => checked { legal.timestamp!(record['accepted_at']) },
+          'user_id' => checked { legal.user!(record['user_id']) } || NONE,
+          'session' => session(record['session_id']),
+          'stripe_consent' => checked { legal.stripe_consent!(record['stripe_consent']) } || NONE }
+      end
+
+      # 経路の表記(マスク回避のため ROUTES の値の _ を - に置き換える。記録の値は ROUTES のまま)。
+      def route_label(route)
+        route.tr('_', '-')
+      end
+
+      # LegalTerms の検査を通った値(記録が無い項目は nil)を返し、通らなければ中身を出さずに invalid にする。
+      def checked
+        yield
+      rescue ArgumentError
+        INVALID
+      end
+
+      # Session は先頭 8 字だけを出す。8 字以下の Session は先頭 8 字が全体になるため cs_ だけを出す。
+      def session(value)
+        return NONE if value.nil?
+        return INVALID unless value.is_a?(String) && value.match?(Toybaco::LegalTerms::SESSION_FORMAT)
+
+        value.length > SESSION_PREFIX_LENGTH ? "#{value[0, SESSION_PREFIX_LENGTH]}…" : 'cs_…'
+      end
+
+      def entry_line(account_id, row)
+        fields = row.map { |key, value| "#{key}=#{value}" }.join(' ')
+        "TOYBACO_LEGAL_CONSENT account=#{account_id} #{fields}"
+      end
+
+      # 経路ごとの件数は LegalTerms::ROUTES の順(表記はハイフン、形に合わない経路の invalid は最後)で、記録のある経路だけを出す。
+      # 記録が無ければ -。
+      def summary_line(account_id, rows)
+        counts = rows.pluck('route').tally
+        order = Toybaco::LegalTerms::ROUTES.map { |route| route_label(route) } + [INVALID]
+        routes = order.filter_map { |route| "#{route}:#{counts[route]}" if counts.key?(route) }
+        "TOYBACO_LEGAL_CONSENTS account=#{account_id} count=#{rows.size} routes=#{routes.empty? ? NONE : routes.join(',')}"
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc '規約同意の記録を読み取りだけで表示する(rake "toybaco:legal_consents[account_id]"。account_id は 1 以上の整数)'
+  task :legal_consents, %i[account_id] => :environment do |_t, args|
+    report = Toybaco::Ops::LegalConsentsReport
+    raw = args[:account_id]
+    # 検査と変換を同じ判定にする(通すのは 1 以上の整数の文字列だけで、Ruby から Integer を渡しても通さない)。入力の値は出さない。
+    abort 'account_id は 1 以上の整数で指定してください。' unless raw.is_a?(String) && raw.match?(report::ACCOUNT_ID_FORMAT)
+    abort '引数は account_id の 1 つだけを指定してください。' unless args.extras.empty?
+
+    account_id = Integer(raw, 10)
+    account = Account.find_by(id: account_id)
+    abort "account=#{account_id} が見つかりません。" unless account
+
+    report.lines(account).each { |line| puts line }
+  end
+end
