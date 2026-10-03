@@ -97,11 +97,12 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpa
 FROM bundled-gems
 RUN rm -rf /app/public/vite
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
-# Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1. Upgrade the final
+# Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1 and CVE-2026-75804 /
+# CVE-2026-84782 in 3.3.7-r2 (the publisher's ECR scan gate, 2026-10-02). Upgrade the final
 # filesystem and APK inventory together, including both linked libraries.
-RUN apk add --no-cache --upgrade 'openssl=3.3.7-r1' 'libcrypto3=3.3.7-r1' 'libssl3=3.3.7-r1' \
+RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' \
     && for package in openssl libcrypto3 libssl3; do \
-      test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r1"; \
+      test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"; \
     done \
     && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)'
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
