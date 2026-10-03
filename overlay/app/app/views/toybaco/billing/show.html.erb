@@ -57,6 +57,8 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 <div class="wrap" id="billing-content">
   <% growth = @contract && @contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER %>
   <% growth_free = growth && @contract['plan_id'] == 'free' %>
+  <%# 期間末に無料プランへ移るのは自動 Free 移行の対象の契約だけ(PeriodEndCancel.paid_contract?: 現行の版・legacy でない・追加契約が無い)。解約の案内と継続する接続の入口はこれで分ける。 %>
+  <% free_return = Toybaco::Growth::PeriodEndCancel.paid_contract?(@contract) %>
   <%# 自動応答の体験で使えるメール接続(開放済みの表示名)。自動応答が契約に含まれない新料金の店舗でだけ読む(TrialConnectionRelease)。 %>
   <% trial_mail = Toybaco::Growth::TrialConnectionRelease.released_providers(@account) if growth && !@contract.dig('entitlements', 'features', 'ai_auto_reply') %>
   <h1>ご契約内容</h1>
@@ -207,7 +209,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
   <% if growth && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
     <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %>">接続と予約を確認</a></p></section>
   <% end %>
-  <% if growth && !growth_free && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
+  <% if free_return && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
     <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信箱・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %>&amp;target=free">接続を選ぶ</a></p></section>
   <% end %>
 
@@ -232,14 +234,14 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     <p class="lp-line">解約は、管理画面から2クリックで手続きできます。</p>
     <button type="button" class="btn btn-navy" id="cancel-open">解約する</button>
     <p class="err" id="cancel-err">解約できませんでした。時間をおいて再度お試しください。</p>
-    <%# 期間末に無料プランへ移るのは新料金版の契約だけ。旧版の契約には従来の案内を出す。 %>
-    <p class="note" id="cancel-done-message" hidden><%= growth ? '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' : 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' %></p>
+    <%# 期間末に無料プランへ移るのは自動 Free 移行の対象の契約だけ(free_return)。旧版や追加契約のある契約には従来の案内を出す。 %>
+    <p class="note" id="cancel-done-message" hidden><%= free_return ? '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' : 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' %></p>
   </div>
   <div class="dlg-back" id="cancel-dialog" hidden>
     <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
       <p class="dlg-title" id="cancel-title">この契約を解約しますか？</p>
       <p class="dlg-body" id="cancel-reservation-note" hidden>変更予約を取り消し、現在の契約期間末で解約します。</p>
-      <% if growth %>
+      <% if free_return %>
       <p class="dlg-body">解約すると次回の更新を停止します。現在の契約期間末までは現在のプランを使えます。現在の契約期間末に無料プランへ移り、会話・原稿・スタッフはそのまま残ります。無料プランの上限を超える接続は停止し、予約投稿は保留します（削除はしません）。期間途中の日割り返金はありません。</p>
       <% else %>
       <p class="dlg-body">お申し出以降、次回分の請求は発生しません。日割りの返金はありません。</p>
