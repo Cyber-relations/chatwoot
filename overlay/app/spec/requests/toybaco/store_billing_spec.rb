@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 require Rails.root.join('lib/toybaco/store_fulfillment')
+require Rails.root.join('lib/toybaco/checkout/plan_change')
 
 RSpec.describe 'Toybaco purchased store billing', type: :request do
   let(:parent) { create(:account, name: 'Private parent name', internal_attributes: { 'toybaco_subscription_id' => 'sub_parent' }) }
@@ -103,5 +104,63 @@ RSpec.describe 'Toybaco purchased store billing', type: :request do
     allow(Toybaco::Oidc::SessionReader).to receive(:new).and_return(instance_double(Toybaco::Oidc::SessionReader, user: owner))
     get "/toybaco/billing?account_id=#{other.id}"
     expect(response).to have_http_status(:forbidden)
+  end
+
+  # 期間末に無料プランへ移る案内は、自動 Free 移行の対象の契約(PeriodEndCancel.paid_contract?)だけに出す。
+  describe '解約の案内' do
+    let(:free_done) { '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' }
+    let(:stop_copy) { 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' }
+
+    around do |example|
+      saved = %w[TOYBACO_STRIPE_KEY TOYBACO_GROWTH_RETENTION_ENABLED].index_with { |key| ENV.fetch(key, nil) }
+      ENV['TOYBACO_STRIPE_KEY'] = 'fixture-billing-key'
+      ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] = 'true'
+      example.run
+    ensure
+      saved.each { |key, value| value ? ENV[key] = value : ENV.delete(key) }
+    end
+
+    before do
+      allow(Toybaco::Checkout::Client).to receive(:new).and_return(instance_double(Toybaco::Checkout::Client, retrieve_subscription: {}))
+      allow(Toybaco::BillingSubscription).to receive(:summarize).and_return(status: 'active', status_label: '有効', cancel_at_period_end: false,
+                                                                            items: [], invoice: nil)
+      allow(Toybaco::Checkout::PlanChange).to receive(:new).and_return(instance_double(Toybaco::Checkout::PlanChange, state: nil))
+    end
+
+    def cancel_texts(version, addons: [], plan_version: nil)
+      terms = Toybaco::PlanCatalog.default.definition('standard', version)
+      contract = Toybaco::Entitlements.snapshot_for(terms, cycle: 'month', addons: addons)
+      contract = contract.merge('plan_version' => plan_version) if plan_version
+      Toybaco::Entitlements.apply!(account, contract, subscription_id: 'sub_cancelcopy')
+      get "/toybaco/billing?account_id=#{account.id}"
+      expect(response).to have_http_status(:ok)
+      document = Nokogiri::HTML(response.body)
+      { done: document.at_css('#cancel-done-message').text,
+        dialog: document.css('#cancel-dialog .dlg-body').reject { |node| node['id'] == 'cancel-reservation-note' }.map(&:text),
+        retention: response.body.include?('無料プランで継続する接続') }
+    end
+
+    it '追加契約の無い新料金の契約には期間末に無料プランへ移る案内を出す' do
+      texts = cancel_texts('2026-09-25.1')
+      expect(texts[:done]).to eq(free_done)
+      expect(texts[:dialog]).to contain_exactly(a_string_including('現在の契約期間末に無料プランへ移り'))
+      expect(texts[:retention]).to be(true)
+    end
+
+    it '新料金でも追加契約のある契約には従来の停止の案内を出し、継続する接続の入口を出さない' do
+      addon = Toybaco::Entitlements.new_addon('manual-posting', quantity: 1, source: 'manual')
+      expect(cancel_texts('2026-09-25.1', addons: [addon])).to eq(done: stop_copy, dialog: [stop_copy], retention: false)
+      expect(response.body).to include('AIアシスタント（返信・投稿で共通）')
+    end
+
+    it '現行の利用枠のまま版だけが新料金と違う契約には従来の停止の案内を出し、継続する接続の入口を出さない' do
+      expect(cancel_texts('2026-09-25.1', plan_version: '2026-09-25.0')).to eq(done: stop_copy, dialog: [stop_copy], retention: false)
+      expect(Toybaco::Entitlements.contract_for(account).values_at('plan_version', 'addons')).to eq(['2026-09-25.0', []])
+      expect(response.body).to include('AIアシスタント（返信・投稿で共通）')
+    end
+
+    it '旧版の契約には従来の停止の案内を出す' do
+      expect(cancel_texts('2026-09-06.1')).to eq(done: stop_copy, dialog: [stop_copy], retention: false)
+    end
   end
 end

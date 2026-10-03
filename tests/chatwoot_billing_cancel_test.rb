@@ -79,13 +79,20 @@ class ChatwootBillingCancelTest < Minitest::Test
   end
 
   def test_cancel_dialog_names_the_free_plan_only_for_contracts_that_return_to_it
-    growth = { 'plan_id' => 'standard', 'entitlements' => { 'ai_meter' => Toybaco::GrowthTerms::METER,
-                                                            'features' => { 'ai_reply' => true, 'ai_auto_reply' => true },
-                                                            'limits' => { 'ai_generations' => 500 } } }
+    growth = { 'plan_id' => 'standard', 'plan_version' => Toybaco::GrowthTerms::VERSION, 'legacy' => false, 'addons' => [],
+               'entitlements' => { 'ai_meter' => Toybaco::GrowthTerms::METER,
+                                   'features' => { 'ai_reply' => true, 'ai_auto_reply' => true },
+                                   'limits' => { 'ai_generations' => 500 } } }
     rendered = render_with_cancel_box(growth)
     assert_includes rendered, FREE_PLAN_CONFIRM_BODY
     assert_includes rendered, "id=\"cancel-done-message\" hidden>#{FREE_PLAN_DONE}</p>"
     refute_includes rendered, CONFIRM_BODY
+
+    # 追加契約のある契約は期間末に無料プランへ移らない(PeriodEndCancel.paid_contract?)。
+    rendered = render_with_cancel_box(growth.merge('addons' => [{ 'id' => 'manual-posting' }]))
+    assert_includes rendered, "<p class=\"dlg-body\">#{CONFIRM_BODY}</p>"
+    assert_includes rendered, "id=\"cancel-done-message\" hidden>#{CONFIRM_BODY}</p>"
+    refute_includes rendered, FREE_PLAN_DONE
 
     legacy = { 'entitlements' => { 'features' => { 'ai_reply' => false }, 'limits' => { 'ai_replies' => 0 } } }
     rendered = render_with_cancel_box(legacy)

@@ -297,7 +297,7 @@ test('owned reservation and period-end cancellation share the original two click
   assert.equal(f.elements.get('cancel-open').hidden, true);
   assert.equal(f.elements.get('plan-change-panel').hidden, true, 'stale reservation actions are removed after cancellation');
   assert.equal(f.elements.get('cancel-box').children[0].textContent, done);
-  assert.match(view, /id="cancel-done-message" hidden><%= growth \? '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' : 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' %>/);
+  assert.match(view, /id="cancel-done-message" hidden><%= free_return \? '解約を受け付けました。現在の契約期間末に無料プランへ移ります。' : 'お申し出以降、次回分の請求は発生しません。日割りの返金はありません。' %>/);
   assert.doesNotMatch(view, /textContent = 'お申し出以降/, 'the completion text is not hard-coded for every contract');
 });
 
