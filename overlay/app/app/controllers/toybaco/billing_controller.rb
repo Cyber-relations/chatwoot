@@ -4,6 +4,7 @@ require 'net/http'
 require_relative '../../../lib/toybaco/entitlements'
 require_relative '../../../lib/toybaco/store_fulfillment'
 require_relative '../../../lib/toybaco/checkout'
+require_relative '../../../lib/toybaco/stripe_api'
 require_relative '../../../lib/toybaco/billing_subscription'
 require_relative '../../../lib/toybaco/billing_access'
 require_relative '../../../lib/toybaco/checkout/plan_change'
@@ -185,6 +186,7 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     uri = URI("https://api.stripe.com#{path}")
     req = method == :get ? Net::HTTP::Get.new(uri) : Net::HTTP::Post.new(uri)
     req.basic_auth(key, '')
+    req[Toybaco::StripeApi::HEADER] = Toybaco::StripeApi::VERSION
     req.set_form_data(params) if params
     res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 10) do |http|
       http.request(req)

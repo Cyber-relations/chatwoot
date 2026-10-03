@@ -294,6 +294,19 @@ RSpec.describe 'Toybaco authenticated plan changes', type: :request do
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body).to eq('status' => 'cancel_at_period_end')
     end
+
+    it 'ポータル発行の契約取得とセッション作成の両方に固定したStripe API versionを付ける' do
+      ENV['TOYBACO_STRIPE_PORTAL_CONFIGURATION'] = 'bpc_ToybacoFixture'
+      pinned = { 'Stripe-Version' => Toybaco::StripeApi::VERSION }
+      subscription = stub_request(:get, 'https://api.stripe.com/v1/subscriptions/sub_fixture')
+                     .with(headers: pinned).to_return(status: 200, body: { customer: 'cus_owned' }.to_json)
+      portal = stub_request(:post, 'https://api.stripe.com/v1/billing_portal/sessions')
+               .with(headers: pinned).to_return(status: 200, body: { url: 'https://billing.stripe.com/p/session/fixture' }.to_json)
+      post "/toybaco/billing/portal?account_id=#{account.id}", headers: headers, as: :json
+      expect(response).to have_http_status(:ok)
+      expect(subscription).to have_been_requested.once
+      expect(portal).to have_been_requested.once
+    end
   end
 
   context 'with a persisted purchased snapshot' do

@@ -292,4 +292,110 @@ RSpec.describe Toybaco::Ops::RakeAudit do # rubocop:disable RSpec/SpecFilePathFo
       )
     end
   end
+
+  describe 'toybaco:legal_consents' do
+    let(:account) { create(:account) }
+    let(:failed_rows) { [%w[rake.toybaco:legal_consents started], %w[rake.toybaco:legal_consents failed]] }
+
+    def run_legal_consents(*values)
+      Rake::Task['toybaco:legal_consents'].execute(Rake::TaskArguments.new([:account_id], values))
+    end
+
+    # 成功するはずの呼び出し。想定外の abort(SystemExit)は RSpec の実行全体を止めるため、この例の失敗に置き換える。
+    def legal_consents(*values)
+      run_legal_consents(*values)
+    rescue SystemExit
+      raise RSpec::Expectations::ExpectationNotMetError, "toybaco:legal_consents[#{values.join(',')}] が abort しました"
+    end
+
+    # 期待する 1 件 1 行(項目は route・terms_version・accepted_at・user_id・session・stripe_consent の固定順)。
+    def consent_lines(rows)
+      rows.map do |row|
+        route, version, accepted_at, user_id, session, stripe_consent = row
+        "TOYBACO_LEGAL_CONSENT account=#{account.id} route=#{route} terms_version=#{version} accepted_at=#{accepted_at} " \
+          "user_id=#{user_id} session=#{session} stripe_consent=#{stripe_consent}"
+      end
+    end
+
+    it '記録が無ければ件数 0 の集計行だけを出し、監査行に started と ok を残す(params_digest は account_id の digest)' do
+      expect { legal_consents(account.id.to_s) }.to output("TOYBACO_LEGAL_CONSENTS account=#{account.id} count=0 routes=-\n").to_stdout
+      digest = Toybaco::Ops::Audit.params_digest({ 'account_id' => account.id.to_s })
+      expect(new_rows.pluck(:actor_kind, :actor_id, :action, :result, :source, :target_type, :params_digest)).to eq(
+        [['rake', 'unknown', 'rake.toybaco:legal_consents', 'started', 'rake:unspecified', nil, digest],
+         ['rake', 'unknown', 'rake.toybaco:legal_consents', 'ok', 'rake:unspecified', nil, digest]]
+      )
+    end
+
+    it '開通と 4 経路の記録を 1 件 1 行で出し、Session は先頭 8 字・利用者は id だけを出して、記録を書き換えない' do
+      user = create(:user, name: '規約 確認子', email: 'consent-owner@example.com')
+      opening = "cs_test_#{'a1B2' * 10}"
+      purchase = "cs_live_#{'c3D4' * 10}"
+      account.update!(internal_attributes: { 'toybaco_stripe_customer_id' => 'cus_LegalConsentCustomer1' })
+      # 書き手と同じ正本(LegalTerms.record!)で記録する。growth_purchase の同意日時は +09:00 で渡し、UTC で読めることを確かめる。出力の経路は _ を - にした表記。
+      [['opening_checkout', '2026-09-25.1', '2026-09-25T01:02:03Z', { session_id: opening, stripe_consent: 'accepted' }],
+       ['growth_purchase', '2026-09-25.1', '2026-09-26T02:03:04+09:00', { user_id: user.id, session_id: purchase, stripe_consent: 'accepted' }],
+       ['free_registration', '2026-09-06.1', '2026-09-27T03:04:05Z', { user_id: user.id }],
+       ['trial', '2026-09-25.1', '2026-09-28T04:05:06Z', { user_id: user.id }],
+       ['managed_auto', '2026-09-25.1', '2026-09-29T05:06:07Z', { user_id: user.id }],
+       ['managed_auto', '2026-09-25.1', '2026-09-30T06:07:08Z', { user_id: user.id }]].each do |route, version, accepted_at, details|
+        Toybaco::LegalTerms.record!(account, route: route, accepted_at: accepted_at, terms_version: version, **details)
+      end
+      saved = account.reload.attributes.slice('internal_attributes', 'updated_at')
+      output = capture(:stdout) { legal_consents(account.id.to_s) }
+      expect(output.lines(chomp: true)).to eq(
+        consent_lines([%w[opening-checkout 2026-09-25.1 2026-09-25T01:02:03Z - cs_test_… accepted],
+                       ['growth-purchase', '2026-09-25.1', '2026-09-25T17:03:04Z', user.id, 'cs_live_…', 'accepted'],
+                       ['free-registration', '2026-09-06.1', '2026-09-27T03:04:05Z', user.id, '-', '-'],
+                       ['trial', '2026-09-25.1', '2026-09-28T04:05:06Z', user.id, '-', '-'],
+                       ['managed-auto', '2026-09-25.1', '2026-09-29T05:06:07Z', user.id, '-', '-'],
+                       ['managed-auto', '2026-09-25.1', '2026-09-30T06:07:08Z', user.id, '-', '-']]) +
+        ["TOYBACO_LEGAL_CONSENTS account=#{account.id} count=6 " \
+         'routes=opening-checkout:1,growth-purchase:1,free-registration:1,managed-auto:2,trial:1']
+      )
+      expect(output).not_to include(user.email, user.name, opening, purchase, opening[0, 9], purchase[0, 9], 'cus_', '@')
+      expect(account.reload.attributes.slice('internal_attributes', 'updated_at')).to eq(saved)
+    end
+
+    it '記録の値が LegalTerms の形に合わなければ中身を出さずに invalid と出し、8 字以下の Session は cs_ だけを出す' do
+      leak = 'leak@example.com'
+      malformed = { 'route' => leak, 'terms_version' => leak, 'accepted_at' => leak, 'user_id' => leak, 'session_id' => "cs_#{leak}",
+                    'stripe_consent' => leak }
+      short_session = { 'route' => 'trial', 'terms_version' => '2026-09-25.1', 'accepted_at' => '2026-09-25T01:02:03Z', 'user_id' => 0,
+                        'session_id' => 'cs_a1b2c', 'stripe_consent' => nil }
+      account.update!(internal_attributes: { 'toybaco_legal_consents' => [malformed, short_session, leak] })
+      output = capture(:stdout) { legal_consents(account.id.to_s) }
+      expect(output.lines(chomp: true)).to eq(
+        consent_lines([%w[invalid invalid invalid invalid invalid invalid], %w[trial 2026-09-25.1 2026-09-25T01:02:03Z invalid cs_… -],
+                       %w[invalid invalid invalid invalid invalid invalid]]) +
+        ["TOYBACO_LEGAL_CONSENTS account=#{account.id} count=3 routes=trial:1,invalid:2"]
+      )
+      expect(output).not_to include('leak', '@', 'a1b2c')
+    end
+
+    it '記録が配列でなければ(正本の LegalTerms.records が拒む)何も出さずに失敗し、failed を残す' do
+      account.update!(internal_attributes: { 'toybaco_legal_consents' => 'leak@example.com' })
+      expect { run_legal_consents(account.id.to_s) }.to raise_error(ArgumentError, 'invalid consent history').and output('').to_stdout
+      expect(new_rows.pluck(:action, :result)).to eq(failed_rows)
+    end
+
+    it 'account_id が 1 以上の整数の文字列でなければ(引数なし・0・先頭 0・11 桁・空白や改行・数字以外・空・nil・Integer・余剰引数)入力を出さずに abort し、failed を残す' do
+      format_error = "account_id は 1 以上の整数で指定してください。\n"
+      values = ['0', '012', '12345678901', ' 12', '12 ', "12\n", '1e3', '-1', 'abc', '', nil, 12]
+      expect { run_legal_consents }.to raise_error(SystemExit).and output(format_error).to_stderr
+      values.each do |value|
+        expect { run_legal_consents(value) }.to raise_error(SystemExit).and output(format_error).to_stderr
+      end
+      expect { run_legal_consents(account.id.to_s, 'x') }.to raise_error(SystemExit)
+        .and output("引数は account_id の 1 つだけを指定してください。\n").to_stderr
+      expect(new_rows.pluck(:action, :result)).to eq(failed_rows * (values.size + 2))
+    end
+
+    it '存在しない account は id だけを出して abort し、failed を残す(int の範囲を超える 10 桁も not found として扱う)' do
+      missing = (Account.maximum(:id).to_i + 1).to_s
+      [missing, '9999999999'].each do |value|
+        expect { run_legal_consents(value) }.to raise_error(SystemExit).and output("account=#{value} が見つかりません。\n").to_stderr
+      end
+      expect(new_rows.pluck(:action, :result)).to eq(failed_rows * 2)
+    end
+  end
 end

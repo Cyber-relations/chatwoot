@@ -94,7 +94,9 @@ module Toybaco::SubscriptionReconciliation
   # never finished: the bound store is active and still holds this subscription, with its
   # unfinished cancel journal or, before any journal, the Sync's mark of the skipped
   # suspension. Only durable facts count, so a lost or failed suspension in the attention
-  # run is retried by the sweep until it commits; a re-armed request is not. Neither is an
+  # run is retried by the sweep until it commits, behind a renewal barrier held only by
+  # terminal attention dispatch rows too (Execution#suspend_behind_barrier, unless a renewal
+  # coordinator is pending); a re-armed request is not. Neither is an
   # attention that waits for its subscription's renewal dispatch while a dispatch row can still
   # re-arm it (result renewal_pending, rearming_dispatch?): that dispatch re-arms it when
   # it completes (rearm_waiting!), and a store in the middle of its renewal, a grace before its

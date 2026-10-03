@@ -104,6 +104,68 @@ const snippetLink = computed(() =>
       }
     : null,
 );
+// 完了画面の「次にやること」の 2 行目: AI応答の準備(窓口の自動応答の画面)への導線。bot の割当はここではしない。
+// 会話画面の AI パネル(toybaco-post-entry.js)と同じく、/toybaco/ai_readiness の managed_auto_path がこの店舗の画面を
+// 指すときだけ出す(登録できる店舗か登録済みの店舗にだけ付く)。この API は所属メンバーなら誰にでも path を返すが、
+// 窓口の自動応答の画面は管理者しか開けないので、管理者に限る。読むのは管理者に完了画面を出したときに 1 回だけで、
+// 画面を離れたら捨てる。完了画面から店舗情報を入力して戻ったときは 1 回読み直す(確認済みの店舗情報で準備できるように
+// なるため)。読めなかったときは行を出さない(再試行しない。console にも出さない)。
+const aiReadiness = ref(null);
+let aiReadinessEpoch = 0;
+const aiReadinessAccount = () =>
+  !showFacts.value &&
+  state.value?.phase === "complete" &&
+  state.value.administrator
+    ? String(accountId.value)
+    : "";
+async function readAiReadiness(account) {
+  aiReadinessEpoch += 1;
+  const epoch = aiReadinessEpoch;
+  aiReadiness.value = null;
+  if (!account) return;
+  try {
+    const response = await fetch(
+      `/toybaco/ai_readiness?account_id=${encodeURIComponent(account)}`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (!response.ok || response.redirected) return;
+    const data = await response.json();
+    if (epoch === aiReadinessEpoch) aiReadiness.value = data;
+  } catch {
+    // 読めないときは行を出さない。
+  }
+}
+watch(aiReadinessAccount, readAiReadiness, { immediate: true });
+// 自動応答の画面から「戻る」で、このページがそのまま復元されたとき(bfcache)は、完了画面なら 1 回読み直す。
+function rereadAiReadiness(event) {
+  const account = aiReadinessAccount();
+  if (event.persisted && account) readAiReadiness(account);
+}
+window.addEventListener("pageshow", rereadAiReadiness);
+// 画面を離れたら、届く途中の応答を捨てる(破棄した画面に書かない)。
+onBeforeUnmount(() => {
+  aiReadinessEpoch += 1;
+  window.removeEventListener("pageshow", rereadAiReadiness);
+});
+// 接続済み(configured)なら「接続済み」とだけ伝え、それ以外は画面へのリンクにする。1 行目(つないだ窓口)が無いときは出さない。
+const aiStep = computed(() => {
+  const readiness = aiReadiness.value;
+  const path = `/toybaco/growth/automatic-replies?account_id=${encodeURIComponent(accountId.value)}`;
+  if (
+    !nextStep.value ||
+    !state.value?.administrator ||
+    readiness?.managed_auto_path !== path
+  )
+    return null;
+  if (readiness.connection === "configured") return { state: "configured" };
+  return ["unconnected", "unknown"].includes(readiness.connection)
+    ? { state: "connect", href: path }
+    : null;
+});
 const skipped = computed(() => state.value?.preference?.skipped || []);
 // 画面を開いて済ませた段(投稿画面を開いた投稿の段)。「あとで設定する」とは分けて記録する。
 const opened = computed(() => state.value?.preference?.opened || []);
@@ -863,6 +925,11 @@ async function openPosting() {
             >(店舗の管理者が行えます)</span
           >
         </p>
+        <!-- 「次にやること」の 2 行目。窓口の自動応答の画面は Rails の単独ページなので、通常のリンクで開く。 -->
+        <p v-if="aiStep" class="next-step" :data-toybaco-ai-step="aiStep.state">
+          <a v-if="aiStep.href" :href="aiStep.href">AI応答を接続する</a
+          ><span v-else>AI応答は接続済みです</span>
+        </p>
         <!-- 「ホームへ」は主ボタン。最初の返信を送った画面では「受信箱を開く」が主ボタンなので、枠線のボタンにする。 -->
         <RouterLink
           class="home-link"
@@ -1189,6 +1256,11 @@ async function openPosting() {
 .toybaco-start .next-step strong {
   font-size: 12px;
   color: #1f3a5f;
+}
+/* 「次にやること」の 2 行目(AI応答の行)は 1 行目の枠に続けて 1 つの枠に見せる。行の間は 1 行目の下の余白(12px)。 */
+.toybaco-start .next-step + .next-step {
+  margin-top: -20px;
+  padding-top: 0;
 }
 .toybaco-start .mailbox {
   font-size: 18px;

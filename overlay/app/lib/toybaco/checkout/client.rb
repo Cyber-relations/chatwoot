@@ -5,10 +5,11 @@ require 'json'
 require 'net/http'
 require 'openssl'
 require 'uri'
+require_relative '../stripe_api'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Checkout
-    # Stripe への form POST。キーはログにも例外にも出さない。
+    # Stripe への form POST。キーはログにも例外にも出さない。API version は Toybaco::StripeApi の固定版を送る。
     class Client
       def initialize(api_key)
         @api_key = api_key.to_s
@@ -193,6 +194,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         uri = URI("https://api.stripe.com#{path}")
         req = { get: Net::HTTP::Get, post: Net::HTTP::Post, delete: Net::HTTP::Delete }.fetch(method).new(uri)
         req.basic_auth(@api_key, '')
+        req[Toybaco::StripeApi::HEADER] = Toybaco::StripeApi::VERSION
         req['Idempotency-Key'] = idempotency_key if idempotency_key
         req.set_form_data(params) if params
         res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 5, read_timeout: 15) do |http|

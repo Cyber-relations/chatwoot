@@ -137,6 +137,7 @@ class ToybacoGrowthPeriodEndCancelRuntimeTest < ActiveSupport::TestCase
 
   def teardown
     Array(@dispatch_fixtures).each do |operation_id, fact_id, event_id|
+      Toybaco::GrowthRenewalCoordinator.where(renewal_operation_id: operation_id).delete_all
       Toybaco::GrowthRenewalDispatch.where(renewal_operation_id: operation_id).delete_all
       Toybaco::RenewalInvoiceFact.where(id: fact_id).delete_all
       Toybaco::RenewalOperation.where(id: operation_id).delete_all
@@ -1353,6 +1354,245 @@ class ToybacoGrowthPeriodEndCancelRuntimeTest < ActiveSupport::TestCase
     assert_equal %w[completed applied], [record.reload.state, record.result]
     attrs = @account.reload.internal_attributes
     assert_equal ['active', false, 'free_completed'], [@account.status, attrs['toybaco_billing_suspended'], attrs.dig(Journal::KEY, 'state')]
+  end
+
+  # A dispatch row that ended in attention after its grace (its N2 failed for good) holds the
+  # renewal barrier: blocked, and not repair admissible, so the Sync waits behind it.
+  def terminal_grace_dispatch!(at)
+    dispatch = renewal_dispatch!(@second_sub, state: 'attention', phase: 'grace_ready', due_at: at)
+    assert Toybaco::Growth::RenewalDispatch.blocked?('test', @second_sub, now: at)
+    refute Toybaco::Growth::RenewalDispatch.repair_admissible?('test', @second_sub, now: at)
+    dispatch
+  end
+
+  # A renewal coordinator of the dispatch's operation, in the sync cases' shape (its due_at may
+  # not follow its creation); teardown removes it before the operation.
+  def renewal_coordinator!(dispatch, phase:, at:)
+    Toybaco::GrowthRenewalCoordinator.create!(account_id: @account.id, renewal_operation_id: dispatch.renewal_operation_id,
+                                              operation_id: SecureRandom.hex(32), receipt_hash: SecureRandom.hex(32),
+                                              receipt: { 'fixture' => true }, phase: phase, due_at: at - 60, created_at: at, updated_at: at)
+  end
+
+  def errors_logged
+    logged = []
+    Rails.logger.stub(:error, ->(message = nil, &block) { logged << (message || block&.call) }) { yield }
+    logged
+  end
+
+  # One free_pending attempt, a re-arm, and no run until past the re-armed deadline.
+  def rearmed_and_left_unrun(record, holds)
+    assert_equal 'pending', execute_sync(record, at: second_at, transport: holds)
+    rearm!(record, second_at + 60)
+    second_at + 60 + Toybaco::SubscriptionReconciliation::DEADLINE + 1
+  end
+
+  # Behind a barrier held only by a terminal attention grace row the Sync waits for good. The
+  # Free return's attention still falls back to the suspension through the suspension-only
+  # path, in the expiring run itself: the journal stays and a later run of the suspended store
+  # reads nothing. Once the dispatch attention is resolved, a re-arm completes the return and
+  # lifts the suspension.
+  def test_suspension_only_path_suspends_behind_a_terminal_attention_dispatch
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    dispatch = terminal_grace_dispatch!(late)
+    reads = @provider.reads
+    logged = errors_logged { assert_equal 'attention', execute_sync(record, at: late, transport: holds) }
+    attrs = @account.reload.internal_attributes
+    assert_equal %w[attention renewal_pending], [record.reload.state, record.result]
+    assert_equal ['suspended', true, 'provider_closed', reads + 1],
+                 [@account.status, attrs['toybaco_billing_suspended'], attrs.dig(Journal::KEY, 'state'), @provider.reads]
+    assert_empty logged.grep(/SUSPENSION_(RETRY|BLOCKED|INVARIANT)/)
+    assert_equal 'attention', execute_sync(record, at: late + 60, transport: holds)
+    assert_equal reads + 1, @provider.reads, 'a suspended store is not read again'
+    dispatch.update_columns(state: 'idle', phase: 'free_completed', result: 'free_completed')
+    holds.old_bridge = false
+    rearm!(record, late + 120)
+    assert_equal 'completed', execute_sync(record, at: late + 120, transport: holds)
+    attrs = @account.reload.internal_attributes
+    assert_equal ['active', false, 'free_completed'], [@account.status, attrs['toybaco_billing_suspended'], attrs.dig(Journal::KEY, 'state')]
+  end
+
+  # The same before any journal: the Sync's mark of the skipped suspension falls back to the
+  # suspension behind the terminal row; without a journal of this subscription it never resumes.
+  def test_suspension_only_path_suspends_a_store_before_its_journal_behind_a_terminal_dispatch
+    holds = PostizHolds.new
+    first = return_first_cycle(holds)
+    repurchase!
+    end_second_subscription
+    attrs = @account.reload.internal_attributes
+    @account.update_columns(internal_attributes: attrs.deep_merge(FreeRecord::KEY => { 'returned_at' => first['returned_at'] + 1 }))
+    record = accept_sync(at: second_at, subscription: @second_sub)
+    crashed = Class.new(Toybaco::SubscriptionReconciliation::Execution) { define_method(:suspend_after_attention) { nil } }
+    assert_equal 'attention', execute_sync(record, at: second_at, transport: holds, execution: crashed)
+    terminal_grace_dispatch!(second_at + 60)
+    assert_equal 'attention', execute_sync(record, at: second_at + 60, transport: holds)
+    attrs = @account.reload.internal_attributes
+    assert_equal ['suspended', true, 'free_completed'], [@account.status, attrs['toybaco_billing_suspended'], attrs.dig(Journal::KEY, 'state')]
+    refute Finalizer.applicable?(@account), 'no journal of this subscription: it never resumes'
+  end
+
+  # The suspension-only path writes nothing while the fresh subscription is not exempt (a
+  # dispatch could still renew it): the renewal guard's :wait stands, and the run logs that the
+  # suspension waited, for the sweep's retry.
+  def test_suspension_only_path_writes_nothing_while_the_subscription_is_not_exempt
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    terminal_grace_dispatch!(late)
+    @provider.sub = @provider.sub.merge('status' => 'active', 'cancel_at_period_end' => false)
+    before = [@account.reload.status, @account.internal_attributes]
+    reads = @provider.reads
+    logged = errors_logged { assert_equal 'attention', execute_sync(record, at: late, transport: holds) }
+    assert_equal before, [@account.reload.status, @account.internal_attributes]
+    assert_equal [reads + 1, 1], [@provider.reads, logged.count('TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_RETRY guard=wait')]
+  end
+
+  # A pending renewal coordinator keeps its fence: the suspension-only path neither reads Stripe
+  # nor tries a write, logs once per run that it is blocked, and leaves the dispatch row, the
+  # coordinator and the active store as they are, for the operator.
+  def test_suspension_only_path_leaves_a_pending_coordinator_to_the_operator
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    dispatch = terminal_grace_dispatch!(late)
+    coordinator = renewal_coordinator!(dispatch, phase: 'prepared', at: late)
+    reads = @provider.reads
+    expected = "TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_BLOCKED reason=coordinator subscription=#{@second_sub} account=#{@account.id}"
+    %w[prepared waiting attention].each_with_index do |phase, index|
+      coordinator.update_columns(phase: phase)
+      kept = [dispatch.reload.attributes, coordinator.reload.attributes, @account.reload.status, @account.internal_attributes]
+      logged = errors_logged { assert_equal 'attention', execute_sync(record, at: late + (60 * index), transport: holds) }
+      assert_equal [1, reads], [logged.count(expected), @provider.reads], phase
+      assert_equal kept, [dispatch.reload.attributes, coordinator.reload.attributes, @account.reload.status, @account.internal_attributes], phase
+    end
+  end
+
+  # While any dispatch row of the subscription can still re-arm the request (pending, running, or
+  # an idle grace row before or past its due date: rearming_dispatch? does not read the due date),
+  # the suspension-only path stays out, also for a result that is not renewal_pending: no Stripe
+  # read, the store stays active.
+  def test_suspension_only_path_waits_while_a_dispatch_row_can_rearm
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    terminal_grace_dispatch!(late)
+    record.update_columns(state: 'attention', result: 'retry_limit', next_enqueue_at: late)
+    assert Toybaco::SubscriptionReconciliation.suspension_due?(record.reload)
+    reads = @provider.reads
+    [['pending', 'pending', {}], ['running', 'running', { lease_token: 'fixture-lease', lease_expires_at: late + 300 }],
+     ['a grace row before its due date', 'idle', { phase: 'grace_ready', due_at: late + 3600 }],
+     ['a grace row past its due date', 'idle', { phase: 'grace_ready', due_at: late - 3600 }]].each_with_index do |(label, state, columns), index|
+      row = renewal_dispatch!(@second_sub, state: 'pending')
+      row.update_columns(state: state, **columns)
+      assert_equal 'attention', execute_sync(record, at: late + (60 * index), transport: holds), label
+      assert_equal ['active', reads], [@account.reload.status, @provider.reads], label
+      Toybaco::GrowthRenewalDispatch.where(id: row.id).delete_all
+    end
+  end
+
+  # The suspension-only guard turns the renewal guard's :wait into the full Sync only for an
+  # exempt subscription whose status the Sync suspends on, and only while terminal attention
+  # rows alone hold the barrier.
+  def test_suspension_only_guard_lets_only_an_exempt_subscription_past_terminal_attention_rows
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    terminal_grace_dispatch!(late)
+    guard = Toybaco::SubscriptionReconciliation::Execution.new(record, client: @provider, now: late, environment: environment)
+                                                          .send(:suspension_guard)
+    ended = @provider.sub
+    active = ended.merge('status' => 'active', 'cancel_at_period_end' => false)
+    invoice = active['latest_invoice'].is_a?(Hash) ? active['latest_invoice'] : { 'id' => active['latest_invoice'] }
+    void = active.merge('latest_invoice' => invoice.merge('status' => 'void'))
+    travel_to(late) do
+      assert_nil guard.call(@account.reload, ended), 'ended'
+      assert_equal :wait, guard.call(@account, active), 'active'
+      assert_equal :wait, guard.call(@account, void), 'an active subscription with a void latest invoice'
+      assert_nil guard.call(@account, void.merge('status' => 'unpaid')), 'unpaid with a void latest invoice'
+      expired = ended.merge('status' => 'incomplete_expired')
+      assert_nil guard.call(@account, expired), 'incomplete_expired within the billing policy'
+      narrow = @account.internal_attributes.deep_merge('toybaco_contract' => { 'billing_policy' => { 'suspended_statuses' => ['canceled'] } })
+      @account.update_columns(internal_attributes: narrow)
+      assert_equal :wait, guard.call(@account.reload, expired), 'incomplete_expired outside the billing policy'
+      renewal_dispatch!(@second_sub, state: 'pending')
+      assert_equal :wait, guard.call(@account, ended), 'a dispatch row that can re-arm'
+    end
+  end
+
+  # The latest invoice of the fresh subscription is void, so it is exempt, but it is active: the
+  # full Sync would not suspend it and would only overwrite the saved cancellation. The
+  # suspension-only path writes nothing, logs that the suspension waited, and the store stays
+  # due for the sweep, with its journal or with only the Sync's mark of the skipped suspension.
+  def active_subscription_with_a_void_invoice
+    invoice = @provider.sub['latest_invoice'].is_a?(Hash) ? @provider.sub['latest_invoice'] : { 'id' => @provider.sub['latest_invoice'] }
+    @provider.sub.merge('status' => 'active', 'cancel_at_period_end' => false, 'latest_invoice' => invoice.merge('status' => 'void'))
+  end
+
+  def assert_nothing_written_behind_the_barrier(record, at, holds)
+    before = [@account.reload.status, @account.internal_attributes]
+    assert_equal %w[canceled true], before.last.values_at('toybaco_subscription_status', 'toybaco_cancel_at_period_end').map(&:to_s)
+    @provider.sub = active_subscription_with_a_void_invoice
+    logged = errors_logged { assert_equal 'attention', execute_sync(record, at: at, transport: holds) }
+    assert_equal before, [@account.reload.status, @account.internal_attributes]
+    assert_equal 1, logged.count('TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_RETRY guard=wait')
+    assert Toybaco::SubscriptionReconciliation.suspension_due?(record.reload)
+  end
+
+  def test_suspension_only_path_writes_nothing_for_an_active_subscription_with_a_void_invoice
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    terminal_grace_dispatch!(late)
+    assert_nothing_written_behind_the_barrier(record, late, holds)
+    assert_equal 'provider_closed', @account.internal_attributes.dig(Journal::KEY, 'state')
+  end
+
+  def test_suspension_only_path_writes_nothing_before_the_journal_for_an_active_subscription_with_a_void_invoice
+    holds = PostizHolds.new
+    first = return_first_cycle(holds)
+    repurchase!
+    end_second_subscription
+    attrs = @account.reload.internal_attributes
+    @account.update_columns(internal_attributes: attrs.deep_merge(FreeRecord::KEY => { 'returned_at' => first['returned_at'] + 1 }))
+    record = accept_sync(at: second_at, subscription: @second_sub)
+    crashed = Class.new(Toybaco::SubscriptionReconciliation::Execution) { define_method(:suspend_after_attention) { nil } }
+    assert_equal 'attention', execute_sync(record, at: second_at, transport: holds, execution: crashed)
+    terminal_grace_dispatch!(second_at + 60)
+    assert_nothing_written_behind_the_barrier(record, second_at + 60, holds)
+    assert Toybaco::Growth::PeriodEndCancel.suspension_skipped?(@account.internal_attributes, @second_sub)
+  end
+
+  # A notification that re-arms the request (another session) while the suspension Sync reads
+  # Stripe wins: right after the read, before any write, the Sync's guard locks the request
+  # row, finds another state and revision, and rolls the suspension back whole. Postiz is
+  # never disabled: its own database would keep the disabling and the revoked API key, which
+  # the rollback cannot restore. The store stays active and the re-armed run continues the return.
+  def test_suspension_rolls_back_when_a_notification_rearms_the_request_during_its_provider_read
+    holds, record = second_request_against_the_previous_bridge
+    late = rearmed_and_left_unrun(record, holds)
+    notified = false
+    @provider.before_read = lambda do
+      next if notified
+
+      notified = true
+      Thread.new do
+        Account.connection_pool.with_connection { Toybaco::SubscriptionReconciliation.request!(@second_sub, mode: 'test', now: late) }
+      end.join
+    end
+    disabled = []
+    revoke = lambda do |**|
+      disabled << :disabled
+      :not_managed
+    end
+    logged = Toybaco::SubscriptionReconciliationJob.stub(:perform_later, ->(*) { true }) do
+      Toybaco::PostizSync.stub(:disable_account!, revoke) do
+        errors_logged { assert_equal 'attention', execute_sync(record, at: late, transport: holds) }
+      end
+    end
+    assert notified
+    assert_empty disabled, 'disable_account! was called before the rollback: Postiz keeps the disabling and the revoked API key'
+    assert_equal ['pending', nil, 'active'], [record.reload.state, record.result, @account.reload.status]
+    assert_equal ['provider_closed', 1], [@account.internal_attributes.dig(Journal::KEY, 'state'),
+                                          logged.count('TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_INVARIANT')]
+    @provider.before_read = nil
+    holds.old_bridge = false
+    assert_equal 'completed', execute_sync(record, at: late + 60, transport: holds)
+    assert_equal ['active', 'free_completed'], [@account.reload.status, @account.internal_attributes.dig(Journal::KEY, 'state')]
   end
 
   # A return that ends in its own attention (here the first return's pointer moved) needs an

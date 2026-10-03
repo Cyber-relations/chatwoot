@@ -17,7 +17,7 @@ module Toybaco::SubscriptionReconciliation::Processing
 
     account = bound_account
     return 'superseded' if account == :superseded
-    return retry_missing_account unless account
+    raise Toybaco::SubscriptionReconciliation::NotProvisioned unless account
 
     checked = mode_client
     # This method retains the existing subscription lock, complete parent /
@@ -54,7 +54,8 @@ module Toybaco::SubscriptionReconciliation::Processing
     account, client = @returning || ((@expired_return || @suspension_due) && expired_target)
     suspend_unchanged(account.reload, client) if account
   rescue Toybaco::SubscriptionReconciliation::SuspensionChanged
-    # Rolled back whole: the request stays in attention and the sweep keeps retrying.
+    # Rolled back whole. A re-armed request runs again; otherwise the request stays in
+    # attention and the sweep keeps retrying.
     Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_INVARIANT')
     nil
   rescue StandardError => e
@@ -69,18 +70,35 @@ module Toybaco::SubscriptionReconciliation::Processing
   # Free contract or a Free record, or turned the paid contract into one that
   # PeriodEndCancel.paid_contract? refuses (a re-armed return could not continue from
   # it), is rolled back whole. The store then stays active under its unfinished journal,
-  # which keeps the suspension due for the sweep.
+  # which keeps the suspension due for the sweep. Behind the renewal barrier the
+  # suspension-only guard decides (Execution#suspension_guard); a Sync that the guard kept
+  # waiting (renewal_pending) wrote no suspension and is logged for the sweep's retry.
+  # The guard first locks the request row and reads it again, right after the Stripe read
+  # and before any write: the store's update disables Postiz in Postiz's own database
+  # (PostizSync.disable_account!, which also revokes the organization's API key), which no
+  # rollback here restores. The lock holds until the commit, so a re-arm (a notification's
+  # refresh_request!, rearm_waiting!) either came first, leaving another state or revision
+  # than at suspend_after_attention's reload, and rolls the suspension back before any
+  # write, or waits and re-arms the suspended store afterwards. The row is locked after the
+  # account rows, and no path that locks it waits for an account row while holding it.
   def suspend_unchanged(account, client)
     before = nil
+    decide = @behind_barrier ? suspension_guard : renewal_guard
     guard = lambda do |locked, subscription|
+      raise Toybaco::SubscriptionReconciliation::SuspensionChanged unless request_unchanged?(Toybaco::SubscriptionSyncRequest.lock.find(@record.id))
+
       before = return_facts(locked)
-      renewal_guard.call(locked, subscription)
+      @suspension_decision = decide.call(locked, subscription)
     end
-    Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: client, guard: guard,
-                                                   environment: @environment) do
+    outcome = Toybaco::StoreFulfillment.synchronize(account, subscription_id: @record.subscription_id, client: client, guard: guard,
+                                                             environment: @environment) do
       raise Toybaco::SubscriptionReconciliation::SuspensionChanged unless before && return_facts(Account.find(account.id)) == before
     end
+    Rails.logger.error("TOYBACO_SUBSCRIPTION_SYNC_SUSPENSION_RETRY guard=#{@suspension_decision}") if outcome == 'renewal_pending'
   end
+
+  # The request as suspend_after_attention's reload found it: still in attention, at the same revision.
+  def request_unchanged?(request) = request.state == 'attention' && request.requested_revision == @record.requested_revision
 
   def return_facts(account)
     attrs = Toybaco::Entitlements.attributes(account)
@@ -106,10 +124,6 @@ module Toybaco::SubscriptionReconciliation::Processing
     lambda do |account, subscription|
       @renewal_decision = Toybaco::Growth::RenewalDispatch.guard_sync!(account, subscription, now: now, environment: @environment)
     end
-  end
-
-  def retry_missing_account
-    raise Toybaco::SubscriptionReconciliation::NotProvisioned
   end
 
   def bound_account

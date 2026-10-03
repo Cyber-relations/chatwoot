@@ -154,7 +154,9 @@ test('the purpose switch is a line of its own after「ホームへ」', () => {
 
 // A10: the saved notice belongs to the step it was saved on (or the one screen right after the save). It leaves when
 // the step or the purpose changes and does not come back. The script runs with a minimal Vue reactivity stand-in.
-function startScript(initial, respond, routeName = 'toybaco_growth_start') {
+// The completion screen reads the AI readiness with fetch: `readiness` answers it (by default it never answers) and
+// `requests` keeps what the page asked for. `pageshow(persisted)` plays the browser event and `unmount()` the page leaving.
+function startScript(initial, respond, routeName = 'toybaco_growth_start', readiness = () => new Promise(() => {})) {
   const script = start.slice(start.indexOf('<script setup>') + '<script setup>'.length, start.indexOf('</script>'));
   const body = script.replace(/import\s+(\{[^}]*\}|\w+)\s+from\s+"([^"]+)";/g, (_, names, from) =>
     names.startsWith('{')
@@ -179,6 +181,7 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start') {
     if (server.flushFirst) flush();
     return state.value;
   };
+  const unmounts = [];
   const modules = {
     vue: {
       ref: (value) => ({ value }),
@@ -191,7 +194,7 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start') {
         watchers.push(watcher);
         if (options.immediate) callback(watcher.last);
       },
-      onBeforeUnmount() {},
+      onBeforeUnmount: (callback) => unmounts.push(callback),
     },
     'vue-router': { useRoute: () => ({ name: routeName }), useRouter: () => ({ push() {} }) },
     'dashboard/composables/useAccount': { useAccount: () => ({ accountId: { value: 1 } }) },
@@ -206,13 +209,25 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start') {
       saveGrowthFacts: (fields) => answer({ fields }),
     },
   };
+  const requests = [];
+  const fetch = (url, options) => {
+    requests.push({ url, options });
+    return readiness(url, options);
+  };
+  const listeners = {};
+  const window = {
+    addEventListener: (type, listener) => { listeners[type] = listener; },
+    removeEventListener: (type, listener) => { if (listeners[type] === listener) delete listeners[type]; },
+  };
   const page = runInNewContext(`(function (modules) {${body}
     return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace,
-      connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink };
-  })`, {})(modules);
+      connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink, aiStep };
+  })`, { fetch, window })(modules);
   // The template shows「店舗情報を保存しました。」with exactly this condition.
   const notice = () => page.factsSaved.value && !page.showFacts.value;
-  return { page, state, server, flush, notice };
+  const pageshow = (persisted) => listeners.pageshow?.({ persisted });
+  const unmount = () => unmounts.forEach((callback) => callback());
+  return { page, state, server, flush, notice, requests, pageshow, unmount };
 }
 
 test('the saved notice stays on the step it was saved on and leaves when the step or purpose changes', async () => {
@@ -554,6 +569,251 @@ test('the completion screen makes「ホームへ」the main button and adds one 
   assert.equal(done([{ id: 8, provider: 'web_widget' }], { inbox_id: undefined }).nextStep.value, 'Webチャットの設置コードを、お店のサイトに貼る');
   // Nothing connected: no next step (the list of what is left offers「受信箱の接続」instead).
   assert.equal(done([]).nextStep.value, '');
+});
+
+// 所見 (c)(2026-10-01 裁定): a new Web chat inbox has no AI reply (no bot). The completion screen's next step gets a
+// second line to the automatic reply screen (managed auto, a Rails page); the page never assigns a bot. The line shows
+// only where /toybaco/ai_readiness offers that screen for this store (managed_auto_path, the same check as the
+// conversation screen's AI panel), only to administrators (the API answers any member, the screen opens for
+// administrators only) and only under the first line. A failed read shows nothing and is not retried.
+const readinessAnswer = (body, status = 200) => async () =>
+  ({ status, ok: status >= 200 && status < 300, redirected: false, json: async () => body });
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const managedPath = '/toybaco/growth/automatic-replies?account_id=1';
+const readinessBody = (extra = {}) =>
+  ({ connection: 'unconnected', configured_inboxes: 0, total_inboxes: 1, live_verification: 'unverified', ...extra });
+const finished = (answer, extra = {}, routeName = undefined) => startScript(
+  connectState({ phase: 'complete', replied: false, pending: [], inbox_id: 4, inboxes: [{ id: 4, provider: 'web_widget' }], ...extra }),
+  (value) => value, routeName, answer);
+
+test('the completion screen adds「AI応答を接続する」as the second next step where the store can prepare it', async () => {
+  const complete = block(`<template v-else-if="state?.phase === 'complete'">`);
+  // Right after the first line and before「ホームへ」: a plain link to the Rails page, or the connected notice without one.
+  const first = complete.indexOf('data-toybaco-next-step');
+  const second = complete.indexOf(':data-toybaco-ai-step="aiStep.state"');
+  assert(first > 0 && second > first && second < complete.indexOf('class="home-link"'));
+  assert(/<p v-if="aiStep" class="next-step" :data-toybaco-ai-step="aiStep\.state">\s*<a v-if="aiStep\.href" :href="aiStep\.href"\s*>AI応答を接続する<\/a\s*><span v-else>AI応答は接続済みです<\/span>\s*<\/p>/
+    .test(complete));
+  assert.equal(template.split('data-toybaco-ai-step').length - 1, 1);
+  // The second line continues the first line's box: it takes back the paragraph gap (20px) and its own top padding, so
+  // the first line's bottom padding (12px) is the space between the lines.
+  const style = start.slice(start.indexOf('<style scoped>'));
+  assert(/\n\.toybaco-start p \{\n  font-size: 14px;\n  color: #566579;\n  margin: 0 0 20px;\n\}/.test(style));
+  assert(/\n\.toybaco-start \.next-step \{\n[^}]*  padding: 12px 16px;\n[^}]*\}/.test(style));
+  assert(/\n\.toybaco-start \.next-step \+ \.next-step \{\n  margin-top: -20px;\n  padding-top: 0;\n\}/.test(style));
+  // The narrow-screen block (≤ 680px, cut at its own closing brace) changes neither box.
+  const css = style.replace(/\/\*[\s\S]*?\*\//g, '');
+  const narrowAt = css.indexOf('@media (max-width: 680px) {');
+  assert(narrowAt >= 0, 'the narrow-screen block is there');
+  let depth = 0;
+  let narrowEnd = narrowAt;
+  for (; narrowEnd < css.length; narrowEnd += 1) {
+    if (css[narrowEnd] === '{') depth += 1;
+    if (css[narrowEnd] === '}') depth -= 1;
+    if (css[narrowEnd] === '}' && depth === 0) break;
+  }
+  const narrow = css.slice(narrowAt, narrowEnd + 1);
+  assert(narrow.endsWith('}') && narrow.includes('.toybaco-start h1 {'), 'the whole narrow-screen block is read');
+  assert(!narrow.includes('.next-step'), 'narrow screens keep the same box');
+
+  // (a) The store can prepare the automatic reply and it is not answering yet: a link to the screen.
+  const open = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath, managed_auto_registered: false })));
+  await settle();
+  assert.deepEqual(plain(open.page.aiStep.value), { state: 'connect', href: managedPath });
+  assert.deepEqual(plain(open.requests), [{ url: '/toybaco/ai_readiness?account_id=1',
+    options: { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } } }]);
+  // A registered installation that is not answering, and a store whose connection is unknown, also lead to the screen.
+  for (const extra of [{ managed_auto_registered: true }, { connection: 'unknown' }]) {
+    const run = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath, ...extra })));
+    await settle();
+    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath }, JSON.stringify(extra));
+  }
+  // (b) Already answering: the line says so, without a link.
+  const connected = finished(readinessAnswer(readinessBody({ connection: 'configured', configured_inboxes: 1,
+    managed_auto_path: managedPath, managed_auto_registered: true })));
+  await settle();
+  assert.deepEqual(plain(connected.page.aiStep.value), { state: 'configured' });
+  // (c) No screen offered (free or Light, store facts not confirmed, another bot already set up): no line.
+  for (const body of [readinessBody(), readinessBody({ connection: 'configured', configured_inboxes: 1 })]) {
+    const run = finished(readinessAnswer(body));
+    await settle();
+    assert.equal(run.page.aiStep.value, null, JSON.stringify(body));
+  }
+  // A path to another store or another page never becomes a link (the conversation screen's panel checks the same).
+  for (const other of ['/toybaco/growth/automatic-replies?account_id=2', `${managedPath}&inbox_id=4`,
+    `https://example.test${managedPath}`, `//example.test${managedPath}`, 'javascript:alert(1)']) {
+    const run = finished(readinessAnswer(readinessBody({ managed_auto_path: other })));
+    await settle();
+    assert.equal(run.page.aiStep.value, null, other);
+  }
+  // (d) A failed read shows nothing and is asked only once: no answer from the network, a refused or failed status, an
+  // answer that is not JSON, a redirected answer, and an answer whose connection the page does not know.
+  const failures = [
+    () => Promise.reject(new TypeError('Failed to fetch')),
+    readinessAnswer({ connection: 'unknown' }, 503),
+    readinessAnswer(undefined, 401),
+    readinessAnswer(readinessBody({ managed_auto_path: managedPath }), 403),
+    readinessAnswer(readinessBody({ managed_auto_path: managedPath }), 500),
+    async () => ({ status: 200, ok: true, redirected: false, json: async () => { throw new SyntaxError('Unexpected token <'); } }),
+    async () => ({ status: 200, ok: true, redirected: true, json: async () => readinessBody({ managed_auto_path: managedPath }) }),
+    readinessAnswer(null),
+    readinessAnswer(readinessBody({ managed_auto_path: managedPath, connection: 'ready' })),
+  ];
+  for (const [index, answer] of failures.entries()) {
+    const run = finished(answer);
+    await settle();
+    assert.equal(run.page.aiStep.value, null, `failure ${index}`);
+    assert.equal(run.requests.length, 1, `failure ${index}: not asked again`);
+  }
+  // Staff never see the line and the page does not ask (the API would answer any member of the store with the path).
+  const staff = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath })), { administrator: false });
+  await settle();
+  assert.equal(staff.page.aiStep.value, null);
+  assert.deepEqual(staff.requests, []);
+  // The line itself also asks for an administrator: a read answered for an administrator is not shown once the guide
+  // state says otherwise, even before the read is dropped.
+  const demoted = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath })));
+  await settle();
+  assert.deepEqual(plain(demoted.page.aiStep.value), { state: 'connect', href: managedPath });
+  demoted.state.value = { ...demoted.state.value, administrator: false };
+  assert.equal(demoted.page.aiStep.value, null);
+  demoted.flush();
+  assert.equal(demoted.page.aiStep.value, null);
+  assert.equal(demoted.requests.length, 1);
+  // Without a first line (no window connected yet) there is no second line.
+  const empty = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath })), { inboxes: [], inbox_id: undefined });
+  await settle();
+  assert.equal(empty.page.nextStep.value, '');
+  assert.equal(empty.page.aiStep.value, null);
+  // The settings menu's store facts page uses the same component but never shows the completion screen: nothing is read.
+  const settings = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath })), {}, 'toybaco_store_facts_settings');
+  await settle();
+  assert.deepEqual(settings.requests, []);
+  assert.equal(settings.page.aiStep.value, null);
+});
+
+test('the completion screen reads the AI readiness once on arrival and drops an answer that comes too late', async () => {
+  const answers = [];
+  const run = startScript(connectState({ phase: 'reply', inbox_id: 4, inboxes: [{ id: 4, provider: 'web_widget' }] }),
+    (value) => value, undefined, () => new Promise((resolve) => answers.push(resolve)));
+  const answer = (body) => answers.shift()({ status: 200, ok: true, redirected: false, json: async () => body });
+  assert.deepEqual(run.requests, [], 'nothing is read before the completion step');
+  const done = { ...run.state.value, phase: 'complete', replied: false, pending: [] };
+  run.state.value = done;
+  run.flush();
+  assert.equal(run.requests.length, 1, 'read when the completion step arrives');
+  // The guide state changes on the completion screen (a purpose read, an inbox choice) without another read.
+  run.state.value = { ...done, preference: { ...done.preference, purpose: 'posting' } };
+  run.flush();
+  run.state.value = { ...done, inbox_id: 5, inboxes: [...done.inboxes, { id: 5, provider: 'line' }] };
+  run.flush();
+  run.state.value = done;
+  run.flush();
+  assert.equal(run.requests.length, 1);
+  answer(readinessBody({ managed_auto_path: managedPath }));
+  await settle();
+  assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath });
+  // Leaving the completion step drops the line; coming back reads once more.
+  run.state.value = { ...done, phase: 'connect' };
+  run.flush();
+  assert.equal(run.page.aiStep.value, null);
+  run.state.value = done;
+  run.flush();
+  assert.equal(run.requests.length, 2);
+  // The page left and came back while that read was on the way: its answer belongs to the earlier visit and is dropped.
+  run.state.value = { ...done, phase: 'connect' };
+  run.flush();
+  run.state.value = done;
+  run.flush();
+  assert.equal(run.requests.length, 3);
+  answer(readinessBody({ managed_auto_path: managedPath }));
+  await settle();
+  assert.equal(run.page.aiStep.value, null, 'the answer to the earlier visit is dropped');
+  answer(readinessBody({ connection: 'configured', configured_inboxes: 1, managed_auto_path: managedPath, managed_auto_registered: true }));
+  await settle();
+  assert.deepEqual(plain(run.page.aiStep.value), { state: 'configured' });
+  // The read never writes to the console. The page writes nothing for the AI (it never assigns a bot): its only fetch is
+  // this read, a GET without a body (the options are checked above).
+  const script = start.slice(start.indexOf('<script setup>'), start.indexOf('</script>'));
+  assert(!script.includes('console.'));
+  assert.equal(script.split('fetch(').length - 1, 1, 'one fetch: the AI readiness');
+});
+
+// 2026-10-04 の裁定: a store that left its facts for later confirms them from the completion screen (「店舗情報 /
+// 入力する」). The automatic reply needs confirmed facts, so the save can make the screen available: back on the completion
+// screen the page reads the AI readiness once more. Other changes there (purpose, inbox choice) still read nothing.
+test('saving the store facts on the completion screen reads the AI readiness once more and shows the line it now offers', async () => {
+  const unconfirmed = () => connectState({ phase: 'complete', replied: false, pending: ['facts'], inbox_id: 4,
+    inboxes: [{ id: 4, provider: 'web_widget' }] });
+  const save = (current, body) => (body.fields ? { ...current, pending: [] } : current);
+  for (const flushFirst of [true, false]) {
+    const answers = [];
+    const run = startScript(unconfirmed(), save, undefined, () => new Promise((resolve) => answers.push(resolve)));
+    run.server.flushFirst = flushFirst;
+    const answer = (body) => answers.shift()({ status: 200, ok: true, redirected: false, json: async () => body });
+    // Not confirmed yet: the store cannot prepare the automatic reply, so there is no line.
+    assert.equal(run.requests.length, 1);
+    answer(readinessBody());
+    await settle();
+    assert.equal(run.page.aiStep.value, null);
+    // 「入力する」opens the form in place of the completion screen; nothing is read while it is open.
+    run.page.openFacts();
+    run.flush();
+    assert.equal(run.page.showFacts.value, true);
+    assert.equal(run.requests.length, 1);
+    // The save brings the completion screen back and reads once more; the store can now prepare it, so the line shows.
+    await run.page.saveFacts();
+    run.flush();
+    assert.equal(run.page.showFacts.value, false);
+    assert.equal(run.requests.length, 2, `flushFirst=${flushFirst}: read once more after the save`);
+    answer(readinessBody({ managed_auto_path: managedPath, managed_auto_registered: false }));
+    await settle();
+    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath });
+    run.flush();
+    assert.equal(run.requests.length, 2, 'only once');
+  }
+  // A failed read after the save shows nothing and is not tried again, as on arrival.
+  const replies = [readinessAnswer(readinessBody()), () => Promise.reject(new TypeError('Failed to fetch'))];
+  const failed = startScript(unconfirmed(), save, undefined, (...args) => replies.shift()(...args));
+  await settle();
+  failed.page.openFacts();
+  failed.flush();
+  await failed.page.saveFacts();
+  failed.flush();
+  await settle();
+  assert.equal(failed.page.aiStep.value, null);
+  failed.flush();
+  assert.equal(failed.requests.length, 2);
+});
+
+// Back from the automatic reply screen (a plain link), the browser may restore this page as it was (back-forward cache):
+// the completion screen reads once more. A page that left takes no late answer and stops listening.
+test('a page restored from the back-forward cache reads the AI readiness once more, and a page that left takes no answer', async () => {
+  const answers = [];
+  const run = finished(() => new Promise((resolve) => answers.push(resolve)));
+  const answer = (body) => answers.shift()({ status: 200, ok: true, redirected: false, json: async () => body });
+  answer(readinessBody({ managed_auto_path: managedPath }));
+  await settle();
+  run.pageshow(false);
+  assert.equal(run.requests.length, 1, 'a page that was not restored is not read again');
+  run.pageshow(true);
+  assert.equal(run.requests.length, 2, 'restored on the completion screen: read once more');
+  answer(readinessBody({ connection: 'configured', configured_inboxes: 1, managed_auto_path: managedPath, managed_auto_registered: true }));
+  await settle();
+  assert.deepEqual(plain(run.page.aiStep.value), { state: 'configured' });
+  run.page.openFacts();
+  run.flush();
+  run.pageshow(true);
+  assert.equal(run.requests.length, 2, 'restored on another screen: nothing is read');
+  run.page.factsRequested.value = false;
+  run.flush();
+  assert.equal(run.requests.length, 3);
+  run.unmount();
+  answer(readinessBody({ managed_auto_path: managedPath }));
+  await settle();
+  assert.equal(run.page.aiStep.value, null, 'the answer that arrives after the page left is dropped');
+  run.pageshow(true);
+  assert.equal(run.requests.length, 3, 'the page stopped listening when it left');
 });
 
 test('the inbox finish screen leads back to the store setup while the guide is not complete', () => {
