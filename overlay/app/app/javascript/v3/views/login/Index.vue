@@ -427,10 +427,30 @@ export default {
         <Spinner color-scheme="primary" size="" />
       </div>
       <p class="mt-6 text-center text-sm">
-        <a href="/toybaco-help.html#login" class="text-n-brand underline underline-offset-4">
+        <a
+          href="/toybaco-help.html#login"
+          class="text-n-brand underline underline-offset-4"
+        >
           ログインで困ったとき
         </a>
       </p>
     </section>
+    <nav
+      aria-label="Toybaco（トイバコ）の利用規約・プライバシーポリシー"
+      class="flex flex-wrap justify-center gap-x-6 gap-y-3 px-6 mt-6 text-sm text-center"
+    >
+      <a
+        href="https://toybaco.jp/terms/"
+        class="text-n-brand underline underline-offset-4"
+      >
+        利用規約 / Terms of Service
+      </a>
+      <a
+        href="https://toybaco.jp/privacy/"
+        class="text-n-brand underline underline-offset-4"
+      >
+        プライバシーポリシー / Privacy Policy
+      </a>
+    </nav>
   </main>
 </template>
