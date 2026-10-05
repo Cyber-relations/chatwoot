@@ -18,7 +18,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   let(:shop) { create(:account, name: '秘密の花屋テスト店') }
   let(:log_format) do
     keys = %w[attention_total billing sync payment opening support opened_24h packs_24h cancel_scheduled payment_pending
-              billing_review suspended sidekiq_retry sidekiq_dead]
+              billing_review suspended sidekiq_retry sidekiq_dead renewal_attention renewal_overdue_grace]
     /\AINFO TOYBACO_OPS_DIGEST #{keys.map { |key| "#{key}=\\d+" }.join(' ')}\n\z/
   end
 
@@ -113,6 +113,23 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
                                         snapshot: { 'id' => id }, payload_digest: SecureRandom.hex(32), state: state, next_attempt_at: now)
   end
 
+  # 更新請求の処理の行(受付 → operation → 請求事実 → dispatch。dispatch は operation と事実を外部キーで参照する)。
+  def renewal_dispatch(state, phase, due_at)
+    suffix = SecureRandom.hex(6)
+    subscription = "sub_digest#{suffix}"
+    event = Toybaco::BillingEvent.create!(event_id: "evt_digest#{suffix}", mode: 'test', action: 'subscription_notice', reference_id: subscription,
+                                          snapshot: { 'fixture' => true }, payload_digest: SecureRandom.hex(32), state: 'completed',
+                                          next_attempt_at: now, deadline_at: now + 1.day)
+    operation = Toybaco::RenewalOperation.create!(mode: 'test', subscription_id: subscription, customer_id: "cus_digest#{suffix}",
+                                                  invoice_id: "in_digest#{suffix}")
+    fact = Toybaco::RenewalInvoiceFact.create!(billing_event_id: event.id, renewal_operation_id: operation.id, event_id: event.event_id,
+                                               event_type: 'invoice.payment_failed', mode: 'test', subscription_id: subscription,
+                                               customer_id: operation.customer_id, invoice_id: operation.invoice_id,
+                                               payload_digest: SecureRandom.hex(32), attempt_count: 1, event_created_at: now)
+    Toybaco::GrowthRenewalDispatch.create!(renewal_operation_id: operation.id, requested_fact_id: fact.id, state: state, phase: phase,
+                                           due_at: due_at, deadline_at: now + 1.day, next_attempt_at: now, next_enqueue_at: now)
+  end
+
   def support_report(state, expires_at)
     Toybaco::SupportReport.create!(account: shop, user: owner, assignee_id: 1, request_id: SecureRandom.uuid, category: 'product',
                                    knowledge_version: 'fixture', state: state, diagnostics_expires_at: expires_at, expires_at: expires_at)
@@ -155,6 +172,17 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     [now - 24.hours, now - 24.hours + 1, now, now + 1, nil].each { |time| pack_order(time) }
   end
 
+  # 数える行: attention 2 件と、期日を過ぎた idle の grace_ready 2 件(期日ちょうどを含む)。期日前の grace・paid_ready・pending は数えない。
+  def build_renewal_fixture
+    renewal_dispatch('attention', 'grace_ready', now - 1.day)
+    renewal_dispatch('attention', 'received', nil)
+    renewal_dispatch('idle', 'grace_ready', now - 1)
+    renewal_dispatch('idle', 'grace_ready', now)
+    renewal_dispatch('idle', 'grace_ready', now + 1)
+    renewal_dispatch('idle', 'paid_ready', now - 1)
+    renewal_dispatch('pending', 'received', nil)
+  end
+
   def build_state_fixture
     create(:account, internal_attributes: { 'toybaco_cancel_at_period_end' => true })
     create(:account, internal_attributes: { 'toybaco_billing_payment_pending' => true, 'toybaco_billing_review' => true })
@@ -176,24 +204,27 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     build_queue_fixture
     build_activity_fixture
     build_state_fixture
+    build_renewal_fixture
     stub_sidekiq(3, 0)
 
     digest.run!
     summary = digest.summary
     expect(difference(summary, baseline)).to eq(
       attention: { billing_events: 4, subscription_sync_requests: 1, growth_payment_events: 1, opening_requests: 3, support_reports: 1 },
+      renewal: { attention: 2, overdue_grace: 2 },
       activity_24h: { opened_stores: 2, pack_orders_paid: 2 },
       states: { cancel_scheduled: 1, payment_pending: 1, billing_review: 1, suspended: 1 },
       stores_total: 5
     )
     expect(summary[:sidekiq]).to eq(retry: 3, dead: 0)
-    attention, activity, states = summary.values_at(:attention, :activity_24h, :states)
+    attention, activity, states, renewal = summary.values_at(:attention, :activity_24h, :states, :renewal)
     expect(digest_line).to eq(
       "INFO TOYBACO_OPS_DIGEST attention_total=#{attention.values.sum} billing=#{attention[:billing_events]} " \
       "sync=#{attention[:subscription_sync_requests]} payment=#{attention[:growth_payment_events]} " \
       "opening=#{attention[:opening_requests]} support=#{attention[:support_reports]} opened_24h=#{activity[:opened_stores]} " \
       "packs_24h=#{activity[:pack_orders_paid]} cancel_scheduled=#{states[:cancel_scheduled]} payment_pending=#{states[:payment_pending]} " \
-      "billing_review=#{states[:billing_review]} suspended=#{states[:suspended]} sidekiq_retry=3 sidekiq_dead=0\n"
+      "billing_review=#{states[:billing_review]} suspended=#{states[:suspended]} sidekiq_retry=3 sidekiq_dead=0 " \
+      "renewal_attention=#{renewal[:attention]} renewal_overdue_grace=#{renewal[:overdue_grace]}\n"
     )
     expect(digest_line).to match(log_format)
   end
@@ -253,9 +284,29 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
       expect(digest_mails.pluck(:subject)).to eq(['【トイバコ】運営ダイジェスト 2026-09-28', '【トイバコ】運営ダイジェスト 2026-09-29'])
       headings = digest_mails.last[:body].lines.map(&:chomp).grep(/\A■ /)
       expect(headings).to match([/\A■ 確認待ち\(合計 \d+ 件、実行時刻 2026-09-29 08:00 JST 時点\)\z/,
+                                 '■ 更新請求の処理(実行時刻 2026-09-29 08:00 JST 時点)',
                                  '■ 直近 24 時間(2026-09-28 08:00 から 2026-09-29 08:00 まで、JST。開始時刻は含まない)',
                                  '■ 契約の状態(実行時刻 2026-09-29 08:00 JST 時点)', '■ Sidekiq(実行時刻 2026-09-29 08:00 JST 時点)'])
       expect(digest_mails.last[:body]).to end_with("\nこの通知は ID と件数だけを含みます。店舗名・メールアドレス・契約 ID は載せません。")
+    end
+
+    it '更新請求の処理の件数を本文に出し、確認待ちか期日を過ぎた猶予が 1 件以上の時だけ確認の rake を添える' do
+      renewal = ->(body) { body.lines.map(&:chomp).drop_while { |line| !line.start_with?('■ 更新請求の処理') }.take_while(&:present?) }
+      baseline = described_class.new(now: now).summary.fetch(:renewal)
+      described_class.new(now: now).run!
+      renewal_dispatch('attention', 'received', nil)
+      renewal_dispatch('idle', 'grace_ready', now - 1)
+      described_class.new(now: now).run!
+
+      quiet, busy = digest_mails.map { |mail| renewal.call(mail[:body]) }
+      heading = '■ 更新請求の処理(実行時刻 2026-09-29 08:00 JST 時点)'
+      # 他の spec が残した行があれば、変える前の本文にも案内が出る(残りが無ければ案内の無い本文を確かめる)。
+      quiet_guide = baseline.values.any?(&:positive?) ? ["  #{described_class::RENEWAL_GUIDE}"] : []
+      expect(quiet).to eq([heading, "・確認待ち(attention): #{baseline[:attention]} 件",
+                           "・期日を過ぎても処理されていない猶予(grace): #{baseline[:overdue_grace]} 件", *quiet_guide])
+      expect(busy).to eq([heading, "・確認待ち(attention): #{baseline[:attention] + 1} 件",
+                          "・期日を過ぎても処理されていない猶予(grace): #{baseline[:overdue_grace] + 1} 件",
+                          "  #{described_class::RENEWAL_GUIDE}"])
     end
   end
 
@@ -366,7 +417,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
       digest.run!
       expect(log.string).to include("ERROR TOYBACO_SIDEKIQ_DEAD pending_jobs=true\n")
       expect(log_lines(/TOYBACO_SIDEKIQ_DEAD/).size).to eq(1)
-      expect(digest_line).to end_with(" sidekiq_retry=0 sidekiq_dead=2\n")
+      expect(digest_line).to include(' sidekiq_retry=0 sidekiq_dead=2 renewal_attention=')
       expect(digest_mails.sole[:body]).to include("・停止したジョブ(dead): 2 件\n  #{described_class::SIDEKIQ_GUIDE}")
     end
 
@@ -375,7 +426,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
 
       digest.run!
       expect(log.string).not_to include('TOYBACO_SIDEKIQ_DEAD')
-      expect(digest_line).to end_with(" sidekiq_retry=5 sidekiq_dead=0\n")
+      expect(digest_line).to include(' sidekiq_retry=5 sidekiq_dead=0 renewal_attention=')
     end
 
     it 'Sidekiq を読めない時は na にして TOYBACO_SIDEKIQ_DEAD を出さず、例外の本文もログに載せない' do
@@ -384,7 +435,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
       digest.run!
       expect(digest.summary[:sidekiq]).to be_nil
       expect(log.string).to include("ERROR TOYBACO_OPS_DIGEST_SECTION_FAILED section=sidekiq class=RuntimeError\n")
-      expect(digest_line).to end_with(" sidekiq_retry=na sidekiq_dead=na\n")
+      expect(digest_line).to include(' sidekiq_retry=na sidekiq_dead=na renewal_attention=')
       expect(log.string).not_to include('TOYBACO_SIDEKIQ_DEAD', 'redis password in message')
     end
   end
@@ -395,7 +446,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
 
     expect { digest.run! }.to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
     expect(digest.summary.transform_values(&:class))
-      .to eq(attention: Hash, activity_24h: NilClass, states: Hash, sidekiq: Hash, stores_total: Integer)
+      .to eq(attention: Hash, renewal: Hash, activity_24h: NilClass, states: Hash, sidekiq: Hash, stores_total: Integer)
     expect(log.string).to include("ERROR TOYBACO_OPS_DIGEST_SECTION_FAILED section=activity_24h class=RuntimeError\n")
     expect(log.string).not_to include('secret detail')
     expect(digest_line).to include(' opened_24h=na packs_24h=na cancel_scheduled=')

@@ -220,3 +220,239 @@ namespace :toybaco do
     report.lines(account).each { |line| puts line }
   end
 end
+
+# staging の E2E(規約同意の記録の経路の確認)用。3 本とも引数は E2E の店舗名の prefix(e2e-consent- で始まる形)だけで、E2E の利用者の
+# メールアドレスも e2e-consent- を含む形に限り、実顧客の店舗・利用者には当たらないようにする。読み取り(legal_consents_by_name)は両環境で使え、
+# 書き込み(e2e_confirm_user / e2e_purge_accounts)は staging 専用。環境の判定は ConnectionReleaseOps と同じ Input.staging?
+# (TOYBACO_DEPLOYMENT_ENVIRONMENT)で、production と環境が不明なときは引数を読む前に abort する。ops-rake workflow も e2e_ で始まるタスクを
+# staging 以外では拒否する(二重の fail-closed)。出力は ID・経路・段階だけで、メールアドレス・氏名は出さない。監査行(started / ok|failed)は
+# 上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、モデルとジョブは実行時に参照する。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module E2eConsent
+      NAME_PREFIX = 'e2e-consent-'
+      PREFIX_FORMAT = /\Ae2e-consent-[a-z0-9-]{1,40}\z/
+      # 書き込みの 2 本(確認・削除)が扱う店舗名の厳格な形。staging E2E の run ごとの店舗名 e2e-consent-r<run id>-<attempt> だけ。
+      # prefix に一致してもこの形でない店舗(例: 実店舗の e2e-consent-registration)が 1 件でもあれば、どちらも何もせずに abort する。
+      RUN_NAME_FORMAT = /\Ae2e-consent-r\d{1,20}-\d{1,3}\z/
+      # E2E の利用者のメールアドレスの形。受信箱の plus addressing(<local>+e2e-consent-<tag>@<domain>)か、local 部が e2e-consent-<tag>
+      # そのものの形だけ。確認と削除で E2E の利用者だけを扱うために使う。登録時のメールアドレスは小文字にそろえて保存されるため、大文字は通さない。
+      EMAIL_FORMAT = /\A(?:[a-z0-9][a-z0-9._-]{0,63}\+)?e2e-consent-[a-z0-9-]{1,40}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\z/
+      PURGE_LIMIT = 5
+      PHASE_FORMAT = /\A[a-z_]{1,32}\z/
+
+      module_function
+
+      def staging!(task)
+        return if Toybaco::Ops::ConnectionReleaseOps::Input.staging?
+
+        abort "#{task} は staging 専用です。production と環境が不明なときは実行しません。"
+      end
+
+      # 検査と代入を同じ判定にする(通すのは形に合う文字列だけで、Symbol などは通さない)。入力の値は出さない。
+      def argument!(args, key, format, message)
+        value = args[key]
+        abort message unless value.is_a?(String) && value.match?(format)
+        abort "引数は #{key} の 1 つだけを指定してください。" unless args.extras.empty?
+
+        value
+      end
+
+      def prefix!(args)
+        argument!(args, :prefix, PREFIX_FORMAT, 'prefix は e2e-consent- に続けて英小文字・数字・- を 1〜40 字で指定してください。')
+      end
+
+      # 名前が prefix で始まる店舗(id の順)。LIKE で絞り、Ruby でも前方一致を確かめる。
+      def accounts(prefix)
+        Account.where('name LIKE ?', "#{Account.sanitize_sql_like(prefix)}%").order(:id).select { |account| account.name.start_with?(prefix) }
+      end
+
+      # toybaco:legal_consents_by_name[prefix]。店舗ごとに legal_consents と同じ行を出し、最後に一致した店舗の数を 1 行で出す。
+      def consents_by_name(args)
+        prefix = prefix!(args)
+        found = accounts(prefix)
+        found.flat_map { |account| LegalConsentsReport.lines(account) } + ["TOYBACO_LEGAL_CONSENTS_BY_NAME prefix=#{prefix} accounts=#{found.size}"]
+      end
+
+      # toybaco:e2e_confirm_user[prefix]。名前が prefix で始まる店舗のうち無料登録がメール確認待ち(phase=email_pending)のもの(1 回 5 件まで)の
+      # 契約者(登録時の owner)を、確認メールのリンク(DeviseOverrides::ConfirmationsController)と同じ User#confirm で確認し、選んだ店舗ごとに
+      # FreeActivationJob の中と同じ FreeRegistration#activate! で有効にする(job は利用者のメール確認待ちの店舗を全て有効にするため使わない)。
+      # 全体を 1 つの transaction で行い、契約者を行ロックして全員を確かめてから確認・有効化し、段階を読み直す。どこかで止まれば
+      # abort(SystemExit)か例外で transaction ごと取り消し、確認も有効化も残さない。対象が 0 件でも正常に終わる。メールアドレスは引数にも出力にも出さない。
+      def confirm(args)
+        staging!('e2e_confirm_user')
+        prefix = prefix!(args)
+        lines = ActiveRecord::Base.transaction do
+          pending = run_names!(prefix, accounts(prefix), '確認').select { |account| phase(account) == 'email_pending' }
+          selected = within_limit!(prefix, pending, 'メール確認待ちの店舗', '確認')
+          confirm_and_activate!(selected.index_with { |account| owner!(account, selected.map(&:id)) })
+        end
+        lines + ["TOYBACO_E2E_CONFIRM prefix=#{prefix} accounts=#{lines.size}"]
+      end
+
+      # 契約者を全て確かめ終えた後に transaction の中で呼ぶ。契約者を確認してから、選んだ店舗ごとに有効にし、段階を読み直した行を返す。
+      def confirm_and_activate!(owners)
+        owners.values.uniq.each { |user| confirm_user!(user) }
+        owners.each { |account, user| Toybaco::Growth::FreeRegistration.new.activate!(user, account) }
+        activated_lines!(owners)
+      end
+
+      # 店舗ごとに段階を読み直した行。active でない店舗があれば abort する。
+      def activated_lines!(owners)
+        lines = owners.map { |account, user| "TOYBACO_E2E_CONFIRM user=#{user.id} account=#{account.id} phase=#{phase(account.reload)}" }
+        inactive = lines.reject { |line| line.end_with?(' phase=active') }
+        abort "無料登録が有効になっていない店舗があります(#{inactive.join(' / ')})。" if inactive.any?
+
+        lines
+      end
+
+      # 無料登録の契約者(登録時の owner)。所属の書き手と同じ users の行ロックを取ってから確かめる。E2E の利用者でないか、選んだ店舗の外にも
+      # メール確認待ちの店舗を持てば(確認すると確認メールのリンクと同じくその店舗も有効になる)、利用者の id だけを出して abort する。
+      def owner!(account, selected_ids)
+        user = User.find_by(id: Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]['owner_id'])
+        abort "account=#{account.id} の無料登録の契約者が見つかりません。" unless user
+
+        user.reload(lock: true)
+        abort "account=#{account.id} の契約者 user=#{user.id} は E2E の利用者ではないため確認しません。" unless e2e_user?(user)
+        return user unless other_pending?(user, selected_ids)
+
+        abort "account=#{account.id} の契約者 user=#{user.id} は選んだ店舗の外にもメール確認待ちの店舗を持つため確認しません。"
+      end
+
+      # E2E の利用者: SuperAdmin(type あり)でなく、メールアドレスが E2E 用の形で、名前が e2e-consent- で始まる店舗だけに所属する。
+      def e2e_user?(user)
+        stores = user.accounts.to_a
+        user.type.blank? && user.email.to_s.match?(EMAIL_FORMAT) && stores.any? && stores.all? { |store| store.name.start_with?(NAME_PREFIX) }
+      end
+
+      # 確認の commit 後の処理(Growth::FreeConfirmation)と同じ条件で、選んだ店舗の外のメール確認待ちの店舗があるか。
+      def other_pending?(user, selected_ids)
+        user.accounts.where("internal_attributes -> 'toybaco_growth_registration' ->> 'phase' = 'email_pending'").where.not(id: selected_ids).exists?
+      end
+
+      # 確認済みならそのまま進む(再実行しても同じ結果になる)。確認できなければ理由の種類(属性と error のキー)だけを出す。
+      def confirm_user!(user)
+        return if user.confirmed? || user.confirm
+
+        reasons = user.errors.details.flat_map { |attribute, errors| errors.map { |error| "#{attribute}.#{error[:error]}" } }
+        abort "user=#{user.id} のメール確認を記録できません(#{reasons.join(',')})。"
+      end
+
+      # 無料登録の段階。記録が無ければ -、形に合わない値は中身を出さずに invalid と出す。
+      def phase(account)
+        state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
+        value = state.is_a?(Hash) ? state['phase'] : nil
+        return LegalConsentsReport::NONE if value.nil?
+
+        value.is_a?(String) && value.match?(PHASE_FORMAT) ? value : 'invalid'
+      end
+
+      # toybaco:e2e_purge_accounts[prefix]。名前が prefix で始まる店舗(1 回 5 件まで)と、その店舗にだけ所属する E2E 用の利用者を削除する。
+      # 削除の手順は Purge にある。
+      def purge(args)
+        staging!('e2e_purge_accounts')
+        prefix = prefix!(args)
+        Purge.run(prefix, within_limit!(prefix, run_names!(prefix, accounts(prefix), '削除'), '店舗', '削除'))
+      end
+
+      # prefix に一致した店舗が全て E2E の run ごとの店舗名(RUN_NAME_FORMAT)であること。1 件でも違えば何もせずに abort する。
+      def run_names!(prefix, stores, action)
+        others = stores.count { |store| !store.name.match?(RUN_NAME_FORMAT) }
+        return stores if others.zero?
+
+        abort "prefix=#{prefix} に一致する店舗に、E2E の店舗名の形(e2e-consent-r<run>-<attempt>)でない店舗が #{others} 件あるため#{action}しません。"
+      end
+
+      # 1 回に確認・削除する店舗は 5 件まで。超えるときは 1 件も扱わない(prefix の打ち間違いで広く書き換えない)。
+      def within_limit!(prefix, stores, label, action)
+        return stores if stores.size <= PURGE_LIMIT
+
+        abort "prefix=#{prefix} に一致する#{label}が #{stores.size} 件あり、1 回の上限 #{PURGE_LIMIT} 件を超えるため#{action}しません。prefix を絞ってください。"
+      end
+
+      # 全体を 1 つの transaction で行う。overlay の削除時の検査(所属の書き手・自動応答の bot)は店舗の行を読むため、店舗が残っているうちに
+      # 所属・bot の割り当て・bot を同期で消し(後から動く destroy_async の job で親が見つからずに失敗しない)、利用者、店舗の順に
+      # SuperAdmin・Platform API と同じ DeleteObjectJob の処理で消す。利用者は transaction の中で行ロック(所属の書き手が取るのと同じ users の行)を
+      # 取って読み直し、条件から外れた利用者は消さずに数える(外れた 1 人のためにほかの店舗・利用者の削除を巻き戻さない)。読み直して店舗・利用者・
+      # 所属・bot が残っていれば abort(SystemExit)で rollback して何も消さない。
+      module Purge
+        # 店舗が残っているうちに消す子(削除時の検査が店舗の行を読むもの)。所属は全員分(消さない利用者の所属も)、bot の割り当て、bot の順。
+        CHILDREN = %w[AccountUser AgentBotInbox AgentBot].freeze
+
+        module_function
+
+        def run(prefix, stores)
+          ids = stores.map(&:id)
+          found = candidates(ids)
+          users = ActiveRecord::Base.transaction do
+            owners!(stores, ids)
+            eligible = found.select { |user| locked_eligible?(user, ids) }
+            children!(ids)
+            (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
+            next eligible unless remaining?(ids, eligible)
+
+            abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。"
+          end
+          "TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{found.size - users.size}"
+        end
+
+        # 店舗の契約者(無料登録の owner)は、行ロックして読み直して消してよい利用者でなければ、店舗を消す前に abort する。契約者だけが残ると
+        # 固定メールの利用者が残り、次の run の登録が 409 になるため、ほかの利用者のように数えて進めない。契約者が既に無い店舗はそのまま消す。
+        def owners!(stores, account_ids)
+          stores.each do |store|
+            state = Toybaco::Entitlements.attributes(store)[Toybaco::Growth::FreeRegistration::KEY]
+            owner = state.is_a?(Hash) ? User.find_by(id: state['owner_id']) : nil
+            next if owner.nil? || eligible_user?(owner.reload(lock: true), account_ids)
+
+            abort "account=#{store.id} の契約者 user=#{owner.id} が E2E の利用者でないか、ほかの店舗にも所属するため削除しません。"
+          end
+        end
+
+        # 対象の店舗に所属する利用者のうち消してよい候補(transaction の前の下見。transaction の中でロックして読み直す)。id の順。
+        def candidates(account_ids)
+          ids = AccountUser.where(account_id: account_ids).distinct.pluck(:user_id)
+          User.where(id: ids).order(:id).select { |user| eligible_user?(user, account_ids) }
+        end
+
+        # 候補を行ロックして読み直し、まだ消してよいか。ロックの前に消えていた利用者は消さない側に数える。
+        def locked_eligible?(user, account_ids)
+          eligible_user?(user.reload(lock: true), account_ids)
+        rescue ActiveRecord::RecordNotFound
+          false
+        end
+
+        # 消してよい利用者: SuperAdmin(type あり)でなく、E2E 用のメールアドレスで、対象の店舗にだけ所属する。
+        def eligible_user?(user, account_ids)
+          user.type.blank? && user.email.to_s.match?(EMAIL_FORMAT) && !AccountUser.where(user_id: user.id).where.not(account_id: account_ids).exists?
+        end
+
+        def children!(account_ids)
+          CHILDREN.each { |name| name.constantize.where(account_id: account_ids).order(:id).each(&:destroy!) }
+        end
+
+        def remaining?(account_ids, users)
+          Account.exists?(id: account_ids) || User.exists?(id: users.map(&:id)) ||
+            CHILDREN.any? { |name| name.constantize.exists?(account_id: account_ids) }
+        end
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc '名前が prefix で始まる E2E の店舗の規約同意の記録を読み取りだけで表示する(rake "toybaco:legal_consents_by_name[e2e-consent-<run>]")'
+  task :legal_consents_by_name, %i[prefix] => :environment do |_t, args|
+    Toybaco::Ops::E2eConsent.consents_by_name(args).each { |line| puts line }
+  end
+
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(メール確認待ち、1 回 5 件まで)の契約者を確認し、無料登録を有効にする' \
+       '(rake "toybaco:e2e_confirm_user[e2e-consent-<run>]")'
+  task :e2e_confirm_user, %i[prefix] => :environment do |_t, args|
+    Toybaco::Ops::E2eConsent.confirm(args).each { |line| puts line }
+  end
+
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(1 回 5 件まで)と、その店舗だけの利用者を削除する(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
+  task :e2e_purge_accounts, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eConsent.purge(args)
+  end
+end

@@ -1,0 +1,25 @@
+<%= @account.name %>
+
+<%= @headline %>。
+
+更新のお支払いを確認期限までに確認できなかったため、<%= @previous_plan ? "#{@previous_plan} プランから" : '' %>無料プランへ移行しました。
+
+変わったこと
+・プラン：無料プラン
+・無料プランの上限：受信箱 <%= @limits['inboxes'] %> つ・投稿先 <%= @limits['posting_accounts'] %> つ・AIアシスタント 月 <%= @limits['ai_generations'] %> 回
+<% if @held_inboxes.positive? %>
+・上限を超えた受信箱 <%= @held_inboxes %> つは保留しました（削除はしていません）。
+<% end %>
+<% if @held_posting_accounts.positive? %>
+・上限を超えた投稿先 <%= @held_posting_accounts %> つは保留し、その予約投稿も保留しました（削除はしていません）。
+<% end %>
+
+会話・原稿・スタッフなどのデータは、そのまま残っています。
+
+有料プランを再開するには、ご契約内容からお手続きください。
+ご契約内容
+<%= @url %>
+
+ご不明な点は support@toybaco.jp までお問い合わせください。
+
+トイバコ

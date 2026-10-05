@@ -113,7 +113,7 @@ class Toybaco::Growth::RenewalDispatchWork
     service = Toybaco::Growth::RenewalCoordinatorSettlement.new(@operation.id, client: @client, environment: @environment, clock: @clock)
     result = service.call
     raise Attention, 'payment_review' if result['phase'] == 'payment_review'
-    return 'free_completed' if result['phase'] == 'free_completed'
+    return free_completed! if result['phase'] == 'free_completed'
     return 'due_waiting' unless result['phase'] == 'provider_closed'
     return 'provider_closed' unless FREE_FLAGS.all? { |flag| @environment[flag] == 'true' }
 
@@ -121,6 +121,19 @@ class Toybaco::Growth::RenewalDispatchWork
     result = service.complete_free!
     raise Record::Invalid unless result['phase'] == 'free_completed'
 
+    free_completed!
+  end
+
+  # The Free write has committed (this work runs outside Account transactions). The Free transition notice is
+  # enqueued after it, also when a rerun finds the transition complete; Growth::RenewalFreeNotice sends it at
+  # most once per transition. A queue failure (an error, or an enqueue the adapter refused) never changes the result.
+  def free_completed!
+    queued = Toybaco::GrowthRenewalFreeNoticeJob.perform_later(@operation.account_id)
+    raise ActiveJob::EnqueueError, 'free transition notice not enqueued' unless queued
+
+    'free_completed'
+  rescue StandardError => e
+    Rails.logger.warn("toybaco_renewal_free_notice_unqueued account=#{@operation.account_id} class=#{e.class.name}")
     'free_completed'
   end
 
