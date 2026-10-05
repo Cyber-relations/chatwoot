@@ -36,7 +36,8 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
 
   def require_available
     response.headers['Cache-Control'] = 'no-store'
-    response.headers['Referrer-Policy'] = 'no-referrer'
+    # no-referrer makes browsers send `Origin: null` with a form POST, which forgery protection rejects.
+    response.headers['Referrer-Policy'] = 'same-origin'
     head :not_found unless Toybaco::Growth::FreeRegistration.enabled?
   end
 

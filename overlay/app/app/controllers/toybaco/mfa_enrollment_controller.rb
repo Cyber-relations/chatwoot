@@ -43,7 +43,8 @@ class Toybaco::MfaEnrollmentController < ActionController::Base # rubocop:disabl
 
   def protect_enrollment
     response.headers['Cache-Control'] = 'no-store'
-    response.headers['Referrer-Policy'] = 'no-referrer'
+    # no-referrer makes browsers send `Origin: null` with a form POST, which forgery protection rejects.
+    response.headers['Referrer-Policy'] = 'same-origin'
     return head :forbidden unless request.get? || valid_enrollment_csrf?
 
     @user = Toybaco::Security::MfaEnrollment.user(session)

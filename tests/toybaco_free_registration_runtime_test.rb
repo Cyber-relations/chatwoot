@@ -77,6 +77,32 @@ class ToybacoFreeRegistrationRuntimeTest < ActionDispatch::IntegrationTest
     controller.allow_forgery_protection = previous_protection
   end
 
+  def test_signup_page_keeps_the_form_origin_that_forgery_protection_requires
+    controller = Toybaco::FreeRegistrationsController
+    previous_protection = controller.allow_forgery_protection
+    controller.allow_forgery_protection = true
+    Toybaco::PlanCatalog.stub(:default, @catalog) do
+      get '/toybaco/free/signup'
+      assert_response :success
+      assert_equal 'same-origin', response.headers['Referrer-Policy']
+      assert_includes response.body, '<meta name="referrer" content="same-origin">'
+      origin = request.base_url
+      token = Nokogiri::HTML(response.body).at_css('input[name=authenticity_token]')['value']
+      form = @attributes.merge(accept_terms: '1', authenticity_token: token)
+      ChatwootCaptcha.stub(:new, Struct.new(:valid?).new(true)) do
+        # Current Rails behavior: a no-referrer page's form posts `Origin: null`, refused even with a valid token.
+        post '/toybaco/free/signup', params: form, headers: { 'Origin' => 'null' }
+        assert_response :unprocessable_entity
+        assert_nil User.find_by(email: @attributes[:email])
+        post '/toybaco/free/signup', params: form, headers: { 'Origin' => origin }
+      end
+      assert_redirected_to '/toybaco/free/verify-email'
+      refute User.find_by!(email: @attributes[:email]).confirmed?
+    end
+  ensure
+    controller.allow_forgery_protection = previous_protection
+  end
+
   def test_terms_must_be_accepted_before_registration
     Toybaco::PlanCatalog.stub(:default, @catalog) do
       assert_no_difference('Account.count') do
