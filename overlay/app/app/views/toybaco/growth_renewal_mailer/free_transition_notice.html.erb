@@ -1,0 +1,18 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><body style="margin:0;background:#faf7f2;color:#24303f;font-family:sans-serif">
+<div style="max-width:560px;margin:32px auto;padding:28px;background:#fcfbf8;border:1px solid #e7e2da;border-radius:16px">
+  <p style="font-weight:bold;color:#1f3a5f">トイバコ</p>
+  <p><%= @account.name %></p>
+  <h1 style="font-size:20px;line-height:1.6"><%= @headline %></h1>
+  <p style="line-height:1.8">更新のお支払いを確認期限までに確認できなかったため、<%= @previous_plan ? "#{@previous_plan} プランから" : '' %>無料プランへ移行しました。</p>
+  <p style="font-weight:bold;margin-bottom:4px">変わったこと</p>
+  <ul style="line-height:1.8;padding-left:20px;margin-top:0">
+    <li>プラン：無料プラン</li>
+    <li>無料プランの上限：受信箱 <%= @limits['inboxes'] %> つ・投稿先 <%= @limits['posting_accounts'] %> つ・AIアシスタント 月 <%= @limits['ai_generations'] %> 回</li>
+    <% if @held_inboxes.positive? %><li>上限を超えた受信箱 <%= @held_inboxes %> つは保留しました（削除はしていません）。</li><% end %>
+    <% if @held_posting_accounts.positive? %><li>上限を超えた投稿先 <%= @held_posting_accounts %> つは保留し、その予約投稿も保留しました（削除はしていません）。</li><% end %>
+  </ul>
+  <p style="line-height:1.8">会話・原稿・スタッフなどのデータは、そのまま残っています。</p>
+  <p style="line-height:1.8">有料プランを再開するには、ご契約内容からお手続きください。</p>
+  <a href="<%= @url %>" style="display:inline-block;background:#1f3a5f;color:white;text-decoration:none;padding:12px 18px;border-radius:9px">ご契約内容</a>
+  <p style="line-height:1.8;margin-top:20px">ご不明な点は <a href="mailto:support@toybaco.jp" style="color:#1f3a5f">support@toybaco.jp</a> までお問い合わせください。</p>
+</div></body></html>

@@ -35,6 +35,15 @@ RSpec.describe 'Application administrator MFA', type: :request do
     challenge
   end
 
+  def mfa_verified_at(client)
+    Time.zone.at(user.reload.tokens.dig(client, 'toybaco_mfa_at'))
+  end
+
+  def device_verified_after?(duration)
+    client = JSON.parse(cookies['cw_d_session_info'])['client']
+    travel_to(mfa_verified_at(client) + duration) { Toybaco::Security::ApplicationMfaSession.valid?(user.reload, client) }
+  end
+
   it 'does not issue a full login to an unenrolled administrator' do
     login
     expect(response).to have_http_status(:partial_content)
@@ -126,10 +135,66 @@ RSpec.describe 'Application administrator MFA', type: :request do
     enable_mfa
     complete_mfa
     payload = JSON.parse(cookies['cw_d_session_info'])
-    travel 12.hours do
-      expect(user.reload.valid_token?(payload['access-token'], payload['client'])).to be(false)
-      expect(Toybaco::Oidc::SessionReader.record_digest(user, payload['client'])).to be_nil
+    verified_at = mfa_verified_at(payload['client'])
+    with_modified_env(TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS: nil) do
+      travel_to(verified_at + 30.days - 1.second) do
+        expect(user.reload.valid_token?(payload['access-token'], payload['client'])).to be(true)
+        expect(Toybaco::Oidc::SessionReader.record_digest(user, payload['client'])).to be_present
+      end
+      travel_to(verified_at + 30.days) do
+        expect(user.reload.valid_token?(payload['access-token'], payload['client'])).to be(false)
+        expect(Toybaco::Oidc::SessionReader.record_digest(user, payload['client'])).to be_nil
+      end
     end
+  end
+
+  it 'lets the MFA proof lifetime be shortened in whole hours' do
+    enable_mfa
+    complete_mfa
+    lifetimes = { '1' => 1.hour, '01' => 1.hour, "4\n" => 4.hours, '12' => 12.hours, ' 12 ' => 12.hours, '720' => 30.days }
+    lifetimes.each do |hours, lifetime|
+      with_modified_env(TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS: hours) do
+        expect(device_verified_after?(lifetime - 1.second)).to be(true), "#{hours.inspect} ended the proof before #{lifetime.inspect}"
+        expect(device_verified_after?(lifetime)).to be(false), "#{hours.inspect} kept the proof past #{lifetime.inspect}"
+      end
+    end
+  end
+
+  it 'falls back to twelve hours for an invalid lifetime without raising' do
+    enable_mfa
+    complete_mfa
+    ['0', '000', '721', '1000', 'abc', '12.5', '+12', '1_0', '-1', '１２', "\xFF"].each do |hours|
+      with_modified_env(TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS: hours) do
+        expect(device_verified_after?(12.hours - 1.second)).to be(true), "#{hours.inspect} ended the proof before 12 hours"
+        expect(device_verified_after?(12.hours)).to be(false), "#{hours.inspect} kept the proof past 12 hours"
+      end
+    end
+  end
+
+  it 'keeps thirty days for an empty or blank lifetime' do
+    enable_mfa
+    complete_mfa
+    ['', ' ', "\n"].each do |hours|
+      with_modified_env(TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS: hours) do
+        expect(device_verified_after?(30.days - 1.second)).to be(true), "#{hours.inspect} ended the proof before 30 days"
+        expect(device_verified_after?(30.days)).to be(false), "#{hours.inspect} kept the proof past 30 days"
+      end
+    end
+  end
+
+  it 'rejects an MFA proof dated in the future' do
+    enable_mfa
+    complete_mfa
+    payload = JSON.parse(cookies['cw_d_session_info'])
+    future = 1.hour.from_now.to_i
+    user.reload.tokens[payload['client']]['toybaco_mfa_at'] = future
+    user.save!
+    expect(user.reload.tokens.dig(payload['client'], 'toybaco_mfa_at')).to eq(future)
+    expect(user.valid_token?(payload['access-token'], payload['client'])).to be(false)
+  end
+
+  it 'keeps the DTA device record at least as long as the thirty-day MFA proof' do
+    expect(DeviseTokenAuth.token_lifespan).to be >= 30.days
   end
 
   it 'invalidates every device when MFA is disabled' do

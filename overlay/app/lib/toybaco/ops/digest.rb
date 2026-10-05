@@ -3,6 +3,7 @@
 require 'sidekiq/api'
 require_relative '../growth/opening_operations'
 require_relative 'ops_flag'
+require_relative 'renewal_overdue'
 
 # 運営の日次ダイジェスト(S0-2)。確認待ちと直近 24 時間の動きを件数だけで集計し、固定形式のログ 1 行を常に出す。
 # メールは DB flag(TOYBACO_OPS_DIGEST_ENABLED)が JSON の true の時だけ(cache を経由せず DB を直接読む)、
@@ -31,6 +32,9 @@ class Toybaco::Ops::Digest
             [:billing_review, '請求の確認が必要'], [:suspended, '利用停止中']].freeze
   SIDEKIQ = [[:retry, '再試行待ち(retry)'], [:dead, '停止したジョブ(dead)']].freeze
   SIDEKIQ_GUIDE = '確認: 管理コンソールの Sidekiq ダッシュボードで内容を確認し、再実行か削除を判断してください。'
+  # 更新請求の処理(renewal dispatch)。確認待ち 5 種の合計(attention_total)には入れない。
+  RENEWAL = [[:attention, '確認待ち(attention)'], [:overdue_grace, '期日を過ぎても処理されていない猶予(grace)']].freeze
+  RENEWAL_GUIDE = '確認: rake toybaco:renewal_attention / 店舗ごと: rake toybaco:renewal_status[account_id]'
   # TOYBACO_OPS_DIGEST 行のキー順(attention_total の後ろ)。メトリクス化の前提なので並べ替えない。
   LOG_FIELDS = [
     %w[billing attention billing_events], %w[sync attention subscription_sync_requests],
@@ -38,7 +42,8 @@ class Toybaco::Ops::Digest
     %w[support attention support_reports], %w[opened_24h activity_24h opened_stores],
     %w[packs_24h activity_24h pack_orders_paid], %w[cancel_scheduled states cancel_scheduled],
     %w[payment_pending states payment_pending], %w[billing_review states billing_review],
-    %w[suspended states suspended], %w[sidekiq_retry sidekiq retry], %w[sidekiq_dead sidekiq dead]
+    %w[suspended states suspended], %w[sidekiq_retry sidekiq retry], %w[sidekiq_dead sidekiq dead],
+    %w[renewal_attention renewal attention], %w[renewal_overdue_grace renewal overdue_grace]
   ].map { |name, section, key| [name, section.to_sym, key.to_sym] }.freeze
 
   def initialize(now: Time.now.utc)
@@ -53,6 +58,7 @@ class Toybaco::Ops::Digest
   def summary
     @summary ||= {
       attention: section(:attention) { attention },
+      renewal: section(:renewal) { renewal },
       activity_24h: section(:activity_24h) { activity },
       states: section(:states) { states },
       sidekiq: section(:sidekiq) { sidekiq },
@@ -115,6 +121,13 @@ class Toybaco::Ops::Digest
                            .or(Toybaco::OpeningRequest.where(id: receipts.select(:opening_request_id)))
   end
 
+  # 更新請求の処理の確認待ち(state = 'attention')と、期日を過ぎても claim されていない猶予(Toybaco::Ops::RenewalOverdue。
+  # rake toybaco:renewal_attention と同じ述語)。行ごとの内容は rake toybaco:renewal_attention。
+  def renewal
+    rows = Toybaco::GrowthRenewalDispatch
+    { attention: rows.where(state: 'attention').count, overdue_grace: Toybaco::Ops::RenewalOverdue.overdue_grace(rows, @now).count }
+  end
+
   # 直近 24 時間は (anchor - 24h, anchor]。境界の 1 件を前日と二重に数えない。
   def activity
     since = @anchor - WINDOW
@@ -159,7 +172,7 @@ class Toybaco::Ops::Digest
   # 直近 24 時間だけが予定時刻で閉じる。確認待ち・契約の状態・Sidekiq は実行時刻の値なので、見出しに実行時刻を添える。
   def lines
     ["【トイバコ】運営ダイジェスト #{local(@anchor).strftime('%Y-%m-%d')} 予定時刻 #{local(@anchor).strftime('%H:%M')} JST の集計" \
-     '(確認待ち・契約の状態・Sidekiq は実行時刻の値)', '', *attention_lines, '',
+     '(確認待ち・契約の状態・Sidekiq は実行時刻の値)', '', *attention_lines, '', *renewal_lines, '',
      *counted("■ 直近 24 時間(#{stamp(@anchor - WINDOW)} から #{stamp(@anchor)} まで、JST。開始時刻は含まない)",
               summary[:activity_24h], ACTIVITY, '件'), '',
      *state_lines, '', *sidekiq_lines, '',
@@ -175,6 +188,11 @@ class Toybaco::Ops::Digest
       count.zero? ? ["・#{label}: 0 件"] : ["・#{label}: #{count} 件", "  #{guide}"]
     end
     ["■ 確認待ち(合計 #{attention_total} 件、#{snapshot})", *items]
+  end
+
+  def renewal_lines
+    counts = counted("■ 更新請求の処理(#{snapshot})", summary[:renewal], RENEWAL, '件')
+    summary[:renewal]&.values&.any?(&:positive?) ? [*counts, "  #{RENEWAL_GUIDE}"] : counts
   end
 
   def state_lines
