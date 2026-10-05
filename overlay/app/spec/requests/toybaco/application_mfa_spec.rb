@@ -182,6 +182,18 @@ RSpec.describe 'Application administrator MFA', type: :request do
     expect(user.reload.otp_secret).to be_nil
   end
 
+  # A no-referrer page makes the browser post its forms with `Origin: null`, which enrollment rejects.
+  it 'serves enrollment under a same-origin referrer policy so its form posts keep their origin' do
+    login
+    get '/toybaco/mfa-enrollment'
+    expect(response.headers['Referrer-Policy']).to eq('same-origin')
+    expect(response.body).to include('<meta name="referrer" content="same-origin">')
+    expect(response.body).not_to include('no-referrer')
+    post '/toybaco/mfa-enrollment', headers: headers.merge('X-CSRF-Token' => csrf)
+    expect(response).to have_http_status(:ok)
+    expect(response.headers['Referrer-Policy']).to eq('same-origin')
+  end
+
   it 'limits bad enrollment codes without enabling MFA or issuing a session' do
     login
     post '/toybaco/mfa-enrollment', headers: headers.merge('X-CSRF-Token' => csrf)
