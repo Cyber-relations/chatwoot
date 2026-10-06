@@ -11,22 +11,28 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
   end
 
   def verify_email
+    @registration_request_accepted = flash[:free_registration_request_accepted] == true
+    flash.delete(:free_registration_request_accepted)
     render 'toybaco/free_registrations/verify_email', layout: false
   end
 
   def create
     return render_error('利用規約とプライバシーポリシーをご確認ください。', :unprocessable_entity) unless params[:accept_terms] == '1'
-    return render_error('確認に失敗しました。もう一度お試しください。', :unprocessable_entity) unless valid_captcha?
+    return render_error('確認に失敗しました。もう一度お試しください。', :unprocessable_entity, 'captcha') unless valid_captcha?
 
     user, = Toybaco::Growth::FreeRegistration.new.register!(registration_attributes)
     # A confirmation email is the only next step. No session, usable store or
     # AI quota is issued to an unverified address.
     respond_to do |format|
       format.json { render json: { email: user.email, next: 'verify_email' }, status: :accepted }
-      format.html { redirect_to '/toybaco/free/verify-email', status: :see_other }
+      format.html do
+        # A one-use, server-issued receipt. A direct visit or refresh is not a registration.
+        flash[:free_registration_request_accepted] = true if request.base_url == 'https://app.staging.toybaco.jp'
+        redirect_to '/toybaco/free/verify-email', status: :see_other
+      end
     end
   rescue CustomExceptions::Account::UserExists, ActiveRecord::RecordNotUnique
-    render_error('このメールは登録済みです。ログインしてください。', :conflict)
+    render_error('このメールは登録済みです。ログインしてください。', :conflict, 'existing_account')
   rescue CustomExceptions::Account::InvalidEmail, CustomExceptions::Account::UserErrors, ActiveRecord::RecordInvalid,
          ActionController::ParameterMissing
     render_error('入力内容を確認してください。', :unprocessable_entity)
@@ -46,8 +52,9 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
     render 'toybaco/free_registrations/show', layout: false, status: status
   end
 
-  def render_error(message, status)
+  def render_error(message, status, measurement_error = 'validation')
     @error = message
+    @measurement_error = measurement_error
     respond_to do |format|
       format.json { render json: { error: message }, status: status }
       format.html { render_form(status: status) }

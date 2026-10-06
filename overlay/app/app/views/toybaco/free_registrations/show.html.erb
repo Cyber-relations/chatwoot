@@ -18,7 +18,7 @@
     <h1>無料ではじめる</h1>
     <p class="lead">カード登録不要。店舗を作ったら、使うサービスをつなぎましょう。</p>
     <% if @error %><p class="error" role="alert"><%= @error %></p><% end %>
-    <form action="/toybaco/free/signup" method="post">
+    <form id="toybaco-free-registration" action="/toybaco/free/signup" method="post">
       <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
       <label for="store">店舗名</label>
       <input id="store" name="account_name" autocomplete="organization" maxlength="100" value="<%= params[:account_name].to_s.first(100) %>" required>
@@ -35,5 +35,6 @@
     </form>
     <p class="login">登録済みの方は <a href="/app/login">ログイン</a></p>
   </main>
+  <%= render 'toybaco/free_registrations/measurement' %>
 </body>
 </html>
