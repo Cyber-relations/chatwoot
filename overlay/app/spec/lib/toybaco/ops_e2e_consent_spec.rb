@@ -7,8 +7,13 @@ Rails.application.load_tasks unless Rake::Task.task_defined?('toybaco:legal_cons
 
 # staging の E2E(規約同意の記録の経路の確認)用の運営 rake(toybaco:legal_consents_by_name / e2e_confirm_user / e2e_purge_accounts)。
 # 読み取りの行の形とメールアドレス・氏名を出さないこと、書き込みの 2 本が staging 以外で引数を読む前に abort すること、e2e-consent- の形と
-# 書き込みの 2 本が扱う店舗名の厳格な形(e2e-consent-r<run>-<attempt>)の検査、確認と選んだ店舗だけの有効化(1 transaction)、削除の範囲
-# (対象の店舗と、その店舗にだけ所属する E2E 用の利用者。契約者が外れれば削除しない)と上限、commit 後の job、削除の取り消しを確かめる。
+# 書き込みの 2 本が扱う店舗名の厳格な形(e2e-consent-r<run>-<attempt>)の検査、選んだ後の名前・段階の変化(行ロックして読み直す。削除は
+# 先頭 5 件の外の一致した店舗も)、確認と選んだ店舗だけの有効化(1 transaction)、削除の範囲(対象の店舗と、その店舗にだけ所属する E2E 用の
+# 利用者と、所属が無くなった契約者。契約者が一致した店舗の外にも所属すれば削除しない。先頭 5 件の外の一致した店舗にも所属する利用者・契約者
+# は消さずに数え、次の呼び出しで消す)と、確認の上限・削除の 1 回 5 件と残りの件数、commit 後にだけ送る job、削除の取り消し(rollback で
+# job も残さない)を確かめる。
+# 別の接続の割り込みは、transactional fixtures の行が別の接続から見えないため、選んだ後に同じ接続で行を書き換えて表す(選んだ object は
+# 古い値のまま)。
 # Postiz の DB は外部の境界として PostizSync をスタブし(postiz_lifecycle_spec と同じ)、削除で無効化が呼ばれることを確かめる。
 # 置き場所は他の overlay spec(spec/lib/toybaco/*_spec.rb)と揃え、rspec manifest の名簿で固定している。
 RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathFormat
@@ -254,6 +259,30 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       expect([user.reload.confirmed?, phase(account), phase(other)]).to eq([false, 'email_pending', 'email_pending'])
     end
 
+    it '選んだ後に店舗の名前が E2E の形から変われば、行ロックして読み直して確認せずに abort する' do
+      user, account = register('r118-1')
+      allow(described_class).to receive(:accounts).and_wrap_original do |original, *arguments|
+        original.call(*arguments).tap { Account.find(account.id).update!(name: '本番の店舗') }
+      end
+      expect(refusal('e2e_confirm_user', 'e2e-consent-r118-1')).to eq("account=#{account.id} の名前か状態が選んだ後に変わったため確認しません。")
+      # 確認は選ぶところから 1 つの transaction の中なので、この書き換えも abort で取り消される。確認と有効化は残らない。
+      expect([user.reload.confirmed?, account.reload.status, phase(account)]).to eq([false, 'suspended', 'email_pending'])
+    end
+
+    it '選んだ後にメール確認待ちでなくなれば(確認メールのリンクで先に有効になったなど)、行ロックして読み直して確認せずに abort する' do
+      user, account = register('r119-1')
+      allow(described_class).to receive(:accounts).and_wrap_original do |original, *arguments|
+        original.call(*arguments).tap do
+          fresh = Account.find(account.id)
+          state = fresh.internal_attributes.deep_dup
+          state['toybaco_growth_registration']['phase'] = 'active'
+          fresh.update!(internal_attributes: state)
+        end
+      end
+      expect(refusal('e2e_confirm_user', 'e2e-consent-r119-1')).to eq("account=#{account.id} の名前か状態が選んだ後に変わったため確認しません。")
+      expect([user.reload.confirmed?, account.reload.status]).to eq([false, 'suspended'])
+    end
+
     it '2 件目の確認が記録できなければ、1 件目の確認と有効化も取り消す(1 つの transaction)' do
       first_user, first = register('r115-1')
       second_user, second = register('r115-2')
@@ -279,8 +308,11 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
         allow(registration).to receive(:activate!).and_raise(ActiveRecord::ActiveRecordError, 'activation failed') if calls == 2
         registration
       end
+      queue_adapter.enqueued_jobs.clear
       expect { capture(:stdout) { run_task('e2e_confirm_user', 'e2e-consent-r116-') } }
         .to raise_error(ActiveRecord::ActiveRecordError, 'activation failed')
+      # 確認と有効化は job を積まない(取り消した後に動く job が残らない)。積むようになれば削除と同じく commit の後に送る必要がある。
+      expect(queue_adapter.enqueued_jobs).to eq([])
       expect([first_user.reload.confirmed?, second_user.reload.confirmed?]).to eq([false, false])
       expect([first.reload.status, phase(first), phase(second)]).to eq(%w[suspended email_pending email_pending])
       expect(new_rows.pluck(:result)).to eq(%w[started failed])
@@ -303,7 +335,8 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
         revoked << [arguments[:user_id], arguments[:account].id]
         :revoked
       end
-      expect(run!('e2e_purge_accounts', 'e2e-consent-r201-')).to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r201- accounts=2 users=2 skipped_users=0'])
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r201-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r201- accounts=2 users=2 skipped_users=0 remaining=0'])
       expect([store, other_store, inbox].map { |record| record.class.exists?(record.id) }).to eq([false, false, false])
       expect(User.where(id: [owner, other_owner, staff, admin].map(&:id)).pluck(:id)).to contain_exactly(staff.id, admin.id)
       expect(AccountUser.where(user_id: [staff, admin].map(&:id)).pluck(:account_id)).to eq([kept_account.id])
@@ -323,7 +356,9 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
                                                              request_id: SecureRandom.uuid, epoch: SecureRandom.uuid, state: 'stopped')
       queue_adapter.enqueued_jobs.clear
       expect(run!('e2e_purge_accounts', 'e2e-consent-r206-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r206-1 accounts=1 users=1 skipped_users=0'])
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r206-1 accounts=1 users=1 skipped_users=0 remaining=0'])
+      # 所属の削除の後始末(Agents::DestroyJob)は transaction の中で積まれ、commit の後に送られる(owner と staff の 2 件)。
+      expect(Agents::DestroyJob).to have_been_enqueued.exactly(2).times
       expect { perform_enqueued_jobs }.not_to raise_error
       expect([Account.exists?(store.id), User.exists?(owner.id), User.exists?(staff.id)]).to eq([false, false, true])
       expect([AccountUser, AgentBotInbox, AgentBot].map { |model| model.where(account_id: store.id).count }).to eq([0, 0, 0])
@@ -365,9 +400,66 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
         original.call(*arguments).tap { create(:account_user, account: elsewhere, user: member, role: :agent) }
       end
       expect(run!('e2e_purge_accounts', 'e2e-consent-r209-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r209-1 accounts=1 users=1 skipped_users=1'])
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r209-1 accounts=1 users=1 skipped_users=1 remaining=0'])
       expect([Account.exists?(store.id), User.exists?(owner.id), User.exists?(member.id)]).to eq([false, false, true])
       expect(AccountUser.where(user_id: member.id).pluck(:account_id)).to eq([elsewhere.id])
+    end
+
+    it '削除の transaction の中で積まれる job(所属の後始末・destroy_async の削除・イベントの配信)は commit の後にだけ送る' do
+      _, store = register('r213-1')
+      create(:inbox, account: store)
+      queue_adapter.enqueued_jobs.clear
+      inside = nil
+      allow(described_class::Purge).to receive(:remaining?).and_wrap_original do |original, *arguments|
+        inside = queue_adapter.enqueued_jobs.size
+        original.call(*arguments)
+      end
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r213-1').first).to end_with('accounts=1 users=1 skipped_users=0 remaining=0')
+      expect(inside).to eq(0)
+      expect(Agents::DestroyJob).to have_been_enqueued.once
+      expect(EventDispatcherJob).to have_been_enqueued.at_least(:once)
+      expect(ActiveRecord::DestroyAssociationAsyncJob).to have_been_enqueued.at_least(:once)
+      expect(ActiveJob::Base.enqueue_after_transaction_commit).to eq(:never)
+    end
+
+    it '契約者の所属が既に無くても(Platform で所属を消した後など)、確かめた上で契約者も消す(固定メールの利用者を残さない)' do
+      owner, store = register('r211-1')
+      AccountUser.find_by!(account: store, user: owner).destroy!
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r211-1'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r211-1 accounts=1 users=1 skipped_users=0 remaining=0'])
+      expect([Account.exists?(store.id), User.exists?(owner.id)]).to eq([false, false])
+    end
+
+    it '選んだ後に店舗の名前が E2E の形から変われば、行ロックして読み直して何も消さずに abort する' do
+      owner, store = register('r212-1')
+      allow(described_class).to receive(:accounts).and_wrap_original do |original, *arguments|
+        original.call(*arguments).tap { Account.find(store.id).update!(name: '本番の店舗') }
+      end
+      expect(refusal('e2e_purge_accounts', 'e2e-consent-r212-1')).to eq("account=#{store.id} の名前か状態が選んだ後に変わったため削除しません。")
+      expect([Account.exists?(store.id), User.exists?(owner.id), AccountUser.where(account_id: store.id).count]).to eq([true, true, 1])
+    end
+
+    it '選んだ後に先頭 5 件の外の一致した店舗が prefix の外の名前に変われば、一致した店舗を全て行ロックして読み直し、何も消さずに abort する' do
+      owners, stores = (1..6).map { |index| register("r236-#{index}") }.transpose
+      # 1 件目の契約者が 6 件目にも所属する(古い一致集合を信じると、残す契約者と判定して先頭 5 件を消してしまう配置)。
+      create(:account_user, account: stores.last, user: owners.first, role: :agent)
+      allow(described_class).to receive(:accounts).and_wrap_original do |original, *arguments|
+        original.call(*arguments).tap { Account.find(stores.last.id).update!(name: '本番の店舗') }
+      end
+      expect(refusal('e2e_purge_accounts', 'e2e-consent-r236-')).to eq("account=#{stores.last.id} の名前か状態が選んだ後に変わったため削除しません。")
+      expect([Account.where(id: stores.map(&:id)).count, User.where(id: owners.map(&:id)).count]).to eq([6, 6])
+      expect(AccountUser.where(account_id: stores.map(&:id)).count).to eq(7)
+    end
+
+    it '選んだ後に先頭 5 件の外の一致した店舗が prefix に一致するが E2E の店舗名の形でない名前に変わっても、何も消さずに abort する' do
+      owners, stores = (1..6).map { |index| register("r237-#{index}") }.transpose
+      create(:account_user, account: stores.last, user: owners.first, role: :agent)
+      allow(described_class).to receive(:accounts).and_wrap_original do |original, *arguments|
+        original.call(*arguments).tap { Account.find(stores.last.id).update!(name: 'e2e-consent-registration') }
+      end
+      expect(refusal('e2e_purge_accounts', 'e2e-consent-r')).to eq("account=#{stores.last.id} の名前か状態が選んだ後に変わったため削除しません。")
+      expect([Account.where(id: stores.map(&:id)).count, User.where(id: owners.map(&:id)).count]).to eq([6, 6])
+      expect(AccountUser.where(account_id: stores.map(&:id)).count).to eq(7)
     end
 
     it 'prefix に一致した店舗に E2E の店舗名の形(e2e-consent-r<run>-<attempt>)でないもの(別の名前・後ろに続きがある名前)があれば、1 件も消さずに abort する' do
@@ -381,21 +473,73 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
     it '一致する店舗が無ければ何も消さずに 0 件を出す(後片付けの再実行も正常に終わり、監査行は ok)' do
       _, store = register('r203-1')
       expect(run!('e2e_purge_accounts', 'e2e-consent-r203-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=1 users=1 skipped_users=0'])
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=1 users=1 skipped_users=0 remaining=0'])
       expect(run!('e2e_purge_accounts', 'e2e-consent-r203-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=0 users=0 skipped_users=0'])
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=0 users=0 skipped_users=0 remaining=0'])
       expect(Account.exists?(store.id)).to be(false)
       expect(new_rows.pluck(:action, :result)).to eq([%w[rake.toybaco:e2e_purge_accounts started], %w[rake.toybaco:e2e_purge_accounts ok]] * 2)
     end
 
-    it '一致する店舗が上限の 5 件を超えれば何も消さずに abort し、5 件ちょうどなら消す' do
-      stores = (1..6).map { |index| create(:account, name: "e2e-consent-r231-#{index}") }
-      expect(refusal('e2e_purge_accounts', 'e2e-consent-r231-'))
-        .to eq('prefix=e2e-consent-r231- に一致する店舗が 6 件あり、1 回の上限 5 件を超えるため削除しません。prefix を絞ってください。')
-      expect(Account.where(id: stores.map(&:id)).count).to eq(6)
-      stores.last.update!(name: 'e2e-consent-r232-6')
-      expect(run!('e2e_purge_accounts', 'e2e-consent-r231-')).to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r231- accounts=5 users=0 skipped_users=0'])
-      expect(Account.where(id: stores.map(&:id)).pluck(:id)).to eq([stores.last.id])
+    it '一致する店舗が 5 件を超えれば id の順の先頭 5 件だけを消して残りの件数を出し、繰り返せば全て消せる' do
+      stores = (1..7).map { |index| create(:account, name: "e2e-consent-r231-#{index}") }
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r231-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r231- accounts=5 users=0 skipped_users=0 remaining=2'])
+      expect(Account.where(id: stores.map(&:id)).order(:id).pluck(:id)).to eq(stores.last(2).map(&:id))
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r231-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r231- accounts=2 users=0 skipped_users=0 remaining=0'])
+      expect(Account.where(id: stores.map(&:id)).count).to eq(0)
+    end
+
+    it '同じ E2E の契約者が先頭 5 件とその外の一致した店舗の両方に所属すれば、abort せずに契約者を消さずに数えて先頭 5 件を消し、次の呼び出しで消す' do
+      owners, stores = (1..5).map { |index| register("r232-#{index}") }.transpose
+      shared = owners.first
+      # 1 件目の契約者が、6 件目(同じ利用者の 2 つ目の店舗)の契約者でもある。7 件目は別の契約者の店舗。
+      sixth = create(:account, name: 'e2e-consent-r232-6', internal_attributes: registration_state(shared.id))
+      create(:account_user, account: sixth, user: shared, role: :administrator)
+      last_owner, seventh = register('r232-7')
+      user_ids = [*owners, last_owner].map(&:id)
+      account_ids = [*stores, sixth, seventh].map(&:id)
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r232-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r232- accounts=5 users=4 skipped_users=1 remaining=2'])
+      expect(Account.where(id: account_ids).order(:id).pluck(:id)).to eq([sixth.id, seventh.id])
+      expect(User.where(id: user_ids).order(:id).pluck(:id)).to eq([shared.id, last_owner.id])
+      expect(AccountUser.where(user_id: shared.id).pluck(:account_id)).to eq([sixth.id])
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r232-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r232- accounts=2 users=2 skipped_users=0 remaining=0'])
+      expect([Account.where(id: account_ids).count, User.where(id: user_ids).count]).to eq([0, 0])
+      expect(AccountUser.where(account_id: account_ids).or(AccountUser.where(user_id: user_ids)).count).to eq(0)
+    end
+
+    it '契約者でない E2E の利用者が先頭 5 件とその外の一致した店舗の両方に所属すれば、消さずに数え、所属が残りの店舗だけになった次の呼び出しで消す' do
+      stores = (1..6).map { |index| create(:account, name: "e2e-consent-r233-#{index}") }
+      member = create(:user, email: 'qa+e2e-consent-r233-member@example.com', account: stores[1], role: :agent)
+      create(:account_user, account: stores.last, user: member, role: :agent)
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r233-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r233- accounts=5 users=0 skipped_users=1 remaining=1'])
+      expect([User.exists?(member.id), AccountUser.where(user_id: member.id).pluck(:account_id)]).to eq([true, [stores.last.id]])
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r233-'))
+        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r233- accounts=1 users=1 skipped_users=0 remaining=0'])
+      expect([Account.where(id: stores.map(&:id)).count, User.exists?(member.id)]).to eq([0, false])
+    end
+
+    it '契約者が先頭 5 件の外の一致した店舗に加えて一致した店舗の外(prefix の外の店舗)にも所属すれば、店舗を消す前に abort して何も消さない' do
+      owners, stores = (1..6).map { |index| register("r234-#{index}") }.transpose
+      shared = owners.first
+      create(:account_user, account: stores.last, user: shared, role: :agent)
+      create(:account_user, account: create(:account, name: '本番の店舗'), user: shared, role: :agent)
+      expect(refusal('e2e_purge_accounts', 'e2e-consent-r234-'))
+        .to eq("account=#{stores.first.id} の契約者 user=#{shared.id} が E2E の利用者でないか、ほかの店舗にも所属するため削除しません。")
+      expect([Account.where(id: stores.map(&:id)).count, User.where(id: owners.map(&:id)).count]).to eq([6, 6])
+      expect(AccountUser.where(user_id: shared.id).count).to eq(3)
+    end
+
+    it '一致した店舗のうち先頭 5 件の外の 1 件だけが E2E の店舗名の形でなくても(実店舗の e2e-consent-registration)、1 件も消さずに abort する' do
+      owners, stores = (1..5).map { |index| register("r235-#{index}") }.transpose
+      real = create(:account, name: 'e2e-consent-registration')
+      expect(described_class.accounts('e2e-consent-r').map(&:id)).to eq([*stores, real].map(&:id))
+      expect(refusal('e2e_purge_accounts', 'e2e-consent-r'))
+        .to eq('prefix=e2e-consent-r に一致する店舗に、E2E の店舗名の形(e2e-consent-r<run>-<attempt>)でない店舗が 1 件あるため削除しません。')
+      expect([Account.where(id: [*stores, real].map(&:id)).count, User.where(id: owners.map(&:id)).count]).to eq([6, 5])
     end
 
     it 'production と環境が不明なときは、引数を読む前に abort して何も消さない' do
@@ -418,13 +562,25 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       expect(Account.exists?(store.id)).to be(true)
     end
 
-    it '削除を読み直して店舗が残っていれば abort し、所属と利用者の削除も取り消す' do
+    it '削除を読み直して店舗が残っていれば abort し、所属と利用者の削除も、その間に積まれた削除の job も取り消す' do
       owner, store = register('r205-1')
+      inbox = create(:inbox, account: store)
+      create(:inbox_member, user: owner, inbox: inbox)
+      team_member = create(:team_member, user: owner, team: create(:team, account: store))
+      conversation = create(:conversation, account: store, inbox: inbox, assignee: owner)
+      queue_adapter.enqueued_jobs.clear
       allow(Account).to receive(:exists?).and_call_original
       allow(Account).to receive(:exists?).with(id: [store.id]).and_return(true)
-      expect(refusal('e2e_purge_accounts', 'e2e-consent-r205-1'))
+      # 会話の関連を消すときに初めて読む model の非推奨警告が abort の文に混ざらないよう、警告を止めて実行する。
+      expect(Rails.application.deprecators.silence { refusal('e2e_purge_accounts', 'e2e-consent-r205-1') })
         .to eq('prefix=e2e-consent-r205-1 の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。')
+      # 所属の削除の Agents::DestroyJob・destroy_async の削除・イベントの配信は commit の後にだけ送るため、rollback では残らない。
+      # 残るのは、削除の前に Postiz で外した所属を戻す PostizMembershipJob(overlay の after_rollback が積む、戻すための job)だけ。
+      expect(queue_adapter.enqueued_jobs.map { |job| [job[:job], job['arguments']] }).to eq([[Toybaco::PostizMembershipJob, [owner.id, store.id]]])
+      perform_enqueued_jobs
       expect([Account.where(id: store.id).count, User.where(id: owner.id).count, AccountUser.where(account_id: store.id).count]).to eq([1, 1, 1])
+      expect([owner.notification_settings.where(account_id: store.id).count, InboxMember.where(user_id: owner.id, inbox_id: inbox.id).count,
+              TeamMember.exists?(team_member.id), conversation.reload.assignee_id]).to eq([1, 1, true, owner.id])
       expect(new_rows.pluck(:result)).to eq(%w[started failed])
     end
   end
