@@ -1,0 +1,7 @@
+<%# Analytics is limited to these public staging registration pages. Never load it in the signed-in app. %>
+<% if request.base_url == 'https://app.staging.toybaco.jp' %>
+  <span id="free-registration-measurement" hidden
+        data-request-accepted="<%= @registration_request_accepted == true %>"
+        data-error="<%= %w[validation captcha existing_account].include?(@measurement_error) ? @measurement_error : '' %>"></span>
+  <script src="/brand-assets/toybaco-free-registration-measurement.js" defer></script>
+<% end %>

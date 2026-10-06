@@ -190,6 +190,7 @@ control_file_list() {
     'tests/toybaco_growth_storage_usage_runtime_test.rb' \
     'tests/toybaco_growth_annual_renewal_runtime_test.rb' \
     'tests/toybaco_free_registration_runtime_test.rb' \
+    'tests/toybaco-free-registration-measurement.test.cjs' \
     'tests/toybaco_growth_onboarding_runtime_test.rb' \
     'tests/toybaco_growth_replies_runtime_test.rb' \
     'tests/toybaco_growth_trial_runtime_test.rb' \
@@ -1068,6 +1069,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/toybaco-growth-guide.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-manual-draft.test.mjs"
   node --test "$CONTROL_ROOT/tests/toybaco-connection-handoff-ui.test.mjs"
+  node --test "$CONTROL_ROOT/tests/toybaco-free-registration-measurement.test.cjs"
   python3 "$CONTROL_ROOT/scripts/generate-plan-catalog.py" --check --scope overlay
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \

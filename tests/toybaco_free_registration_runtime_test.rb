@@ -112,6 +112,51 @@ class ToybacoFreeRegistrationRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_registration_measurement_is_staging_only_and_preserves_form_security
+    Toybaco::PlanCatalog.stub(:default, @catalog) do
+      https!
+      host! 'app.toybaco.jp'
+      get '/toybaco/free/signup'
+      assert_response :success
+      refute_includes response.body, 'toybaco-free-registration-measurement.js'
+      host! 'app.staging.toybaco.jp'
+      get '/toybaco/free/signup'
+      assert_response :success
+      assert_includes response.body, 'toybaco-free-registration-measurement.js'
+      assert_equal 'same-origin', response.headers['Referrer-Policy']
+      assert_select 'input[name=authenticity_token]', 1
+      assert_select 'input[name=accept_terms][required]', 1
+      assert_select '#free-registration-measurement[data-request-accepted=false]', 1
+      host! 'untrusted.example.com'
+      get '/toybaco/free/signup'
+      refute_includes response.body, 'toybaco-free-registration-measurement.js'
+    end
+  end
+
+  def test_request_receipt_requires_success_and_is_consumed_once
+    Toybaco::PlanCatalog.stub(:default, @catalog) do
+      https!
+      host! 'app.staging.toybaco.jp'
+      get '/toybaco/free/verify-email'
+      assert_select '#free-registration-measurement[data-request-accepted=false]', 1
+      post '/toybaco/free/signup', params: @attributes
+      assert_response :unprocessable_entity
+      assert_select '#free-registration-measurement[data-error=validation]', 1
+      get '/toybaco/free/verify-email'
+      assert_select '#free-registration-measurement[data-request-accepted=false]', 1
+      ChatwootCaptcha.stub(:new, Struct.new(:valid?).new(true)) do
+        post '/toybaco/free/signup', params: @attributes.merge(accept_terms: '1')
+      end
+      assert_redirected_to '/toybaco/free/verify-email'
+      follow_redirect!
+      assert_select '#free-registration-measurement[data-request-accepted=true]', 1
+      refute User.find_by!(email: @attributes[:email]).confirmed?
+      refute_includes response.body, @attributes[:email]
+      get '/toybaco/free/verify-email'
+      assert_select '#free-registration-measurement[data-request-accepted=false]', 1
+    end
+  end
+
   def test_unconfirmed_registration_has_no_active_store_quota_or_stripe_subscription
     user, account = register
     refute user.confirmed?
