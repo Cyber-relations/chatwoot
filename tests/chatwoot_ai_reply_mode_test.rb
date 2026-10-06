@@ -49,7 +49,7 @@ class ChatwootAiReplyModeTest < Minitest::Test
     js = File.read(File.join(ROOT, 'overlay/app/public/brand-assets/toybaco-post-entry.js'))
     css = File.read(File.join(ROOT, 'overlay/app/public/toybaco-brand.css'))
 
-    assert_includes js, "var AI_NAV_LABEL = 'AI応答'"
+    assert_includes js, "var AI_NAV_LABEL = 'AI返信'"
     assert_includes js, "AI_MODE_LABELS[AI_MODE_AUTO] = '全自動'"
     assert_includes js, "AI_MODE_LABELS[AI_MODE_DRAFT] = '下書き'"
     refute_includes js, 'injectAiMode'

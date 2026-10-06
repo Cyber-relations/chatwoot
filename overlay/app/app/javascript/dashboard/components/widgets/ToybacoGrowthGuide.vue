@@ -132,7 +132,7 @@ function wantedStep() {
   )
     return null;
   if (registry.find('reply.ai_draft', document))
-    return ['reply.ai_draft', 'AIの下書きを返信欄で確認できます。'];
+    return ['reply.ai_draft', 'AIの返信案を返信欄で確認できます。'];
   const editor = registry.find('reply.editor', document);
   if (!editor) return null;
   if (editor.textContent.trim() && registry.find('reply.send', document))
@@ -337,7 +337,7 @@ onMounted(async () => {
   if (!document.querySelector('link[data-toybaco-guide-style]')) {
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = '/brand-assets/toybaco-pointer-guide.css?v=b2a1f2cc7a6a5cfe046982a73bb386f2edb9af206e4b29c67b6a7fed72a31de6';
+    style.href = '/brand-assets/toybaco-pointer-guide.css?v=b67c0edd3eb908f6ef0b49716d5151270de54c4a452fcc6efeff1a321b9941d2';
     style.dataset.toybacoGuideStyle = 'true';
     document.head.append(style);
   }
@@ -434,15 +434,15 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 8px 20px;
   flex-shrink: 0;
-  background: #fcfbf8;
-  border-bottom: 1px solid #e7e2da;
-  color: #1f3a5f;
+  background: var(--toybaco-surface);
+  border-bottom: 1px solid var(--toybaco-hairline);
+  color: var(--toybaco-heading);
   font-size: 12px;
 }
 .toybaco-guide-entry button {
   padding: 6px 12px;
-  background: #1f3a5f;
-  color: #fff;
+  background: var(--toybaco-button);
+  color: var(--toybaco-on-button);
   border: 0;
   border-radius: 8px;
   cursor: pointer;
@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 .toybaco-guide-entry button:focus-visible {
-  outline: 3px solid #ff6b5b;
+  outline: 3px solid var(--toybaco-focus);
   outline-offset: 3px;
 }
 </style>

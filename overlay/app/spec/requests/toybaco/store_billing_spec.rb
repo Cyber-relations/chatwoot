@@ -162,5 +162,23 @@ RSpec.describe 'Toybaco purchased store billing', type: :request do
     it '旧版の契約には従来の停止の案内を出す' do
       expect(cancel_texts('2026-09-06.1')).to eq(done: stop_copy, dialog: [stop_copy], retention: false)
     end
+
+    # SPA の「ご契約内容」の iframe は親のテーマを theme で渡す。dark / light 以外(未指定を含む)は OS の設定に従う。
+    it 'iframe から渡されたテーマを画面と iframe の中の導線に写し、それ以外は OS の設定に従う' do
+      terms = Toybaco::PlanCatalog.default.definition('standard', '2026-09-25.1')
+      Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'), subscription_id: 'sub_theme')
+      [%w[dark dark], %w[light light], %w[system system], %w[sepia system], [nil, 'system']].each do |given, expected|
+        get '/toybaco/billing', params: { account_id: account.id, theme: given }.compact
+        expect(response).to have_http_status(:ok)
+        document = Nokogiri::HTML(response.body)
+        expect(document.at_css('html')['data-toybaco-theme']).to eq(expected)
+        theme = expected == 'system' ? '' : "&theme=#{expected}"
+        expect(document.at_css('a[href^="/toybaco/growth/retention"]')['href'])
+          .to eq("/toybaco/growth/retention?account_id=#{account.id}#{theme}&target=free")
+      end
+      get "/toybaco/billing?account_id=#{account.id}&theme[]=dark"
+      expect(response).to have_http_status(:ok)
+      expect(Nokogiri::HTML(response.body).at_css('html')['data-toybaco-theme']).to eq('system')
+    end
   end
 end

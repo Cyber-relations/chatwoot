@@ -13,7 +13,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     BRAND_ASSET_DIGEST = Digest::SHA256.file(BRAND_ASSET_PATH).hexdigest.freeze
     # 再現可能buildのmtimeは固定なので、Last-Modifiedではなく内容でcacheを更新する。
     TAG = %(<link rel="stylesheet" href="/toybaco-brand.css?v=#{BRAND_ASSET_DIGEST}">).freeze
-    SUPERADMIN_TAG = '<link rel="stylesheet" href="/toybaco-superadmin.css">'
+    SUPERADMIN_ASSET_PATH = File.expand_path('../../public/toybaco-superadmin.css', __dir__).freeze
+    SUPERADMIN_ASSET_DIGEST = Digest::SHA256.file(SUPERADMIN_ASSET_PATH).hexdigest.freeze
+    SUPERADMIN_TAG = %(<link rel="stylesheet" href="/toybaco-superadmin.css?v=#{SUPERADMIN_ASSET_DIGEST}">).freeze
     POST_ENTRY_ASSET_PATH = File.expand_path('../../public/brand-assets/toybaco-post-entry.js', __dir__).freeze
     POST_ENTRY_ASSET_DIGEST = Digest::SHA256.file(POST_ENTRY_ASSET_PATH).hexdigest.freeze
     POST_ENTRY_ASSET =
@@ -32,6 +34,27 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       \A/(?:brand-assets/|toybaco-brand\.css\z|toybaco-superadmin\.css\z|favicon[-.]|
       apple-icon|apple-touch-icon|android-icon-|ms-icon-|manifest\.json\z|browserconfig\.xml\z)
     }x
+
+    PUBLIC_ROOT = File.expand_path('../../public', __dir__).freeze
+    PAGE_THEMES = %w[dark light].freeze
+
+    # SPA の外の単独画面が読むブランド資産の URL。差し込みと同じく内容の digest で版を付ける。
+    def self.asset_path(relative)
+      path = File.expand_path(relative, PUBLIC_ROOT)
+      raise ArgumentError, "unknown brand asset: #{relative}" unless path.start_with?("#{PUBLIC_ROOT}/") && File.file?(path)
+
+      (@asset_paths ||= {})[relative] ||= "/#{relative}?v=#{Digest::SHA256.file(path).hexdigest}".freeze
+    end
+
+    # SPA の iframe で開く単独画面は、親のテーマ(dark / light)を受け取る。それ以外は OS の設定(system)に従う。
+    def self.page_theme(value)
+      PAGE_THEMES.include?(value) ? value : 'system'
+    end
+
+    # 受け取ったテーマを、同じ iframe の中でたどる単独画面へ引き継ぐ。
+    def self.theme_query(theme)
+      PAGE_THEMES.include?(theme) ? "&theme=#{theme}" : ''
+    end
 
     def initialize(app, postiz_origin: Toybaco::PostizOrigin.fetch!, billing_url: ENV.fetch('TOYBACO_BILLING_URL', DEFAULT_BILLING_URL))
       @app = app

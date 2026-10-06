@@ -16,7 +16,9 @@ import {
 const { accountId } = useAccount();
 const route = useRoute();
 const router = useRouter();
+// ダークでは文字が白いロゴに替える(installation/onboarding と同じ切り替え)。
 const brandLogoPath = "/brand-assets/toybaco-logo-c4.png";
+const brandLogoDarkPath = "/brand-assets/toybaco-logo-c4-dark.png";
 const connecting = ref(null);
 let connectionEpoch = 0;
 const providers = {
@@ -104,7 +106,7 @@ const snippetLink = computed(() =>
       }
     : null,
 );
-// 完了画面の「次にやること」の 2 行目: AI応答の準備(窓口の自動応答の画面)への導線。bot の割当はここではしない。
+// 完了画面の「次にやること」の 2 行目: AI返信の準備(窓口の自動応答の画面)への導線。bot の割当はここではしない。
 // 会話画面の AI パネル(toybaco-post-entry.js)と同じく、/toybaco/ai_readiness の managed_auto_path がこの店舗の画面を
 // 指すときだけ出す(登録できる店舗か登録済みの店舗にだけ付く)。この API は所属メンバーなら誰にでも path を返すが、
 // 窓口の自動応答の画面は管理者しか開けないので、管理者に限る。読むのは管理者に完了画面を出したときに 1 回だけで、
@@ -390,7 +392,8 @@ async function openPosting() {
     }"
   >
     <header v-if="!settingsView">
-      <img :src="brandLogoPath" alt="トイバコ" width="152" />
+      <img :src="brandLogoPath" alt="トイバコ" width="152" class="dark:hidden" />
+      <img :src="brandLogoDarkPath" alt="トイバコ" width="152" class="hidden dark:block" />
       <RouterLink
         :to="{
           name: 'home',
@@ -927,8 +930,8 @@ async function openPosting() {
         </p>
         <!-- 「次にやること」の 2 行目。窓口の自動応答の画面は Rails の単独ページなので、通常のリンクで開く。 -->
         <p v-if="aiStep" class="next-step" :data-toybaco-ai-step="aiStep.state">
-          <a v-if="aiStep.href" :href="aiStep.href">AI応答を接続する</a
-          ><span v-else>AI応答は接続済みです</span>
+          <a v-if="aiStep.href" :href="aiStep.href">AI返信を接続する</a
+          ><span v-else>AI返信は接続済みです</span>
         </p>
         <!-- 「ホームへ」は主ボタン。最初の返信を送った画面では「受信箱を開く」が主ボタンなので、枠線のボタンにする。 -->
         <RouterLink
@@ -991,8 +994,8 @@ async function openPosting() {
 .toybaco-start {
   flex: 1;
   overflow: auto;
-  background: #faf7f2;
-  color: #24303f;
+  background: var(--toybaco-offwhite);
+  color: var(--toybaco-ink);
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", sans-serif;
   line-height: 1.7;
@@ -1013,19 +1016,19 @@ async function openPosting() {
   max-width: 640px;
   margin: 32px auto;
   padding: 32px;
-  background: #fcfbf8;
-  border: 1px solid #e7e2da;
+  background: var(--toybaco-surface);
+  border: 1px solid var(--toybaco-hairline);
   border-radius: 10px;
 }
 .toybaco-start h1 {
   font-size: 26px;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
   line-height: 1.5;
   margin: 0 0 16px;
 }
 .toybaco-start p {
   font-size: 14px;
-  color: #566579;
+  color: var(--toybaco-muted);
   margin: 0 0 20px;
 }
 .toybaco-start .eyebrow {
@@ -1044,29 +1047,29 @@ async function openPosting() {
   align-items: flex-start;
   gap: 4px;
   padding: 20px;
-  background: #fff;
-  border: 1px solid #c9ced5;
+  background: var(--toybaco-card);
+  border: 1px solid var(--toybaco-control-border);
   border-radius: 10px;
   font: inherit;
   text-align: left;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
 }
 .choices button:hover:not(:disabled) {
-  border-color: #1f3a5f;
-  background: #f5f7fa;
+  border-color: var(--toybaco-heading);
+  background: var(--toybaco-wash);
 }
 .choices span {
   font-size: 13px;
-  color: #566579;
+  color: var(--toybaco-muted);
   overflow-wrap: anywhere;
 }
 .choices .state {
   font-size: 12px;
   font-weight: 600;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
 }
 .unavailable {
-  background: #f3f1ed;
+  background: var(--toybaco-wash);
 }
 .toybaco-start button:disabled {
   cursor: default;
@@ -1074,8 +1077,8 @@ async function openPosting() {
 }
 .toybaco-start .primary {
   display: block;
-  background: #1f3a5f;
-  color: white;
+  background: var(--toybaco-button);
+  color: var(--toybaco-on-button);
   border: 0;
   border-radius: 8px;
   min-height: 46px;
@@ -1085,7 +1088,7 @@ async function openPosting() {
   cursor: pointer;
 }
 .primary:hover:not(:disabled) {
-  background: #163049;
+  background: var(--toybaco-button-hover);
 }
 .toybaco-start form {
   display: flex;
@@ -1101,10 +1104,10 @@ async function openPosting() {
 .toybaco-start select {
   width: 100%;
   padding: 12px;
-  border: 1px solid #c9ced5;
+  border: 1px solid var(--toybaco-control-border);
   border-radius: 8px;
-  background: white;
-  color: #24303f;
+  background: var(--toybaco-card);
+  color: var(--toybaco-ink);
   font: inherit;
   margin-bottom: 12px;
 }
@@ -1124,14 +1127,14 @@ async function openPosting() {
 }
 .toybaco-start small {
   font-size: 11px;
-  color: #566579;
+  color: var(--toybaco-muted);
   margin-left: 8px;
 }
 .toybaco-start a,
 .text-button {
   font: inherit;
   font-size: 13px;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -1160,13 +1163,13 @@ async function openPosting() {
 }
 .toybaco-start .summary {
   font-weight: 600;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
 }
 .toybaco-start .notice,
 .toybaco-start .saved {
-  border-left: 3px solid #1f3a5f;
+  border-left: 3px solid var(--toybaco-heading);
   padding: 10px;
-  background: #eef2f7;
+  background: var(--toybaco-wash);
 }
 .toybaco-start .saved {
   margin-top: 12px;
@@ -1184,8 +1187,8 @@ async function openPosting() {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: #fff;
-  border: 1px solid #e7e2da;
+  background: var(--toybaco-card);
+  border: 1px solid var(--toybaco-hairline);
   border-radius: 8px;
   font-size: 14px;
 }
@@ -1196,30 +1199,31 @@ async function openPosting() {
   min-height: 46px;
   margin-top: 8px;
   padding: 12px 20px;
-  background: #1f3a5f;
-  border: 1px solid #1f3a5f;
+  background: var(--toybaco-button);
+  border: 1px solid var(--toybaco-button);
   border-radius: 8px;
-  color: #fff;
+  color: var(--toybaco-on-button);
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
 }
 .toybaco-start .home-link:hover {
-  background: #163049;
+  background: var(--toybaco-button-hover);
 }
 .toybaco-start .home-link.secondary {
-  background: #fff;
-  color: #1f3a5f;
+  background: var(--toybaco-card);
+  border-color: var(--toybaco-heading);
+  color: var(--toybaco-heading);
 }
 .toybaco-start .home-link.secondary:hover {
-  background: #f5f7fa;
+  background: var(--toybaco-wash);
 }
 .toybaco-start .group-heading {
   margin: 24px 0 12px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.5;
-  color: #566579;
+  color: var(--toybaco-muted);
 }
 .toybaco-start .later.next {
   display: flex;
@@ -1233,15 +1237,15 @@ async function openPosting() {
   min-height: 44px;
   margin: 0 0 20px;
   padding: 10px 18px;
-  background: #fff;
-  border: 1px solid #1f3a5f;
+  background: var(--toybaco-card);
+  border: 1px solid var(--toybaco-heading);
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
 }
 .toybaco-start .preview-link:hover {
-  background: #f5f7fa;
+  background: var(--toybaco-wash);
 }
 .toybaco-start .next-step {
   display: flex;
@@ -1249,37 +1253,37 @@ async function openPosting() {
   align-items: baseline;
   gap: 4px 12px;
   padding: 12px 16px;
-  background: #eef2f7;
-  border-left: 3px solid #1f3a5f;
-  color: #24303f;
+  background: var(--toybaco-wash);
+  border-left: 3px solid var(--toybaco-heading);
+  color: var(--toybaco-ink);
 }
 .toybaco-start .next-step strong {
   font-size: 12px;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
 }
-/* 「次にやること」の 2 行目(AI応答の行)は 1 行目の枠に続けて 1 つの枠に見せる。行の間は 1 行目の下の余白(12px)。 */
+/* 「次にやること」の 2 行目(AI返信の行)は 1 行目の枠に続けて 1 つの枠に見せる。行の間は 1 行目の下の余白(12px)。 */
 .toybaco-start .next-step + .next-step {
   margin-top: -20px;
   padding-top: 0;
 }
 .toybaco-start .mailbox {
   font-size: 18px;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
   overflow-wrap: anywhere;
   padding: 16px;
-  background: #eef2f7;
+  background: var(--toybaco-wash);
   border-radius: 8px;
 }
 .inbox-choice {
   margin-top: 24px;
 }
 .toybaco-start .error {
-  border-left: 3px solid #ff6b5b;
+  border-left: 3px solid var(--toybaco-coral);
   padding: 10px;
-  background: #fff0ed;
+  background: var(--toybaco-notice-wash);
 }
 .toybaco-start :focus-visible {
-  outline: 3px solid #ff6b5b;
+  outline: 3px solid var(--toybaco-focus);
   outline-offset: 3px;
 }
 .toybaco-start.settings main {

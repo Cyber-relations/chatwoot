@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-toybaco-theme="<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ご契約内容 | トイバコ</title>
+<link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
 <style>
-:root{--navy:#1F3A5F;--navy-deep:#163049;--coral:#FF6B5B;--focus:#C84435;--control-border:#82878F;--surface:#FCFBF8;--paper:#FFFDF9;--ink:#24303F;--muted:#596675;--line:#E5E3DB;--green:#0B7A35}
+:root{--navy:var(--toybaco-heading);--navy-deep:var(--toybaco-heading);--coral:var(--toybaco-coral);--focus:var(--toybaco-focus);--control-border:var(--toybaco-control-border);--surface:var(--toybaco-surface);--paper:var(--toybaco-card);--ink:var(--toybaco-ink);--muted:var(--toybaco-muted);--line:var(--toybaco-hairline);--green:var(--toybaco-line)}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--surface);color:var(--ink);line-height:1.6;font-size:13px;padding:24px 20px}
 .wrap{max-width:640px;margin:0 auto}
@@ -21,17 +22,17 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 .row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
 .row:first-of-type{border-top:none}
 .badge{font-size:12px;font-weight:600;border-radius:999px;padding:2px 8px}
-.badge.on{background:#E8F5EC;color:var(--green)}
-.badge.off{background:#F0EFEA;color:var(--muted)}
+.badge.on{background:var(--toybaco-line-wash);color:var(--green)}
+.badge.off{background:var(--toybaco-wash);color:var(--muted)}
 .btn{display:inline-flex;align-items:center;justify-content:center;min-height:32px;border:none;cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;font-weight:600;border-radius:9px;padding:5px 14px;transition:opacity .15s}
 .btn:hover{opacity:.88}
-.btn-navy{background:var(--navy);color:#fff}
+.btn-navy{background:var(--toybaco-button);color:var(--toybaco-on-button)}
 .btn-back{background:transparent;color:var(--navy-deep);border:1.5px solid var(--line)}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
 .note a{color:var(--navy)}
-.err{display:none;color:#C0392B;font-size:12px;margin-top:8px}
+.err{display:none;color:var(--toybaco-danger);font-size:12px;margin-top:8px}
 .lp-line{color:var(--navy-deep);font-size:13px;margin-bottom:12px}
-.dlg-back{position:fixed;inset:0;background:rgba(22,48,73,.42);display:flex;align-items:center;justify-content:center;padding:24px;z-index:20}
+.dlg-back{position:fixed;inset:0;background:var(--toybaco-backdrop);display:flex;align-items:center;justify-content:center;padding:24px;z-index:20}
 .dlg-back[hidden]{display:none}
 .dlg{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:16px;max-width:420px;width:100%}
 .dlg-title{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:8px}
@@ -45,7 +46,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
 .change-controls select{width:100%;min-height:32px;font:inherit;line-height:18px;color:var(--ink);background:var(--paper);border:1.5px solid var(--control-border);border-radius:9px;padding:5px 10px}
 .change-controls .btn{justify-self:start}
 .change-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.change-error{color:#C0392B;font-size:12px;margin-top:8px}
+.change-error{color:var(--toybaco-danger);font-size:12px;margin-top:8px}
 .change-detail{white-space:pre-line;font-size:13px;margin:12px 0;color:var(--navy-deep)}
 #plan-change-dialog .dlg{max-height:calc(100dvh - 48px);overflow:auto}
 [hidden]{display:none!important}
@@ -207,10 +208,10 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </section>
   <% end %>
   <% if growth && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
-    <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %>">接続と予約を確認</a></p></section>
+    <section class="card"><h2 class="change-title">接続の保留状況</h2><p class="note"><a class="btn btn-back" href="/toybaco/growth/held?account_id=<%= @account.id %><%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>">接続と予約を確認</a></p></section>
   <% end %>
   <% if free_return && @admin && ENV['TOYBACO_GROWTH_RETENTION_ENABLED'] == 'true' %>
-    <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信箱・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %>&amp;target=free">接続を選ぶ</a></p></section>
+    <section class="card"><h2 class="change-title">無料プランで継続する接続</h2><p class="note">解約後に残す受信箱・投稿先を選べます。</p><p class="note"><a class="btn btn-back" href="/toybaco/growth/retention?account_id=<%= @account.id %><%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>&amp;target=free">接続を選ぶ</a></p></section>
   <% end %>
 
   <div class="card">
@@ -266,7 +267,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </div>
   </div>
 </div>
-<script src="/brand-assets/toybaco-plan-change.js" defer></script>
+<script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-plan-change.js') %>" defer></script>
 <% end %>
 
 <script>

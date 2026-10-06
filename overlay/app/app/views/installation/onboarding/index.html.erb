@@ -8,7 +8,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=ivory-20260914">
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png?v=ivory-20260914">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=ivory-20260914">
-    <link rel="stylesheet" href="/toybaco-brand.css">
+    <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
     <%= vite_client_tag %>
     <%= vite_javascript_tag 'superadmin' %>
   </head>

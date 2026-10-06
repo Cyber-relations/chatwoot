@@ -3,7 +3,7 @@
   inset: 0;
   z-index: 10000;
   pointer-events: none;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
   font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN',
     'Noto Sans JP', sans-serif;
   line-height: 1.6;
@@ -16,9 +16,9 @@
 .toybaco-guide__outline {
   position: fixed;
   box-sizing: border-box;
-  border: 2px solid #1f3a5f;
+  border: 2px solid var(--toybaco-heading);
   border-radius: 10px;
-  box-shadow: 0 0 0 9999px #1f3a5f0c;
+  box-shadow: 0 0 0 9999px var(--toybaco-dim);
   pointer-events: none;
 }
 .toybaco-guide__pointer {
@@ -27,25 +27,25 @@
   top: 0;
   width: 24px;
   height: 30px;
-  filter: drop-shadow(0 2px 2px #1f3a5f30);
+  filter: drop-shadow(0 2px 2px var(--toybaco-shadow));
   pointer-events: none;
   transform-origin: 0 0;
 }
 .toybaco-guide__panel {
   position: fixed;
   box-sizing: border-box;
-  background: #fcfbf8;
-  border: 1px solid #e7e2da;
+  background: var(--toybaco-surface);
+  border: 1px solid var(--toybaco-hairline);
   border-radius: 10px;
   padding: 12px 14px;
-  box-shadow: 0 6px 20px #1f3a5f16;
+  box-shadow: 0 6px 20px var(--toybaco-shadow);
   pointer-events: auto;
   animation: toybaco-guide-in 180ms ease-out;
 }
 .toybaco-guide__text {
   margin: 0;
   font: inherit;
-  color: #1f3a5f;
+  color: var(--toybaco-heading);
 }
 .toybaco-guide__dismiss {
   display: block;
@@ -54,7 +54,7 @@
   padding: 4px 0;
   border: 0;
   background: transparent;
-  color: #566579;
+  color: var(--toybaco-muted);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -62,7 +62,7 @@
   text-underline-offset: 3px;
 }
 .toybaco-guide__dismiss:focus-visible {
-  outline: 3px solid #ff6b5b;
+  outline: 3px solid var(--toybaco-focus);
   outline-offset: 3px;
   border-radius: 4px;
 }

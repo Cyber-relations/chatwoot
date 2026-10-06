@@ -1358,7 +1358,7 @@ REPLACEMENTS.fetch('app/javascript/dashboard/components/widgets/conversation/Rep
       },
       addIntoEditor(content) {
   JS
-  replacement('        <div v-if="toybacoAiDraft && isDefaultEditorMode"', <<~VUE.chomp.gsub(/^/, '        '))
+  replacement('        <div v-if="toybacoAiDraft && isDefaultEditorMode"', <<~VUE.chomp.gsub(/^/, '        ')),
           <ToybacoManualDraft
             v-if="isDefaultEditorMode && !isPrivate && toybacoLatestIncomingId"
             :account-id="accountId"
@@ -1366,10 +1366,17 @@ REPLACEMENTS.fetch('app/javascript/dashboard/components/widgets/conversation/Rep
             :incoming-id="toybacoLatestIncomingId"
             :draft="message"
             :can-edit="!isEditorDisabled && canSendPublicReply && !hasAttachments"
+            :bot-draft="toybacoAiDraft"
+            :bot-draft-applied="toybacoAiDraftImported"
+            :has-content="hasMeaningfulEditorContent"
             @apply="applyToybacoManualDraft"
+            @use-bot-draft="useToybacoAiDraft"
+            @availability="toybacoManualAvailable = $event"
           />
-          <div v-if="toybacoAiDraft && isDefaultEditorMode"
+          <div v-if="toybacoAiDraft && isDefaultEditorMode && !toybacoManualAvailable"
   VUE
+  # The panel shows the same bot draft while it is available; the note below the editor stays for the other cases.
+  replacement("      toybacoImportedAiDraft: null,", "      toybacoImportedAiDraft: null,\n      toybacoManualAvailable: false,")
 ])
 
 abort 'replacement/source file sets differ' unless REPLACEMENTS.keys.sort == SOURCE_SHA256.keys.sort

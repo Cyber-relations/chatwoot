@@ -37,14 +37,34 @@ def fixture
   end
 end
 
+# Reconstruct the official 1.15.0 source from an installed patched file: the inverse of each advisory's edit.
 def original_source(bytes, entry)
-  original = bytes.lines.map do |line|
-    next line unless line.include?(GUARD::FIXED_BOUNDARY)
-    line.sub(GUARD::FIXED_BOUNDARY) { GUARD::OLD_ACRONYM } +
-      line[/\A\s*/] + GUARD::OLD_BOUNDARY + "\n"
-  end.join
+  path = entry.fetch('path')
+  original = if GUARD::ACRONYM_PATHS.include?(path)
+               bytes.lines.map do |line|
+                 next line unless line.include?(GUARD::FIXED_BOUNDARY)
+                 line.sub(GUARD::FIXED_BOUNDARY) { GUARD::OLD_ACRONYM } +
+                   line[/\A\s*/] + GUARD::OLD_BOUNDARY + "\n"
+               end.join
+             else
+               GUARD::REPLACEMENTS.fetch(path).reverse.reduce(bytes) do |source, (official, fixed)|
+                 GUARD.check!(source.scan(fixed).length == 1, 'fixed block must occur once')
+                 source.sub(fixed) { official }
+               end
+             end
   GUARD.check_hash!(original, entry.fetch('original_sha256'), 'reconstructed official source')
   original
+end
+
+def restore_official(root, entries = GUARD.patched_files(CONFIG))
+  entries.each do |entry|
+    path = File.join(root, entry.fetch('path'))
+    File.binwrite(path, original_source(File.binread(path), entry))
+  end
+end
+
+def advisory_entries(id)
+  CONFIG.fetch('advisories').find { |advisory| advisory.fetch('id') == id }.fetch('files')
 end
 
 def rejected
@@ -57,10 +77,7 @@ def rejected
 end
 
 fixture do |root|
-  CONFIG.fetch('files').each do |entry|
-    path = File.join(root, entry.fetch('path'))
-    File.binwrite(path, original_source(File.binread(path), entry))
-  end
+  restore_official(root)
   GUARD.verify_files!(root, CONFIG, 'original')
   GUARD.apply!(root, CONFIG)
   first = GUARD.verify_files!(root, CONFIG, 'patched')
@@ -70,14 +87,23 @@ fixture do |root|
 end
 rejected { GUARD.parse_catalog(JSON.generate(CONFIG)) }
 cases << 'altered-catalog-rejected'
-rejected { GUARD.patched_source('unexpected bytes', CONFIG.fetch('files').first) }
+rejected { GUARD.patched_source('unexpected bytes', GUARD.patched_files(CONFIG).first) }
 cases << 'unknown-original-bytes-rejected'
+rejected { GUARD.patched_files(CONFIG.merge('advisories' => CONFIG.fetch('advisories').first(2))) }
+cases << 'missing-advisory-rejected'
+rejected { GUARD.patched_files(CONFIG.merge('advisories' => CONFIG.fetch('advisories') + [CONFIG.fetch('advisories').last])) }
+cases << 'extra-advisory-rejected'
 
 mutations = {
-  'mixed-original-and-patched-rejected' => lambda do |root|
-    entry = CONFIG.fetch('files').first
-    path = File.join(root, entry.fetch('path'))
-    File.binwrite(path, original_source(File.binread(path), entry))
+  'mixed-original-and-patched-rejected' => ->(root) { restore_official(root, [GUARD.patched_files(CONFIG).first]) },
+  'unpatched-think-tag-advisory-rejected' => ->(root) { restore_official(root, advisory_entries('CVE-2026-67987')) },
+  'unpatched-voxtral-advisory-rejected' => ->(root) { restore_official(root, advisory_entries('CVE-2026-67989')) },
+  'unpatched-acronym-advisory-rejected' => ->(root) { restore_official(root, advisory_entries('CVE-2026-67991')) },
+  'changed-think-tag-source-rejected' => lambda do |root|
+    File.open(File.join(root, 'lib/ruby_llm/stream_accumulator.rb'), 'a') { |f| f.puts '# changed' }
+  end,
+  'changed-voxtral-source-rejected' => lambda do |root|
+    File.open(File.join(root, 'lib/ruby_llm/providers/mistral/capabilities.rb'), 'a') { |f| f.puts '# changed' }
   end,
   'changed-patched-source-rejected' => ->(root) { File.open(File.join(root, 'lib/ruby_llm/tool.rb'), 'a') { |f| f.puts '# changed' } },
   'entrypoint-drift-rejected' => ->(root) { File.open(File.join(root, 'lib/ruby_llm.rb'), 'a') { |f| f.puts '# changed' } },
@@ -88,6 +114,12 @@ mutations = {
   'missing-ruby-source-rejected' => ->(root) { File.unlink(File.join(root, 'lib/ruby_llm/chat.rb')) },
   'missing-license-rejected' => ->(root) { File.unlink(File.join(root, 'LICENSE')) },
   'reintroduced-pattern-rejected' => ->(root) { File.write(File.join(root, 'lib/extra.rb'), "# #{GUARD::OLD_ACRONYM}\n") },
+  'reintroduced-think-tag-rejected' => lambda do |root|
+    File.open(File.join(root, 'lib/ruby_llm/chat.rb'), 'a') { |f| f.puts "# #{GUARD::THINK_TAG}" }
+  end,
+  'reintroduced-voxtral-regex-rejected' => lambda do |root|
+    File.open(File.join(root, 'lib/ruby_llm/chat.rb'), 'a') { |f| f.puts "# /#{GUARD::VOXTRAL_BACKTRACKING}transcribe/" }
+  end,
   'source-symlink-rejected' => lambda do |root|
     path = File.join(root, 'lib/ruby_llm/tool.rb')
     File.rename(path, "#{root}/saved-tool.rb")
@@ -106,10 +138,7 @@ mutations.each do |name, mutation|
   end
 end
 fixture do |root|
-  CONFIG.fetch('files').each do |entry|
-    path = File.join(root, entry.fetch('path'))
-    File.binwrite(path, original_source(File.binread(path), entry))
-  end
+  restore_official(root)
   rejected { GUARD.verify_files!(root, CONFIG, 'patched') }
   cases << 'unpatched-install-verification-rejected'
 end

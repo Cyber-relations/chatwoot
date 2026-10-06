@@ -181,6 +181,7 @@ export default {
       showContentTemplatesModal: false,
       updateEditorSelectionWith: '',
       toybacoImportedAiDraft: null,
+      toybacoManualAvailable: false,
       undefinedVariableMessage: '',
       showMentions: false,
       showUserMentions: false,
@@ -1498,9 +1499,14 @@ export default {
           :incoming-id="toybacoLatestIncomingId"
           :draft="message"
           :can-edit="!isEditorDisabled && canSendPublicReply && !hasAttachments"
+          :bot-draft="toybacoAiDraft"
+          :bot-draft-applied="toybacoAiDraftImported"
+          :has-content="hasMeaningfulEditorContent"
           @apply="applyToybacoManualDraft"
+          @use-bot-draft="useToybacoAiDraft"
+          @availability="toybacoManualAvailable = $event"
         />
-        <div v-if="toybacoAiDraft && isDefaultEditorMode" class="toybaco-ai-draft-result" role="status">
+        <div v-if="toybacoAiDraft && isDefaultEditorMode && !toybacoManualAvailable" class="toybaco-ai-draft-result" role="status">
           <div>
             <strong>AIの返信下書きがあります</strong>
             <p v-if="toybacoAiDraftImported">AI下書きを返信欄に入れました。内容を確認してから送信してください。</p>

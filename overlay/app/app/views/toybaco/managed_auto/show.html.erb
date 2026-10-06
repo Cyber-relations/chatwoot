@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>窓口の自動応答 | トイバコ</title><link rel="stylesheet" href="/brand-assets/toybaco-managed-auto.css"><script defer src="/brand-assets/toybaco-managed-auto.js"></script></head>
+<html lang="ja" data-toybaco-theme="system"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>窓口の自動応答 | トイバコ</title><link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>"><link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-managed-auto.css') %>"><script defer src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-managed-auto.js') %>"></script></head>
 <body><main data-account-id="<%= @account.id %>"><h1>窓口の自動応答</h1><p>確認済みの店舗情報で答えられる内容に応答します。確かな回答がないときや、人への引継ぎを求められたときは担当者へ渡します。</p>
 <p>準備直後は下書き設定です。文案は会話画面で作成できます。全自動を選ぶと、新しく届く問い合わせへの応答が始まります。</p>
 <section aria-labelledby="auto-terms-heading"><h2 id="auto-terms-heading">自動応答を始める前にご確認ください</h2><ul>

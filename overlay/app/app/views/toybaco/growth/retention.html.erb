@@ -1,22 +1,23 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-toybaco-theme="<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>継続する接続 | トイバコ</title>
+  <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
   <style>
-    :root{color-scheme:light;--navy:#1F3A5F;--coral:#FF6B5B;--paper:#FFFDF9;--surface:#FCFBF8;--ink:#24303F;--line:#E5E3DB;--muted:#596675}
+    :root{--navy:var(--toybaco-heading);--coral:var(--toybaco-coral);--paper:var(--toybaco-card);--surface:var(--toybaco-surface);--ink:var(--toybaco-ink);--line:var(--toybaco-hairline);--muted:var(--toybaco-muted)}
     *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:14px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif}
     main{max-width:640px;margin:auto;padding:24px 16px 40px}h1{font-size:22px;color:var(--navy);margin:16px 0 8px}h2{font-size:16px;margin:0;color:var(--navy)}
     p{margin:8px 0}a{color:var(--navy)}.note{font-size:13px;color:var(--muted)}.card{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--paper);margin:20px 0}
     .connection{display:flex;gap:12px;align-items:center;min-height:52px;border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}
-    input{width:20px;height:20px;accent-color:var(--navy);flex:none}button{font:inherit;font-weight:600;border:0;border-radius:10px;background:var(--navy);color:white;min-height:44px;padding:10px 20px;cursor:pointer}
-    button:disabled{opacity:.55;cursor:wait}a:focus-visible,input:focus-visible,button:focus-visible{outline:3px solid #C84435;outline-offset:3px}
-    [role=alert]{color:#A12D22}.summary{border-left:3px solid var(--coral);padding-left:14px}[hidden]{display:none!important}
+    input{width:20px;height:20px;accent-color:var(--navy);flex:none}button{font:inherit;font-weight:600;border:0;border-radius:10px;background:var(--toybaco-button);color:var(--toybaco-on-button);min-height:44px;padding:10px 20px;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}a:focus-visible,input:focus-visible,button:focus-visible{outline:3px solid var(--toybaco-focus);outline-offset:3px}
+    [role=alert]{color:var(--toybaco-danger)}.summary{border-left:3px solid var(--coral);padding-left:14px}[hidden]{display:none!important}
   </style>
 </head>
 <body><main>
-  <a href="/toybaco/billing?account_id=<%= @account.id %>">ご契約内容へ</a>
+  <a href="/toybaco/billing?account_id=<%= @account.id %><%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>">ご契約内容へ</a>
   <h1>継続する接続</h1>
   <p><%= @account.name %> · <%= @state.fetch('target') == 'free' ? '無料プラン' : @state.fetch('target_name') %>への変更時</p>
   <p class="note">選択を保存しても、プランは変わりません。</p>

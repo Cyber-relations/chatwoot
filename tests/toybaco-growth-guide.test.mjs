@@ -549,8 +549,8 @@ test('the completion screen makes「ホームへ」the main button and adds one 
   const complete = block(`<template v-else-if="state?.phase === 'complete'">`);
   assert(/<RouterLink\s+class="home-link"\s+:class="\{ secondary: state\.replied \}"/.test(complete));
   const style = start.slice(start.indexOf('<style scoped>'));
-  assert(/\n\.toybaco-start \.home-link \{[^}]*min-height: 46px;[^}]*background: #1f3a5f;[^}]*color: #fff;[^}]*text-decoration: none;\n\}/.test(style));
-  assert(/\n\.toybaco-start \.home-link\.secondary \{\n  background: #fff;\n  color: #1f3a5f;\n\}/.test(style));
+  assert(/\n\.toybaco-start \.home-link \{[^}]*min-height: 46px;[^}]*background: var\(--toybaco-button\);[^}]*color: var\(--toybaco-on-button\);[^}]*text-decoration: none;\n\}/.test(style));
+  assert(/\n\.toybaco-start \.home-link\.secondary \{\n  background: var\(--toybaco-card\);\n  border-color: var\(--toybaco-heading\);\n  color: var\(--toybaco-heading\);\n\}/.test(style));
   assert(complete.indexOf('data-toybaco-next-step') > 0 && complete.indexOf('data-toybaco-next-step') < complete.indexOf('class="home-link"'));
   assert(/<RouterLink v-if="snippetLink" :to="snippetLink"\s*>設置コードを見る<\/RouterLink/.test(complete));
   const done = (inboxes, extra = {}) => startScript(connectState({ phase: 'complete', replied: false, pending: [],
@@ -586,19 +586,19 @@ const finished = (answer, extra = {}, routeName = undefined) => startScript(
   connectState({ phase: 'complete', replied: false, pending: [], inbox_id: 4, inboxes: [{ id: 4, provider: 'web_widget' }], ...extra }),
   (value) => value, routeName, answer);
 
-test('the completion screen adds「AI応答を接続する」as the second next step where the store can prepare it', async () => {
+test('the completion screen adds「AI返信を接続する」as the second next step where the store can prepare it', async () => {
   const complete = block(`<template v-else-if="state?.phase === 'complete'">`);
   // Right after the first line and before「ホームへ」: a plain link to the Rails page, or the connected notice without one.
   const first = complete.indexOf('data-toybaco-next-step');
   const second = complete.indexOf(':data-toybaco-ai-step="aiStep.state"');
   assert(first > 0 && second > first && second < complete.indexOf('class="home-link"'));
-  assert(/<p v-if="aiStep" class="next-step" :data-toybaco-ai-step="aiStep\.state">\s*<a v-if="aiStep\.href" :href="aiStep\.href"\s*>AI応答を接続する<\/a\s*><span v-else>AI応答は接続済みです<\/span>\s*<\/p>/
+  assert(/<p v-if="aiStep" class="next-step" :data-toybaco-ai-step="aiStep\.state">\s*<a v-if="aiStep\.href" :href="aiStep\.href"\s*>AI返信を接続する<\/a\s*><span v-else>AI返信は接続済みです<\/span>\s*<\/p>/
     .test(complete));
   assert.equal(template.split('data-toybaco-ai-step').length - 1, 1);
   // The second line continues the first line's box: it takes back the paragraph gap (20px) and its own top padding, so
   // the first line's bottom padding (12px) is the space between the lines.
   const style = start.slice(start.indexOf('<style scoped>'));
-  assert(/\n\.toybaco-start p \{\n  font-size: 14px;\n  color: #566579;\n  margin: 0 0 20px;\n\}/.test(style));
+  assert(/\n\.toybaco-start p \{\n  font-size: 14px;\n  color: var\(--toybaco-muted\);\n  margin: 0 0 20px;\n\}/.test(style));
   assert(/\n\.toybaco-start \.next-step \{\n[^}]*  padding: 12px 16px;\n[^}]*\}/.test(style));
   assert(/\n\.toybaco-start \.next-step \+ \.next-step \{\n  margin-top: -20px;\n  padding-top: 0;\n\}/.test(style));
   // The narrow-screen block (≤ 680px, cut at its own closing brace) changes neither box.

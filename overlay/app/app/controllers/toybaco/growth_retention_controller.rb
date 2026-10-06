@@ -5,6 +5,8 @@ require_relative '../../../lib/toybaco/growth/inbox_release'
 
 class Toybaco::GrowthRetentionController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
+  # ご契約内容の iframe からたどる画面は、親のテーマを引き継ぐ(BrandInjector.theme_query)。
+  before_action :set_page_theme
   before_action :load_owner
   before_action :require_available
   before_action :require_release_available, only: %i[inbox_release resume_inboxes]
@@ -49,6 +51,10 @@ class Toybaco::GrowthRetentionController < ActionController::Base # rubocop:disa
   end
 
   private
+
+  def set_page_theme
+    @toybaco_theme = Toybaco::BrandInjector.page_theme(params[:theme])
+  end
 
   def apply_posting_authority
     flags = %w[TOYBACO_POSTING_RELEASE_ENABLED TOYBACO_POSTING_AUTHORITY_ENABLED TOYBACO_POSTING_EXECUTION_ENABLED]

@@ -78,7 +78,7 @@ const panelTemplate = panelSource.slice(panelSource.indexOf('<template>'), panel
 const answer = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
 const htmlError = status => ({ status, ok: false, json: async () => { throw new SyntaxError('Unexpected token <'); } });
 const settle = () => new Promise(resolve => setImmediate(resolve));
-function draftPanel(respond, props = {}) {
+function draftPanel(respond, props = {}, context = {}) {
   const script = panelSource.slice(panelSource.indexOf('<script setup>') + '<script setup>'.length, panelSource.indexOf('</script>'));
   const body = script.replace(/import\s+(\{[^}]*\})\s+from\s+'([^']+)';/g, (_, names, from) => `const ${names} = modules[${JSON.stringify(from)}];`);
   assert(!/^import /m.test(body), 'every import is replaced');
@@ -89,6 +89,8 @@ function draftPanel(respond, props = {}) {
   const shared = { accountId: 4, conversationId: 8, incomingId: 10, draft: '', canEdit: true, ...props };
   // Like Vue: `rerun` calls a watcher again when its source changed (a list changes when one of its values does).
   const watchers = [];
+  const unmounts = [];
+  const emitted = [];
   const same = (a, b) => (Array.isArray(a) ? a.every((value, index) => Object.is(value, b[index])) : Object.is(a, b));
   const rerun = () => watchers.forEach((watcher) => {
     const value = watcher.source();
@@ -105,20 +107,21 @@ function draftPanel(respond, props = {}) {
         watchers.push(watcher);
         if (options.immediate) callback(watcher.last);
       },
-      onBeforeUnmount() {},
+      onBeforeUnmount(hook) { unmounts.push(hook); },
     },
     'dashboard/helper/toybacoManualDraft': api,
   };
-  const panel = vm.runInNewContext(`${body};\n({ refresh, generate, cancel, pending, pendingText, checkable, error, uncertain, available, result, remaining });`, {
+  const panel = vm.runInNewContext(`${body};\n({ refresh, generate, cancel, pending, pendingText, checkable, error, uncertain, available, result, remaining, narrow, expanded, toggleExpanded, botDraftLocked, botDraftHint });`, {
     modules,
     defineProps: () => shared,
-    defineEmits: () => () => {},
+    defineEmits: () => (...args) => emitted.push(args),
     fetch: async (url, options) => { requests.push({ url, method: options.method }); return respond(options.method, url, requests.length); },
     setTimeout: (fn, ms) => { lastTimer += 1; timers.set(lastTimer, { fn, ms }); return lastTimer; },
     clearTimeout: id => timers.delete(id),
     Date: { now: () => clock.now },
     AbortSignal: { timeout: () => undefined },
     crypto: { randomUUID: () => '9f1c2b6e-2f7a-4c1e-9a53-0d6f4d1f6a10' },
+    ...context,
   });
   // The panel keeps at most one read waiting; `poll` runs it and returns its delay.
   const waiting = () => [...timers.values()].map(timer => timer.ms);
@@ -131,7 +134,8 @@ function draftPanel(respond, props = {}) {
     await settle();
     return timer.ms;
   };
-  return { panel, clock, waiting, poll, requests, props: shared, rerun, timers };
+  const unmount = () => unmounts.forEach(hook => hook());
+  return { panel, clock, waiting, poll, requests, props: shared, rerun, timers, emitted, unmount };
 }
 const QUEUED = { id: 21, state: 'queued', draft_digest: 'd', incoming_id: 10 };
 const status = (result, extra = {}) => answer(200, { available: true, remaining: 5, result, ...extra });
@@ -164,7 +168,8 @@ test('the waiting text follows the time and offers「状況を確認」after a m
   assert(panelTemplate.includes('<button v-if="checkable" type="button" class="toybaco-manual-ai__quiet toybaco-manual-ai__check" @click="refresh()">状況を確認</button>'));
   assert.equal(panelTemplate.split('>状況を確認</button>').length - 1, 1, 'one「状況を確認」');
   const statusLines = [...panelTemplate.matchAll(/<p\b[^>]*role="status"[^>]*>([\s\S]*?)<\/p>/g)].map(([, line]) => line);
-  assert.equal(statusLines.length, 3);
+  // 作成中・返信欄に入れた(返信案)・返信欄に入れた(ボットの案)・エラーの4行。
+  assert.equal(statusLines.length, 4);
   for (const line of statusLines) assert(!line.includes('<button'), `no button inside a status line: ${line}`);
   latest = { ...QUEUED, state: 'completed', content: '返信案', current: true };
   await poll(80);
@@ -495,4 +500,79 @@ test('switching the conversation while a read waits to retry leaves no read of t
   assert.equal(panel.available.value, true);
   assert.equal(panel.result.value, null);
   assert.deepEqual(waiting(), []);
+});
+
+// S0-1 (2026-10-06): the AI draft shows in one place. While the panel is available it offers the latest bot draft as
+// 「AI の案（自動作成）」 when no requested draft is shown, and the reply box hides its own note about that draft.
+test('the panel offers the latest bot draft in the same form and hands it to the reply box', () => {
+  const start = panelTemplate.indexOf('<template v-else-if="botDraft && !pending">');
+  const bot = panelTemplate.slice(start, panelTemplate.indexOf('</template>', start));
+  assert(start > panelTemplate.indexOf('<template v-if="hasResult">'), 'a requested draft comes first');
+  assert(bot.includes('AI の案（自動作成）'));
+  assert(bot.includes('{{ botDraft.content }}'));
+  assert(bot.includes('<p v-if="botDraftApplied" role="status">返信欄に入れました。内容を確認して送信してください。</p>'));
+  assert(bot.includes('<span>{{ botDraftHint }}</span>'));
+  assert(bot.includes(':disabled="botDraftLocked"'), 'the bot draft never replaces typed text');
+  assert(bot.includes(`@click="emit('useBotDraft')"`));
+});
+
+test('the reply box wires the panel and hides its own draft note while the panel is available', () => {
+  const start = reply.indexOf('<ToybacoManualDraft');
+  const panel = reply.slice(start, reply.indexOf('/>', start));
+  for (const binding of [':bot-draft="toybacoAiDraft"', ':bot-draft-applied="toybacoAiDraftImported"', ':has-content="hasMeaningfulEditorContent"',
+    '@use-bot-draft="useToybacoAiDraft"', '@availability="toybacoManualAvailable = $event"']) assert(panel.includes(binding), binding);
+  assert(reply.includes('<div v-if="toybacoAiDraft && isDefaultEditorMode && !toybacoManualAvailable" class="toybaco-ai-draft-result"'));
+  assert(reply.includes('      toybacoManualAvailable: false,'));
+});
+
+// Astra (2026-10-06): a reply box that holds only the signature takes the bot draft; real input stays, and the panel
+// suggests copying instead. The reply box decides what counts as input (hasMeaningfulEditorContent leaves the signature out).
+test('the bot draft goes into a reply box holding only the signature, and never over real input', async () => {
+  const signed = draftPanel(() => status(null), { draft: '\n\n--\nトイバコ店', hasContent: false });
+  await settle();
+  assert.equal(signed.panel.botDraftLocked.value, false, 'a signature alone is not input');
+  assert.equal(signed.panel.botDraftHint.value, '内容を確認してから、返信欄に入れてください。');
+  const typed = draftPanel(() => status(null), { draft: 'お問い合わせありがとうございます。\n\n--\nトイバコ店', hasContent: true });
+  await settle();
+  assert.equal(typed.panel.botDraftLocked.value, true, 'typed text is kept');
+  assert.equal(typed.panel.botDraftHint.value, '入力中の内容を残しています。案から必要な部分をコピーして使えます。');
+  signed.props.canEdit = false;
+  assert.equal(signed.panel.botDraftLocked.value, true, 'a reply box that cannot be edited takes nothing');
+});
+
+test('the panel reports that it is available, and that it is gone when it closes', async () => {
+  const opened = draftPanel(() => status(null));
+  await settle();
+  opened.rerun();
+  opened.unmount();
+  assert.deepEqual(opened.emitted.filter(([name]) => name === 'availability').map(([, value]) => value), [false, true, false]);
+});
+
+test('on a phone the panel stays a chip until opened, and remembers that per conversation for the session', async () => {
+  const stored = new Map();
+  const matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+  const window = { matchMedia, sessionStorage: { getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) } };
+  const { panel, props, rerun } = draftPanel(() => status(null), {}, { window });
+  await settle();
+  assert.equal(panel.narrow.value, true);
+  assert.equal(panel.expanded.value, false);
+  panel.toggleExpanded();
+  assert.equal(panel.expanded.value, true);
+  assert.deepEqual([...stored], [['toybaco:ai-reply-draft:4:8', '1']]);
+  props.conversationId = 9;
+  rerun();
+  assert.equal(panel.expanded.value, false, 'another conversation opens folded');
+  props.conversationId = 8;
+  rerun();
+  assert.equal(panel.expanded.value, true);
+  assert(panelTemplate.includes('<button v-if="available && narrow && !expanded" type="button" class="toybaco-manual-ai__chip" aria-expanded="false" @click="toggleExpanded">'));
+  assert(panelTemplate.includes('AI返信の案を見る'));
+
+  const blocked = { matchMedia, get sessionStorage() { throw new Error('denied'); } };
+  const folded = draftPanel(() => status(null), {}, { window: blocked });
+  await settle();
+  assert.equal(folded.panel.expanded.value, false, 'an unreadable session keeps the panel folded');
+  folded.panel.toggleExpanded();
+  assert.equal(folded.panel.expanded.value, true, 'the chip still opens when the session cannot be written');
 });

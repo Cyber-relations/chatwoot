@@ -101,7 +101,8 @@ test('every product help link resolves to a packaged page and real section', () 
     if (match[1]) assert.ok(sections.includes(match[1]), match[0]);
   }
   for (const match of guide.matchAll(/href="#([^"]+)"/g)) assert.ok(sections.includes(match[1]));
-  for (const match of guide.matchAll(/(?:href|src)="(\/(?:brand-assets\/|favicon)[^"]+)"/g)) {
+  // Stylesheets carry the digest of the file (tests/chatwoot_brand_injector_test.rb compares it).
+  for (const match of guide.matchAll(/(?:href|src)="(\/(?:brand-assets\/|favicon)[^"?]+)(?:\?v=[0-9a-f]{64})?"/g)) {
     assert.ok(existsSync(resolve(app, 'public' + match[1])), match[1]);
   }
   assert.doesNotMatch(ui, /https?:\/\/(?:www\.|status\.)?chatwoot\.com/);

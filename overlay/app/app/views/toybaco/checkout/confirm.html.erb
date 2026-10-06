@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-toybaco-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <title>お申し込み内容の確認 | トイバコ</title>
+  <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
   <style>
-    *{box-sizing:border-box}body{margin:0;background:#f5f3ef;color:#263a32;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;line-height:1.8}main{max-width:560px;margin:8vh auto;padding:32px;background:#fff;border:1px solid #dce3dd;border-radius:18px}h1{font-size:24px;line-height:1.5}.brand{font-weight:700;color:#225c45}dl{display:grid;grid-template-columns:auto 1fr;gap:12px 24px;padding:20px 0;border-block:1px solid #e6e9e5}dt{color:#56665d}dd{margin:0;text-align:right;font-weight:600}button{width:100%;background:#225c45;color:white;border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #d9a548;outline-offset:4px}a{color:#225c45}small{color:#56665d}@media(max-width:600px){main{margin:20px 12px;padding:24px}dl{gap:12px}h1{font-size:22px}}
-    .terms{margin:16px 0;padding:0;list-style:none;display:grid;gap:8px;font-size:15px}.terms strong{color:#225c45}.legal{font-size:14px}.consent{display:flex;gap:12px;align-items:flex-start;margin:20px 0;font-weight:600}.consent input{flex:none;width:20px;height:20px;margin-top:5px;accent-color:#225c45}.consent input:focus-visible{outline:3px solid #d9a548;outline-offset:3px}.error{color:#9c2f22;font-weight:700}
+    *{box-sizing:border-box}body{margin:0;background:var(--toybaco-offwhite);color:var(--toybaco-ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;line-height:1.8}main{max-width:560px;margin:8vh auto;padding:32px;background:var(--toybaco-card);border:1px solid var(--toybaco-hairline);border-radius:18px}h1{font-size:24px;line-height:1.5}.brand{font-weight:700;color:var(--toybaco-heading)}dl{display:grid;grid-template-columns:auto 1fr;gap:12px 24px;padding:20px 0;border-block:1px solid var(--toybaco-hairline)}dt{color:var(--toybaco-muted)}dd{margin:0;text-align:right;font-weight:600}button{width:100%;background:var(--toybaco-button);color:var(--toybaco-on-button);border:0;border-radius:10px;padding:14px;font:inherit;font-weight:700;cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid var(--toybaco-focus);outline-offset:4px}a{color:var(--toybaco-heading)}small{color:var(--toybaco-muted)}@media(max-width:600px){main{margin:20px 12px;padding:24px}dl{gap:12px}h1{font-size:22px}}
+    .terms{margin:16px 0;padding:0;list-style:none;display:grid;gap:8px;font-size:15px}.terms strong{color:var(--toybaco-heading)}.legal{font-size:14px}.consent{display:flex;gap:12px;align-items:flex-start;margin:20px 0;font-weight:600}.consent input{flex:none;width:20px;height:20px;margin-top:5px;accent-color:var(--toybaco-heading)}.consent input:focus-visible{outline:3px solid var(--toybaco-focus);outline-offset:3px}.error{color:var(--toybaco-danger);font-weight:700}
   </style>
 </head>
 <body><main>

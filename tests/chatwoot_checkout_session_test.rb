@@ -4,6 +4,8 @@ require 'minitest/autorun'
 require 'cgi'
 require 'uri'
 require_relative '../overlay/app/lib/toybaco/checkout'
+# The rendered view links the brand stylesheet by its content digest, as the injector does.
+require_relative '../overlay/app/lib/toybaco/brand_injector'
 
 class ChatwootCheckoutSessionTest < Minitest::Test
   ROOT = File.expand_path('..', __dir__)
