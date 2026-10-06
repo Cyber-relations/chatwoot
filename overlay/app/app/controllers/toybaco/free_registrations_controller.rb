@@ -11,7 +11,8 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
   end
 
   def verify_email
-    @registration_request_accepted = flash.delete(:free_registration_request_accepted) == true
+    @registration_request_accepted = flash[:free_registration_request_accepted] == true
+    flash.delete(:free_registration_request_accepted)
     render 'toybaco/free_registrations/verify_email', layout: false
   end
 
