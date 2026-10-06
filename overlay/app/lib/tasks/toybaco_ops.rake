@@ -277,17 +277,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # toybaco:e2e_confirm_user[prefix]。名前が prefix で始まる店舗のうち無料登録がメール確認待ち(phase=email_pending)のもの(1 回 5 件まで)の
       # 契約者(登録時の owner)を、確認メールのリンク(DeviseOverrides::ConfirmationsController)と同じ User#confirm で確認し、選んだ店舗ごとに
       # FreeActivationJob の中と同じ FreeRegistration#activate! で有効にする(job は利用者のメール確認待ちの店舗を全て有効にするため使わない)。
-      # 全体を 1 つの transaction で行い、契約者を行ロックして全員を確かめてから確認・有効化し、段階を読み直す。どこかで止まれば
-      # abort(SystemExit)か例外で transaction ごと取り消し、確認も有効化も残さない。対象が 0 件でも正常に終わる。メールアドレスは引数にも出力にも出さない。
+      # 全体を 1 つの transaction で行い、選んだ店舗と契約者を行ロックして全て確かめ直してから確認・有効化し、段階を読み直す。どこかで止まれば
+      # abort(SystemExit)か例外で transaction ごと取り消し、確認も有効化も残さない(確認と有効化は job を積まない。spec で確かめる)。
+      # 対象が 0 件でも正常に終わる。メールアドレスは引数にも出力にも出さない。
       def confirm(args)
         staging!('e2e_confirm_user')
         prefix = prefix!(args)
-        lines = ActiveRecord::Base.transaction do
-          pending = run_names!(prefix, accounts(prefix), '確認').select { |account| phase(account) == 'email_pending' }
-          selected = within_limit!(prefix, pending, 'メール確認待ちの店舗', '確認')
-          confirm_and_activate!(selected.index_with { |account| owner!(account, selected.map(&:id)) })
-        end
+        lines = ActiveRecord::Base.transaction { confirm_selected!(prefix) }
         lines + ["TOYBACO_E2E_CONFIRM prefix=#{prefix} accounts=#{lines.size}"]
+      end
+
+      # transaction の中で呼ぶ。店舗を選び、行ロックして名前と段階を確かめ直し、契約者を確かめてから確認・有効化する。
+      def confirm_selected!(prefix)
+        pending = run_names!(prefix, accounts(prefix), '確認').select { |account| phase(account) == 'email_pending' }
+        selected = within_limit!(prefix, pending, 'メール確認待ちの店舗', '確認')
+        WriteGuard.relock!(prefix, selected, '確認') { |account| phase(account) == 'email_pending' }
+        confirm_and_activate!(selected.index_with { |account| owner!(account, selected.map(&:id)) })
       end
 
       # 契約者を全て確かめ終えた後に transaction の中で呼ぶ。契約者を確認してから、選んだ店舗ごとに有効にし、段階を読み直した行を返す。
@@ -347,12 +352,18 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         value.is_a?(String) && value.match?(PHASE_FORMAT) ? value : 'invalid'
       end
 
-      # toybaco:e2e_purge_accounts[prefix]。名前が prefix で始まる店舗(1 回 5 件まで)と、その店舗にだけ所属する E2E 用の利用者を削除する。
-      # 削除の手順は Purge にある。
+      # toybaco:e2e_purge_accounts[prefix]。名前が prefix で始まる店舗(一致集合)のうち id の順の先頭 5 件(バッチ)と、その店舗にだけ所属する
+      # E2E 用の利用者を削除し、残りの件数(remaining)を出す。一致が 5 件を超えても abort せず、残りは次の呼び出しで消す(前回までの run の
+      # 残骸が溜まっても繰り返せば減らせる)。利用者・契約者は、範囲を一致集合で、消すかどうかをバッチで判定する。一致集合の外にも所属する
+      # 契約者がいれば abort し、一致集合には閉じるがバッチの外の一致した店舗にも所属する利用者・契約者は消さずに数え、所属がバッチに閉じた
+      # 回に消す(同じ利用者が 6 件以上の一致した店舗に所属しても、毎回同じ先頭 5 件で止まらない)。範囲の安全は、全ての一致が E2E の店舗名の
+      # 厳格な形であること(1 件でも違えば何も消さない。transaction の中でも全ての一致を行ロックして確かめ直す)と、利用者・契約者の検査で
+      # 守る。削除の手順は Purge にある。
       def purge(args)
         staging!('e2e_purge_accounts')
         prefix = prefix!(args)
-        Purge.run(prefix, within_limit!(prefix, run_names!(prefix, accounts(prefix), '削除'), '店舗', '削除'))
+        stores = run_names!(prefix, accounts(prefix), '削除')
+        Purge.run(prefix, stores)
       end
 
       # prefix に一致した店舗が全て E2E の run ごとの店舗名(RUN_NAME_FORMAT)であること。1 件でも違えば何もせずに abort する。
@@ -363,67 +374,127 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         abort "prefix=#{prefix} に一致する店舗に、E2E の店舗名の形(e2e-consent-r<run>-<attempt>)でない店舗が #{others} 件あるため#{action}しません。"
       end
 
-      # 1 回に確認・削除する店舗は 5 件まで。超えるときは 1 件も扱わない(prefix の打ち間違いで広く書き換えない)。
+      # 1 回に確認する店舗は 5 件まで。超えるときは 1 件も扱わない(prefix の打ち間違いで広く書き換えない)。削除は先頭 5 件だけを消す。
       def within_limit!(prefix, stores, label, action)
         return stores if stores.size <= PURGE_LIMIT
 
         abort "prefix=#{prefix} に一致する#{label}が #{stores.size} 件あり、1 回の上限 #{PURGE_LIMIT} 件を超えるため#{action}しません。prefix を絞ってください。"
       end
 
-      # 全体を 1 つの transaction で行う。overlay の削除時の検査(所属の書き手・自動応答の bot)は店舗の行を読むため、店舗が残っているうちに
-      # 所属・bot の割り当て・bot を同期で消し(後から動く destroy_async の job で親が見つからずに失敗しない)、利用者、店舗の順に
-      # SuperAdmin・Platform API と同じ DeleteObjectJob の処理で消す。利用者は transaction の中で行ロック(所属の書き手が取るのと同じ users の行)を
-      # 取って読み直し、条件から外れた利用者は消さずに数える(外れた 1 人のためにほかの店舗・利用者の削除を巻き戻さない)。読み直して店舗・利用者・
-      # 所属・bot が残っていれば abort(SystemExit)で rollback して何も消さない。
+      # 書き込みの 2 本(確認・削除)の transaction の守り。選んだ店舗の行ロックと読み直しと、削除の transaction の中で積まれる job の commit 後送り。
+      module WriteGuard
+        module_function
+
+        # transaction の中で、選んだ店舗を id の順に行ロックして読み直し、名前(prefix と厳格な形)とブロックの条件を確かめ直す。選んだ後に
+        # 別の接続が名前や状態を変えていれば、何も書かずに abort する(ロックの後は commit まで変えられない)。
+        def relock!(prefix, stores, action)
+          stores.sort_by(&:id).each do |store|
+            store.reload(lock: true)
+            next if store.name.start_with?(prefix) && store.name.match?(RUN_NAME_FORMAT) && (!block_given? || yield(store))
+
+            abort "account=#{store.id} の名前か状態が選んだ後に変わったため#{action}しません。"
+          end
+        end
+
+        # transaction の中で積まれる job(所属の削除の Agents::DestroyJob・destroy_async の削除・イベントの配信)を commit の後に送り、
+        # rollback なら捨てる。この app は load_defaults 7.0 で ActiveJob::Base.enqueue_after_transaction_commit が :never のため、
+        # rake の処理の間だけ :always にして戻す(rake は one-shot の process で走る。job クラスが個別に持つ値はそのまま)。rollback の後に
+        # overlay の after_rollback が積む戻しの job(PostizMembershipJob)は transaction の外なので、そのまま送られる。
+        def jobs_after_commit
+          previous = ActiveJob::Base.enqueue_after_transaction_commit
+          ActiveJob::Base.enqueue_after_transaction_commit = :always
+          yield
+        ensure
+          ActiveJob::Base.enqueue_after_transaction_commit = previous
+        end
+      end
+
+      # 全体を 1 つの transaction で行う。最初に一致集合の全店舗(バッチの外も)を id の順に行ロックして読み直し、名前(prefix と厳格な形)を
+      # 確かめ直す。バッチの外の一致した店舗が選んだ後に改名されていても、何も消さずに abort する(利用者・契約者の範囲は一致集合で判定する
+      # ため、改名を見ずに古い一致集合を信じると、その店舗にも所属する契約者を残して先頭 5 件を消し、以後 prefix で辿れない店舗の側に契約者
+      # が残る。ロックの後は commit まで改名されない)。続けて契約者(所属が既に無くても)を確かめてから、バッチの店舗を消す。
+      # overlay の削除時の検査(所属の書き手・自動応答の bot)は店舗の行を読むため、店舗が残っているうちに所属・bot の割り当て・bot を同期で
+      # 消し(後から動く destroy_async の job で親が見つからずに失敗しない)、利用者、店舗の順に SuperAdmin・Platform API と同じ
+      # DeleteObjectJob の処理で消す。利用者は transaction の中で行ロック(所属の書き手が取るのと同じ users の行)を取って読み直し、所属が
+      # バッチに閉じていれば消す。バッチの外の一致した店舗にも所属する利用者と、読み直すと条件から外れた利用者は消さずに数える(外れた 1 人の
+      # ためにほかの店舗・利用者の削除を巻き戻さない。バッチの外の一致した店舗の所属は残り、所属がバッチに閉じた回に消える)。読み直して
+      # 店舗・利用者・所属・bot が残っていれば abort(SystemExit)で rollback して何も消さない。その間に積まれた job は commit の後に送り、
+      # rollback なら捨てる(WriteGuard.jobs_after_commit)。
       module Purge
         # 店舗が残っているうちに消す子(削除時の検査が店舗の行を読むもの)。所属は全員分(消さない利用者の所属も)、bot の割り当て、bot の順。
         CHILDREN = %w[AccountUser AgentBotInbox AgentBot].freeze
 
         module_function
 
-        def run(prefix, stores)
-          ids = stores.map(&:id)
-          found = candidates(ids)
-          users = ActiveRecord::Base.transaction do
-            owners!(stores, ids)
-            eligible = found.select { |user| locked_eligible?(user, ids) }
-            children!(ids)
-            (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
-            next eligible unless remaining?(ids, eligible)
-
-            abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。"
-          end
-          "TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{found.size - users.size}"
+        # matched は一致集合の店舗(run_names! を通った全ての店舗、id の順)、stores はバッチ(その先頭 5 件)。remaining は一致集合のうち
+        # バッチの外の件数。候補の下見は transaction の前の id で選び、消すかどうかは transaction の中でロックした店舗で決める。
+        # skipped_users は候補(所属からの候補と契約者)のうち消さなかった利用者の数(同じ利用者は 1 回)。
+        def run(prefix, matched)
+          stores = matched.first(PURGE_LIMIT)
+          found = candidates(stores.map(&:id), matched.map(&:id))
+          users, kept = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
+          skipped = ((found + kept).map(&:id) - users.map(&:id)).uniq.size
+          remaining = matched.size - stores.size
+          "TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{skipped} remaining=#{remaining}"
         end
 
-        # 店舗の契約者(無料登録の owner)は、行ロックして読み直して消してよい利用者でなければ、店舗を消す前に abort する。契約者だけが残ると
-        # 固定メールの利用者が残り、次の run の登録が 409 になるため、ほかの利用者のように数えて進めない。契約者が既に無い店舗はそのまま消す。
-        def owners!(stores, account_ids)
-          stores.each do |store|
+        # transaction の中で呼ぶ。最初に一致集合の全店舗を行ロックして確かめ直し(バッチの店舗も同じ object が読み直される)、以後の判定と
+        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者を返す。契約者は所属から選んだ候補とは別に、確かめた上で
+        # 消す集合に入れる(所属が既に無い契約者も残さない)。
+        def delete!(prefix, matched, stores, found)
+          WriteGuard.relock!(prefix, matched, '削除')
+          ids = stores.map(&:id)
+          removable, kept = owners!(stores, ids, matched.map(&:id))
+          eligible = (removable + found.select { |user| locked_eligible?(user, ids) }).uniq(&:id)
+          children!(ids)
+          (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
+          return [eligible, kept] unless remaining?(ids, eligible)
+
+          abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。"
+        end
+
+        # 店舗の契約者(無料登録の owner)を行ロックして読み直し、消す契約者(所属がバッチに閉じる)と残す契約者(一致集合には閉じるが、
+        # バッチの外の一致した店舗にも所属する)に分けて返す。E2E の利用者でないか一致集合の外にも所属する契約者がいれば、店舗を消す前に
+        # abort する(非 E2E の利用者や実店舗の利用者を巻き込まない。その契約者を数えて進めると、契約者の店舗だけが消えて固定メールの利用者が
+        # 残り、次の run の登録が 409 になる)。残す契約者は消さずに数える。その所属が残る一致した店舗は remaining に数えられるため呼び出し側は
+        # 続けて呼び、所属がバッチに閉じた回に契約者も消える(バッチの外の所属で毎回 abort して進まなくならない)。契約者が既に無い店舗は
+        # そのまま消す。
+        def owners!(stores, batch_ids, matched_ids)
+          owners = stores.filter_map do |store|
             state = Toybaco::Entitlements.attributes(store)[Toybaco::Growth::FreeRegistration::KEY]
             owner = state.is_a?(Hash) ? User.find_by(id: state['owner_id']) : nil
-            next if owner.nil? || eligible_user?(owner.reload(lock: true), account_ids)
+            next if owner.nil?
+            next owner if e2e_scope?(owner.reload(lock: true), matched_ids)
 
             abort "account=#{store.id} の契約者 user=#{owner.id} が E2E の利用者でないか、ほかの店舗にも所属するため削除しません。"
           end
+          owners.partition { |owner| eligible_user?(owner, batch_ids) }
         end
 
-        # 対象の店舗に所属する利用者のうち消してよい候補(transaction の前の下見。transaction の中でロックして読み直す)。id の順。
-        def candidates(account_ids)
-          ids = AccountUser.where(account_id: account_ids).distinct.pluck(:user_id)
-          User.where(id: ids).order(:id).select { |user| eligible_user?(user, account_ids) }
+        # バッチの店舗に所属する利用者のうち、所属が一致集合に閉じる E2E の利用者(transaction の前の下見。transaction の中でロックして
+        # 読み直し、所属がバッチに閉じていれば消し、そうでなければ消さずに数える)。一致集合の外にも所属する利用者は候補にしない(バッチの
+        # 店舗の所属だけが消える)。id の順。
+        def candidates(batch_ids, matched_ids)
+          ids = AccountUser.where(account_id: batch_ids).distinct.pluck(:user_id)
+          User.where(id: ids).order(:id).select { |user| e2e_scope?(user, matched_ids) }
         end
 
         # 候補を行ロックして読み直し、まだ消してよいか。ロックの前に消えていた利用者は消さない側に数える。
-        def locked_eligible?(user, account_ids)
-          eligible_user?(user.reload(lock: true), account_ids)
+        def locked_eligible?(user, batch_ids)
+          eligible_user?(user.reload(lock: true), batch_ids)
         rescue ActiveRecord::RecordNotFound
           false
         end
 
-        # 消してよい利用者: SuperAdmin(type あり)でなく、E2E 用のメールアドレスで、対象の店舗にだけ所属する。
-        def eligible_user?(user, account_ids)
+        # E2E の利用者で、所属が account_ids の店舗の外に無い: SuperAdmin(type あり)でなく、E2E 用のメールアドレスで、ほかの店舗に所属しない。
+        # 一致集合の id で確かめて、候補と契約者の範囲にする。
+        def e2e_scope?(user, account_ids)
           user.type.blank? && user.email.to_s.match?(EMAIL_FORMAT) && !AccountUser.where(user_id: user.id).where.not(account_id: account_ids).exists?
+        end
+
+        # 消してよい利用者: バッチの id で確かめた e2e_scope?(所属がバッチの店舗に閉じる)。バッチは一致集合の一部なので、範囲の内側でもある。
+        def eligible_user?(user, batch_ids)
+          e2e_scope?(user, batch_ids)
         end
 
         def children!(account_ids)
@@ -451,7 +522,8 @@ namespace :toybaco do
     Toybaco::Ops::E2eConsent.confirm(args).each { |line| puts line }
   end
 
-  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(1 回 5 件まで)と、その店舗だけの利用者を削除する(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(id の順に 1 回 5 件まで。残りの件数を出す)と、その店舗だけの利用者を削除する' \
+       '(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
   task :e2e_purge_accounts, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eConsent.purge(args)
   end
