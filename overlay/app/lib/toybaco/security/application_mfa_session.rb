@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 # MFA proof belongs to a revocable DTA device record, not to a browser flag or
-# merely to the user's enrollment state. Role changes are checked on every use.
+# merely to the user's enrollment state. The requirement is checked on every use.
+# Store administrators enroll optionally (owner decision, 2026-10-06); SuperAdmin users must enroll.
 module Toybaco::Security::ApplicationMfaSession
   # A verified dashboard device stays verified for 30 days (owner decision, 2026-10-05).
   # TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS (whole hours 1-720, surrounding whitespace ignored) can shorten it;
@@ -12,7 +13,7 @@ module Toybaco::Security::ApplicationMfaSession
   module_function
 
   def required?(user)
-    user.is_a?(SuperAdmin) || user.mfa_enabled? || user.account_users.exists?(role: 1)
+    user.is_a?(SuperAdmin) || user.mfa_enabled?
   end
 
   def fingerprint(user)
@@ -22,6 +23,18 @@ module Toybaco::Security::ApplicationMfaSession
 
   def mark!(user, client)
     user.tokens.fetch(client).merge!('toybaco_mfa_at' => Time.current.to_i, 'toybaco_mfa_proof' => fingerprint(user))
+  end
+
+  # Proof goes only to a device that is still signed in. with_lock re-reads the row under the lock
+  # (lock! reloads it), so a device another request removed after the caller loaded the user
+  # (sign-out, revocation) is not written back with proof.
+  def attach_proof!(user, client)
+    user.with_lock do
+      next false unless user.tokens.key?(client)
+
+      mark!(user, client)
+      user.save!
+    end
   end
 
   def valid?(user, client)

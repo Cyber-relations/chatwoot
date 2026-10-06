@@ -427,6 +427,37 @@ class ToybacoGrowthRetentionRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # ご契約内容の iframe(SPA)から来たテーマを、同じ iframe でたどる画面と導線に引き継ぐ。dark / light 以外は OS の設定。
+  # 二つの fixture はどちらも Checkout::Client.new を差し替えるので、入れ子にしない。
+  def test_in_frame_pages_keep_the_dashboard_theme_and_otherwise_follow_the_os_setting
+    [%w[dark dark], %w[light light], %w[auto system], [nil, 'system']].each do |given, expected|
+      query = given ? "&theme=#{given}" : ''
+      theme = expected == 'system' ? '' : "&theme=#{expected}"
+      billing = "/toybaco/billing?account_id=#{@account.id}#{theme}"
+      held = "/toybaco/growth/held?account_id=#{@account.id}"
+      with_release_fixture do
+        authenticated do
+          assert_page_theme("#{endpoint}#{query}", expected, [billing])
+          assert_page_theme("#{held}#{query}", expected, [billing, "#{release_endpoint}#{theme}"])
+          assert_page_theme("#{release_endpoint}#{query}", expected, ["#{held}#{theme}", "#{release_endpoint}#{theme}"])
+        end
+      end
+      with_posting_release_fixture do
+        authenticated do
+          assert_page_theme("#{held}#{query}", expected, ["#{posting_endpoint}#{theme}"])
+          assert_page_theme("#{posting_endpoint}#{query}", expected, ["#{held}#{theme}", "#{posting_endpoint}#{theme}"])
+        end
+      end
+    end
+  end
+
+  def assert_page_theme(page, expected, links)
+    get page
+    assert_response :success
+    assert_select 'html[data-toybaco-theme=?]', expected
+    links.each { |link| assert_select 'a[href=?]', link, { count: 1 }, page }
+  end
+
   def test_release_http_requires_owner_same_origin_json_and_both_rollout_flags
     with_release_fixture do |service|
       authenticated do

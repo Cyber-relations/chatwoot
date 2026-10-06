@@ -8,8 +8,12 @@ const props = defineProps({
   incomingId: { type: [Number, String], default: null },
   draft: { type: String, default: '' },
   canEdit: { type: Boolean, default: false },
+  botDraft: { type: Object, default: null },
+  botDraftApplied: { type: Boolean, default: false },
+  // 返信欄に署名以外の入力があるか(親の hasMeaningfulEditorContent)。
+  hasContent: { type: Boolean, default: false },
 });
-const emit = defineEmits(['apply']);
+const emit = defineEmits(['apply', 'useBotDraft', 'availability']);
 // 作成中は 1.8 秒ごとに状況を読む。通信の断・時間切れ・5xx で読めなかったときは間隔を倍にして
 // (最大 10 秒)読み直す。読み直しは続けて 8 回まで。それでも読めなければ止めて「状況を確認」を出す。
 const POLL_MS = 1800;
@@ -44,6 +48,36 @@ const applicable = computed(() => canApplyDraft(result.value, {
 const hasResult = computed(() => result.value?.state === 'completed');
 const wasApplied = computed(() => applied.value?.requestId === result.value?.id && applied.value?.draft === props.draft);
 const billingUrl = computed(() => `/toybaco/billing?account_id=${encodeURIComponent(props.accountId)}`);
+// ボットの下書きは、署名だけの返信欄には入れられ、署名以外の入力があるときは入力を守ってコピーを案内する。
+const botDraftLocked = computed(() => busy.value || !props.canEdit || props.hasContent);
+const botDraftHint = computed(() => (props.hasContent
+  ? '入力中の内容を残しています。案から必要な部分をコピーして使えます。'
+  : '内容を確認してから、返信欄に入れてください。'));
+// スマホ幅では「AI返信の案を見る」に畳む。開いた状態は会話ごとにセッションへ残し、読めなければ畳んだままにする。
+const narrowQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 680px)') : null;
+const narrow = ref(narrowQuery?.matches === true);
+const expanded = ref(false);
+const onNarrow = event => { narrow.value = event.matches === true; };
+narrowQuery?.addEventListener?.('change', onNarrow);
+const expandedKey = () => `toybaco:ai-reply-draft:${props.accountId}:${props.conversationId}`;
+
+function readExpanded() {
+  try {
+    return window.sessionStorage.getItem(expandedKey()) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function toggleExpanded() {
+  expanded.value = !expanded.value;
+  try {
+    if (expanded.value) window.sessionStorage.setItem(expandedKey(), '1');
+    else window.sessionStorage.removeItem(expandedKey());
+  } catch {
+    // 残せなくても表示は切り替える。
+  }
+}
 
 async function request(method = 'GET', body, requestId) {
   const endpoint = draftEndpoint(props.accountId, props.conversationId, requestId);
@@ -228,19 +262,31 @@ watch(() => [props.accountId, props.conversationId], () => {
   retries = 0;
   startedAt.value = 0;
   elapsed.value = 0;
+  expanded.value = readExpanded();
   refresh(generation);
 }, { immediate: true });
-onBeforeUnmount(() => { generation += 1; clearTimeout(timer); });
+// 返信欄の下の「AIの返信下書きがあります」は、このパネルが出ている間は出さない(同じ下書きを2か所に出さない)。
+watch(() => available.value, value => emit('availability', value), { immediate: true });
+onBeforeUnmount(() => {
+  generation += 1;
+  clearTimeout(timer);
+  narrowQuery?.removeEventListener?.('change', onNarrow);
+  emit('availability', false);
+});
 </script>
 
 <template>
-  <section v-if="available" class="toybaco-manual-ai" aria-label="トイバコAI 返信下書き">
+  <button v-if="available && narrow && !expanded" type="button" class="toybaco-manual-ai__chip" aria-expanded="false" @click="toggleExpanded">
+    AI返信の案を見る
+  </button>
+  <section v-else-if="available" class="toybaco-manual-ai" aria-label="AI返信の返信案">
     <div class="toybaco-manual-ai__bar">
-      <div><strong>トイバコAI</strong><span>あと {{ remaining }} 回</span></div>
+      <div><strong>AI返信</strong><span>あと {{ remaining }} 回</span></div>
       <button v-if="!pending" type="button" :disabled="busy || !canEdit || remaining <= 0" data-toybaco-guide-action="reply.generate" @click="generate">
         {{ uncertain ? '同じ作成を再確認' : hasResult ? '別の案を作る · 1回' : draft.trim() ? '文章を整える · 1回' : '返信案を作る · 1回' }}
       </button>
       <button v-else type="button" class="toybaco-manual-ai__quiet" :disabled="busy" @click="cancel">中止</button>
+      <button v-if="narrow" type="button" class="toybaco-manual-ai__quiet" aria-expanded="true" @click="toggleExpanded">閉じる</button>
     </div>
     <p v-if="pending" role="status">{{ pendingText }}</p>
     <template v-if="hasResult">
@@ -255,6 +301,18 @@ onBeforeUnmount(() => { generation += 1; clearTimeout(timer); });
         </button>
       </div>
     </template>
+    <!-- 手動の案が無いときは、ボットが内部メモに残した最新の下書きを同じ体裁で出す(内部メモ自体は会話の履歴に残る)。 -->
+    <template v-else-if="botDraft && !pending">
+      <p class="toybaco-manual-ai__label">AI の案（自動作成）</p>
+      <p class="toybaco-manual-ai__text">{{ botDraft.content }}</p>
+      <p v-if="botDraftApplied" role="status">返信欄に入れました。内容を確認して送信してください。</p>
+      <div v-else class="toybaco-manual-ai__actions toybaco-manual-ai__bot">
+        <span>{{ botDraftHint }}</span>
+        <button type="button" :disabled="botDraftLocked" data-toybaco-guide-action="reply.ai_draft" @click="emit('useBotDraft')">
+          返信欄に入れる
+        </button>
+      </div>
+    </template>
     <p v-if="error" role="status">{{ error }}</p>
     <!-- 読み上げが重ならないよう、ボタンは status の段落の外に置く。 -->
     <button v-if="checkable" type="button" class="toybaco-manual-ai__quiet toybaco-manual-ai__check" @click="refresh()">状況を確認</button>
@@ -263,18 +321,20 @@ onBeforeUnmount(() => { generation += 1; clearTimeout(timer); });
 </template>
 
 <style scoped>
-.toybaco-manual-ai { --ink: #1f3a5f; --paper: #fcfbf8; margin: 8px 12px; border: 1px solid #e7e2da; border-radius: 14px; background: var(--paper); color: var(--ink); padding: 13px 16px; font-size: 12px; }
+.toybaco-manual-ai { margin: 8px 12px; border: 1px solid var(--toybaco-hairline); border-radius: 14px; background: var(--toybaco-surface); color: var(--toybaco-ink); padding: 13px 16px; font-size: 12px; }
 .toybaco-manual-ai__bar, .toybaco-manual-ai__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .toybaco-manual-ai__bar strong { font-size: 13px; }
-.toybaco-manual-ai__bar span { margin-left: 12px; color: #5b6a75; }
-.toybaco-manual-ai button { border: 0; border-radius: 9px; color: white; background: var(--ink); padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+.toybaco-manual-ai__bar span { margin-left: 12px; color: var(--toybaco-muted); }
+.toybaco-manual-ai button { border: 0; border-radius: 9px; color: white; background: var(--toybaco-navy); padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
 .toybaco-manual-ai button:disabled { opacity: .42; cursor: default; }
-.toybaco-manual-ai button:focus-visible, .toybaco-manual-ai a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-.toybaco-manual-ai button.toybaco-manual-ai__quiet { color: var(--ink); background: transparent; }
+.toybaco-manual-ai button:focus-visible, .toybaco-manual-ai a:focus-visible, .toybaco-manual-ai__chip:focus-visible { outline: 2px solid var(--toybaco-focus); outline-offset: 3px; }
+.toybaco-manual-ai button.toybaco-manual-ai__quiet { color: var(--toybaco-ink); background: transparent; }
 .toybaco-manual-ai button.toybaco-manual-ai__check { margin-top: 4px; padding: 6px 0; }
 .toybaco-manual-ai p { margin: 10px 0 0; line-height: 1.7; }
 .toybaco-manual-ai .toybaco-manual-ai__text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; max-height: 180px; overflow: auto; padding: 12px 0; }
-.toybaco-manual-ai__notice { color: #7a551a; }
-.toybaco-manual-ai__actions span { color: #5b6a75; }
-.toybaco-manual-ai a { color: var(--ink); text-decoration: underline; margin-left: 6px; }
+.toybaco-manual-ai .toybaco-manual-ai__label { font-weight: 600; }
+.toybaco-manual-ai__notice { color: var(--toybaco-ink); font-weight: 600; }
+.toybaco-manual-ai__actions span { color: var(--toybaco-muted); }
+.toybaco-manual-ai a { color: var(--toybaco-ink); text-decoration: underline; margin-left: 6px; }
+.toybaco-manual-ai__chip { display: block; margin: 8px 12px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--toybaco-hairline); border-radius: 999px; background: var(--toybaco-surface); color: var(--toybaco-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
 </style>

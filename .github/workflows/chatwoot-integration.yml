@@ -401,7 +401,7 @@ jobs:
               source_ref:"refs/heads/main",control_sha256:$control,trivy_image:$trivy,
               db_download_started_at:$started,issued_at:$issued}' > "$security/context.json"
           # This is an independent source-backport classification, not a Trivy-filtered scan.
-          # Exactly one proved fixed finding is allowed; every other HIGH/CRITICAL still fails.
+          # Exactly three proved fixed findings (CVE-2026-67987 / 67989 / 67991) are allowed; every other HIGH/CRITICAL still fails.
           node scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \
             "$security" config/chatwoot-ruby-llm-backport.json
 

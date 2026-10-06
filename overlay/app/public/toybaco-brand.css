@@ -37,7 +37,8 @@
 
 /* blue スケール(ダーク): ネイビーの世界観のまま明度だけ持ち上げる。
  * dark クラスはログイン後は body、未ログインページは html に付くので .dark で受ける */
-.dark {
+.dark,
+[data-toybaco-theme="dark"] {
   --toybaco-focus: #ff6b5b;
   --toybaco-control-border: #627892;
   --blue-1: 15 21 30;
@@ -527,18 +528,80 @@ select:focus {
   --toybaco-line: #0b7a35;
   --toybaco-line-wash: #e7f6ec;
   --toybaco-resolve: #187a43;
+  /* トイバコ独自の画面(Vue・ERB)が使う意味の色。--toybaco-navy はダークでも変えない既存の規則が多いので、
+   * 見出し・主ボタンには heading / button を使う。ダークの値は本文 4.5:1・枠 3:1 を満たす(docs/brand.md)。 */
+  --toybaco-heading: #1f3a5f;
+  --toybaco-button: #1f3a5f;
+  --toybaco-button-hover: #163049;
+  --toybaco-on-button: #ffffff;
+  --toybaco-card: #ffffff;
+  --toybaco-danger: #a12d22;
+  --toybaco-notice-wash: #fff0ed;
+  --toybaco-backdrop: rgba(22, 48, 73, 0.42);
+  --toybaco-dim: rgba(31, 58, 95, 0.05);
+  --toybaco-shadow: rgba(31, 58, 95, 0.08);
+  /* 副ボタンのホバー。wash との差をライト・ダークとも 1.2:1 前後にそろえる。 */
+  --toybaco-wash-strong: #d3deec;
 }
 
-.dark {
+.dark,
+[data-toybaco-theme="dark"] {
   --toybaco-offwhite: #0f151e;
   --toybaco-ink: #d6e4f2;
   --toybaco-muted: #8ea6c0;
   --toybaco-surface: #121a26;
   --toybaco-wash: #1f3046;
-  --toybaco-hairline: #22304a;
+  --toybaco-hairline: #2f4160;
   --toybaco-line: #7ed8a2;
   --toybaco-line-wash: #173226;
   --toybaco-resolve: #187a43;
+  --toybaco-heading: #8eb2d8;
+  --toybaco-button: #4a76a6;
+  --toybaco-button-hover: #436e9d;
+  --toybaco-on-button: #ffffff;
+  --toybaco-card: #172131;
+  --toybaco-danger: #ff8a7a;
+  --toybaco-notice-wash: #3a2422;
+  --toybaco-backdrop: rgba(0, 0, 0, 0.6);
+  --toybaco-dim: rgba(0, 0, 0, 0.3);
+  --toybaco-shadow: rgba(0, 0, 0, 0.45);
+  --toybaco-wash-strong: #2a3d5c;
+}
+
+/* SPA の iframe で開く単独画面は、親のテーマを data-toybaco-theme="dark" で受け取る(上の .dark と同じ値)。 */
+[data-toybaco-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* SPA の外にある単独の画面(ERB・静的ページ)は .dark を持たないので、OS の設定に従う。対象は
+ * <html data-toybaco-theme="system"> の画面だけ(SPA はライトを明示しても .light を付けないため、:root には当てない)。
+ * 値は上の .dark と同じに保つ(tests/chatwoot_brand_injector_test.rb が照合する)。 */
+@media (prefers-color-scheme: dark) {
+  [data-toybaco-theme="system"] {
+    color-scheme: dark;
+    --toybaco-focus: #ff6b5b;
+    --toybaco-control-border: #627892;
+    --toybaco-offwhite: #0f151e;
+    --toybaco-ink: #d6e4f2;
+    --toybaco-muted: #8ea6c0;
+    --toybaco-surface: #121a26;
+    --toybaco-wash: #1f3046;
+    --toybaco-hairline: #2f4160;
+    --toybaco-line: #7ed8a2;
+    --toybaco-line-wash: #173226;
+    --toybaco-resolve: #187a43;
+    --toybaco-heading: #8eb2d8;
+    --toybaco-button: #4a76a6;
+    --toybaco-button-hover: #436e9d;
+    --toybaco-on-button: #ffffff;
+    --toybaco-card: #172131;
+    --toybaco-danger: #ff8a7a;
+    --toybaco-notice-wash: #3a2422;
+    --toybaco-backdrop: rgba(0, 0, 0, 0.6);
+    --toybaco-dim: rgba(0, 0, 0, 0.3);
+    --toybaco-shadow: rgba(0, 0, 0, 0.45);
+    --toybaco-wash-strong: #2a3d5c;
+  }
 }
 
 /* 4ペイン密度: ナビ ~168px | 会話リスト ~226px | chat 1fr | 連絡先 ~196px。
@@ -704,6 +767,114 @@ aside nav > ul > *[data-toybaco-post-entry-wrap] {
   border: 1px solid #e7e4dc;
   border-radius: 8px;
   box-shadow: none;
+}
+
+/* 会話 0 件の案内(店舗全体で会話がまだ無いとき、空の一覧の文の下) */
+[data-toybaco-empty-conversations] {
+  margin: 0 16px 16px;
+  padding: 16px;
+  border: 1px solid var(--toybaco-hairline);
+  border-radius: 12px;
+  background: var(--toybaco-surface);
+  color: var(--toybaco-ink);
+}
+
+[data-toybaco-empty-conversations] h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--toybaco-heading);
+}
+
+[data-toybaco-empty-conversations] p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--toybaco-muted);
+}
+
+[data-toybaco-empty-links] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+[data-toybaco-empty-links] a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--toybaco-heading);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+[data-toybaco-empty-links] a:focus-visible {
+  outline: 2px solid var(--toybaco-focus);
+  outline-offset: 3px;
+}
+
+/* 返信欄の上の1行: 開いている会話の窓口の AI 返信(オフ=灰・下書き=コーラル・自動=緑の点) */
+[data-toybaco-ai-inbox-pill] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--toybaco-ink);
+}
+
+[data-toybaco-ai-inbox-pill]::before {
+  content: '';
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--toybaco-muted);
+}
+
+[data-toybaco-ai-inbox-pill][data-toybaco-ai-inbox-state="draft"]::before {
+  background: var(--toybaco-coral);
+}
+
+[data-toybaco-ai-inbox-pill][data-toybaco-ai-inbox-state="auto"]::before {
+  background: var(--toybaco-line);
+}
+
+[data-toybaco-ai-inbox-reason] {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--toybaco-muted);
+}
+
+[data-toybaco-ai-inbox-reason][hidden] {
+  display: none;
+}
+
+[data-toybaco-ai-inbox-settings] {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--toybaco-navy);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+[data-toybaco-ai-inbox-settings]:focus-visible {
+  outline: 2px solid var(--toybaco-focus);
+  outline-offset: 3px;
+}
+
+.dark [data-toybaco-ai-inbox-settings] {
+  color: var(--toybaco-ink);
 }
 
 [data-toybaco-ai-mode-h] {
@@ -1506,8 +1677,7 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
   pointer-events: none !important;
 }
 
-/* モバイルでは会話と返信を主面にし、AI設定とメール宛先の詳細を開閉する。 */
-[data-toybaco-ai-compact],
+/* モバイルでは会話と返信を主面にし、AIは窓口の状態だけを出し、メール宛先の詳細を開閉する。 */
 .toybaco-reply-email__toggle {
   display: none;
 }
@@ -1633,35 +1803,16 @@ html:has([data-toybaco-slash-canned]) [data-preview-picker] {
     padding: 0 10px;
   }
 
-  [data-toybaco-ai-mode-bar] > :not([data-toybaco-ai-compact]) { display: none; }
+  /* 狭い幅は窓口の状態(pill)だけ。AI返信の設定は「AIアシスタント」から開ける。 */
+  [data-toybaco-ai-mode-bar] > :not([data-toybaco-ai-inbox-pill]) { display: none; }
 
-  [data-toybaco-ai-compact] {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    width: 100%;
+  [data-toybaco-ai-inbox-pill] {
     min-height: 44px;
-    color: var(--toybaco-ink);
     font-size: 14px;
     line-height: 20px;
   }
 
-  [data-toybaco-ai-compact-settings] {
-    flex-shrink: 0;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 6px;
-    border: 0;
-    background: transparent;
-    color: var(--toybaco-ink);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .toybaco-reply-email__toggle:focus-visible,
-  [data-toybaco-ai-compact-settings]:focus-visible {
+  .toybaco-reply-email__toggle:focus-visible {
     outline: 2px solid var(--toybaco-focus);
     outline-offset: 2px;
   }

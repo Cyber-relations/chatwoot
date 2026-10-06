@@ -1,4 +1,4 @@
-<h1>管理操作のために2段階認証を設定してください</h1>
+<h1>2段階認証を設定してください</h1>
 <p>パスワードに加えて、認証アプリの確認コードでアカウントを保護します。Google Authenticatorなどの認証アプリをご用意ください。</p>
 <% if @error %><p class="error" role="alert"><%= @error %></p><% end %>
 <% if @user.otp_secret.blank? %>

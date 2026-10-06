@@ -7,9 +7,14 @@ import { basename, resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const IMAGE = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
-export const CVE = 'CVE-2026-67991';
+// The reviewed advisories in ruby_llm 1.15.0 and their upstream fixes, in the reviewed order.
+export const FIXES = Object.freeze({
+  'CVE-2026-67987': '5e88411f171721b381853fa77d254e266dcf6ad8',
+  'CVE-2026-67989': 'dd3c84812598def03d4aff77b5447c41d8f5c34e',
+  'CVE-2026-67991': '9d75b033d7d00c4e1baa9b0afb4828faa8bd6602',
+});
+export const CVES = Object.freeze(Object.keys(FIXES));
 export const GEM_PURL = 'pkg:gem/ruby_llm@1.15.0';
-export const FIX = '9d75b033d7d00c4e1baa9b0afb4828faa8bd6602';
 export const VEX_TYPE = 'https://openvex.dev/ns/v0.2.0';
 export const PROOF_TYPE = 'https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1';
 export const TRIVY = 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682';
@@ -33,47 +38,98 @@ function purl(pkg) {
     ref.referenceCategory === 'PACKAGE-MANAGER'), 'one package purl required').referenceLocator;
 }
 
-export function validateProof(proof, config, configSha, context) {
-  assert.equal(config.schema_version, 1);
-  assert.equal(config.advisory, CVE);
-  assert.equal(config.gem.name, 'ruby_llm');
-  assert.equal(config.gem.version, '1.15.0');
-  assert.equal(config.upstream.fix_commit, FIX);
-  equal(config.files.map(f => [f.path, f.method, f.source_line]), [
+// Each advisory's patched 1.15.0 files and the loaded method that proves the patched source is the one in use.
+const SITES = Object.freeze({
+  'CVE-2026-67987': [
+    ['lib/ruby_llm/providers/openai/chat.rb', 'RubyLLM::Providers::OpenAI::Chat.extract_content_and_thinking', 175],
+    ['lib/ruby_llm/stream_accumulator.rb', 'RubyLLM::StreamAccumulator#handle_chunk_content', 120],
+  ],
+  'CVE-2026-67989': [
+    ['lib/ruby_llm/providers/mistral/capabilities.rb', 'RubyLLM::Providers::Mistral::Capabilities.capabilities_for', 106],
+  ],
+  'CVE-2026-67991': [
     ['lib/ruby_llm/agent.rb', 'RubyLLM::Agent.prompt_agent_path', 324],
     ['lib/ruby_llm/tool.rb', 'RubyLLM::Tool#name', 68],
-  ], 'exact upstream call sites');
-  assert.equal(proof.schema_version, 1);
+  ],
+});
+// Occurrences of each vulnerable/fixed expression across all installed lib/**/*.rb after the backport.
+const PATCHED_MARKERS = Object.freeze({
+  vulnerable_acronym_occurrences: 0, fixed_boundary_occurrences: 2,
+  vulnerable_think_tag_occurrences: 0, fixed_think_passthrough_occurrences: 1,
+  vulnerable_voxtral_occurrences: 0, fixed_voxtral_occurrences: 1,
+});
+const timed = (value, label) => assert.ok(Number.isFinite(value) && value >= 0 && value < 2, label);
+
+export function validateProof(proof, config, configSha, context) {
+  assert.equal(config.schema_version, 2);
+  assert.equal(config.gem.name, 'ruby_llm');
+  assert.equal(config.gem.version, '1.15.0');
+  equal(config.advisories.map(a => a.id), CVES, 'exactly the three reviewed advisories');
+  for (const advisory of config.advisories) {
+    assert.equal(advisory.fix_commit, FIXES[advisory.id]);
+    assert.equal(advisory.fix_url, 'https://github.com/crmne/ruby_llm/commit/' + FIXES[advisory.id]);
+    equal(advisory.files.map(f => [f.path, f.method, f.source_line]), SITES[advisory.id], 'exact upstream call sites');
+    // A backport must change every listed file: a patched hash equal to the official source is not a fix.
+    for (const f of advisory.files) assert.notEqual(hash(f.patched_sha256), hash(f.original_sha256), 'patched file differs from official source');
+  }
+  assert.notEqual(config.ruby_source_inventory.patched.sha256, config.ruby_source_inventory.original.sha256,
+    'patched inventory differs from the official gem');
+  const files = config.advisories.flatMap(a => a.files.map(f => ({ advisory: a.id, ...f })));
+  assert.equal(proof.schema_version, 2);
   assert.equal(proof.result, 'PASS');
-  assert.equal(proof.advisory, CVE);
+  equal(proof.advisories, CVES, 'proof covers exactly the three advisories');
   assert.equal(proof.public_revision, context.source_commit);
   assert.equal(proof.patch_config_sha256, hash(configSha));
-  assert.equal(proof.upstream_fix_commit, FIX);
+  equal(proof.upstream_fix_commits, FIXES, 'upstream fixes');
   equal(proof.gem, { name: 'ruby_llm', version: '1.15.0', installed_spec_count: 1,
     gem_root: GEM_ROOT, spec_path: SPEC_PATH }, 'unique exact installed gem');
   equal(proof.ruby, { version: '3.4.4', platform: 'x86_64-linux-musl' }, 'actual target interpreter');
-  equal(proof.files, config.files.map(f => ({ path: f.path, sha256: hash(f.patched_sha256),
+  equal(proof.files, files.map(f => ({ advisory: f.advisory, path: f.path, sha256: hash(f.patched_sha256),
     method: f.method, source_path: GEM_ROOT + '/' + f.path, source_line: f.source_line })),
     'loaded methods and complete source file hashes');
   equal(proof.unchanged_files, config.unchanged_files, 'entrypoint/version/license unchanged');
-  equal(proof.ruby_source_inventory, { ...config.ruby_source_inventory.patched,
-    vulnerable_acronym_occurrences: 0, fixed_boundary_occurrences: 2 }, 'complete installed Ruby inventory');
+  equal(proof.ruby_source_inventory, { ...config.ruby_source_inventory.patched, ...PATCHED_MARKERS },
+    'complete installed Ruby inventory');
   assert.equal(proof.ruby_source_inventory.count, 130);
   equal(proof.agents, { loaded: true, version: '0.12.0',
     spec_path: '/gems/ruby/3.4.0/specifications/ai-agents-0.12.0.gemspec' }, 'Agents retained');
   const t = proof.tests;
+  equal(Object.keys(t).sort(), [...CVES, 'agents_constructor', 'negative_controls', 'passed'].sort(), 'proof test sections');
   assert.equal(t.passed, true);
-  assert.equal(t.ordinary_cases, 20020);
-  assert.equal(t.ordinary_method_comparisons, 40040);
-  assert.equal(t.official_examples, 4);
-  assert.equal(t.tool_suffix_examples, 4);
   assert.equal(t.agents_constructor, true);
   equal(t.negative_controls, { wrong_source_hash: true, wrong_catalog_hash: true });
-  assert.equal(t.adversarial.length, 100000);
-  assert.equal(t.adversarial.timeout_seconds, 2);
-  for (const key of ['tool_seconds', 'agent_seconds']) {
-    assert.ok(Number.isFinite(t.adversarial[key]) && t.adversarial[key] >= 0 && t.adversarial[key] < 2);
-  }
+  const acronym = t['CVE-2026-67991'];
+  equal(Object.keys(acronym).sort(), ['adversarial', 'official_examples', 'ordinary_cases',
+    'ordinary_method_comparisons', 'tool_suffix_examples'], 'CVE-2026-67991 proof shape');
+  assert.equal(acronym.ordinary_cases, 20020);
+  assert.equal(acronym.ordinary_method_comparisons, 40040);
+  assert.equal(acronym.official_examples, 4);
+  assert.equal(acronym.tool_suffix_examples, 4);
+  equal(Object.keys(acronym.adversarial).sort(), ['agent_seconds', 'length', 'timeout_seconds', 'tool_seconds']);
+  assert.equal(acronym.adversarial.length, 100000);
+  assert.equal(acronym.adversarial.timeout_seconds, 2);
+  for (const key of ['tool_seconds', 'agent_seconds']) timed(acronym.adversarial[key], 'CVE-2026-67991 ' + key);
+  const think = t['CVE-2026-67987'];
+  equal(Object.keys(think).sort(), ['adversarial', 'official_examples', 'ordinary_cases', 'stream_cases',
+    'unchanged_shapes'], 'CVE-2026-67987 proof shape');
+  assert.equal(think.ordinary_cases, 5000);
+  assert.equal(think.stream_cases, 2000);
+  assert.equal(think.official_examples, 4);
+  assert.equal(think.unchanged_shapes, 3);
+  equal(Object.keys(think.adversarial).sort(), ['accumulator_seconds', 'scanner_seconds', 'timeout_seconds', 'unclosed_tags']);
+  assert.equal(think.adversarial.unclosed_tags, 50000);
+  assert.equal(think.adversarial.timeout_seconds, 2);
+  for (const key of ['scanner_seconds', 'accumulator_seconds']) timed(think.adversarial[key], 'CVE-2026-67987 ' + key);
+  const voxtral = t['CVE-2026-67989'];
+  equal(Object.keys(voxtral).sort(), ['adversarial', 'model_catalog_ids', 'official_examples', 'ordinary_cases'],
+    'CVE-2026-67989 proof shape');
+  assert.equal(voxtral.ordinary_cases, 20072);
+  assert.equal(voxtral.model_catalog_ids, 72);
+  assert.equal(voxtral.official_examples, 7);
+  equal(Object.keys(voxtral.adversarial).sort(), ['capabilities_seconds', 'timeout_seconds', 'voxtral_repeats']);
+  assert.equal(voxtral.adversarial.voxtral_repeats, 50000);
+  assert.equal(voxtral.adversarial.timeout_seconds, 2);
+  timed(voxtral.adversarial.capabilities_seconds, 'CVE-2026-67989 capabilities_seconds');
 }
 
 export function validateBinding(sbom, context, imageInspect) {
@@ -140,7 +196,7 @@ export function validateDatabase(db, context) {
 }
 
 export function validateRawReport(report, exitStatus) {
-  assert.equal(exitStatus, 1, 'raw scanner must have the one expected HIGH and exit 1');
+  assert.equal(exitStatus, 1, 'raw scanner must have the three expected HIGH findings and exit 1');
   assert.equal(report.SchemaVersion, 2);
   assert.equal(report.Metadata.OS.Family, 'alpine');
   assert.equal(report.Metadata.OS.Name, '3.21.3');
@@ -151,36 +207,40 @@ export function validateRawReport(report, exitStatus) {
   }
   assert.equal(results.flatMap(r => r.ExperimentalModifiedFindings || []).length, 0, 'no prefiltered findings');
   const rows = results.flatMap(r => (r.Vulnerabilities || []).map(f => ({ result: r, finding: f })));
-  const { result, finding } = one(rows, 'exactly one raw HIGH/CRITICAL finding');
-  assert.equal(result.Class, 'lang-pkgs');
-  assert.equal(finding.VulnerabilityID, CVE); assert.equal(finding.Severity, 'HIGH');
-  assert.equal(finding.PkgName, 'ruby_llm'); assert.equal(finding.InstalledVersion, '1.15.0');
-  assert.equal(finding.FixedVersion, '>= 2.0.0.rc1');
-  assert.equal(finding.PkgIdentifier?.PURL, GEM_PURL);
-  // Syft's no-file-metadata SPDX can omit PkgPath. If present it must be the verified installed spec.
-  assert.ok(finding.PkgPath === undefined || finding.PkgPath === '' ||
-    finding.PkgPath.replace(/^\//, '') === SPEC_PATH.slice(1), 'unexpected affected package path');
+  assert.equal(rows.length, CVES.length, 'exactly three raw HIGH/CRITICAL findings');
+  equal(rows.map(row => row.finding.VulnerabilityID).sort(), CVES, 'exactly the reviewed advisories, once each');
   const instances = results.flatMap(r => (r.Packages || []).filter(p => p.Name === 'ruby_llm'));
   const pkg = one(instances, 'one scanned ruby_llm instance');
   assert.equal(pkg.Version, '1.15.0'); assert.equal(pkg.Identifier?.PURL, GEM_PURL);
-  assert.ok(pkg.Identifier.UID && pkg.Identifier.UID === finding.PkgIdentifier.UID, 'finding refers to inventoried gem');
   if (pkg.FilePath) assert.equal(pkg.FilePath.replace(/^\//, ''), SPEC_PATH.slice(1));
-  return { target: result.Target, type: result.Type, finding };
+  return CVES.map(id => {
+    const { result, finding } = one(rows.filter(row => row.finding.VulnerabilityID === id), 'one raw finding for ' + id);
+    assert.equal(result.Class, 'lang-pkgs');
+    assert.equal(finding.Severity, 'HIGH');
+    assert.equal(finding.PkgName, 'ruby_llm'); assert.equal(finding.InstalledVersion, '1.15.0');
+    assert.equal(finding.FixedVersion, '>= 2.0.0.rc1');
+    assert.equal(finding.PkgIdentifier?.PURL, GEM_PURL);
+    // Syft's no-file-metadata SPDX can omit PkgPath. If present it must be the verified installed spec.
+    assert.ok(finding.PkgPath === undefined || finding.PkgPath === '' ||
+      finding.PkgPath.replace(/^\//, '') === SPEC_PATH.slice(1), 'unexpected affected package path');
+    assert.ok(pkg.Identifier.UID && pkg.Identifier.UID === finding.PkgIdentifier.UID, 'finding refers to inventoried gem');
+    return { target: result.Target, type: result.Type, finding };
+  });
 }
 
 export function makeVex(binding, context, preparedSha) {
   return { '@context': VEX_TYPE,
-    '@id': 'https://toybaco.jp/security/vex/' + context.image_digest.slice(7) + '/' + CVE,
+    '@id': 'https://toybaco.jp/security/vex/' + context.image_digest.slice(7) + '/ruby_llm-1.15.0',
     author: 'https://github.com/Cyber-relations', role: 'Product Security',
-    timestamp: context.issued_at, version: 1, statements: [{
-      vulnerability: { name: CVE },
+    timestamp: context.issued_at, version: 1, statements: CVES.map(id => ({
+      vulnerability: { name: id },
       products: [{ '@id': binding.root_purl,
         hashes: { 'sha-256': context.image_digest.slice(7) },
         subcomponents: [{ '@id': GEM_PURL }] }],
       status: 'fixed',
-      status_notes: 'Official algorithm backport ' + FIX + '; exact-image proof SHA256 ' + hash(preparedSha) +
+      status_notes: 'Official fix backport ' + FIXES[id] + '; exact-image proof SHA256 ' + hash(preparedSha) +
         '. ruby_llm remains 1.15.0; raw scanner still reports the version-based finding.',
-    }] };
+    })) };
 }
 export function validateVex(vex, binding, context, preparedSha) {
   equal(vex, makeVex(binding, context, preparedSha), 'only generated exact-artifact fixed VEX accepted');
@@ -242,19 +302,19 @@ export function evaluate(input) {
   const binding = validateBinding(sbom, context, imageInspect);
   validateDatabase(before, context);
   equal(before, after, 'frozen database unchanged through raw scan');
-  const finding = validateRawReport(raw, rawExit);
+  const findings = validateRawReport(raw, rawExit);
   for (const value of Object.values(hashes)) hash(value);
   const vex = makeVex(binding, context, hashes.installed_proof);
   const classification = {
     schema_version: 1, result: 'PASS',
-    policy: 'toybaco-ruby-llm-1.15.0-source-backport-v1',
+    policy: 'toybaco-ruby-llm-1.15.0-source-backport-v2',
     evaluator: 'scripts/verify-chatwoot-ruby-llm-classification.mjs',
     evaluation_kind: 'independent_source_backport_classification',
     scanner_vex_filtering: false,
     image: { name: IMAGE, digest: context.image_digest },
     source: { commit: context.source_commit, ref: context.source_ref, control_sha256: context.control_sha256 },
     timestamp: context.issued_at,
-    counts: { raw_critical: 0, raw_high: 1, source_verified_fixed: 1, unresolved_critical: 0, unresolved_high: 0 },
+    counts: { raw_critical: 0, raw_high: 3, source_verified_fixed: 3, unresolved_critical: 0, unresolved_high: 0 },
     bindings: { ...binding, ...hashes, patch_config: configSha },
     scanner: { image: TRIVY, exit_status: rawExit, arguments: [
       '--config', '/dev/null', 'sbom', '--scanners', 'vuln', '--pkg-types', 'os,library',
@@ -262,8 +322,8 @@ export function evaluate(input) {
       '--exit-code', '1', '--list-all-pkgs', '--skip-db-update', '--skip-java-db-update', '--offline-scan',
     ], database: before },
     installed_source_proof: proof,
-    evaluated_findings: [{ status: 'fixed', basis: 'verified_official_algorithm_backport',
-      upstream_fix_commit: FIX, ...finding }],
+    evaluated_findings: findings.map(finding => ({ status: 'fixed', basis: 'verified_official_fix_backport',
+      upstream_fix_commit: FIXES[finding.finding.VulnerabilityID], ...finding })),
     unresolved_findings: [],
     raw_report: raw,
     openvex: vex,
@@ -313,7 +373,7 @@ function main() {
     const result = recompute();
     writeExclusive(join(dir, 'openvex.json'), result.vex);
     writeExclusive(join(dir, 'source-backport-classification.json'), result.classification);
-    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=0 RAW_HIGH=1 SOURCE_VERIFIED_FIXED=1 UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
+    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=0 RAW_HIGH=3 SOURCE_VERIFIED_FIXED=3 UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
     return;
   }
   if (mode === 'verify-attestations') {

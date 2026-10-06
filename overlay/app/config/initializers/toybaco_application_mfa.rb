@@ -5,6 +5,7 @@ Rails.application.config.to_prepare do
   Toybaco::Oidc::SessionReader.singleton_class.prepend(Toybaco::Security::ApplicationMfaSession::ReaderValidation)
   Mfa::AuthenticationService.prepend(Toybaco::Security::ApplicationMfaSession::SingleUseVerification)
   DeviseOverrides::SessionsController.prepend(Toybaco::Security::ApplicationMfaLogin)
+  Api::V1::Profile::MfaController.prepend(Toybaco::Security::ProfileMfaManagement)
 end
 
 # One line per boot makes a mistyped TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS visible; invalid values never raise.

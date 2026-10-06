@@ -231,10 +231,160 @@ class ChatwootBrandInjectorTest < Minitest::Test
     refute_match(/\.toybaco-command-footer[^}]*display:\s*none/m, source)
   end
 
+  # S0-2(2026-10-06): トイバコ独自の画面は --toybaco-* トークンだけで色を書く。SPA の中は .dark に従う。
+  # 単独画面は <html data-toybaco-theme="system"> で OS の設定に従い、ご契約内容の iframe で開く画面は親のテーマ
+  # (dark / light)を受け取る。どちらのダークも .dark と同じ値にする。ブランドの CSS は画面自身で読み込む
+  # (エラー応答には差し込みが無い)。
+  STANDALONE_PAGES = %w[
+    toybaco/billing/show toybaco/checkout/confirm toybaco/checkout/error toybaco/growth/held toybaco/growth/inbox_release
+    toybaco/growth/posting_release toybaco/growth/retention toybaco/growth/purchase toybaco/growth/packs toybaco/growth/trial
+    toybaco/connections/handoff_owner toybaco/connections/handoff_portal toybaco/managed_auto/show
+    toybaco/free_registrations/show toybaco/free_registrations/verify_email layouts/toybaco_mfa_enrollment
+  ].map { |name| "app/views/#{name}.html.erb" }.freeze
+  FRAMED_PAGES = %w[billing/show growth/held growth/inbox_release growth/posting_release growth/retention]
+                 .map { |name| "app/views/toybaco/#{name}.html.erb" }.freeze
+  TOKEN_SHEETS = %w[
+    public/brand-assets/toybaco-pointer-guide.css public/brand-assets/toybaco-managed-auto.css
+    public/brand-assets/toybaco-growth-purchase.css public/brand-assets/toybaco-growth-trial.css
+    public/brand-assets/toybaco-free-signup.css public/brand-assets/toybaco-connection-handoff.css
+    public/brand-assets/toybaco-help.css
+    app/javascript/dashboard/routes/dashboard/onboarding/ToybacoStart.vue
+    app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue
+  ].freeze
+  COLOR_LITERAL = /#\h{3,8}\b|rgba?\(|:\s*white\b|color-scheme:\s*light/i
+  BRAND_ASSET_URL = %r{/(brand-assets/[\w.-]+\.(?:css|js|mjs)|toybaco-brand\.css|toybaco-superadmin\.css)(?:\?v=(\h{64}))?}
+  DARK_BLOCK = /^\.dark,\n\[data-toybaco-theme="dark"\] \{([^}]*)\}/
+  LIGHT_BLOCK = /^:root \{([^}]*)\}/
+
+  def test_dark_tokens_are_the_same_for_the_dashboard_the_parent_theme_and_the_os_setting
+    css = brand_css
+    refute_match(/^\.dark \{/, css, 'every dashboard dark block also answers data-toybaco-theme="dark"')
+    assert_equal(2, css.scan(DARK_BLOCK).length)
+    assert_includes(css, %([data-toybaco-theme="dark"] {\n  color-scheme: dark;\n}))
+    system = css[/@media \(prefers-color-scheme: dark\) \{\s*\[data-toybaco-theme="system"\] \{([^}]*)\}/, 1]
+    refute_nil(system, 'the OS dark block exists and is scoped to standalone pages')
+    assert_match(/color-scheme: dark;/, system)
+    assert_equal(theme_tokens(DARK_BLOCK), toybaco_tokens(system))
+    refute_match(/@media \(prefers-color-scheme: dark\) \{\s*:root/, css, 'the SPA keeps its own light/dark choice')
+    light = theme_tokens(LIGHT_BLOCK)
+    theme_tokens(DARK_BLOCK).each_key { |name| assert(light[name], "#{name} has a light value") }
+  end
+
+  # Grok 指摘(2026-10-06): ダークの主ボタンの面が周りに沈み、区切り線とホバーが見分けにくかった。
+  def test_buttons_lines_and_hover_keep_the_reviewed_contrast_in_both_themes
+    [theme_tokens(LIGHT_BLOCK), theme_tokens(DARK_BLOCK)].each do |tokens|
+      rgb = ->(name) { tokens.fetch(name).delete('#').scan(/../).map { |v| v.to_i(16) } }
+      %w[--toybaco-button --toybaco-button-hover].each do |face|
+        assert_operator(contrast(rgb.call('--toybaco-on-button'), rgb.call(face)), :>=, 4.5, "#{face} keeps its text readable")
+        %w[--toybaco-card --toybaco-surface --toybaco-offwhite].each do |ground|
+          assert_operator(contrast(rgb.call(face), rgb.call(ground)), :>=, 3, "#{face} stands out on #{ground}")
+        end
+      end
+      assert_operator(contrast(rgb.call('--toybaco-button'), rgb.call('--toybaco-button-hover')), :>=, 1.1, 'primary hover differs from rest')
+      assert_operator(contrast(rgb.call('--toybaco-wash-strong'), rgb.call('--toybaco-wash')), :>=, 1.15, 'secondary hover differs from rest')
+      assert_operator(contrast(rgb.call('--toybaco-heading'), rgb.call('--toybaco-wash-strong')), :>=, 4.5)
+    end
+    dark = theme_tokens(DARK_BLOCK).transform_values { |value| value.delete('#').scan(/../).map { |v| v.to_i(16) } }
+    %w[--toybaco-card --toybaco-surface].each do |ground|
+      assert_operator(contrast(dark.fetch('--toybaco-hairline'), dark.fetch(ground)), :>=, 1.5, "dark cards are edged by the line on #{ground}")
+    end
+  end
+
+  def test_standalone_pages_load_the_brand_and_colour_their_own_styles_with_tokens
+    STANDALONE_PAGES.each do |path|
+      page = overlay_file(path)
+      theme = FRAMED_PAGES.include?(path) ? '<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>' : 'system'
+      assert_includes(page, %(<html lang="ja" data-toybaco-theme="#{theme}">), path)
+      assert_includes(page, %(<link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">), path)
+      styles = page.scan(%r{<style[^>]*>(.*?)</style>}m).flatten.join("\n")
+      refute_match(COLOR_LITERAL, styles, "#{path} colours its own styles with tokens")
+    end
+    # 同じ iframe の中でたどる導線はテーマを引き継ぐ(target="_top" で SPA の外へ出る導線は OS の設定に従う)。
+    FRAMED_PAGES.each do |path|
+      links = overlay_file(path).scan(/<a\b(?:<%.*?%>|[^<>])*>/m).grep(%r{href="/toybaco/}).grep_v(/target="_top"/)
+      refute_empty(links, path)
+      links.each { |link| assert_includes(link, '<%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>', "#{path}: #{link}") }
+    end
+    # ヘルプは静的な 200 応答なので、ブランドの CSS は差し込み(digest 付き)に任せ、画面では読み込まない。
+    help = overlay_file('public/toybaco-help.html')
+    assert_includes(help, '<html lang="ja" data-toybaco-theme="system">')
+    refute_includes(help, 'toybaco-brand.css')
+    TOKEN_SHEETS.each do |path|
+      source = overlay_file(path)
+      styles = path.end_with?('.vue') ? source[source.index('<style')..] : source
+      refute_match(COLOR_LITERAL, styles, "#{path} colours with tokens")
+    end
+  end
+
+  def test_standalone_page_helpers_version_assets_and_accept_only_the_dashboard_themes
+    script = File.join(overlay_root, 'public/brand-assets/toybaco-plan-change.js')
+    assert_equal("/brand-assets/toybaco-plan-change.js?v=#{Digest::SHA256.file(script).hexdigest}",
+                 Toybaco::BrandInjector.asset_path('brand-assets/toybaco-plan-change.js'))
+    assert_equal("/toybaco-brand.css?v=#{Toybaco::BrandInjector::BRAND_ASSET_DIGEST}", Toybaco::BrandInjector.asset_path('toybaco-brand.css'))
+    ['brand-assets/missing.css', '../config/routes.rb', '/etc/hosts', 'brand-assets'].each do |relative|
+      assert_raises(ArgumentError, relative) { Toybaco::BrandInjector.asset_path(relative) }
+    end
+    { 'dark' => 'dark', 'light' => 'light', 'system' => 'system', 'Dark' => 'system', 'sepia' => 'system', '' => 'system',
+      nil => 'system', ['dark'] => 'system', { 'dark' => '1' } => 'system' }.each do |given, expected|
+      assert_equal(expected, Toybaco::BrandInjector.page_theme(given), given.inspect)
+      assert_equal(expected == 'system' ? '' : "&theme=#{expected}", Toybaco::BrandInjector.theme_query(given), given.inspect)
+    end
+  end
+
+  # 再現可能 build はファイルの時刻を固定するので、版の無い URL は再検証しても古い内容のまま残る。ブランドの CSS・JS は、
+  # 単独画面(ERB)・SPA の部品・静的ページ・差し込みのどこからも、実ファイルの内容の digest を付けた URL で読む。
+  def test_every_brand_stylesheet_and_script_url_carries_the_digest_of_the_deployed_file
+    used = []
+    Dir[File.join(overlay_root, 'app/views/**/*.erb')].each do |file|
+      source = File.read(file)
+      refute_match(BRAND_ASSET_URL, source, "#{file} builds brand asset URLs with BrandInjector.asset_path")
+      used.concat(source.scan(/BrandInjector\.asset_path\('([^']+)'\)/).flatten)
+    end
+    assert_includes(used, 'toybaco-brand.css')
+    assert_includes(used, 'brand-assets/toybaco-plan-change.js')
+    used.uniq.each do |relative|
+      file = File.join(overlay_root, 'public', relative)
+      assert(File.file?(file), relative)
+      assert_equal("/#{relative}?v=#{Digest::SHA256.file(file).hexdigest}", Toybaco::BrandInjector.asset_path(relative))
+    end
+
+    sources = Dir[File.join(overlay_root, '{app/javascript,public}/**/*.{vue,js,mjs,html}')].to_h { |file| [file, File.read(file)] }
+    %w[/app/accounts/1/dashboard /super_admin/settings].each { |path| sources[path] = response(path: path)[2].join }
+    found = []
+    sources.each do |name, source|
+      source.scan(BRAND_ASSET_URL) do |relative, digest|
+        found << relative
+        file = File.join(overlay_root, 'public', relative)
+        assert(File.file?(file), "#{name}: #{relative}")
+        assert_equal(Digest::SHA256.file(file).hexdigest, digest, "#{name}: #{relative} needs ?v=<sha256 of the deployed file>")
+      end
+    end
+    %w[toybaco-brand.css toybaco-superadmin.css brand-assets/toybaco-post-entry.js brand-assets/toybaco-agent-seat.js
+       brand-assets/toybaco-pointer-guide.mjs brand-assets/toybaco-pointer-guide.css brand-assets/toybaco-help.css].each do |relative|
+      assert_includes(found, relative)
+    end
+  end
+
   private
 
   def brand_css
     File.read(File.expand_path('../overlay/app/public/toybaco-brand.css', __dir__))
+  end
+
+  def overlay_root
+    File.expand_path('../overlay/app', __dir__)
+  end
+
+  def overlay_file(path)
+    File.read(File.join(overlay_root, path))
+  end
+
+  def toybaco_tokens(block)
+    block.scan(/(--toybaco-[a-z-]+):\s*([^;]+);/).to_h { |name, value| [name, value.strip] }
+  end
+
+  def theme_tokens(pattern)
+    brand_css.scan(pattern).flatten.map { |block| toybaco_tokens(block) }.reduce({}, :merge)
   end
 
   def bubble_rule(selector)

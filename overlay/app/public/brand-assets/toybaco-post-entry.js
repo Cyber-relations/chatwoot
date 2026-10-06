@@ -65,8 +65,10 @@
   var AI_MODE_LABELS = {};
   AI_MODE_LABELS[AI_MODE_AUTO] = '全自動';
   AI_MODE_LABELS[AI_MODE_DRAFT] = '下書き';
-  var AI_NAV_LABEL = 'AI応答';
+  var AI_NAV_LABEL = 'AI返信';
   var AI_MODE_TIMEOUT_MS = 10000;
+  // 返信欄の上の1行は、いま開いている会話の窓口で AI が実際にすること(オフ・下書き・自動)だけを示す。
+  var AI_INBOX_LABELS = { off: 'オフ', draft: '下書き', auto: '自動' };
   // 自動応答が契約に含まれない新料金の店舗(無料プラン・ライト)の体験は、トイバコで接続したメール受信箱だけで動く。
   // 開放済みのメール接続(利用状況の trial_connections)が無ければ審査を待つ案内のまま、あれば開放済みの名前だけを書く。
   var AI_TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
@@ -77,6 +79,13 @@
   var aiModeAccount = null;
   var aiReadinessStates = {};
   var aiReadinessInflight = {};
+  var aiInboxStates = {};
+  var aiInboxInflight = {};
+  var aiInboxShown = '';
+  var aiInboxSeq = 0;
+  // 同じ会話に留まったまま画面へ戻ったときは、前回の読み取りからこの時間が経っていれば読み直す。
+  var AI_INBOX_STALE_MS = 30000;
+  var aiInboxReadAt = 0;
   var aiUsageStates = {};
   var aiUsageInflight = {};
   var aiUsageRetake = {};
@@ -2002,11 +2011,11 @@
 
   function appendReplyAiGuide(host) {
     host.appendChild(auxiliaryText('h2', '問い合わせ返信'));
-    host.appendChild(auxiliaryText('p', '問い合わせへの返信を、下書き・自動応答で支援します。'));
+    host.appendChild(auxiliaryText('p', '問い合わせへの返信を、AI返信が下書き・全自動で手伝います。'));
     var actions = document.createElement('div');
     actions.setAttribute('data-toybaco-aux-actions', '1');
     actions.setAttribute('data-toybaco-reply-ai-actions', '1');
-    actions.appendChild(auxiliaryButton('返信AIの設定を確認', function () { openAiModePanel(); }, true));
+    actions.appendChild(auxiliaryButton('AI返信の設定を確認', function () { openAiModePanel(); }, true));
     actions.appendChild(auxiliaryButton('会話を開く', function () { navigatePrimaryNav('inbox'); }));
     host.appendChild(actions);
     var status = document.createElement('div');
@@ -2015,7 +2024,7 @@
     appendAiUsage(host);
     var guide = auxiliarySteps([
       'AIを割り当てた受信箱に、新しい問い合わせが届くと開始します。AI対応中の会話が対象で、担当者が対応を始めた会話では作成しません。',
-      '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「返信AIの設定を確認」で、現在のモードを確認できます。',
+      '下書きモードでは内部メモに文案が届き、全自動モードではAIがお客さまへ返信します。「AI返信の設定を確認」で、現在のモードを確認できます。',
       '下書きを使う場合は、会話内の「AI下書きを使う」で返信欄へ取り込み、内容と宛先を確認して送信します。'
     ]);
     var note = auxiliaryText('p', '', 'data-toybaco-aux-note');
@@ -2279,6 +2288,122 @@
     return aiReadinessInflight[id];
   }
 
+  // 窓口を決められるのは、URL に会話番号(display_id)がある会話の画面だけ。
+  function currentConversationId() {
+    var m = window.location.pathname.match(/\/app\/accounts\/\d+\/(?:[^?#]*\/)?conversations\/(\d+)(?:\/|$)/);
+    return m ? m[1] : null;
+  }
+
+  function aiInboxState(key) {
+    if (!aiInboxStates[key]) aiInboxStates[key] = { phase: 'idle', data: null };
+    return aiInboxStates[key];
+  }
+
+  // 会話を開くたび(切替・戻りを含む)に読み直す。同じ会話の再描画では読まない。
+  function syncComposerAiInbox() {
+    var accountId = currentAccountId();
+    var conversationId = currentConversationId();
+    var key = accountId && conversationId ? accountId + ':' + conversationId : '';
+    if (key !== aiInboxShown) {
+      aiInboxShown = key;
+      if (key && !aiInboxInflight[key]) aiInboxStates[key] = { phase: 'idle', data: null };
+      if (key) prefetchAiInboxStatus(accountId, conversationId, key);
+    }
+    paintComposerAiInbox();
+  }
+
+  function prefetchAiInboxStatus(accountId, conversationId, key) {
+    if (aiInboxInflight[key]) return aiInboxInflight[key];
+    var seq = aiInboxSeq;
+    aiInboxState(key).phase = window.fetch ? 'loading' : 'error';
+    if (!window.fetch) return Promise.resolve(null);
+    aiInboxReadAt = aiInboxNow();
+    aiInboxInflight[key] = requestAiJson('/toybaco/ai_readiness?account_id=' + encodeURIComponent(accountId) +
+      '&conversation_id=' + encodeURIComponent(conversationId), {
+      credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }
+    }, function (body) {
+      var inboxId = body && body.conversation_inbox_id;
+      var entry = body && Array.isArray(body.inboxes) ? body.inboxes.filter(function (item) {
+        return item && item.id === inboxId;
+      })[0] : null;
+      if (typeof inboxId !== 'number' || !entry || !Object.prototype.hasOwnProperty.call(AI_INBOX_LABELS, entry.status) ||
+        (entry.reason !== null && typeof entry.reason !== 'string') ||
+        (entry.quota_used !== undefined && typeof entry.quota_used !== 'boolean')) throw new Error('invalid inbox status');
+      return { status: entry.status, reason: entry.reason || '', quotaUsed: entry.quota_used === true };
+    }).then(function (status) {
+      // 読み直しを始めた後に届いた、それより前の読み取りの答えは使わない。答えはその時点の状態へ書く。
+      if (seq !== aiInboxSeq) return null;
+      delete aiInboxInflight[key];
+      var state = aiInboxState(key);
+      state.phase = 'ready';
+      state.data = status;
+      paintComposerAiInbox();
+      return status;
+    }).catch(function () {
+      if (seq !== aiInboxSeq) return null;
+      delete aiInboxInflight[key];
+      var state = aiInboxState(key);
+      state.phase = 'error';
+      state.data = null;
+      paintComposerAiInbox();
+      return null;
+    });
+    return aiInboxInflight[key];
+  }
+
+  // 店舗全体の送り方の保存・店舗情報の保存・設定パネルの再確認(運営管理の自動応答の変化を含む)のあとは、
+  // 開いている会話の1行を読み直す。
+  function refreshComposerAiInbox(accountId) {
+    if (String(accountId) !== String(currentAccountId())) return;
+    aiInboxSeq += 1;
+    aiInboxStates = {};
+    aiInboxInflight = {};
+    aiInboxShown = '';
+    syncComposerAiInbox();
+  }
+
+  function aiInboxNow() {
+    return window.performance && typeof window.performance.now === 'function' ? window.performance.now() : Date.now();
+  }
+
+  // 画面へ戻ったとき(表示・フォーカス)は、読み取り中でなく前回から 30 秒以上経っていれば読み直す。
+  function refreshComposerAiInboxIfStale() {
+    if (!aiInboxShown || aiInboxInflight[aiInboxShown]) return;
+    if (aiInboxNow() - aiInboxReadAt < AI_INBOX_STALE_MS) return;
+    refreshComposerAiInbox(currentAccountId());
+  }
+
+  function composerAiInboxStatus() {
+    var state = aiInboxShown ? aiInboxState(aiInboxShown) : { phase: 'error' };
+    if (state.phase === 'ready') {
+      // 今月の枠を使い切ったら、理由が隠れる狭い幅でも止まっていると分かるよう、1行そのものを「停止中」にする。
+      if (state.data.quotaUsed) return { state: 'exhausted', text: 'この窓口：AI返信 停止中（今月の枠なし）', reason: state.data.reason };
+      return { state: state.data.status, text: 'この窓口：AI返信 ' + AI_INBOX_LABELS[state.data.status], reason: state.data.reason };
+    }
+    if (state.phase === 'error') return { state: 'unknown', text: 'この窓口：状態を確認できません', reason: '' };
+    return { state: 'checking', text: 'この窓口：確認しています…', reason: '' };
+  }
+
+  function paintComposerAiInbox() {
+    var status = composerAiInboxStatus();
+    try {
+      var pills = document.querySelectorAll('[data-toybaco-ai-inbox-pill]');
+      var i;
+      for (i = 0; i < pills.length; i += 1) {
+        // 同じ文面を書き直してMutationObserverを再起動しない。
+        if (pills[i].textContent !== status.text) pills[i].textContent = status.text;
+        if (pills[i].getAttribute('data-toybaco-ai-inbox-state') !== status.state) {
+          pills[i].setAttribute('data-toybaco-ai-inbox-state', status.state);
+        }
+      }
+      var reasons = document.querySelectorAll('[data-toybaco-ai-inbox-reason]');
+      for (i = 0; i < reasons.length; i += 1) {
+        if (reasons[i].textContent !== status.reason) reasons[i].textContent = status.reason;
+        if (reasons[i].hidden !== !status.reason) reasons[i].hidden = !status.reason;
+      }
+    } catch (e) { /* 表示できなくても返信欄は壊さない */ }
+  }
+
   function aiModeUrl(accountId) {
     if (!accountId || !/^\d+$/.test(String(accountId))) return '';
     return '/toybaco/ai_reply_mode?account_id=' + encodeURIComponent(accountId);
@@ -2293,34 +2418,6 @@
     // 他店舗の遅れて届いた応答で、今開いている店舗の選択を変えない。
     if (accountId === currentAccountId()) paintAiModeControls();
     return next;
-  }
-
-  function aiModeCompactStatus(state, readiness, usage) {
-    var access = usage.phase === 'ready' ? usage.data : null;
-    var connection = readiness.phase === 'ready' ? readiness.data.connection : null;
-    // 保存済みのモードより、現在わかっている利用不可・未確認を優先する。
-    if (access && !access.enabled) {
-      if (access.reason === 'disabled') return { state: 'unavailable', text: 'AI：利用できません' };
-      if (access.reason === 'account_inactive') return { state: 'unavailable', text: 'AI：利用停止中' };
-      return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
-    }
-    if (connection === 'unconnected') return { state: 'unconnected', text: 'AI：未接続' };
-    if (access && access.remaining === 0) return { state: 'limited', text: 'AI：残り枠なし' };
-    if (access && access.meter === 'business_generation' && !access.automatic_enabled && state.mode === AI_MODE_AUTO) {
-      return { state: 'unavailable', text: 'AI：自動応答を確認' };
-    }
-    if (usage.phase === 'error') return { state: 'unconfirmed', text: 'AI：利用条件を確認' };
-    if (readiness.phase === 'error' || connection === 'unknown') {
-      return { state: 'unconfirmed', text: 'AI：接続を確認' };
-    }
-    if (state.phase === 'error' || (state.phase === 'ready' && !normalizeAiMode(state.mode))) {
-      return { state: 'unconfirmed', text: 'AI：設定を確認' };
-    }
-    if (state.phase === 'saving') return { state: 'saving', text: 'AI：変更中' };
-    if (state.phase !== 'ready' || readiness.phase !== 'ready' || usage.phase !== 'ready') {
-      return { state: 'checking', text: 'AI：確認中' };
-    }
-    return { state: 'configured', text: 'AI：' + aiModeLabel(state.mode) };
   }
 
   function paintAiModeControls() {
@@ -2340,22 +2437,21 @@
         text += '（この店舗では利用できません）';
       }
     }
-    var connectionText = 'AI応答の接続状態を確認できません。再確認してください。';
-    if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI応答の接続設定を確認しています…';
-    else if (connection === 'unconnected') connectionText = 'AI応答は未接続です。担当者が返信してください。';
+    var connectionText = 'AI返信の接続状態を確認できません。再確認してください。';
+    if (readiness.phase === 'loading' || readiness.phase === 'idle') connectionText = 'AI返信の接続設定を確認しています…';
+    else if (connection === 'unconnected') connectionText = 'AI返信は未接続です。担当者が返信してください。';
     else if (connection === 'configured') connectionText = '接続設定あり（受信箱 ' + readiness.data.configured_inboxes +
-      ' / ' + readiness.data.total_inboxes + ' 件）。利用可否・残り枠は「AI応答」の設定で確認できます。';
-    if (usage.phase === 'loading' || usage.phase === 'idle') connectionText = 'AI応答の利用条件を確認しています…';
-    else if (usage.phase === 'error') connectionText = 'AI応答の利用条件を取得できませんでした。再確認してください。';
+      ' / ' + readiness.data.total_inboxes + ' 件）。利用可否・残り枠は「AI返信」の設定で確認できます。';
+    if (usage.phase === 'loading' || usage.phase === 'idle') connectionText = 'AI返信の利用条件を確認しています…';
+    else if (usage.phase === 'error') connectionText = 'AI返信の利用条件を取得できませんでした。再確認してください。';
     else if (!usage.data.enabled) connectionText = aiUsageAccessMessage(usage.data);
     else if (usage.data.remaining === 0) connectionText = aiUsageAccessMessage(usage.data) + ' ' + connectionText;
-    // 自動応答の条件(店舗情報・契約)は、AI応答が接続済みと確認できてから伝える。未接続・確認中・確認できない
+    // 自動応答の条件(店舗情報・契約)は、AI返信が接続済みと確認できてから伝える。未接続・確認中・確認できない
     // ときは接続の状態を先に出す(簡易表示の「AI：未接続」と同じ順)。
     else if (usage.data.meter === 'business_generation' && !usage.data.automatic_enabled && connection === 'configured') {
-      connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると自動応答を設定できます。' + aiTrialInboxNote(usage) :
+      connectionText = usage.data.automatic_reason === 'facts_required' ? '店舗情報を確認すると、AI返信を全自動にできます。' + aiTrialInboxNote(usage) :
         '自動応答の契約・体験・残り枠を確認してください。' + aiTrialInboxNote(usage) + '下書きは利用できます。';
     }
-    var compactStatus = aiModeCompactStatus(state, readiness, usage);
     try {
       var buttons = document.querySelectorAll('[data-toybaco-ai-mode]');
       var i;
@@ -2385,13 +2481,6 @@
       for (i = 0; i < connections.length; i += 1) {
         var displayedConnection = connections[i].parentElement && connections[i].parentElement.getAttribute('data-toybaco-ai-hub-status') === '1' && connection === 'configured' && usage.phase === 'ready' && usage.data.enabled && usage.data.remaining !== 0 ? 'AIを割り当てた受信箱：' + readiness.data.configured_inboxes + ' / ' + readiness.data.total_inboxes + ' 件' : connectionText;
         if (connections[i].textContent !== displayedConnection) connections[i].textContent = displayedConnection;
-      }
-      var summaries = document.querySelectorAll('[data-toybaco-ai-compact-status]');
-      for (i = 0; i < summaries.length; i += 1) {
-        if (summaries[i].textContent !== compactStatus.text) summaries[i].textContent = compactStatus.text;
-        if (summaries[i].getAttribute('data-toybaco-ai-compact-state') !== compactStatus.state) {
-          summaries[i].setAttribute('data-toybaco-ai-compact-state', compactStatus.state);
-        }
       }
       var managedLinks = document.querySelectorAll('[data-toybaco-managed-auto-link]');
       for (i = 0; i < managedLinks.length; i += 1) {
@@ -2484,9 +2573,9 @@
   }
 
   function aiUsageAccessMessage(data) {
-    if (data.reason === 'unknown_contract') return 'AI応答の利用条件を確認できません。契約者にご確認ください。';
-    if (data.reason === 'account_inactive') return '現在、この店舗のAI応答はご利用いただけません。契約者にご確認ください。';
-    if (data.reason === 'disabled') return 'この店舗ではAI応答をご利用いただけません。契約者にご確認ください。';
+    if (data.reason === 'unknown_contract') return 'AI返信の利用条件を確認できません。契約者にご確認ください。';
+    if (data.reason === 'account_inactive') return '現在、この店舗のAI返信はご利用いただけません。契約者にご確認ください。';
+    if (data.reason === 'disabled') return 'この店舗ではAI返信をご利用いただけません。契約者にご確認ください。';
     if (data.remaining === 0) return '現在、利用できる残り枠がありません。';
     return '';
   }
@@ -2531,7 +2620,7 @@
     card.setAttribute('data-toybaco-ai-usage-state', state.phase === 'error' ? 'error' :
       (data && (!active || data.remaining === 0) ? 'limited' : state.phase));
     var heading = card.querySelector('[data-toybaco-ai-usage-heading]');
-    heading.textContent = active ? (data.meter === 'business_generation' ? '現在の共通AI枠' : data.period.slice(0, 4) + '年' + Number(data.period.slice(5)) + '月のAI応答') : 'AI応答の利用状況';
+    heading.textContent = active ? (data.meter === 'business_generation' ? '現在の共通AI枠' : data.period.slice(0, 4) + '年' + Number(data.period.slice(5)) + '月のAI返信') : 'AI返信の利用状況';
     var value = card.querySelector('[data-toybaco-ai-usage-value]');
     value.textContent = active ? data.used.toLocaleString('ja-JP') +
       (data.limit === null ? ' 件利用済み' : ' / ' + data.limit.toLocaleString('ja-JP') + ' 件') : '';
@@ -2614,7 +2703,7 @@
     var card = document.createElement('section');
     card.setAttribute('data-toybaco-ai-usage', '1');
     card.setAttribute('data-account', currentAccountId());
-    card.setAttribute('aria-label', 'AI応答の利用状況');
+    card.setAttribute('aria-label', 'AI返信の利用状況');
     var head = document.createElement('div');
     head.setAttribute('data-toybaco-ai-usage-head', '1');
     var title = document.createElement('strong');
@@ -2623,7 +2712,7 @@
     var refresh = document.createElement('button');
     refresh.type = 'button';
     refresh.setAttribute('data-toybaco-ai-usage-refresh', '1');
-    refresh.setAttribute('aria-label', 'AI応答の利用状況を更新');
+    refresh.setAttribute('aria-label', 'AI返信の利用状況を更新');
     refresh.addEventListener('click', function () {
       if (refresh.getAttribute('aria-disabled') === 'true') return;
       prefetchAiUsage(currentAccountId(), true);
@@ -2639,7 +2728,7 @@
     var meter = document.createElement('div');
     meter.setAttribute('data-toybaco-ai-usage-meter', '1');
     meter.setAttribute('role', 'progressbar');
-    meter.setAttribute('aria-label', 'AI応答の利用枠');
+    meter.setAttribute('aria-label', 'AI返信の利用枠');
     ['used', 'reserved'].forEach(function (name) {
       var fill = document.createElement('span');
       fill.setAttribute('data-toybaco-ai-usage-' + name, '1');
@@ -2663,6 +2752,7 @@
     var state = aiModeState(id);
     // DOMの描画ごとにGETを繰り返さず、店舗切替・設定を開く・再確認で更新する。
     if (!force && state.phase !== 'idle') { prefetchAiUsage(id); return Promise.resolve(null); }
+    if (force) refreshComposerAiInbox(id);
     state.mode = null;
     state.phase = window.fetch ? 'loading' : 'error';
     state.message = recoveredMessage ? '保存結果を確認しています…' : '';
@@ -2710,10 +2800,11 @@
     }).then(function (body) {
       delete aiModeInflight[id];
       applyAiMode(id, body.mode);
+      refreshComposerAiInbox(id);
       return body;
     }).catch(function () {
       delete aiModeInflight[id];
-      // 通信が途切れてもサーバー側は保存済みの可能性がある。推測で戻さず読戻す。
+      // 通信が途切れてもサーバー側は保存済みの可能性がある。推測で戻さず読戻す(会話の1行もそこで読み直す)。
       return prefetchAiMode(id, true, true);
     });
     return aiModeInflight[id];
@@ -2764,6 +2855,213 @@
     return found;
   }
 
+  // 会話 0 件の案内(S0-2)。upstream の空の一覧(ChatList の「このグループには有効な会話データがありません」)の下に出す。
+  // 出すかどうかはサーバーの値だけで決める: /toybaco/ai_readiness の administrator(所属の役割)と、管理者にだけ返る
+  // conversation_total(店舗全体の会話数)。担当者の会話一覧や conversations/meta の件数は所属する受信箱に絞られるので使わない。
+  // 空の文が出ている間は、60 秒ごと(画面が隠れている間は除く)・一覧に行が増えたとき・画面に戻ったとき(前回から 30 秒以上)に
+  // 読み直し、0 件でなくなったら消す。読めなかったとき(403・通信断・形の違い)は出さず、30 秒後の次の機会に読み直す。
+  var EMPTY_LIST_TEXT = 'このグループには有効な会話データがありません';
+  var EMPTY_LIST_REFRESH_MS = 60000;
+  var EMPTY_LIST_STALE_MS = 30000;
+  var EMPTY_LIST_RETRY_MS = 30000;
+  // 一覧の書き換えが続いても読みすぎないよう、行が増えたときは前回から 5 秒以上空ける。
+  var EMPTY_LIST_ROWS_GAP_MS = 5000;
+  var emptyListStates = {};
+  var emptyListInflight = {};
+  var emptyListShown = null;
+  var emptyListWatch = null;
+
+  // 一覧が複数あるときは見えている方(offsetParent のある方)だけを見る。
+  function emptyConversationList() {
+    var lists = document.querySelectorAll('.conversations-list-wrap');
+    var i;
+    var j;
+    for (i = 0; i < lists.length; i += 1) {
+      if (lists[i].offsetParent === null) continue;
+      var texts = lists[i].querySelectorAll('p');
+      for (j = 0; j < texts.length; j += 1) {
+        if (String(texts[j].textContent || '').trim() === EMPTY_LIST_TEXT) return { list: lists[i], message: texts[j] };
+      }
+    }
+    return null;
+  }
+
+  function wholeCount(value) {
+    return typeof value === 'number' && isFinite(value) && value >= 0 && Math.floor(value) === value;
+  }
+
+  function prefetchEmptyListState(accountId) {
+    if (emptyListInflight[accountId]) return emptyListInflight[accountId];
+    // 読み直しの間は前の結果のまま出しておく(カードを点滅させない)。
+    var state = emptyListStates[accountId] || { phase: 'loading', admin: false, total: null, webInboxId: null, at: 0 };
+    emptyListStates[accountId] = state;
+    if (!window.fetch) {
+      state.phase = 'error';
+      state.at = aiInboxNow();
+      return Promise.resolve(null);
+    }
+    var options = { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } };
+    emptyListInflight[accountId] = requestAiJson('/toybaco/ai_readiness?account_id=' + encodeURIComponent(accountId), options, function (body) {
+      if (!body || typeof body.administrator !== 'boolean') throw new Error('invalid member');
+      if (body.administrator && !wholeCount(body.conversation_total)) throw new Error('invalid conversation total');
+      return { admin: body.administrator, total: wholeCount(body.conversation_total) ? body.conversation_total : null };
+    }).then(function (member) {
+      if (!member.admin || member.total !== 0) return { member: member, webInboxId: null };
+      // Webチャットの設置コードへのリンクだけに使う。読めなければリンクを出さない。
+      return requestAiJson('/api/v1/accounts/' + encodeURIComponent(accountId) + '/inboxes', {
+        credentials: 'same-origin', cache: 'no-store', headers: cannedFetchHeaders()
+      }, function (body) {
+        var list = body && Array.isArray(body.payload) ? body.payload : [];
+        var web = list.filter(function (inbox) {
+          return inbox && inbox.channel_type === 'Channel::WebWidget' && typeof inbox.id === 'number';
+        })[0];
+        return web ? web.id : null;
+      }).catch(function () { return null; }).then(function (webInboxId) {
+        return { member: member, webInboxId: webInboxId };
+      });
+    }).then(function (result) {
+      delete emptyListInflight[accountId];
+      if (emptyListStates[accountId] !== state) return null;
+      state.phase = 'ready';
+      state.admin = result.member.admin;
+      state.total = result.member.total;
+      state.webInboxId = result.webInboxId;
+      state.at = aiInboxNow();
+      syncEmptyConversationCard();
+      return state;
+    }).catch(function () {
+      delete emptyListInflight[accountId];
+      if (emptyListStates[accountId] === state) {
+        state.phase = 'error';
+        state.at = aiInboxNow();
+        syncEmptyConversationCard();
+      }
+      return null;
+    });
+    return emptyListInflight[accountId];
+  }
+
+  // 空の文が出ている間だけ読み直す。読み取り中は待つ。失敗の後は 30 秒、それ以外は minGap だけ前回から空ける。
+  // 担当者と分かっている間は読み直さない(カードは出ないので。空の文が出直したときに読む)。
+  function refreshEmptyConversationCount(minGap) {
+    if (!emptyListWatch) return;
+    var accountId = emptyListWatch.accountId;
+    if (emptyListInflight[accountId]) return;
+    var state = emptyListStates[accountId];
+    if (state && state.phase === 'ready' && !state.admin) return;
+    var gap = state && state.phase === 'error' ? EMPTY_LIST_RETRY_MS : minGap;
+    if (state && aiInboxNow() - state.at < gap) return;
+    prefetchEmptyListState(accountId);
+  }
+
+  // 一覧に行(要素)が増えたときだけ読み直す。この案内自身の出し入れは数えない。
+  function emptyListRowsAdded(records) {
+    if (!records || !records.length) return true;
+    var i;
+    var j;
+    for (i = 0; i < records.length; i += 1) {
+      var added = records[i].addedNodes || [];
+      for (j = 0; j < added.length; j += 1) {
+        var node = added[j];
+        if (node && node.nodeType === 1 && !(node.getAttribute && node.getAttribute('data-toybaco-empty-conversations'))) return true;
+      }
+    }
+    return false;
+  }
+
+  function watchEmptyList(accountId, list) {
+    if (emptyListWatch && emptyListWatch.accountId === accountId && emptyListWatch.list === list) return;
+    stopEmptyListWatch();
+    var watch = { accountId: accountId, list: list, timer: null, observer: null };
+    emptyListWatch = watch;
+    try {
+      watch.timer = setInterval(function () {
+        if (document.visibilityState !== 'hidden') refreshEmptyConversationCount(0);
+      }, EMPTY_LIST_REFRESH_MS);
+    } catch (e) { /* 他の機会に読み直す */ }
+    try {
+      watch.observer = new MutationObserver(function (records) {
+        if (emptyListRowsAdded(records)) refreshEmptyConversationCount(EMPTY_LIST_ROWS_GAP_MS);
+      });
+      watch.observer.observe(list, { childList: true, subtree: true });
+    } catch (e) { /* 見張れなくても 60 秒ごとと画面に戻ったときに読み直す */ }
+  }
+
+  function stopEmptyListWatch() {
+    if (!emptyListWatch) return;
+    if (emptyListWatch.timer) clearInterval(emptyListWatch.timer);
+    if (emptyListWatch.observer) emptyListWatch.observer.disconnect();
+    emptyListWatch = null;
+  }
+
+  function emptyListLink(label, href) {
+    var link = document.createElement('a');
+    link.href = href;
+    link.setAttribute('href', href);
+    link.textContent = label;
+    return link;
+  }
+
+  function buildEmptyConversationCard(accountId, state) {
+    var card = document.createElement('section');
+    card.setAttribute('data-toybaco-empty-conversations', '1');
+    card.setAttribute('data-account', accountId);
+    card.setAttribute('data-web-inbox', state.webInboxId ? String(state.webInboxId) : '');
+    card.setAttribute('aria-label', 'まだ会話はありません');
+    var title = document.createElement('h2');
+    title.textContent = 'まだ会話はありません';
+    card.appendChild(title);
+    var body = document.createElement('p');
+    body.textContent = '窓口をつなぐと、お客さまからのメッセージがここに届きます。';
+    card.appendChild(body);
+    var settings = '/app/accounts/' + accountId + '/settings/';
+    var links = document.createElement('div');
+    links.setAttribute('data-toybaco-empty-links', '1');
+    links.appendChild(emptyListLink('窓口をつなぐ', settings + 'inboxes/list'));
+    if (state.webInboxId) links.appendChild(emptyListLink('Webチャットの設置コードを見る', settings + 'inboxes/' + state.webInboxId));
+    links.appendChild(emptyListLink('スタッフを招待', settings + 'agents/list'));
+    card.appendChild(links);
+    return card;
+  }
+
+  function syncEmptyConversationCard() {
+    try {
+      var accountId = currentAccountId();
+      var id = accountId ? String(accountId) : '';
+      var found = id ? emptyConversationList() : null;
+      var card = document.querySelector('[data-toybaco-empty-conversations]');
+      if (!found) {
+        if (card) card.remove();
+        stopEmptyListWatch();
+        emptyListShown = null;
+        return;
+      }
+      // 空の一覧が出るたび(店舗を切り替えたときも)数え直す。
+      if (emptyListShown !== id) {
+        emptyListShown = id;
+        if (!emptyListInflight[id]) delete emptyListStates[id];
+      }
+      watchEmptyList(id, found.list);
+      var state = emptyListStates[id];
+      if (!state) {
+        // 前の店舗のカードを先に外してから読む。
+        if (card) card.remove();
+        prefetchEmptyListState(id);
+        return;
+      }
+      if (state.phase === 'error') refreshEmptyConversationCount(0);
+      if (state.phase !== 'ready' || state.admin !== true || state.total !== 0) {
+        if (card) card.remove();
+        return;
+      }
+      var web = state.webInboxId ? String(state.webInboxId) : '';
+      if (card && card.previousElementSibling === found.message && card.getAttribute('data-account') === id &&
+        card.getAttribute('data-web-inbox') === web) return;
+      if (card) card.remove();
+      found.message.parentElement.insertBefore(buildEmptyConversationCard(id, state), found.message.nextSibling);
+    } catch (e) { /* 案内を出せなくても一覧は壊さない */ }
+  }
+
   function ensureComposerAiBar() {
     try {
       var boxes = findReplyBoxes();
@@ -2777,44 +3075,26 @@
         }
         var bar = document.createElement('div');
         bar.setAttribute('data-toybaco-ai-mode-bar', '1');
-        var title = document.createElement('button');
-        title.type = 'button';
-        title.setAttribute('data-toybaco-ai-mode-h', '1');
-        title.setAttribute('data-' + AI_MARK, '1');
-        title.textContent = AI_NAV_LABEL;
-        bar.appendChild(title);
-        var guide = document.createElement('button'); guide.type = 'button';
-        guide.setAttribute('data-toybaco-aux-entry', 'ai'); guide.setAttribute('data-toybaco-aux-purpose', 'reply');
-        guide.setAttribute('data-toybaco-ai-guide', '1'); guide.textContent = '返信AIの使い方';
-        bar.appendChild(guide);
-        var scope = document.createElement('span');
-        scope.setAttribute('data-toybaco-ai-scope', '1');
-        scope.textContent = '店舗全体';
-        bar.appendChild(scope);
-        bar.appendChild(buildAiModeButton(AI_MODE_AUTO, 'chip'));
-        bar.appendChild(buildAiModeButton(AI_MODE_DRAFT, 'chip'));
-        appendAiModeStatus(bar);
-        var compact = document.createElement('div');
-        compact.setAttribute('data-toybaco-ai-compact', '1');
-        var summary = document.createElement('span');
-        summary.setAttribute('data-toybaco-ai-compact-status', '1');
-        summary.setAttribute('role', 'status');
-        summary.setAttribute('aria-live', 'polite');
-        compact.appendChild(summary);
+        var pill = document.createElement('span');
+        pill.setAttribute('data-toybaco-ai-inbox-pill', '1');
+        pill.setAttribute('role', 'status');
+        pill.setAttribute('aria-live', 'polite');
+        bar.appendChild(pill);
+        var reason = document.createElement('span');
+        reason.setAttribute('data-toybaco-ai-inbox-reason', '1');
+        reason.hidden = true;
+        bar.appendChild(reason);
+        // 店舗全体の送り方(全自動・下書き)は、ここから開く設定パネルだけで切り替える。
         var settings = document.createElement('button');
         settings.type = 'button';
-        settings.setAttribute('data-toybaco-ai-compact-settings', '1');
+        settings.setAttribute('data-toybaco-ai-inbox-settings', '1');
         settings.setAttribute('data-' + AI_MARK, '1');
         settings.setAttribute('aria-haspopup', 'dialog');
-        settings.setAttribute('aria-label', '店舗全体のAI応答設定を開く');
-        settings.textContent = '設定';
-        compact.appendChild(settings);
-        var compactGuide = document.createElement('button'); compactGuide.type = 'button'; compactGuide.textContent = '使い方';
-        compactGuide.setAttribute('data-toybaco-aux-entry', 'ai'); compactGuide.setAttribute('data-toybaco-aux-purpose', 'reply');
-        compactGuide.setAttribute('data-toybaco-ai-guide', '1'); compact.appendChild(compactGuide);
-        bar.appendChild(compact);
+        settings.textContent = 'AI返信の設定';
+        bar.appendChild(settings);
         box.parentElement.insertBefore(bar, box);
       }
+      syncComposerAiInbox();
       paintAiModeControls();
     } catch (e) { /* 返信欄の横に出せなくても受信箱は壊さない */ }
   }
@@ -2831,7 +3111,7 @@
       var wrapEl = document.createElement('div');
       wrapEl.setAttribute('data-toybaco-ai-mode-panel', '1');
       wrapEl.setAttribute('role', 'dialog');
-      wrapEl.setAttribute('aria-label', '店舗全体のAI応答設定');
+      wrapEl.setAttribute('aria-label', '店舗全体のAI返信設定');
       var head = document.createElement('div');
       head.setAttribute('data-toybaco-ai-mode-head', '1');
       var title = document.createElement('strong');
@@ -2844,7 +3124,7 @@
       head.appendChild(close);
       wrapEl.appendChild(head);
       var lead = document.createElement('p');
-      lead.textContent = 'この店舗全体で使う、AI応答の送り方の保存設定です。未接続でも下書き設定を保存できます。AIの生成には接続設定と利用条件の確認が必要です。';
+      lead.textContent = 'この店舗全体で使う、AI返信の送り方の保存設定です。未接続でも下書き設定を保存できます。AIの生成には接続設定と利用条件の確認が必要です。';
       wrapEl.appendChild(lead);
       var managedLink = document.createElement('a');
       managedLink.hidden = true;
@@ -2853,7 +3133,7 @@
       wrapEl.appendChild(managedLink);
       var autoBtn = buildAiModeButton(AI_MODE_AUTO, 'card');
       var autoHelp = document.createElement('small');
-      autoHelp.textContent = '一次応答を自動送信する設定';
+      autoHelp.textContent = 'AI返信を自動で送る設定';
       autoBtn.appendChild(autoHelp);
       wrapEl.appendChild(autoBtn);
       var draftBtn = buildAiModeButton(AI_MODE_DRAFT, 'card');
@@ -3451,6 +3731,7 @@
       prefetchCannedResponses(currentAccountId());
       prefetchAiMode(currentAccountId());
       ensureComposerAiBar();
+      syncEmptyConversationCard();
       var sample = findMenu();
       if (!sample) return;
       ensurePrimaryNavigation(sample);
@@ -3598,6 +3879,16 @@
       afterNavChange();
     });
     window.addEventListener('hashchange', onHashMaybeChanged);
+    // 別のタブや窓から戻ったら、開いている会話の1行が古くなっていないか確かめる。
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshComposerAiInboxIfStale();
+    });
+    window.addEventListener('focus', refreshComposerAiInboxIfStale);
+    // 会話 0 件の案内は、画面に戻ったときにも前回から 30 秒以上経っていれば読み直す。
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshEmptyConversationCount(EMPTY_LIST_STALE_MS);
+    });
+    window.addEventListener('focus', function () { refreshEmptyConversationCount(EMPTY_LIST_STALE_MS); });
     // 転送(統合ビュー)から着地した場合はここで開く
     onHashMaybeChanged();
   }
@@ -3681,6 +3972,7 @@
       if (typeof id !== 'string' && typeof id !== 'number') return;
       if (!/^[1-9]\d*$/.test(String(id))) return;
       refreshAiUsageAfterFactsSaved(String(id));
+      refreshComposerAiInbox(String(id));
     });
   } catch (e) { /* start 後の再試行で入口は出す */ }
 

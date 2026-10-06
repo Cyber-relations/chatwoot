@@ -1,20 +1,21 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-toybaco-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   <meta name="referrer" content="same-origin">
   <title>無料ではじめる | トイバコ</title>
-  <link rel="stylesheet" href="/brand-assets/toybaco-free-signup.css">
+  <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
+  <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-free-signup.css') %>">
   <% if @captcha_site_key.present? %>
     <script src="https://js.hcaptcha.com/1/api.js?hl=ja" async defer></script>
   <% end %>
 </head>
 <body>
   <main>
-    <a class="brand" href="https://toybaco.jp/"><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="168"></a>
-    <p class="eyebrow">お店の仕事を、ひとつに。</p>
+    <a class="brand" href="https://toybaco.jp/"><picture><source srcset="/brand-assets/toybaco-logo-c4-dark.png" media="(prefers-color-scheme: dark)"><img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="168"></picture></a>
+    <p class="eyebrow">お問い合わせも、SNS投稿も、ひとつの管理画面に。</p>
     <h1>無料ではじめる</h1>
     <p class="lead">カード登録不要。店舗を作ったら、使うサービスをつなぎましょう。</p>
     <% if @error %><p class="error" role="alert"><%= @error %></p><% end %>

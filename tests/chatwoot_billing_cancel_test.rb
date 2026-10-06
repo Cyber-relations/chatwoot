@@ -4,6 +4,8 @@ require 'minitest/autorun'
 require 'erb'
 require_relative '../overlay/app/lib/toybaco/billing_cancel'
 require_relative '../overlay/app/lib/toybaco/billing_access'
+# The rendered view links the brand stylesheet by its content digest, as the injector does.
+require_relative '../overlay/app/lib/toybaco/brand_injector'
 
 # ご契約内容からの解約は LP どおり2クリック。
 # クリック1: 「解約する」 / クリック2: 確認の「解約する」(戻るで中止)。
@@ -68,10 +70,10 @@ class ChatwootBillingCancelTest < Minitest::Test
     refute_match(/\[(?:要確認|弁護士確認)/, view)
   end
 
-  def render_with_cancel_box(contract)
+  def render_with_cancel_box(contract, theme: nil)
     context = Object.new
     { :@account => Struct.new(:name, :id).new('店舗', 5), :@plan => { name: '保存済み契約' }, :@admin => false,
-      :@portal_ready => true, :@contract => contract,
+      :@portal_ready => true, :@contract => contract, :@toybaco_theme => theme,
       :@billing => { status: 'active', status_label: '利用中', cancel_at_period_end: false, items: [], invoice: nil } }
       .each { |name, value| context.instance_variable_set(name, value) }
     context.define_singleton_method(:number_with_delimiter) { |amount| amount.to_s }
@@ -132,10 +134,19 @@ class ChatwootBillingCancelTest < Minitest::Test
     refute_match(/sk_live|rk_live|whsec_/, blob)
   end
 
+  # The page colours itself with the app's brand tokens (light and dark) instead of its own copies of the hex values.
+  # In the dashboard frame it takes the parent's theme; opened on its own it follows the OS setting.
   def test_shell_colors_match_app_box
-    assert_includes view, '--navy:#1F3A5F'
-    assert_includes view, '--navy-deep:#163049'
-    assert_includes view, '--surface:#FCFBF8'
+    assert_includes view, '<html lang="ja" data-toybaco-theme="<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>">'
+    assert_includes view, %(<link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">)
+    { nil => 'system', 'dark' => 'dark', 'light' => 'light' }.each do |theme, expected|
+      rendered = render_with_cancel_box({ 'entitlements' => { 'features' => { 'ai_reply' => false } } }, theme: theme)
+      assert_includes rendered, %(<html lang="ja" data-toybaco-theme="#{expected}">)
+      assert_includes rendered, %(<link rel="stylesheet" href="/toybaco-brand.css?v=#{Toybaco::BrandInjector::BRAND_ASSET_DIGEST}">)
+    end
+    assert_includes view, '--navy:var(--toybaco-heading)'
+    assert_includes view, '--navy-deep:var(--toybaco-heading)'
+    assert_includes view, '--surface:var(--toybaco-surface)'
   end
 
   def test_owner_without_admin_role_reads_saved_limits_without_mutation_controls

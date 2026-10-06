@@ -495,6 +495,7 @@ function loadInjectEntry(fetchImpl, pathname = '/app/accounts/1/inbox', options 
       fetches.push({ url: String(url), opts });
       return fetchImpl(url, opts);
     },
+    performance: options.performance,
   };
   const document = {
     readyState: 'loading',
@@ -1172,7 +1173,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   stocked.api.inject();
   assert.ok(postingEntry(stocked.document), '投稿 must inject beside stock Chatwoot rows');
   assert.equal(billingEntry(stocked.document), null, 'the posting script must not inject an unguarded contract entry');
-  assert.equal(aiModeEntry(stocked.document), null, 'AI応答 must not add a sixth left-nav item');
+  assert.equal(aiModeEntry(stocked.document), null, 'AI返信 must not add a sixth left-nav item');
   const hidden = [...stocked.body.querySelectorAll('li')].filter(
     (row) => row.getAttribute('data-toybaco-stock-hidden') === '1'
   );
@@ -1228,7 +1229,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   remount.api.afterNavChange();
   assert.ok(postingEntry(remount.document), 'Vue wipe must be repaired without waiting for F5');
   assert.equal(billingEntry(remount.document), null, 'the posting script must not inject an unguarded contract entry');
-  assert.equal(aiModeEntry(remount.document), null, 'AI応答 must stay off the left nav after remount');
+  assert.equal(aiModeEntry(remount.document), null, 'AI返信 must stay off the left nav after remount');
 }
 
 {
@@ -1241,7 +1242,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   late.api.afterNavChange();
   assert.ok(postingEntry(late.document), '投稿 must appear on first paint after Vue mounts the nav');
   assert.equal(billingEntry(late.document), null, 'the posting script must not inject an unguarded contract entry');
-  assert.equal(aiModeEntry(late.document), null, 'AI応答 must not join the left nav on first paint');
+  assert.equal(aiModeEntry(late.document), null, 'AI返信 must not join the left nav on first paint');
   const hidden = [...late.body.querySelectorAll('li')].filter(
     (row) => row.getAttribute('data-toybaco-stock-hidden') === '1'
   );
@@ -1273,7 +1274,7 @@ assert.match(original, /isLoggedInView\(\) && !document\.querySelector\('\[data-
   late.observers.find((observer) => observer.opts?.childList).fire();
   assert.ok(postingEntry(late.document), 'observer must inject when nav appears after an empty first inject');
   assert.equal(billingEntry(late.document), null, 'the posting script must not inject an unguarded contract entry');
-  assert.equal(aiModeEntry(late.document), null, 'AI応答 must not join the left nav after a late mount');
+  assert.equal(aiModeEntry(late.document), null, 'AI返信 must not join the left nav after a late mount');
 }
 
 {
@@ -2016,15 +2017,15 @@ function readinessResponse(overrides = {}) {
     'composer reply-mode control remains beside the editor; the shared AI assistant has its own auxiliary entry'
   );
   const entry = aiModeEntry(env.document);
-  assert.ok(entry, 'AI応答 must sit next to the reply box');
-  assert.equal(entry.textContent, 'AI応答');
+  assert.ok(entry, 'AI返信の設定 must sit next to the reply box');
+  assert.equal(entry.textContent, 'AI返信の設定');
   const prefetch = env.fetches.find((item) => String(item.url).includes('/ai_reply_mode'));
   assert.ok(prefetch, 'inbox inject must read the saved AI reply mode');
   assert.equal(prefetch.url, '/toybaco/ai_reply_mode?account_id=1');
   assert.equal(prefetch.opts.credentials, 'same-origin');
   fireClick(entry, env.docListeners.click || []);
   const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
-  assert.ok(panel, 'AI応答 must open the two-mode panel rather than Captain');
+  assert.ok(panel, 'AI返信 must open the two-mode panel rather than Captain');
   assert.doesNotMatch(collectText(panel), /Captain|Copilot|CAPTAIN|Auto|Draft/);
   assert.match(collectText(panel), /全自動/);
   assert.match(collectText(panel), /下書き/);
@@ -2049,18 +2050,522 @@ function readinessResponse(overrides = {}) {
   env.body.appendChild(box);
   env.api.inject();
   const bar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
-  assert.ok(bar, 'two modes must sit next to the reply box');
-  assert.equal(bar.querySelector('[data-toybaco-ai-mode-h]').textContent, 'AI応答');
-  const modes = [...bar.querySelectorAll('[data-toybaco-ai-mode]')].map((btn) => btn.textContent);
-  assert.deepEqual(modes, ['全自動', '下書き']);
-  assert.doesNotMatch(collectText(bar), /Captain|Copilot|Auto|Draft/);
-  const compact = bar.querySelector('[data-toybaco-ai-compact]');
-  assert.ok(compact, 'mobile AI controls must have a separate compact presentation');
-  assert.equal(compact.children.length, 3, 'compact controls contain status, settings and direct reply AI guidance');
-  assert.equal(compact.querySelector('[data-toybaco-ai-mode]'), null, 'mode choices stay outside the compact presentation');
-  assert.equal(compact.querySelector('[data-toybaco-ai-readiness]'), null, 'long connection details stay outside the compact presentation');
+  assert.ok(bar, 'the inbox AI line must sit next to the reply box');
+  // 1行: 窓口の状態(pill)・理由・「AI返信の設定」だけ。店舗全体の [全自動][下書き] と状態文・再確認はパネルにある。
+  assert.deepEqual(bar.children.map((child) => ['pill', 'reason', 'settings'].find((name) =>
+    child.getAttribute('data-toybaco-ai-inbox-' + name) === '1')), ['pill', 'reason', 'settings']);
+  assert.equal(bar.querySelector('[data-toybaco-ai-mode]'), null, 'store-wide modes stay in the settings panel');
+  assert.equal(bar.querySelector('[data-toybaco-ai-retry]'), null);
+  assert.equal(bar.querySelector('[data-toybaco-ai-readiness]'), null);
+  assert.doesNotMatch(collectText(bar), /店舗全体|保存された設定|AI返信は未接続|Captain|Copilot|Auto|Draft/);
+  assert.equal(bar.querySelector('[data-toybaco-ai-inbox-settings]').textContent, 'AI返信の設定');
   env.api.ensureComposerAiBar();
-  assert.equal(bar.querySelectorAll('[data-toybaco-ai-compact]').length, 1, 'repainting must not duplicate mobile AI controls');
+  assert.equal(env.document.querySelectorAll('[data-toybaco-ai-mode-bar]').length, 1, 'repainting must not duplicate the AI line');
+}
+
+// S0-1 (2026-10-06): the line shows what AI does in the open conversation's inbox. Like the server, the stand-in
+// names the conversation's inbox only when the composer sends the conversation number.
+function inboxStatusFetch(seen, answer = {}) {
+  const statuses = { 7: ['draft', null], 8: ['auto', null], 9: ['off', 'この窓口には AI が割り当てられていません'] };
+  const inboxOf = { 42: 7, 43: 8, 44: 9 };
+  return (url, opts) => {
+    const href = String(url);
+    if (!href.includes('/ai_readiness')) return aiModeAwareFetch(url, opts);
+    seen.push(href);
+    const conversation = (href.match(/[?&]conversation_id=(\d+)/) || [])[1];
+    if (conversation && answer[conversation]) return answer[conversation]();
+    return Promise.resolve(readinessResponse({
+      mode: 'draft',
+      inboxes: Object.entries(statuses).map(([id, [status, reason]]) => ({ id: Number(id), name: '窓口', status, reason })),
+      ...(conversation ? { conversation_inbox_id: inboxOf[conversation] } : {}),
+    }));
+  };
+}
+
+{
+  const seen = [];
+  const env = loadInjectEntry(inboxStatusFetch(seen), '/app/accounts/1/conversations/42');
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  const pill = env.document.querySelector('[data-toybaco-ai-inbox-pill]');
+  const reason = env.document.querySelector('[data-toybaco-ai-inbox-reason]');
+  assert.equal(pill.textContent, 'この窓口：確認しています…');
+  await flush();
+  assert.ok(seen.includes('/toybaco/ai_readiness?account_id=1&conversation_id=42'), 'the composer reads the open conversation');
+  assert.equal(pill.textContent, 'この窓口：AI返信 下書き');
+  assert.equal(pill.getAttribute('data-toybaco-ai-inbox-state'), 'draft');
+  assert.equal(reason.hidden, true);
+  const reads = seen.length;
+  env.api.inject();
+  env.api.inject();
+  assert.equal(seen.length, reads, 'repainting the same conversation does not read again');
+  env.window.location.pathname = '/app/accounts/1/conversations/44';
+  env.api.afterNavChange();
+  await flush();
+  assert.equal(pill.textContent, 'この窓口：AI返信 オフ');
+  assert.equal(pill.getAttribute('data-toybaco-ai-inbox-state'), 'off');
+  assert.equal(reason.hidden, false);
+  assert.equal(reason.textContent, 'この窓口には AI が割り当てられていません');
+  env.window.location.pathname = '/app/accounts/1/inbox/3/conversations/43';
+  env.api.afterNavChange();
+  await flush();
+  assert.equal(pill.textContent, 'この窓口：AI返信 自動');
+  assert.equal(pill.getAttribute('data-toybaco-ai-inbox-state'), 'auto');
+  assert.equal(reason.hidden, true);
+  env.window.location.pathname = '/app/accounts/1/conversations/42';
+  env.api.afterNavChange();
+  await flush();
+  assert.equal(seen.filter((href) => href.endsWith('conversation_id=42')).length, 2, 'returning to a conversation reads it again');
+  assert.equal(pill.textContent, 'この窓口：AI返信 下書き');
+  fireClick(env.document.querySelector('[data-toybaco-ai-inbox-settings]'), env.docListeners.click || []);
+  assert.ok(env.document.querySelector('[data-toybaco-ai-mode-panel]'), 'AI返信の設定 opens the existing settings panel');
+}
+
+for (const failure of [
+  () => Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
+  () => Promise.reject(new Error('offline')),
+  () => Promise.resolve(readinessResponse({ inboxes: [], conversation_inbox_id: 7 })),
+  () => Promise.resolve(readinessResponse({ inboxes: [{ id: 7, name: '窓口', status: 'maybe', reason: null }], conversation_inbox_id: 7 })),
+  () => Promise.resolve(readinessResponse({ inboxes: [{ id: 7, name: '窓口', status: 'draft', reason: null, quota_used: 'yes' }],
+    conversation_inbox_id: 7 })),
+]) {
+  const env = loadInjectEntry(inboxStatusFetch([], { 42: failure }), '/app/accounts/1/conversations/42');
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  await flush();
+  const pill = env.document.querySelector('[data-toybaco-ai-inbox-pill]');
+  assert.equal(pill.textContent, 'この窓口：状態を確認できません');
+  assert.equal(pill.getAttribute('data-toybaco-ai-inbox-state'), 'unknown');
+}
+
+{
+  const stalled = deferred();
+  const timers = [];
+  const env = loadInjectEntry(inboxStatusFetch([], { 42: () => stalled.promise }), '/app/accounts/1/conversations/42', {
+    setTimeout(fn, ms) { const timer = { fn, ms }; timers.push(timer); return timer; },
+    clearTimeout() {},
+  });
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  timers.filter((timer) => timer.ms === 10000).forEach((timer) => timer.fn());
+  await flush();
+  const pill = env.document.querySelector('[data-toybaco-ai-inbox-pill]');
+  assert.equal(pill.textContent, 'この窓口：状態を確認できません', 'the inbox read stops after 10 seconds');
+  stalled.resolve(readinessResponse({ inboxes: [{ id: 7, name: '窓口', status: 'auto', reason: null }], conversation_inbox_id: 7 }));
+  await flush();
+  assert.equal(pill.textContent, 'この窓口：状態を確認できません', 'a timed-out answer does not repaint the line');
+}
+
+// Astra (2026-10-06): saving the store-wide mode in the panel, re-checking the panel and saving the store facts read
+// the open conversation's inbox again; an answer asked for before that is not used.
+{
+  let serverMode = 'auto';
+  let hold = false;
+  const held = [];
+  const seen = [];
+  const fetchImpl = (url, opts) => {
+    const href = String(url);
+    if (href.includes('/ai_reply_mode')) {
+      if (opts && opts.method === 'PUT') serverMode = JSON.parse(opts.body).mode;
+      return Promise.resolve({ ok: true, json: async () => ({ mode: serverMode, label: serverMode === 'auto' ? '全自動' : '下書き',
+        modes: [{ mode: 'auto', label: '全自動' }, { mode: 'draft', label: '下書き' }] }) });
+    }
+    if (!href.includes('conversation_id=')) return aiModeAwareFetch(url, opts);
+    seen.push(href);
+    const answer = readinessResponse({ mode: serverMode, conversation_inbox_id: 7,
+      inboxes: [{ id: 7, name: '窓口', status: serverMode, reason: null, quota_used: false }] });
+    if (!hold) return Promise.resolve(answer);
+    const later = deferred();
+    held.push(() => later.resolve(answer));
+    return later.promise;
+  };
+  const env = loadInjectEntry(fetchImpl, '/app/accounts/1/conversations/42');
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  await flush();
+  const pill = env.document.querySelector('[data-toybaco-ai-inbox-pill]');
+  assert.equal(pill.textContent, 'この窓口：AI返信 自動');
+  hold = true;
+  env.api.openAiModePanel();
+  await flush();
+  assert.equal(held.length, 1, 'opening the settings panel reads the line again');
+  hold = false;
+  const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  fireClick(panel.querySelector('[data-toybaco-ai-mode="draft"]'), env.docListeners.click || []);
+  await flush();
+  assert.equal(serverMode, 'draft');
+  assert.equal(pill.textContent, 'この窓口：AI返信 下書き', 'the line follows the saved store mode');
+  held.forEach((release) => release());
+  await flush();
+  assert.equal(pill.textContent, 'この窓口：AI返信 下書き', 'an answer asked for before the save is not used');
+  fireClick(panel.querySelector('[data-toybaco-ai-mode="auto"]'), env.docListeners.click || []);
+  await flush();
+  assert.equal(pill.textContent, 'この窓口：AI返信 自動', 'and back to automatic');
+  const reads = seen.length;
+  env.window.dispatchEvent({ type: 'toybaco:store-facts-saved', detail: { accountId: '1' } });
+  await flush();
+  assert.equal(seen.length, reads + 1, 'saving the store facts reads the line again');
+  env.window.dispatchEvent({ type: 'toybaco:store-facts-saved', detail: { accountId: '2' } });
+  await flush();
+  assert.equal(seen.length, reads + 1, 'another store does not');
+}
+
+// Grok (2026-10-06): staying on one conversation, coming back to the tab (shown or focused) reads the line again once
+// 30 seconds have passed since the last read.
+{
+  const seen = [];
+  const clock = { now: 1000 };
+  const env = loadInjectEntry(inboxStatusFetch(seen), '/app/accounts/1/conversations/42', { performance: { now: () => clock.now } });
+  env.body.appendChild(createComposer().box);
+  env.api.start();
+  await flush();
+  const reads = () => seen.filter((href) => href.endsWith('conversation_id=42')).length;
+  const show = (state) => {
+    env.document.visibilityState = state;
+    (env.docListeners.visibilitychange || []).forEach((fn) => fn({ type: 'visibilitychange' }));
+  };
+  const focus = () => (env.windowListeners.focus || []).forEach((fn) => fn({ type: 'focus' }));
+  assert.equal(reads(), 1);
+  clock.now += 29999;
+  show('visible');
+  focus();
+  await flush();
+  assert.equal(reads(), 1, 'within 30 seconds the line is not read again');
+  clock.now += 1;
+  focus();
+  await flush();
+  assert.equal(reads(), 2, 'focus after 30 seconds reads the open conversation again');
+  clock.now += 30000;
+  show('hidden');
+  await flush();
+  assert.equal(reads(), 2, 'a hidden page is not read');
+  show('visible');
+  await flush();
+  assert.equal(reads(), 3, 'showing the page again after 30 seconds reads it again');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-inbox-pill]').textContent, 'この窓口：AI返信 下書き');
+}
+
+// S0-2 (2026-10-06): under upstream's empty list, an administrator of a store with no conversation at all is told how
+// they arrive. Grok/Astra (2026-10-06): the decision uses only the server's answer from /toybaco/ai_readiness, the member's
+// role and (for an administrator) the store-wide count. An agent's conversation meta counts just their own inboxes and the
+// sidebar does not prove a role, so neither is used. While the empty text stays, the answer is read again.
+function emptyListFetch(seen, server = {}) {
+  return (url, opts) => {
+    const href = String(url);
+    const readiness = href.match(/^\/toybaco\/ai_readiness\?account_id=(\d+)$/);
+    if (readiness) {
+      seen.push(href);
+      const account = (server.accounts || {})[readiness[1]] || server;
+      if (account.pending) return account.pending;
+      if (account.fail) return Promise.resolve({ ok: false, status: 403, json: async () => ({}) });
+      const admin = account.admin !== false;
+      const member = admin ? { administrator: true, conversation_total: account.total ?? 0 } : { administrator: false };
+      return Promise.resolve(readinessResponse({ ...member, ...(account.body || {}) }));
+    }
+    if (href.includes('/conversations/meta')) {
+      seen.push(href);
+      return Promise.resolve({ ok: true, json: async () => ({ meta: { all_count: 0 } }) });
+    }
+    const inboxes = href.match(/^\/api\/v1\/accounts\/(\d+)\/inboxes$/);
+    if (inboxes) {
+      seen.push(href);
+      const account = (server.accounts || {})[inboxes[1]] || server;
+      return Promise.resolve({ ok: true, json: async () => ({ payload: account.inboxes || [{ id: 3, name: 'Webチャット', channel_type: 'Channel::WebWidget' }] }) });
+    }
+    return aiModeAwareFetch(url, opts);
+  };
+}
+
+function emptyConversationList(withSettingsLink) {
+  const tree = createMenuTree();
+  if (withSettingsLink) {
+    const group = createDomNode('li');
+    group.setAttribute('data-toybaco-inbox-settings-path', '/app/accounts/1/settings/inboxes/list');
+    tree.ul.appendChild(group);
+  }
+  const list = createDomNode('div');
+  list.className = 'flex flex-col conversations-list-wrap';
+  const empty = createDomNode('p');
+  empty.textContent = '\n      このグループには有効な会話データがありません\n    ';
+  list.appendChild(empty);
+  tree.body.appendChild(list);
+  return { tree, list, empty };
+}
+
+const readinessReads = (seen) => seen.filter((href) => href.startsWith('/toybaco/ai_readiness')).length;
+
+{
+  const seen = [];
+  const { tree, list, empty } = emptyConversationList(false);
+  const env = loadInjectEntry(emptyListFetch(seen), '/app/accounts/1/dashboard', { body: tree.body });
+  env.api.inject();
+  await flush();
+  env.api.inject();
+  const card = env.document.querySelector('[data-toybaco-empty-conversations]');
+  assert.ok(card, 'an administrator of a store without conversations sees how they arrive, whatever the sidebar shows');
+  assert.equal(card.previousElementSibling, empty, 'the card sits right under the upstream empty text');
+  assert.equal(card.getAttribute('data-account'), '1');
+  assert.equal(card.querySelector('h2').textContent, 'まだ会話はありません');
+  assert.equal(card.querySelector('p').textContent, '窓口をつなぐと、お客さまからのメッセージがここに届きます。');
+  assert.deepEqual(card.querySelectorAll('a').map((link) => [link.textContent, link.getAttribute('href')]), [
+    ['窓口をつなぐ', '/app/accounts/1/settings/inboxes/list'],
+    ['Webチャットの設置コードを見る', '/app/accounts/1/settings/inboxes/3'],
+    ['スタッフを招待', '/app/accounts/1/settings/agents/list'],
+  ]);
+  assert.equal(seen.filter((href) => href.includes('/conversations/meta')).length, 0, 'the permission-filtered meta count is not used');
+  const reads = seen.length;
+  env.api.inject();
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), card, 'repainting keeps the same card');
+  assert.equal(env.document.querySelectorAll('[data-toybaco-empty-conversations]').length, 1);
+  list.removeChild(card);
+  env.api.inject();
+  const back = env.document.querySelector('[data-toybaco-empty-conversations]');
+  assert.ok(back && back.previousElementSibling === empty, 'a Vue patch that drops the card gets it back on the next paint');
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), back, 'and it settles instead of going back and forth');
+  await flush();
+  assert.equal(seen.length, reads, 'putting the card back reads nothing');
+  list.removeChild(empty);
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), null, 'it leaves with the empty text');
+
+  const noWidget = emptyConversationList(false);
+  const plain = loadInjectEntry(emptyListFetch([], { inboxes: [{ id: 4, name: 'メール', channel_type: 'Channel::Email' }] }),
+    '/app/accounts/1/dashboard', { body: noWidget.tree.body });
+  plain.api.inject();
+  await flush();
+  plain.api.inject();
+  assert.deepEqual(plain.document.querySelector('[data-toybaco-empty-conversations]').querySelectorAll('a').map((link) => link.textContent),
+    ['窓口をつなぐ', 'スタッフを招待'], 'without a web chat there is no snippet to show');
+}
+
+{
+  const seen = [];
+  const agent = emptyConversationList(true);
+  const env = loadInjectEntry(emptyListFetch(seen, { admin: false, body: { conversation_total: 0 } }), '/app/accounts/1/dashboard',
+    { body: agent.tree.body });
+  env.api.inject();
+  await flush();
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), null,
+    'an agent keeps the upstream empty text even with an inbox settings link in the sidebar');
+  assert.equal(seen.filter((href) => href.includes('/conversations/meta') || href.includes('/inboxes')).length, 0);
+
+  const busy = emptyConversationList(false);
+  const filtered = loadInjectEntry(emptyListFetch([], { total: 12 }), '/app/accounts/1/dashboard', { body: busy.tree.body });
+  filtered.api.inject();
+  await flush();
+  filtered.api.inject();
+  assert.equal(filtered.document.querySelector('[data-toybaco-empty-conversations]'), null, 'a store with conversations elsewhere gets nothing');
+
+  for (const body of [{ administrator: 'true' }, { conversation_total: '0' }, { conversation_total: -1 }, { conversation_total: 0.5 }]) {
+    const odd = emptyConversationList(false);
+    const strange = loadInjectEntry(emptyListFetch([], { body }), '/app/accounts/1/dashboard', { body: odd.tree.body });
+    strange.api.inject();
+    await flush();
+    strange.api.inject();
+    assert.equal(strange.document.querySelector('[data-toybaco-empty-conversations]'), null, `an unexpected answer shows nothing: ${JSON.stringify(body)}`);
+  }
+
+  const two = emptyConversationList(false);
+  const hidden = createDomNode('div');
+  hidden.className = 'conversations-list-wrap';
+  hidden.offsetParent = null;
+  const hiddenEmpty = createDomNode('p');
+  hiddenEmpty.textContent = 'このグループには有効な会話データがありません';
+  hidden.appendChild(hiddenEmpty);
+  two.tree.body.insertBefore(hidden, two.list);
+  const both = loadInjectEntry(emptyListFetch([]), '/app/accounts/1/dashboard', { body: two.tree.body });
+  both.api.inject();
+  await flush();
+  both.api.inject();
+  assert.equal(both.document.querySelector('[data-toybaco-empty-conversations]').previousElementSibling, two.empty,
+    'with two lists the card goes under the one on screen');
+}
+
+// While the empty text stays, the answer is read again every 60 seconds (not while the page is hidden), when rows are added
+// to the list (5 seconds apart) and on coming back to the page 30 seconds after the last read. The card leaves once the
+// store has a conversation even if this filtered list stays empty. A failed read (403, network, odd shape) shows nothing
+// and is retried at the next chance 30 seconds after the failure.
+{
+  const seen = [];
+  const server = { total: 0 };
+  const clock = { now: 1000 };
+  const intervals = [];
+  const { tree, list, empty } = emptyConversationList(false);
+  const env = loadInjectEntry(emptyListFetch(seen, server), '/app/accounts/1/dashboard', {
+    body: tree.body, performance: { now: () => clock.now },
+    setInterval: (fn, ms) => intervals.push({ fn, ms, cleared: false }),
+    clearInterval: (id) => { if (intervals[id - 1]) intervals[id - 1].cleared = true; },
+  });
+  env.api.start();
+  await flush();
+  const card = () => env.document.querySelector('[data-toybaco-empty-conversations]');
+  const reads = () => readinessReads(seen);
+  const show = (state) => {
+    env.document.visibilityState = state;
+    (env.docListeners.visibilitychange || []).forEach((fn) => fn({ type: 'visibilitychange' }));
+  };
+  const focus = () => (env.windowListeners.focus || []).forEach((fn) => fn({ type: 'focus' }));
+  const timer = intervals.find((item) => item.ms === 60000);
+  const rows = env.observers.find((item) => item.root === list);
+  assert.ok(card(), 'an empty store shows the card');
+  assert.ok(timer, 'the answer is read again every 60 seconds while the empty text stays');
+  assert.equal(JSON.stringify(rows && rows.opts), '{"childList":true,"subtree":true}', 'and when rows are added to the list');
+  const base = reads();
+
+  server.total = 1;
+  clock.now += 60000;
+  timer.fn();
+  await flush();
+  assert.equal(reads(), base + 1);
+  assert.ok(empty.parentElement, 'the filtered list stays empty');
+  assert.equal(card(), null, 'a conversation elsewhere in the store takes the card away at the next read');
+
+  server.total = 0;
+  clock.now += 29999;
+  focus();
+  await flush();
+  assert.equal(reads(), base + 1, 'coming back within 30 seconds of the last read does not read again');
+  clock.now += 1;
+  focus();
+  await flush();
+  assert.equal(reads(), base + 2);
+  assert.ok(card(), 'coming back 30 seconds later reads it again');
+
+  server.total = 2;
+  clock.now += 4999;
+  rows.fire();
+  await flush();
+  assert.equal(reads(), base + 2, 'rows added right after a read wait 5 seconds');
+  clock.now += 1;
+  rows.fire();
+  await flush();
+  assert.equal(reads(), base + 3);
+  assert.equal(card(), null, 'rows added to the list read it again');
+
+  server.total = 0;
+  clock.now += 60000;
+  show('hidden');
+  timer.fn();
+  await flush();
+  assert.equal(reads(), base + 3, 'a hidden page is not polled');
+  show('visible');
+  await flush();
+  assert.equal(reads(), base + 4);
+  assert.ok(card(), 'showing the page again reads it');
+
+  server.fail = true;
+  clock.now += 60000;
+  timer.fn();
+  await flush();
+  assert.equal(reads(), base + 5);
+  assert.equal(card(), null, 'a failed read (403) shows nothing');
+  server.fail = false;
+  clock.now += 29999;
+  env.api.inject();
+  timer.fn();
+  await flush();
+  assert.equal(reads(), base + 5, 'within 30 seconds of the failure it waits');
+  clock.now += 1;
+  env.api.inject();
+  await flush();
+  assert.equal(reads(), base + 6);
+  assert.ok(card(), 'the next chance after 30 seconds reads it and the card returns');
+
+  list.removeChild(empty);
+  env.api.inject();
+  assert.equal(card(), null);
+  assert.equal(timer.cleared, true, 'leaving the empty list stops the timer');
+}
+
+{
+  const seen = [];
+  const server = { fail: true };
+  const clock = { now: 1000 };
+  const { tree } = emptyConversationList(false);
+  const env = loadInjectEntry(emptyListFetch(seen, server), '/app/accounts/1/dashboard', {
+    body: tree.body, performance: { now: () => clock.now },
+  });
+  env.api.inject();
+  await flush();
+  env.api.inject();
+  const base = readinessReads(seen);
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), null, 'a first read that fails shows nothing');
+  server.fail = false;
+  clock.now += 30000;
+  env.api.inject();
+  await flush();
+  env.api.inject();
+  assert.equal(readinessReads(seen), base + 1);
+  assert.ok(env.document.querySelector('[data-toybaco-empty-conversations]'), 'after the server recovers the card shows');
+}
+
+// An agent is not polled: the card cannot show for them, so the answer is read again only when the empty text returns.
+{
+  const seen = [];
+  const intervals = [];
+  const clock = { now: 1000 };
+  const { tree } = emptyConversationList(false);
+  const env = loadInjectEntry(emptyListFetch(seen, { admin: false }), '/app/accounts/1/dashboard', {
+    body: tree.body, performance: { now: () => clock.now },
+    setInterval: (fn, ms) => intervals.push({ fn, ms }),
+  });
+  env.api.inject();
+  await flush();
+  const base = readinessReads(seen);
+  clock.now += 60000;
+  intervals.find((item) => item.ms === 60000).fn();
+  await flush();
+  assert.equal(readinessReads(seen), base, 'an agent is not polled');
+}
+
+// Switching stores: the previous store's card leaves before the new store's answer arrives, and the new card names its store.
+{
+  const seen = [];
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const server = { accounts: { 1: { total: 0 }, 2: { pending } } };
+  const { tree } = emptyConversationList(false);
+  const env = loadInjectEntry(emptyListFetch(seen, server), '/app/accounts/1/dashboard', { body: tree.body });
+  env.api.inject();
+  await flush();
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]').getAttribute('data-account'), '1');
+  env.window.location.pathname = '/app/accounts/2/dashboard';
+  env.api.inject();
+  assert.equal(env.document.querySelector('[data-toybaco-empty-conversations]'), null, 'the old store\'s card leaves first');
+  release(readinessResponse({ administrator: true, conversation_total: 0 }));
+  await flush();
+  env.api.inject();
+  const next = env.document.querySelector('[data-toybaco-empty-conversations]');
+  assert.equal(next.getAttribute('data-account'), '2');
+  assert.equal(next.querySelector('a').getAttribute('href'), '/app/accounts/2/settings/inboxes/list');
+}
+
+// Astra (2026-10-06): with the month's allowance used up, the line itself says AI has stopped, so a narrow screen that
+// hides the reason still shows it. The server keeps the status and adds quota_used.
+{
+  const used = () => Promise.resolve(readinessResponse({ conversation_inbox_id: 7,
+    inboxes: [{ id: 7, name: '窓口', status: 'draft', reason: '今月の AI 枠を使い切りました', quota_used: true }] }));
+  const env = loadInjectEntry(inboxStatusFetch([], { 42: used }), '/app/accounts/1/conversations/42');
+  env.body.appendChild(createComposer().box);
+  env.api.inject();
+  await flush();
+  const pill = env.document.querySelector('[data-toybaco-ai-inbox-pill]');
+  const reason = env.document.querySelector('[data-toybaco-ai-inbox-reason]');
+  assert.equal(pill.textContent, 'この窓口：AI返信 停止中（今月の枠なし）');
+  assert.equal(pill.getAttribute('data-toybaco-ai-inbox-state'), 'exhausted');
+  assert.equal(reason.textContent, '今月の AI 枠を使い切りました');
+  assert.equal(reason.hidden, false);
+  const css = fs.readFileSync(brandCssPath, 'utf8');
+  const narrow = css.slice(css.lastIndexOf('@media (max-width: 767px)', css.indexOf('[data-toybaco-ai-mode-bar] > :not(')));
+  assert.match(narrow.slice(0, narrow.indexOf('[data-toybaco-ai-mode-bar] > :not(') + 200),
+    /\[data-toybaco-ai-mode-bar\] > :not\(\[data-toybaco-ai-inbox-pill\]\) \{ display: none; \}/,
+    'up to 767px the bar keeps the line itself and hides only the rest');
+  assert.doesNotMatch(css, /^\s*\[data-toybaco-ai-inbox-pill\][^{,]*\{[^}]*display:\s*none/m, 'no width hides the line');
+  assert.doesNotMatch(css, /data-toybaco-ai-inbox-state="exhausted"/, 'the stopped line keeps the grey dot');
 }
 
 function deferred() {
@@ -2414,15 +2919,14 @@ function modeResponse(mode) {
   };
   env.body.appendChild(createComposer().box);
   env.api.inject();
-  const opener = env.document.querySelector('[data-toybaco-ai-compact-settings]');
-  assert.equal(opener.textContent, '設定');
-  assert.equal(opener.getAttribute('aria-label'), '店舗全体のAI応答設定を開く');
+  const opener = env.document.querySelector('[data-toybaco-ai-inbox-settings]');
+  assert.equal(opener.textContent, 'AI返信の設定');
   assert.equal(opener.getAttribute('aria-haspopup'), 'dialog');
   opener.focus();
   fireClick(opener, env.docListeners.click || []);
   const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   assert.equal(panel.getAttribute('role'), 'dialog');
-  assert.equal(panel.getAttribute('aria-label'), '店舗全体のAI応答設定');
+  assert.equal(panel.getAttribute('aria-label'), '店舗全体のAI返信設定');
   assert.equal(env.document.activeElement.textContent, '閉じる', 'opening AI settings must place keyboard focus inside');
   await flush();
   assert.match(collectText(panel), /この店舗全体で使う/);
@@ -2450,61 +2954,51 @@ function createAiModeEnv(handler, options = {}) {
   env.body.appendChild(box);
   env.api.inject();
   env.aiCalls = calls;
-  env.aiBar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
+  // 店舗全体の送り方・接続・利用条件は設定パネルに出る(返信欄の上は窓口の状態だけ)。読み込み中に開いて回数を変えない。
+  env.api.openAiModePanel();
+  env.aiPanel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   return env;
-}
-
-function assertAiCompact(env, text, state) {
-  const summary = env.document.querySelector('[data-toybaco-ai-compact-status]');
-  assert.ok(summary, 'compact AI status must remain available alongside the reply box');
-  assert.equal(summary.textContent, text);
-  assert.equal(summary.getAttribute('data-toybaco-ai-compact-state'), state);
 }
 
 {
   const read = deferred();
   const write = deferred();
   const env = createAiModeEnv((url, opts) => opts.method === 'PUT' ? write.promise : read.promise);
-  const auto = env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]');
-  const draft = env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]');
+  const auto = env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]');
+  const draft = env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]');
   assert.equal(env.api.currentAiMode(), null);
   assert.equal(auto.getAttribute('aria-pressed'), 'false');
   assert.equal(draft.getAttribute('aria-pressed'), 'false');
   assert.equal(draft.disabled, true);
-  assertAiCompact(env, 'AI：確認中', 'checking');
   env.api.saveAiMode('draft');
   assert.equal(env.aiCalls.length, 1, 'no write before the current setting is known');
   read.resolve(modeResponse('auto'));
   await flush();
-  assertAiCompact(env, 'AI：全自動', 'configured');
   const saving = env.api.saveAiMode('draft');
   env.api.saveAiMode('auto');
   env.api.saveAiMode('draft');
   assert.equal(env.aiCalls.length, 2, 'rapid toggles must not create concurrent writes');
   assert.equal(env.api.currentAiMode(), 'auto');
   assert.equal(draft.getAttribute('aria-pressed'), 'false');
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'saving');
-  assert.equal(env.aiBar.getAttribute('aria-busy'), 'true');
-  assertAiCompact(env, 'AI：変更中', 'saving');
+  assert.equal(env.aiPanel.getAttribute('data-toybaco-ai-state'), 'saving');
+  assert.equal(env.aiPanel.getAttribute('aria-busy'), 'true');
   write.resolve(modeResponse('draft'));
   await saving;
   assert.equal(env.api.currentAiMode(), 'draft');
   assert.equal(draft.disabled, false);
   assert.equal(draft.getAttribute('aria-pressed'), 'true');
-  assertAiCompact(env, 'AI：下書き', 'configured');
   env.api.inject();
   assert.equal(env.aiCalls.length, 2, 'DOM repaint must not refetch and overwrite a confirmed save');
-  assert.match(collectText(env.aiBar), /店舗全体/);
+  assert.match(collectText(env.aiPanel), /店舗全体/);
 }
 
 for (const invalid of [null, '', 'unexpected']) {
   const env = createAiModeEnv(() => Promise.resolve(modeResponse(invalid)));
   await flush();
   assert.equal(env.api.currentAiMode(), null, 'malformed responses must not turn into 全自動');
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
-  assertAiCompact(env, 'AI：設定を確認', 'unconfirmed');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.aiPanel.getAttribute('data-toybaco-ai-state'), 'error');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-retry]').hidden, false);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   await env.api.saveAiMode('draft');
   assert.equal(env.aiCalls.filter(call => call.method === 'PUT').length, 0,
     'a safe preference still requires the current account setting to be confirmed');
@@ -2522,8 +3016,7 @@ for (const savedOnServer of [false, true]) {
   await env.api.saveAiMode('draft');
   assert.deepEqual(env.aiCalls.map((item) => item.method), ['GET', 'PUT', 'GET']);
   assert.equal(env.api.currentAiMode(), savedOnServer ? 'draft' : 'auto', 'read-back, not optimism or blind rollback, determines the displayed mode');
-  assert.match(collectText(env.aiBar), /変更の応答を確認できませんでした。現在の設定/);
-  assertAiCompact(env, savedOnServer ? 'AI：下書き' : 'AI：全自動', 'configured');
+  assert.match(collectText(env.aiPanel), /変更の応答を確認できませんでした。現在の設定/);
 }
 
 {
@@ -2538,13 +3031,12 @@ for (const savedOnServer of [false, true]) {
   await flush();
   await env.api.saveAiMode('draft');
   assert.equal(env.api.currentAiMode(), null, 'failed read-back must leave both settings unconfirmed');
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
-  assert.match(collectText(env.aiBar), /保存結果を確認できませんでした/);
-  assertAiCompact(env, 'AI：設定を確認', 'unconfirmed');
+  assert.equal(env.aiPanel.getAttribute('data-toybaco-ai-state'), 'error');
+  assert.match(collectText(env.aiPanel), /保存結果を確認できませんでした/);
   env.api.inject();
   assert.equal(env.aiCalls.length, 3, 'failed requests must not loop on DOM mutations');
   failRead = false;
-  fireClick(env.aiBar.querySelector('[data-toybaco-ai-retry]'));
+  fireClick(env.aiPanel.querySelector('[data-toybaco-ai-retry]'));
   await flush();
   assert.equal(env.api.currentAiMode(), 'auto', 'retry must restore controls using a fresh GET');
 }
@@ -2560,8 +3052,12 @@ for (const savedOnServer of [false, true]) {
   accountA.resolve(modeResponse('auto'));
   await flush();
   assert.equal(env.api.currentAiMode(), 'draft');
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-current'), 'draft', 'a late read from A must not repaint B');
-  assertAiCompact(env, 'AI：下書き', 'configured');
+  // 店舗を切り替えるとAの設定パネルは閉じる。開き直したBのパネルに、遅れて届いたAの読み取りは出ない。
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null, 'switching stores closes the former store panel');
+  env.api.openAiModePanel();
+  await flush();
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]').getAttribute('data-toybaco-ai-current'), 'draft',
+    'a late read from A must not repaint B');
 }
 
 {
@@ -2576,8 +3072,11 @@ for (const savedOnServer of [false, true]) {
   await saving;
   assert.equal(env.api.currentAiMode('1'), 'draft');
   assert.equal(env.api.currentAiMode(), 'auto');
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-current'), 'auto', 'a late save from A must not repaint B');
-  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null, 'switching stores closes the former store panel');
+  env.api.openAiModePanel();
+  await flush();
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]').getAttribute('data-toybaco-ai-current'), 'auto',
+    'a late save from A must not repaint B');
 }
 
 {
@@ -2591,7 +3090,7 @@ for (const savedOnServer of [false, true]) {
   assert.ok(timeout, 'mode reads must have a bounded wait');
   timers.filter((timer) => timer.ms === 10000).forEach((timer) => timer.fn());
   await flush();
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-state'), 'error');
+  assert.equal(env.aiPanel.getAttribute('data-toybaco-ai-state'), 'error');
   stalled.resolve(modeResponse('auto'));
   await flush();
   assert.equal(env.api.currentAiMode(), null, 'a timed-out response cannot silently become a confirmed setting');
@@ -2608,7 +3107,9 @@ function createAiReadinessEnv(handler) {
   env.body.appendChild(box);
   env.api.inject();
   env.connectionCalls = calls;
-  env.aiBar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
+  // 店舗全体の送り方・接続・利用条件は設定パネルに出る(返信欄の上は窓口の状態だけ)。読み込み中に開いて回数を変えない。
+  env.api.openAiModePanel();
+  env.aiPanel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   return env;
 }
 
@@ -2616,16 +3117,14 @@ function createAiReadinessEnv(handler) {
   const env = createAiReadinessEnv(() => Promise.resolve(readinessResponse({ connection: 'unconnected', configured_inboxes: 0 })));
   await flush();
   assert.equal(env.api.currentAiMode(), 'auto', 'missing Bot must preserve the saved mode');
-  assert.match(collectText(env.aiBar), /保存された設定：全自動/);
-  assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
-  assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
-  assertAiCompact(env, 'AI：未接続', 'unconnected');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assert.match(collectText(env.aiPanel), /保存された設定：全自動/);
+  assert.match(collectText(env.aiPanel), /AI返信は未接続です。担当者が返信してください/);
+  assert.doesNotMatch(collectText(env.aiPanel), /AIがお客様へ送信します|稼働中|準備完了/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   await env.api.saveAiMode('draft');
   assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 1);
   assert.equal(env.api.currentAiMode(), 'draft');
-  assertAiCompact(env, 'AI：未接続', 'unconnected');
   await env.api.saveAiMode('auto');
   assert.equal(env.fetches.filter((call) => call.opts?.method === 'PUT').length, 1, 'saving a draft preference must not allow automatic replies before connection');
   env.api.inject();
@@ -2638,12 +3137,11 @@ function createAiReadinessEnv(handler) {
 {
   const env = createAiReadinessEnv(() => Promise.resolve(readinessResponse({ configured_inboxes: 1, total_inboxes: 3 })));
   await flush();
-  assert.match(collectText(env.aiBar), /接続設定あり（受信箱 1 \/ 3 件）/);
-  assert.doesNotMatch(collectText(env.aiBar), /外部への応答動作は未確認/);
-  assert.match(collectText(env.aiBar), /「AI応答」の設定/);
-  assert.doesNotMatch(collectText(env.aiBar), /AIがお客様へ送信します|稼働中|準備完了/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.match(collectText(env.aiPanel), /接続設定あり（受信箱 1 \/ 3 件）/);
+  assert.doesNotMatch(collectText(env.aiPanel), /外部への応答動作は未確認/);
+  assert.match(collectText(env.aiPanel), /「AI返信」の設定/);
+  assert.doesNotMatch(collectText(env.aiPanel), /AIがお客様へ送信します|稼働中|準備完了/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
 }
 
 for (const result of [
@@ -2657,19 +3155,17 @@ for (const result of [
   const env = createAiReadinessEnv(() => recover ? Promise.resolve(readinessResponse()) : result());
   await flush();
   assert.equal(env.api.currentAiMode(), 'auto');
-  assert.match(collectText(env.aiBar), /接続状態を確認できません/);
-  assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
-  assertAiCompact(env, 'AI：接続を確認', 'unconfirmed');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assert.match(collectText(env.aiPanel), /接続状態を確認できません/);
+  assert.doesNotMatch(collectText(env.aiPanel), /AI返信は未接続です/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   env.api.inject();
   assert.equal(env.connectionCalls.length, 1, 'connection errors must wait for explicit retry');
   recover = true;
-  fireClick(env.aiBar.querySelector('[data-toybaco-ai-retry]'));
+  fireClick(env.aiPanel.querySelector('[data-toybaco-ai-retry]'));
   await flush();
   assert.equal(env.connectionCalls.length, 2);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
 }
 
 {
@@ -2679,16 +3175,18 @@ for (const result of [
   await flush();
   env.window.location.pathname = '/app/accounts/2/inbox';
   env.api.inject();
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null, 'switching stores closes the former store panel');
+  env.api.openAiModePanel();
+  env.aiPanel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   accountB.resolve(readinessResponse({ connection: 'unconnected', configured_inboxes: 0 }));
   await flush();
   accountA.resolve(readinessResponse());
   await flush();
-  assert.equal(env.aiBar.getAttribute('data-toybaco-ai-connection'), 'unconnected');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true,
+  assert.equal(env.aiPanel.getAttribute('data-toybaco-ai-connection'), 'unconnected');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true,
     'late connection response from A must not enable automatic replies in B');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, 'AI：未接続', 'unconnected');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
 }
 
 function usageBody(overrides = {}) {
@@ -2710,7 +3208,9 @@ function createAiContractEnv(usageHandler, connection = {}) {
   });
   env.body.appendChild(createComposer().box);
   env.api.inject();
-  env.aiBar = env.document.querySelector('[data-toybaco-ai-mode-bar]');
+  // 店舗全体の送り方・接続・利用条件は設定パネルに出る(返信欄の上は窓口の状態だけ)。読み込み中に開いて回数を変えない。
+  env.api.openAiModePanel();
+  env.aiPanel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   env.contractCalls = calls;
   return env;
 }
@@ -2721,17 +3221,15 @@ for (const connection of [
 ]) {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 })), connection);
   await flush();
-  assert.match(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.match(collectText(env.aiBar), /保存された設定：全自動（この店舗では利用できません）/);
-  assert.doesNotMatch(collectText(env.aiBar), /AI応答は未接続です/);
+  assert.match(collectText(env.aiPanel), /この店舗ではAI返信をご利用いただけません/);
+  assert.match(collectText(env.aiPanel), /保存された設定：全自動（この店舗では利用できません）/);
+  assert.doesNotMatch(collectText(env.aiPanel), /AI返信は未接続です/);
   assert.equal(env.api.currentAiMode(), 'auto', 'contract denial must retain the saved setting');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, 'AI：利用できません', 'unavailable');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   await env.api.saveAiMode('draft');
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 1);
   assert.equal(env.api.currentAiMode(), 'draft');
-  assertAiCompact(env, 'AI：利用できません', 'unavailable');
   await env.api.saveAiMode('auto');
   assert.equal(env.fetches.filter(call => call.opts?.method === 'PUT').length, 1, 'a stored draft preference must not grant automatic replies');
   env.api.inject(); env.api.inject();
@@ -2739,31 +3237,27 @@ for (const connection of [
   assert.equal(env.contractCalls[0].opts.credentials, 'same-origin');
   assert.equal(env.contractCalls[0].opts.cache, 'no-store');
   assert.equal(env.contractCalls[0].opts.method || 'GET', 'GET');
-  env.api.openAiModePanel();
-  await flush();
-  assert.match(collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]')), /この店舗ではAI応答をご利用いただけません/);
+  // 店舗の契約の説明は設定パネルだけに出る。返信欄の上の1行は窓口の状態だけ。
+  assert.doesNotMatch(collectText(env.document.querySelector('[data-toybaco-ai-mode-bar]')), /この店舗ではAI返信をご利用いただけません/);
 }
 
 {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse()), { connection: 'unconnected', configured_inboxes: 0 });
   await flush();
-  assert.match(collectText(env.aiBar), /AI応答は未接続です。担当者が返信してください/);
-  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません|適用されません/);
+  assert.match(collectText(env.aiPanel), /AI返信は未接続です。担当者が返信してください/);
+  assert.doesNotMatch(collectText(env.aiPanel), /この店舗ではAI返信をご利用いただけません|適用されません/);
 }
 
 for (const reason of ['unknown_contract', 'account_inactive']) {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ enabled: false, reason, limit: 0, remaining: 0 })));
   await flush();
-  assert.match(collectText(env.aiBar), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
-  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, reason === 'unknown_contract' ? 'AI：利用条件を確認' : 'AI：利用停止中',
-    reason === 'unknown_contract' ? 'unconfirmed' : 'unavailable');
-  fireClick(env.aiBar.querySelector('[data-toybaco-ai-compact-settings]'), env.docListeners.click || []);
+  assert.match(collectText(env.aiPanel), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI返信はご利用いただけません/);
+  assert.doesNotMatch(collectText(env.aiPanel), /この店舗ではAI返信をご利用いただけません/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   await flush();
   const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
-  assert.match(collectText(panel), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI応答はご利用いただけません/);
+  assert.match(collectText(panel), reason === 'unknown_contract' ? /利用条件を確認できません/ : /この店舗のAI返信はご利用いただけません/);
   if (reason === 'unknown_contract') {
     assert.equal(panel.querySelector('[data-toybaco-ai-retry]').hidden, false, 'unknown contract retry must be available from mobile settings');
   }
@@ -2812,7 +3306,6 @@ for (const connection of [
   assert.equal(env.api.currentAiMode(), 'draft');
   assert.match(collectText(panel), /保存された設定：下書き/);
   assert.match(collectText(panel), /利用条件を確認できません/);
-  assertAiCompact(env, 'AI：利用条件を確認', 'unconfirmed');
   env.api.closeAiModePanel();
   env.api.openAiModePanel();
   await flush();
@@ -2830,34 +3323,30 @@ for (const connection of [
   let recover = false;
   const env = createAiContractEnv(() => recover ? Promise.resolve(usageResponse()) : read.promise);
   await flush();
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'Bot + saved mode cannot enable automatic replies before contract readback');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'draft preference does not require generation access');
-  assert.match(collectText(env.aiBar), /AI応答の利用条件を確認しています/);
-  assertAiCompact(env, 'AI：確認中', 'checking');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'Bot + saved mode cannot enable automatic replies before contract readback');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'draft preference does not require generation access');
+  assert.match(collectText(env.aiPanel), /AI返信の利用条件を確認しています/);
   read.resolve({ ok: false, status: 503 });
   await flush();
-  assert.match(collectText(env.aiBar), /AI応答の利用条件を取得できませんでした/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-retry]').hidden, false);
-  assertAiCompact(env, 'AI：利用条件を確認', 'unconfirmed');
+  assert.match(collectText(env.aiPanel), /AI返信の利用条件を取得できませんでした/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-retry]').hidden, false);
   assert.equal(env.api.currentAiMode(), 'auto');
   env.api.inject();
   assert.equal(env.contractCalls.length, 1);
   recover = true;
-  const retry = env.aiBar.querySelector('[data-toybaco-ai-retry]');
+  const retry = env.aiPanel.querySelector('[data-toybaco-ai-retry]');
   fireClick(retry); fireClick(retry);
   await flush();
   assert.equal(env.contractCalls.length, 2, 'simultaneous explicit retries share one GET');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
-  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
 }
 
 {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse({ used: 500, reserved: 0, remaining: 0, reason: 'limit_reached' })));
   await flush();
-  assert.match(collectText(env.aiBar), /利用できる残り枠がありません/);
-  assert.doesNotMatch(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'quota exhaustion does not remove the contract or its saved-mode controls');
-  assertAiCompact(env, 'AI：残り枠なし', 'limited');
+  assert.match(collectText(env.aiPanel), /利用できる残り枠がありません/);
+  assert.doesNotMatch(collectText(env.aiPanel), /この店舗ではAI返信をご利用いただけません/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false, 'quota exhaustion does not remove the contract or its saved-mode controls');
 }
 
 {
@@ -2866,16 +3355,18 @@ for (const connection of [
   const env = createAiContractEnv(url => String(url).endsWith('=1') ? accountA.promise : accountB.promise);
   env.window.location.pathname = '/app/accounts/2/inbox';
   env.api.inject();
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]'), null, 'switching stores closes the former store panel');
+  env.api.openAiModePanel();
+  env.aiPanel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, true);
   accountB.resolve(usageResponse({ enabled: false, reason: 'disabled', limit: 0, remaining: 0 }));
   await flush();
   accountA.resolve(usageResponse());
   await flush();
-  assert.match(collectText(env.aiBar), /この店舗ではAI応答をご利用いただけません/);
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'late enabled A must not enable automatic replies in disabled B');
-  assert.equal(env.aiBar.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assert.match(collectText(env.aiPanel), /この店舗ではAI返信をご利用いただけません/);
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'late enabled A must not enable automatic replies in disabled B');
+  assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assert.equal(env.contractCalls.length, 2);
-  assertAiCompact(env, 'AI：利用できません', 'unavailable');
 }
 
 function createAiUsageEnv(handler, options = {}) {
@@ -2973,10 +3464,10 @@ for (const included of [true, false, undefined]) {
   const readiness = collectText(panel.querySelector('[data-toybaco-ai-readiness]'));
   if (included === false) {
     assert.ok(note.endsWith('してもらってください。' + TRIAL_INBOX_NOTE), note);
-    assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。' + TRIAL_INBOX_NOTE);
+    assert.equal(readiness, '店舗情報を確認すると、AI返信を全自動にできます。' + TRIAL_INBOX_NOTE);
   } else {
     assert.ok(note.endsWith('してもらってください。'), `no trial note when included is ${included}: ${note}`);
-    assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。');
+    assert.equal(readiness, '店舗情報を確認すると、AI返信を全自動にできます。');
     assert.doesNotMatch(collectText(env.body), /自動応答の体験は/);
   }
   env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
@@ -3011,7 +3502,7 @@ for (const [connections, expected] of [
   env.api.openAiModePanel(); await flush();
   const readiness = collectText(env.document.querySelector('[data-toybaco-ai-mode-panel]').querySelector('[data-toybaco-ai-readiness]'));
   assert.ok(note.endsWith('してもらってください。' + expected), `${label}: ${note}`);
-  assert.equal(readiness, '店舗情報を確認すると自動応答を設定できます。' + expected, label);
+  assert.equal(readiness, '店舗情報を確認すると、AI返信を全自動にできます。' + expected, label);
   assert.equal(collectText(env.body).includes('審査完了後'), expected === TRIAL_INBOX_NOTE, label);
   env.api.closeAiModePanel(); env.api.closeAuxiliaryView();
 }
@@ -3042,9 +3533,8 @@ for (const accountId of ['1', 1]) {
   await flush();
   const panel = env.document.querySelector('[data-toybaco-ai-mode-panel]');
   const readiness = () => collectText(panel.querySelector('[data-toybaco-ai-readiness]'));
-  assert.equal(readiness(), '店舗情報を確認すると自動応答を設定できます。');
+  assert.equal(readiness(), '店舗情報を確認すると、AI返信を全自動にできます。');
   assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, true);
-  assertAiCompact(env, 'AI：自動応答を確認', 'unavailable');
   env.api.inject(); env.api.inject();
   assert.equal(env.usageCalls.length, 1, 'moving around the app keeps the usage read at login');
   saved = true;
@@ -3053,10 +3543,9 @@ for (const accountId of ['1', 1]) {
   assert.equal(env.usageCalls.length, 2, `the store that saved its facts reads its usage again (${typeof accountId} id)`);
   assert.equal(env.usageCalls[1].url, '/toybaco/ai_usage?account_id=1');
   assert.equal(env.usageCalls[1].opts.cache, 'no-store');
-  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
-  assert.equal(readiness(), '接続設定あり（受信箱 1 / 1 件）。利用可否・残り枠は「AI応答」の設定で確認できます。');
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると、AI返信を全自動にできます/);
+  assert.equal(readiness(), '接続設定あり（受信箱 1 / 1 件）。利用可否・残り枠は「AI返信」の設定で確認できます。');
   assert.equal(env.document.querySelector('[data-toybaco-ai-mode="auto"]').disabled, false);
-  assertAiCompact(env, 'AI：全自動', 'configured');
   assert.equal(env.fetches.filter(call => call.opts?.method && call.opts.method !== 'GET').length, 0,
     'reading the usage again never saves a mode or spends AI');
   env.api.closeAiModePanel();
@@ -3068,7 +3557,7 @@ for (const accountId of ['1', 1]) {
   storeFactsSaved(env, { accountId: '2' });
   await flush();
   assert.deepEqual(env.usageCalls.map(call => call.url), ['/toybaco/ai_usage?account_id=1', '/toybaco/ai_usage?account_id=2']);
-  assert.match(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/, 'another store\'s answer never repaints this store');
+  assert.match(collectText(env.body), /店舗情報を確認すると、AI返信を全自動にできます/, 'another store\'s answer never repaints this store');
   // Nothing that is not a store id reads anything.
   for (const detail of [undefined, null, {}, { accountId: null }, { accountId: '' }, { accountId: '0' }, { accountId: 0 },
     { accountId: '1&account_id=2' }, { accountId: '../1' }, { accountId: 1.5 }, { accountId: ['1'] }, { accountId: { id: 1 } }]) {
@@ -3091,8 +3580,7 @@ for (const accountId of ['1', 1]) {
   assert.equal(env.usageCalls.length, 2, 'the store reads again after the earlier read landed');
   reads[1].resolve(usageResponse(FACTS_CONFIRMED));
   await flush();
-  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
-  assertAiCompact(env, 'AI：全自動', 'configured');
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると、AI返信を全自動にできます/);
   env.api.closeAiModePanel();
 }
 // The read on the way fails (network or HTTP): the store still reads again once it settled.
@@ -3107,7 +3595,7 @@ for (const failure of ['network', 'http 503']) {
   assert.equal(env.usageCalls.length, 2, `${failure}: the store reads again once the failed read settled`);
   reads[1].resolve(usageResponse(FACTS_CONFIRMED));
   await flush();
-  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると、AI返信を全自動にできます/);
   assert.equal(env.usageCalls.length, 2, `${failure}: read again only once`);
   env.api.closeAiModePanel();
 }
@@ -3128,7 +3616,7 @@ for (const failure of ['network', 'http 503']) {
   reads[2].resolve(usageResponse(FACTS_CONFIRMED));
   await flush();
   assert.equal(env.usageCalls.length, 3);
-  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると自動応答を設定できます/);
+  assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると、AI返信を全自動にできます/);
   env.api.closeAiModePanel();
 }
 {
@@ -3143,13 +3631,12 @@ for (const failure of ['network', 'http 503']) {
   env.api.closeAiModePanel();
 }
 // U5: while no inbox is connected to the AI (or the connection is still being read or cannot be read), the panel says
-// so first, in the order of the compact status「AI：未接続」, instead of the conditions for automatic replies.
+// so first, instead of the conditions for automatic replies.
 for (const usage of [FACTS_REQUIRED, { ...FACTS_REQUIRED, automatic_reason: 'automatic_unavailable', automatic_included: false }]) {
   const env = createAiContractEnv(() => Promise.resolve(usageResponse(usage)), { connection: 'unconnected', configured_inboxes: 0 });
   await flush();
-  assert.equal(collectText(env.aiBar.querySelector('[data-toybaco-ai-readiness]')), 'AI応答は未接続です。担当者が返信してください。');
+  assert.equal(collectText(env.aiPanel.querySelector('[data-toybaco-ai-readiness]')), 'AI返信は未接続です。担当者が返信してください。');
   assert.doesNotMatch(collectText(env.body), /店舗情報を確認すると|自動応答の契約・体験・残り枠/);
-  assertAiCompact(env, 'AI：未接続', 'unconnected');
 }
 for (const outcome of ['configured', 'error']) {
   const connection = deferred();
@@ -3160,20 +3647,21 @@ for (const outcome of ['configured', 'error']) {
   });
   env.body.appendChild(createComposer().box);
   env.api.inject();
+  env.api.openAiModePanel();
   await flush();
-  const readiness = env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-readiness]');
-  assert.equal(collectText(readiness), 'AI応答の接続設定を確認しています…');
+  const readiness = env.document.querySelector('[data-toybaco-ai-mode-panel]').querySelector('[data-toybaco-ai-readiness]');
+  assert.equal(collectText(readiness), 'AI返信の接続設定を確認しています…');
   if (outcome === 'configured') connection.resolve(readinessResponse());
   else connection.resolve({ ok: false, status: 503, json: async () => ({}) });
   await flush();
-  assert.equal(collectText(readiness), outcome === 'configured' ? '店舗情報を確認すると自動応答を設定できます。'
-    : 'AI応答の接続状態を確認できません。再確認してください。');
+  assert.equal(collectText(readiness), outcome === 'configured' ? '店舗情報を確認すると、AI返信を全自動にできます。'
+    : 'AI返信の接続状態を確認できません。再確認してください。');
 }
 
 for (const [reason, expected] of [
-  ['disabled', /この店舗ではAI応答をご利用いただけません/],
-  ['unknown_contract', /AI応答の利用条件を確認できません/],
-  ['account_inactive', /現在、この店舗のAI応答はご利用いただけません/],
+  ['disabled', /この店舗ではAI返信をご利用いただけません/],
+  ['unknown_contract', /AI返信の利用条件を確認できません/],
+  ['account_inactive', /現在、この店舗のAI返信はご利用いただけません/],
 ]) {
   const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ enabled: false, reason, limit: 0, remaining: 0 })));
   await flush();
@@ -3218,8 +3706,8 @@ for (const invalid of [
   await flush();
   assert.equal(env.usageCard.getAttribute('data-toybaco-ai-usage-state'), 'error');
   assert.equal(env.usageCard.querySelector('[data-toybaco-ai-usage-value]').textContent, '');
-  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'malformed usage must not enable automatic replies');
-  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-bar]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]').querySelector('[data-toybaco-ai-mode="auto"]').disabled, true, 'malformed usage must not enable automatic replies');
+  assert.equal(env.document.querySelector('[data-toybaco-ai-mode-panel]').querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
   assert.doesNotMatch(collectText(env.usageCard), /unexpected_code|invalid/);
 }
 
@@ -3692,13 +4180,36 @@ assert.doesNotMatch(billingPageSource, /position:fixed|z-index:9998/, 'the contr
   const access = { accountId: { value: 1 }, phase: { value: 'ready' }, canViewBilling: { value: true }, refresh() { checks += 1; this.canViewBilling.value = false; } };
   access.refresh = access.refresh.bind(access);
   const script = billingPageSource.slice(billingPageSource.indexOf('<script setup>') + 14, billingPageSource.indexOf('</script>')).replace(/^import .*;\n/gm, '');
+  // The frame takes the dashboard theme (.dark on body after login, on html before it) and follows a later switch.
+  const classes = () => { const names = new Set(); return { contains: name => names.has(name), add: name => names.add(name), remove: name => names.delete(name) }; };
+  const document = { body: { classList: classes() }, documentElement: { classList: classes() } };
+  const hooks = { mounted: [], unmounted: [] };
+  const observers = [];
+  class MutationObserver {
+    constructor(callback) { this.callback = callback; this.targets = []; this.disconnected = false; observers.push(this); }
+    observe(target, options) { this.targets.push([target, options]); }
+    disconnect() { this.disconnected = true; }
+  }
   const url = vm.runInNewContext(`(() => { ${script}; return billingUrl; })()`, {
-    computed: fn => ({ get value() { return fn(); } }), useToybacoBillingAccess: () => access,
+    computed: fn => ({ get value() { return fn(); } }), ref: value => ({ value }), useToybacoBillingAccess: () => access,
+    onMounted: fn => hooks.mounted.push(fn), onBeforeUnmount: fn => hooks.unmounted.push(fn), document, MutationObserver,
   });
   assert.equal(checks, 1, 'the route starts a fresh check before its first render');
   assert.equal(url.value, null, 'loading/denied states never attach a billing URL');
   access.canViewBilling.value = true;
-  assert.equal(url.value, '/toybaco/billing?account_id=1');
+  assert.equal(url.value, '/toybaco/billing?account_id=1&theme=light');
+  hooks.mounted.forEach(fn => fn());
+  assert.equal(observers.length, 1);
+  assert.deepEqual(observers[0].targets.map(([target, options]) => [target, JSON.stringify(options)]),
+    [[document.documentElement, '{"attributes":true,"attributeFilter":["class"]}'], [document.body, '{"attributes":true,"attributeFilter":["class"]}']]);
+  document.body.classList.add('dark'); observers[0].callback();
+  assert.equal(url.value, '/toybaco/billing?account_id=1&theme=dark', 'switching to dark reloads the frame in dark');
+  document.body.classList.remove('dark'); observers[0].callback();
+  assert.equal(url.value, '/toybaco/billing?account_id=1&theme=light');
+  document.documentElement.classList.add('dark'); observers[0].callback();
+  assert.equal(url.value, '/toybaco/billing?account_id=1&theme=dark', 'pages that mark html instead of body are dark too');
+  hooks.unmounted.forEach(fn => fn());
+  assert.equal(observers[0].disconnected, true, 'leaving the route stops watching the theme');
   access.accountId.value = 2; access.canViewBilling.value = false;
   assert.equal(url.value, null);
 }
@@ -5429,12 +5940,12 @@ for (const sameBase of [false, true]) {
   await f.travel(-1); assert.equal(f.env.window.location.href, postingLocation);
   assert.ok(f.env.document.querySelector('iframe')); f.env.api.closePanel();
 }
-for (const action of ['返信AIの設定を確認', '会話を開く']) {
+for (const action of ['AI返信の設定を確認', '会話を開く']) {
   const f = auxiliaryPostingFixture(); f.open('ai'); f.answer(true);
   const card = f.env.document.querySelector('[data-toybaco-ai-purpose="reply"]');
   fireClick([...card.querySelectorAll('button')].find(button => button.textContent === action));
   f.env.api.afterNavChange();
-  if (action === '返信AIの設定を確認') {
+  if (action === 'AI返信の設定を確認') {
     assert.ok(f.env.document.querySelector('[data-toybaco-ai-mode-panel]'));
     assert.ok(f.env.document.querySelector('[data-toybaco-aux-view="ai"]'));
     assert.equal(f.env.document.querySelector('iframe'), null);

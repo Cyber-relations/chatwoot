@@ -23,6 +23,8 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
   before_action :load_user_and_account
   before_action :require_billing_owner, except: :access
   before_action :guard_plan_change, only: %i[change_preview change_confirm change_refresh change_cancel]
+  # SPA の「ご契約内容」の iframe は親のテーマを theme で渡す(単独で開いたときは OS の設定)。
+  before_action :set_page_theme, only: :show
   rescue_from Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid, ActiveRecord::ActiveRecordError, with: :plan_change_unavailable
   rescue_from Toybaco::Growth::InboxRetention::Busy, Toybaco::Growth::InboxRetention::Invalid, with: :plan_change_unavailable
   rescue_from Toybaco::Checkout::PlanChangeError, with: :plan_change_error
@@ -195,6 +197,10 @@ class Toybaco::BillingController < ActionController::Base # rubocop:disable Rail
     raise "stripe #{res.code}: #{body.dig('error', 'message')}" unless res.is_a?(Net::HTTPSuccess)
 
     body
+  end
+
+  def set_page_theme
+    @toybaco_theme = Toybaco::BrandInjector.page_theme(params[:theme])
   end
 
   def set_no_cache

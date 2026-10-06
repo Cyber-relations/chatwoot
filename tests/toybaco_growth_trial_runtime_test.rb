@@ -126,7 +126,7 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
       # The mail connection opens only after the review, so the page does not ask to connect it now.
       assert_includes response.body, '<p>メールの接続は提供元の審査完了後に順次開放します。開放されたら、トイバコで Gmail または Microsoft の' \
                                      'メール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱で' \
-                                     'AIの下書きを1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p>'
+                                     'AIの返信案を1件作成してください。LINE・Webチャットで作った下書きは体験の対象外です。</p>'
       assert_includes response.body, '体験に使った Gmail・Microsoft のアカウントは、別の店舗の体験には使えません。'
       refute_includes response.body, 'id="trial-form"'
       post '/toybaco/growth/trial', params: input, headers: { 'Origin' => 'http://www.example.com' }, as: :json
@@ -254,7 +254,7 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
   def test_empty_state_names_only_the_opened_mail_connections_and_asks_to_wait_until_one_opens
     # The draft no longer answers the latest question, so no answer example is offered.
     @incoming.update!(content: '予約変更は？')
-    guide = 'のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの下書きを1件作成してください。' \
+    guide = 'のメール受信箱を接続し、ボット設定で「トイバコAI」を割り当ててください。店舗情報を設定したうえで、その受信箱でAIの返信案を1件作成してください。' \
             'LINE・Webチャットで作った下書きは体験の対象外です。</p>'
     RELEASES.each do |(gmail, microsoft), released|
       with_released(gmail, microsoft) do
@@ -411,7 +411,7 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
         assert_response :success
         assert_includes response.body, '10時から18時までです。'
         assert_includes response.body, 'Amazon Bedrock（東京・大阪）'
-        assert_includes response.body, '受信箱の「AI応答」からいつでも停止できます。'
+        assert_includes response.body, '受信箱の「AI返信の設定」からいつでも停止できます。'
         assert_includes response.body, '上記と利用規約第7条の2を確認し、自動応答の体験を開始します'
         refute_includes response.body, 'この画面からいつでも停止できます', 'the trial page itself has no stop control'
         assert_empty Toybaco::GrowthTrial.where(account_id: @account.id)

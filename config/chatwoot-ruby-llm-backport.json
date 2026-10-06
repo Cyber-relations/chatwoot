@@ -1,6 +1,5 @@
 {
-  "schema_version": 1,
-  "advisory": "CVE-2026-67991",
+  "schema_version": 2,
   "gem": {
     "name": "ruby_llm",
     "version": "1.15.0",
@@ -9,25 +8,68 @@
   },
   "upstream": {
     "source_commit": "ff392893bb5366937688fa82bc0841185491f84c",
-    "fix_commit": "9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
-    "fix_url": "https://github.com/crmne/ruby_llm/commit/9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
     "license": "MIT",
     "license_sha256": "58c1238e09acf1d713bdf670c98d76ef68bae6e104272d6692215a7fe507a31a"
   },
-  "files": [
+  "advisories": [
     {
-      "path": "lib/ruby_llm/agent.rb",
-      "original_sha256": "923e12ea686b877ca14943357e8a4b3d0e6ecdf8b290974d4d00a8e86517df21",
-      "patched_sha256": "32f2c6501aef4dd05f8d2d7306844cf49a099c4b990e2f3f8814dee852843067",
-      "method": "RubyLLM::Agent.prompt_agent_path",
-      "source_line": 324
+      "id": "CVE-2026-67987",
+      "fix_commit": "5e88411f171721b381853fa77d254e266dcf6ad8",
+      "fix_url": "https://github.com/crmne/ruby_llm/commit/5e88411f171721b381853fa77d254e266dcf6ad8",
+      "files": [
+        {
+          "path": "lib/ruby_llm/providers/openai/chat.rb",
+          "original_sha256": "c84aa8e55bdc1b32e5c3819e79c024d4e4371265ff562a2e6634c0bb9da6e6e8",
+          "patched_sha256": "016db50bd091afec5a1e316c1161730ee0c1c9e548cff814a0909ea0a76ff18b",
+          "method": "RubyLLM::Providers::OpenAI::Chat.extract_content_and_thinking",
+          "source_line": 175
+        },
+        {
+          "path": "lib/ruby_llm/stream_accumulator.rb",
+          "original_sha256": "0b5014cef1cb9e84b4385065323090e7700d0f11aa7a308b6815e58fb22c7a86",
+          "patched_sha256": "26465e29e69acd7f82aac8b3ae6c94b8d8da24ba252fbce4f0cd4a66a6459113",
+          "method": "RubyLLM::StreamAccumulator#handle_chunk_content",
+          "source_line": 120
+        }
+      ],
+      "adaptation": "Official removal of <think> tag parsing applied to the 1.15.0 non-streaming scanner and streaming accumulator; string content passes through unchanged."
     },
     {
-      "path": "lib/ruby_llm/tool.rb",
-      "original_sha256": "0d70035bc08b932824fd542d0cff1dcd3b8a0205565fd40521406f51b53dcb53",
-      "patched_sha256": "192887b3d72b941d9ce20611d2ccfdca41bea31fb0d6bf4a5e24ef07ab7c44ca",
-      "method": "RubyLLM::Tool#name",
-      "source_line": 68
+      "id": "CVE-2026-67989",
+      "fix_commit": "dd3c84812598def03d4aff77b5447c41d8f5c34e",
+      "fix_url": "https://github.com/crmne/ruby_llm/commit/dd3c84812598def03d4aff77b5447c41d8f5c34e",
+      "files": [
+        {
+          "path": "lib/ruby_llm/providers/mistral/capabilities.rb",
+          "original_sha256": "b27f9e20c53bce789749a4862e1eafa92285134db191952802f361a600591454",
+          "patched_sha256": "f1e87b9c2423fc6f2e7a8ffd1d482395f7a24e18e2bd9bbaaf5daf58e3cf0507",
+          "method": "RubyLLM::Providers::Mistral::Capabilities.capabilities_for",
+          "source_line": 106
+        }
+      ],
+      "adaptation": "Official String#index voxtral walk replaces the only 1.15.0 backtracking voxtral regex (capabilities_for transcribe); 1.15.0 has no voxtral modalities to change."
+    },
+    {
+      "id": "CVE-2026-67991",
+      "fix_commit": "9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
+      "fix_url": "https://github.com/crmne/ruby_llm/commit/9d75b033d7d00c4e1baa9b0afb4828faa8bd6602",
+      "files": [
+        {
+          "path": "lib/ruby_llm/agent.rb",
+          "original_sha256": "923e12ea686b877ca14943357e8a4b3d0e6ecdf8b290974d4d00a8e86517df21",
+          "patched_sha256": "32f2c6501aef4dd05f8d2d7306844cf49a099c4b990e2f3f8814dee852843067",
+          "method": "RubyLLM::Agent.prompt_agent_path",
+          "source_line": 324
+        },
+        {
+          "path": "lib/ruby_llm/tool.rb",
+          "original_sha256": "0d70035bc08b932824fd542d0cff1dcd3b8a0205565fd40521406f51b53dcb53",
+          "patched_sha256": "192887b3d72b941d9ce20611d2ccfdca41bea31fb0d6bf4a5e24ef07ab7c44ca",
+          "method": "RubyLLM::Tool#name",
+          "source_line": 68
+        }
+      ],
+      "adaptation": "Official fixed underscore boundary algorithm applied inline at both 1.15.0 pre-extraction call sites; gem version and all other Ruby source unchanged."
     }
   ],
   "unchanged_files": [
@@ -51,8 +93,7 @@
     },
     "patched": {
       "count": 130,
-      "sha256": "4bd75df0cad7bbf7d8098d995a9f7fff48362ccca0fb457387ea6056addbefdb"
+      "sha256": "baca7eb07336f8a44e71a8552ef37ccebd050171f3650a4b8bf53d0ad2c2570b"
     }
-  },
-  "adaptation": "Official fixed underscore boundary algorithm applied inline at both 1.15.0 pre-extraction call sites; gem version and all other Ruby source unchanged."
+  }
 }
