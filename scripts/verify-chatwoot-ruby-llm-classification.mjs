@@ -125,7 +125,7 @@ export function validateProof(proof, config, configSha, context) {
     'CVE-2026-67989 proof shape');
   assert.equal(voxtral.ordinary_cases, 20072);
   assert.equal(voxtral.model_catalog_ids, 72);
-  assert.equal(voxtral.official_examples, 7);
+  assert.equal(voxtral.official_examples, 8);
   equal(Object.keys(voxtral.adversarial).sort(), ['capabilities_seconds', 'timeout_seconds', 'voxtral_repeats']);
   assert.equal(voxtral.adversarial.voxtral_repeats, 50000);
   assert.equal(voxtral.adversarial.timeout_seconds, 2);

@@ -270,6 +270,18 @@ class ChatwootBrandInjectorTest < Minitest::Test
     theme_tokens(DARK_BLOCK).each_key { |name| assert(light[name], "#{name} has a light value") }
   end
 
+  # 未ログインの画面は html に .dark が付く。:root で暖色にした --background-color がダークでも残ると、認証画面の main
+  # (背景はこの値)だけ明るいまま、見出し(ダークでは blue-12)とタグライン(blue-11)が明るくなって読めない(2026-10-07)。
+  def test_auth_page_background_is_dark_under_the_dark_theme
+    assert_match(/background-color:\s*rgb\(var\(--background-color\)\)\s*!important;/, bubble_rule('main[class*="bg-n-brand/5"]'))
+    dark = brand_css.scan(DARK_BLOCK).flatten.join("\n")
+    rgb = ->(name) { dark[/#{Regexp.escape(name)}:\s*([\d ]+);/, 1].to_s.split.map(&:to_i) }
+    background = rgb.call('--background-color')
+    assert_equal([28, 29, 32], background, 'the dark theme sets its own background (the upstream dark value)')
+    assert_operator(contrast(rgb.call('--blue-12'), background), :>=, 4.5, 'the heading stays readable')
+    assert_operator(contrast(rgb.call('--blue-11'), background), :>=, 4.5, 'and the tagline')
+  end
+
   # Grok 指摘(2026-10-06): ダークの主ボタンの面が周りに沈み、区切り線とホバーが見分けにくかった。
   def test_buttons_lines_and_hover_keep_the_reviewed_contrast_in_both_themes
     [theme_tokens(LIGHT_BLOCK), theme_tokens(DARK_BLOCK)].each do |tokens|
