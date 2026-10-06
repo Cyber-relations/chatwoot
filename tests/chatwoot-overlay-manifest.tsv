@@ -218,7 +218,7 @@ db496750d482a09391905fe5b3344d6387b45947b3bdf53c6ccd1d4125a3f5f2	0644	file	overl
 1a5c6f0fc4f1a0988654862e62d9b0ca18d9d3f48bd353f75afb954443b95816	0644	file	overlay/app/app/javascript/v3/views/auth/password/Edit.vue
 5ae1f599faeea8d2b2a4a16985dd92dfd478e5de6f5dac9f51937fb219b232de	0644	file	overlay/app/app/javascript/v3/views/auth/reset/password/Index.vue
 09187506a8f4005a2ee753b52f6e36a25ffcbf56a974edcb1b1f30ed23950c84	0644	file	overlay/app/app/javascript/v3/views/auth/signup/components/Signup/Form.vue
-d3f30e317528213a4411b48355ed3c178666bb1300fe7172c4b9cbe580f5bbf9	0644	file	overlay/app/app/javascript/v3/views/login/Index.vue
+ec5a419611809e5b44115f07feee74fe60326c3f2d6a26a704ffa6f6fbfb63e7	0644	file	overlay/app/app/javascript/v3/views/login/Index.vue
 463b554564b8c94a07f8ceca3d653bd625af281c5e3771f12553c1ee5b112b54	0644	file	overlay/app/app/javascript/widget/components/AgentMessage.vue
 ffd267f7b99bc439365ce1d4086e7a25850dfb462f15431215ca372a2f419acc	0644	file	overlay/app/app/javascript/widget/components/UnreadMessage.vue
 bb5b9a25f3a557774d262b226ce925a0de4271418713bffe57993e232b9752ea	0644	file	overlay/app/app/javascript/widget/i18n/locale/ja.json
