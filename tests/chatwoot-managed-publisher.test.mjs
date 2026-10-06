@@ -803,7 +803,8 @@ process.exit(98);
       const proof = JSON.parse(readFileSync(join(directory, 'chatwoot-source-backport/source-backport-classification.json')));
       assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
       assert.equal(proof.scanner_vex_filtering, false);
-      assert.equal(proof.counts.raw_high, 1);
+      assert.equal(proof.counts.raw_high, 3);
+      assert.equal(proof.counts.source_verified_fixed, 3);
       const security = join(directory, 'chatwoot-source-backport');
       const originalBefore = readFileSync(join(security, 'frozen-source/db-before.json'));
       assert.deepEqual(readFileSync(join(security, 'frozen-source/db-after.json')), originalBefore);
@@ -848,6 +849,10 @@ for (const [label, change] of [
   ['additional unfixed High rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'HIGH', FixedVersion: '' }]; }],
   ['Critical rejected', (_sbom, report) => { report.Results[0].Vulnerabilities = [{ Severity: 'CRITICAL' }]; }],
   ['raw-zero receipt cannot be reused', (_sbom, report, settings) => { report.Results[1].Vulnerabilities = []; settings.scannerExit = 0; }],
+  ['one-advisory receipt cannot be reused', (_sbom, report) => { report.Results[1].Vulnerabilities.splice(0, 2); }],
+  ['fourth ruby_llm finding rejected', (_sbom, report) => {
+    report.Results[1].Vulnerabilities.push({ ...report.Results[1].Vulnerabilities[0], VulnerabilityID: 'CVE-2099-4' });
+  }],
   ['Bundler preload missing before proof script', (_sbom, _report, settings) => { settings.proofStartup = 'missing'; }],
   ['Bundler preload after script is only an argument', (_sbom, _report, settings) => { settings.proofStartup = 'late'; }],
   ['source proof failure', (_sbom, _report, _settings, fixture) => { fixture.proof.files[0].sha256 = 'f'.repeat(64); }],
@@ -855,4 +860,4 @@ for (const [label, change] of [
   ['original DB changed during raw scan', (_sbom, _report, settings) => { settings.changedOriginal = true; }],
   ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 21 negative controls; Docker stand-in, no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 23 negative controls; Docker stand-in, no external calls)');
