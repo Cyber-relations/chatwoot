@@ -63,7 +63,7 @@ RUN node --version \
 FROM localized-assets AS runtime-hardening
 # Expat 2.8.4 fixes CVE-2026-66046 and CVE-2026-76641; Alpine v3.21 ships 2.8.4-r0.
 # https://github.com/libexpat/libexpat/blob/R_2_8_4/expat/Changes
-RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpat=2.8.4-r0' \
+RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpat=2.8.4-r0' \
     # Same-ABI official signed stable APK; v3.21/x86_64 has no fixed build.
     # Do not switch repositories or permit untrusted APKs.
     && ruby -ropen-uri -e 'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r0.apk") { |input| File.open("/tmp/toybaco-openjpeg.apk", "wb") { |output| IO.copy_stream(input, output) } }' \
@@ -73,7 +73,7 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r0' 'libexpa
     && rm /tmp/toybaco-openjpeg.apk \
     && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
     && test "$(apk info -v | grep '^musl-utils-')" = 'musl-utils-1.2.5-r11' \
-    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
+    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
     && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
       -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
@@ -114,7 +114,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
     && test ! -e /usr/lib/libopenjp2.so.2.5.2 \
     && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}" \
     && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json \
-    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r0' \
+    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
     && test "$(readlink /usr/lib/libz.so.1)" = 'libz.so.1.3.2' \
     && test -f /usr/lib/libz.so.1.3.2 \
     && test ! -e /usr/lib/libz.so.1.3.1 \

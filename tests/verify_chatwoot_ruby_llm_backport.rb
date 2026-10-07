@@ -187,7 +187,9 @@ mistral_examples = [
   [capabilities.capabilities_for('pixtral-12b-2409').include?('vision'), true],
   [capabilities.capabilities_for('ministral-8b-latest').include?('distillation'), true],
   [capabilities.capabilities_for('codestral-latest').include?('predicted_outputs'), true],
-  [capabilities.capabilities_for('mistral-embed').include?('batch'), false]
+  [capabilities.capabilities_for('mistral-embed').include?('batch'), false],
+  # The walk ignores line breaks like upstream: a newline between voxtral and transcribe is still transcription.
+  [capabilities.capabilities_for("voxtral\ntranscribe"), ['transcription']]
 ]
 mistral_examples.each { |actual, expected| guard.check!(actual == expected, 'official Mistral capability example failure') }
 repeated = "#{'voxtral' * 50_000}-nope"
