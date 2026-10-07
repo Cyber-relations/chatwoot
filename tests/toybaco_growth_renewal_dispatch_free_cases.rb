@@ -528,4 +528,166 @@ module ToybacoGrowthRenewalDispatchFreeCases
     assert_equal [@dispatch_contract, @sub], free_attrs.values_at('toybaco_contract', 'toybaco_subscription_id')
     assert_nil free_notice_stage
   end
+
+  # The hourly renewal reminder sweep, which also recovers a Free transition notice the dispatch could not enqueue.
+  def free_sweep
+    Toybaco::GrowthRenewalReminderSweepJob.perform_now
+  end
+
+  # The dispatch completes Free while the queue refuses the notice job (perform_later returns false), as in the
+  # refused-enqueue case: no notice, no claim. Returns the completed journal.
+  def free_complete_unqueued
+    Toybaco::GrowthRenewalFreeNoticeJob.stub(:perform_later, false) { assert_equal 'idle', free_execute(at: free_due) }
+    assert_equal %w[idle free_completed], dispatch_row.values_at(:state, :phase)
+    assert_nil free_notice_stage
+    free_attrs[Growth::RenewalTransition::KEY]
+  end
+
+  # (a) A notice job the queue refused is recovered by the next hourly sweep: one notice to the confirmed owner,
+  # recorded attempted, and the sweep after it sends nothing more.
+  def test_dispatch_free_reminder_sweep_sends_the_notice_a_refused_enqueue_left_behind
+    free_fixture(opening: false)
+    confirm_free_owner!
+    journal = free_complete_unqueued
+    travel_to free_due + 1.hour
+    capture_free_notices do |queued, sent|
+      free_sweep
+      assert_equal [[], [[@account.id, @dispatch_owner.id, journal['id']]]], [queued, sent]
+      travel_to free_due + 2.hours
+      free_sweep
+      assert_equal 1, sent.size
+    end
+    assert_equal ['attempted', @dispatch_owner.id, journal['id'], nil], free_notice_stage.values_at('state', 'user_id', 'transition_id', 'token')
+  end
+
+  # (b) After the dispatch's job sent the notice, the sweep finds its stage: nothing is sent and the record is the same.
+  def test_dispatch_free_reminder_sweep_after_a_sent_notice_sends_nothing_and_keeps_the_record
+    free_fixture(opening: true)
+    confirm_free_owner!
+    capture_free_notices do |_queued, sent|
+      assert_equal 'idle', free_execute(at: free_due)
+      assert_equal 1, sent.size
+      record = free_attrs[Growth::RenewalReminder::KEY]
+      travel_to free_due + 1.hour
+      refute Growth::RenewalFreeNotice.pending?(@account.reload, now: Time.now.utc)
+      free_sweep
+      assert_equal [1, record], [sent.size, free_attrs[Growth::RenewalReminder::KEY]]
+    end
+  end
+
+  # (c) The sweep sends and records nothing after a new purchase, for a cancel binding, for a Free return older than
+  # the window, or with the notices flag off (read at the sweep); once none of those holds, it sends the one notice.
+  def test_dispatch_free_reminder_sweep_skips_a_purchase_a_cancel_binding_an_old_return_and_a_closed_flag
+    free_fixture(opening: false)
+    confirm_free_owner!
+    journal = free_complete_unqueued
+    attrs = free_attrs
+    cancel = journal.deep_dup
+    cancel['binding']['cancel'] = { 'canceled_at' => NOW.to_i - 86_400, 'cancel_at' => NOW.to_i, 'ended_at' => NOW.to_i, 'reason' => nil }
+    old = Time.at(journal['observed_at'] + Growth::RenewalFreeNotice::WINDOW + 1).utc
+    [['purchase', -> { free_repurchase! }],
+     ['cancel binding', -> { @account.update_columns(internal_attributes: attrs.merge(Growth::RenewalTransition::KEY => cancel)) }],
+     ['old return', -> { travel_to old }]].each do |label, change|
+      travel_to free_due + 1.hour
+      change.call
+      refute Growth::RenewalFreeNotice.pending?(@account.reload, now: Time.now.utc), label
+      capture_free_notices do |_queued, sent|
+        free_sweep
+        assert_empty sent, label
+      end
+      assert_nil free_notice_stage, label
+      @account.update_columns(internal_attributes: attrs)
+    end
+    travel_to free_due + 1.hour
+    assert Growth::RenewalFreeNotice.pending?(@account.reload, now: Time.now.utc)
+    capture_free_notices(enabled: false) do |_queued, sent|
+      free_sweep
+      assert_empty sent
+    end
+    assert_nil free_notice_stage
+    capture_free_notices do |_queued, sent|
+      free_sweep
+      assert_equal 1, sent.size
+    end
+  end
+
+  # (d) A store that fails before its claim (a lock wait) is logged and the sweep goes on: the next store is sent.
+  def test_dispatch_free_reminder_sweep_logs_a_store_failing_before_its_claim_and_sends_the_next
+    free_fixture(opening: false)
+    confirm_free_owner!
+    journal = free_complete_unqueued
+    travel_to free_due + 1.hour
+    locked = Account.create!(name: 'Locked fixture', locale: 'ja')
+    locked.define_singleton_method(:with_lock) { |*| raise ActiveRecord::LockWaitTimeout, 'fixture lock wait' }
+    stores = [locked, Account.find(@account.id)]
+    candidates = Object.new
+    candidates.define_singleton_method(:find_each) { |**, &block| stores.each(&block) }
+    pending = Growth::RenewalFreeNotice.method(:pending?)
+    logged = []
+    capture_free_notices do |_queued, sent|
+      Growth::RenewalFreeNotice.stub(:candidates, candidates) do
+        Growth::RenewalFreeNotice.stub(:pending?, ->(account, now:) { account.equal?(locked) || pending.call(account, now: now) }) do
+          Rails.logger.stub(:warn, ->(message = nil, &block) { logged << (message || block&.call) }) { free_sweep }
+        end
+      end
+      assert_equal [[@account.id, @dispatch_owner.id, journal['id']]], sent
+    end
+    assert_equal ["toybaco_renewal_free_notice_sweep_failed account=#{locked.id} class=ActiveRecord::LockWaitTimeout"], logged.grep(/free_notice/)
+    assert_equal 'attempted', free_notice_stage['state']
+  ensure
+    locked&.destroy!
+  end
+
+  # (e) pending? only reads: every statement is a SELECT (no BEGIN, lock or write), and it logs nothing, also for a
+  # receipt that no longer reads (false, while perform keeps its own skip log).
+  def test_dispatch_free_notice_pending_only_reads_and_logs_nothing
+    free_fixture(opening: true)
+    confirm_free_owner!
+    free_complete_unqueued
+    account = Account.find(@account.id)
+    before = account.internal_attributes.deep_dup
+    statements = []
+    logged = []
+    capture = ->(*, payload) { statements << payload[:sql] }
+    results = Rails.logger.stub(:warn, ->(message = nil, &block) { logged << (message || block&.call) }) do
+      ActiveSupport::Notifications.subscribed(capture, 'sql.active_record') do
+        unreadable = Growth::FreeReturnRecord.stub(:current, ->(*) { raise Growth::FreeReturnRecord::Invalid }) do
+          Growth::RenewalFreeNotice.pending?(account, now: Time.now.utc)
+        end
+        [Growth::RenewalFreeNotice.pending?(account, now: Time.now.utc), unreadable]
+      end
+    end
+    assert_equal [true, false], results
+    refute_empty statements
+    assert statements.all? { |sql| sql.lstrip.start_with?('SELECT') }, statements.inspect
+    assert_empty logged
+    assert_equal before, @account.reload.internal_attributes
+  end
+
+  # (f) The reminder's record decides it: a free_transition stage in the record of this renewal makes pending? false;
+  # a record of another renewal (the previous one's), or of this renewal without the stage, leaves it true, and the
+  # sweep then replaces that record and sends the one notice.
+  def test_dispatch_free_notice_pending_follows_the_stage_of_this_renewal_only
+    free_fixture(opening: false)
+    confirm_free_owner!
+    free_complete_unqueued
+    travel_to free_due + 1.hour
+    failure = Growth::FreeReturnRecord.current(@account).dig('billing_history', Growth::RenewalGrace::FAILURE_KEY)
+    renewal = "#{failure['subscription_id']}:#{failure['term_start']}"
+    stage = { 'state' => 'attempted', 'user_id' => @dispatch_owner.id }
+    previous = { 'renewal' => "#{@sub}:1", 'stages' => { Growth::RenewalFreeNotice::STAGE => stage } }
+    attrs = free_attrs
+    [[previous, true],
+     [{ 'renewal' => renewal, 'stages' => { 'expired' => stage } }, true],
+     [{ 'renewal' => renewal, 'stages' => { Growth::RenewalFreeNotice::STAGE => stage } }, false]].each do |record, expected|
+      @account.update_columns(internal_attributes: attrs.merge(Growth::RenewalReminder::KEY => record))
+      assert_equal expected, Growth::RenewalFreeNotice.pending?(@account.reload, now: Time.now.utc), record.inspect
+    end
+    @account.update_columns(internal_attributes: attrs.merge(Growth::RenewalReminder::KEY => previous))
+    capture_free_notices do |_queued, sent|
+      free_sweep
+      assert_equal 1, sent.size
+    end
+    assert_equal [renewal, 'attempted'], [free_attrs.dig(Growth::RenewalReminder::KEY, 'renewal'), free_notice_stage['state']]
+  end
 end

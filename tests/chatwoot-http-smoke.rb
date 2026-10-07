@@ -59,7 +59,7 @@ csp = login.fetch('content-security-policy')
 frame_src = csp.split(';').map(&:strip).grep(/\Aframe-src\b/)
 frame_ancestors = csp.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
 abort "frame-src is not exact: #{frame_src.inspect}" unless
-  frame_src == ["frame-src 'self' #{postiz_origin}"]
+  frame_src == ["frame-src 'self' #{postiz_origin} https://hcaptcha.com https://*.hcaptcha.com"]
 abort "frame-ancestors is not exact: #{frame_ancestors.inspect}" unless
   frame_ancestors == ["frame-ancestors 'self'"]
 abort 'X-Frame-Options must be SAMEORIGIN' unless login['x-frame-options'] == 'SAMEORIGIN'

@@ -13,7 +13,7 @@ class ChatwootFramePolicyTest < Minitest::Test
     _status, headers, = response('/app/accounts/1/inbox')
 
     assert_equal(
-      "frame-ancestors 'self'; frame-src 'self' https://post.toybaco.jp",
+      "frame-ancestors 'self'; frame-src 'self' https://post.toybaco.jp https://hcaptcha.com https://*.hcaptcha.com",
       headers['Content-Security-Policy']
     )
     assert_equal('SAMEORIGIN', headers['X-Frame-Options'])

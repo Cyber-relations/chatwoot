@@ -8,6 +8,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   # Widgetは顧客サイトへ埋め込まれる製品機能なので、この境界の対象にしない。
   class DashboardFramePolicy
     PROTECTED_PREFIXES = %w[/app /v3app /super_admin /installation /toybaco].freeze
+    # hCaptchaのウィジェットは子iframeで読み込まれる。無料登録フォームとChatwootの認証画面
+    # (登録・パスワード再設定)が使う。dashboardはSPAで、クライアント側の遷移では最初に読んだ
+    # documentのCSPが効き続けるため、pathで出し分けず保護pathでは常に許可する。
+    # 親frameの制限(frame-ancestors)はこの許可と関係しないので変えない。
+    HCAPTCHA_FRAME_SOURCES = %w[https://hcaptcha.com https://*.hcaptcha.com].freeze
 
     def initialize(app, postiz_origin: Toybaco::PostizOrigin.fetch!)
       @app = app
@@ -43,8 +48,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
       directives << "frame-ancestors #{deny_parent ? "'none'" : "'self'"}"
       # upstream/別middlewareが緩いframe-srcを足していても継承しない。dashboardが
-      # 子frameへ読める先は自身とPostizの2 originだけ、親frameは自身だけに固定する。
-      directives << "frame-src 'self' #{@postiz_origin}"
+      # 子frameへ読める先は自身・Postiz・hCaptchaだけ、親frameは自身だけに固定する。
+      directives << "frame-src 'self' #{@postiz_origin} #{HCAPTCHA_FRAME_SOURCES.join(' ')}"
       directives.join('; ')
     end
 
