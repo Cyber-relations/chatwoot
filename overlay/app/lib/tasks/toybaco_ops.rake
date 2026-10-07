@@ -528,3 +528,110 @@ namespace :toybaco do
     puts Toybaco::Ops::E2eConsent.purge(args)
   end
 end
+
+# staging の E2E(無料登録の hCaptcha)用。staging の InstallationConfig の HCAPTCHA_SITE_KEY / HCAPTCHA_SERVER_KEY に、hCaptcha 公式の公開
+# test 鍵(公開ドキュメントの定数で秘密ではない)を入れ(on)、空にし(off)、分類を表示する(show)。test 鍵の入った staging では、無料登録の
+# E2E(tests/staging/80-consent-free-signup.js)がウィジェットのチェックを押して token を得てから送信するため、CSP が hCaptcha の iframe を
+# 塞ぐ退行を staging で検出できる。staging 専用で、環境の判定は E2eConsent と同じ(production と環境が不明なときは引数を読む前に abort する。
+# ops-rake workflow も e2e_ で始まるタスクを staging 以外では拒否する。二重の fail-closed)。on / off は 1 つの transaction(外側の
+# transaction の中で呼ばれても savepoint を作る)で、同じ rake の同時実行を advisory lock で直列にしてから 2 行を行ロックして読み、
+# 行の値と同じ名前の環境変数(行が無いと GlobalConfigService.load が環境変数から行を作る)のどれかに実鍵(空でも test 定数でもない値。
+# foreign)があれば何も書かずに abort する(staging の実鍵を上書きしない)。書いた後に同じ transaction で読み直した分類を出し、commit の後に
+# だけ GlobalConfig の cache を消す。出力は分類(empty / test / foreign)だけで、鍵の値(test 定数を含む)は出さない。監査行
+# (started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、モデルは実行時に参照する。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module E2eCaptcha
+      TEST_SITE_KEY = '10000000-ffff-ffff-ffff-000000000001'
+      TEST_SECRET = '0x0000000000000000000000000000000000000000'
+      # 出力の項目名 → [InstallationConfig の行名(同じ名前の環境変数), その行の test 定数]。出力の順もこの順。
+      KEYS = { 'site_key' => ['HCAPTCHA_SITE_KEY', TEST_SITE_KEY], 'server_key' => ['HCAPTCHA_SERVER_KEY', TEST_SECRET] }.freeze
+      MODES = %w[on off show].freeze
+
+      module_function
+
+      def staging!(task)
+        E2eConsent.staging!(task)
+      end
+
+      # toybaco:e2e_captcha_test_keys[mode]。show は読むだけ。on / off は書いて読み直した分類の 1 行を返す。
+      def run(args)
+        staging!('e2e_captcha_test_keys')
+        mode = mode!(args)
+        return line(mode, current) if mode == 'show'
+
+        # 外側の transaction の中で呼ばれても、例外のときに 2 行とも戻るよう savepoint を作る(requires_new)。例外と abort のときは値が
+        # 変わらないので cache も消さない。
+        written = InstallationConfig.transaction(requires_new: true) { write!(mode) }
+        # 行の after_commit も cache を消すが、読み手(GlobalConfigService.load)に古い値が残らないよう commit の後にも消す。
+        GlobalConfig.clear_cache
+        written
+      end
+
+      # 検査と代入を同じ判定にする(通すのは on / off / show の文字列 1 つだけで、Symbol や余分な引数は通さない)。入力の値は出さない。
+      def mode!(args)
+        mode = args[:mode]
+        return mode if mode.is_a?(String) && MODES.include?(mode) && args.extras.empty?
+
+        abort 'TOYBACO_E2E_CAPTCHA_ABORT reason=mode_invalid'
+      end
+
+      # transaction の中で呼ぶ。最初に同じ rake の同時実行を transaction の終わりまで直列にする(行が無いときに両方が行を作ろうとして、
+      # 後の方が unique index の違反で落ちない。後の実行は先の実行が確定させた行を読む)。続けて 2 行を行ロックして(行が無ければ作る用意を
+      # して)、行の値と環境変数を分類し、foreign があれば何も書かずに abort する。on は test 定数、off は空文字を入れ(行は消さない)、
+      # SuperAdmin の設定画面で編集できるよう locked: false にする(上流の既定値と同じ)。
+      def write!(mode)
+        InstallationConfig.connection.execute("SELECT pg_advisory_xact_lock(hashtext('toybaco_e2e_captcha_test_keys'))")
+        rows = locked_rows
+        abort 'TOYBACO_E2E_CAPTCHA_ABORT reason=foreign_keys' if classes(rows.transform_values(&:value)).value?('foreign')
+
+        rows.each do |key, row|
+          row.value = mode == 'on' ? KEYS.fetch(key).last : ''
+          row.locked = false
+          row.save!
+        end
+        line(mode, current)
+      end
+
+      # 2 行を行ロック(SELECT … FOR UPDATE)付きで読む。行が無ければ保存前の新しい行にする。transaction の中で呼ぶ。
+      def locked_rows
+        KEYS.transform_values { |(name, _)| InstallationConfig.lock.find_or_initialize_by(name: name) }
+      end
+
+      # 読み手の DB の値(行が無ければ nil)と環境変数の分類。GlobalConfigService.load は環境変数から行を作ることがあるため使わない。
+      def current
+        classes(KEYS.transform_values { |(name, _)| InstallationConfig.find_by(name: name)&.value })
+      end
+
+      # 行の値の分類に、同じ名前の環境変数の分類を重ねる。どちらかが foreign なら foreign、そうでなければ行の分類(環境変数が空か test
+      # 定数なら行の分類のまま)。GlobalConfigService.load は行が無いと環境変数から行を作るため、行だけを見ると実鍵を取りこぼす。
+      def classes(values)
+        values.to_h do |key, value|
+          name, test_value = KEYS.fetch(key)
+          found = [classify(value, test_value), classify(ENV.fetch(name, nil), test_value)]
+          [key, found.include?('foreign') ? 'foreign' : found.first]
+        end
+      end
+
+      # 空(nil か空文字)は empty、その行の test 定数と一致すれば test、ほかは全て foreign(空白だけの値・型の違う値・もう一方の行の test
+      # 定数も、実鍵と同じく上書きしない)。
+      def classify(value, test_value)
+        return 'empty' if value.nil? || value == ''
+
+        value == test_value ? 'test' : 'foreign'
+      end
+
+      def line(mode, found)
+        "TOYBACO_E2E_CAPTCHA mode=#{mode} site_key=#{found.fetch('site_key')} server_key=#{found.fetch('server_key')}"
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc 'staging 専用: 無料登録の E2E 用に hCaptcha 公式の公開 test 鍵を入れる・空にする・分類を表示する(実鍵があれば書かない)' \
+       '(rake "toybaco:e2e_captcha_test_keys[on|off|show]")'
+  task :e2e_captcha_test_keys, %i[mode] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eCaptcha.run(args)
+  end
+end
