@@ -10,7 +10,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def create
         available = Gmail.allowed?(Current.account)
-        return super unless available || existing_gmail_connection? || params[:return_to] == 'growth'
+        # Every entry point uses the adopted REST scopes and release gate.
+        # Falling back upstream would request full-mail access without PKCE.
         return render(json: { error: 'この連携は現在準備中です。' }, status: :service_unavailable) unless available
 
         # The OAuth callback binds to the same web session, not just a submitted
@@ -24,13 +25,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
-
-      def existing_gmail_connection?
-        return false if params[:email].blank?
-
-        channel = Current.account.email_channels.where('LOWER(email) = ?', params[:email].to_s.downcase).first
-        Gmail.connected?(channel)
-      end
 
       def gmail_oauth_state
         OauthState.new(store: Redis::Alfred).issue(account_id: Current.account.id, user_id: Current.user.id,

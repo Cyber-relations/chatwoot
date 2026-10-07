@@ -206,6 +206,29 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  def test_all_authorization_entry_points_respect_the_rest_release_gate
+    Gmail.stub(:allowed?, false) do
+      [{}, { return_to: 'settings' }, { return_to: 'onboarding' },
+       { email: 'legacy@example.test' }, { return_to: 'unrecognized' }].each do |params|
+        post "/api/v1/accounts/#{@account.id}/google/authorization", params: params,
+             headers: @user.create_new_auth_token, as: :json
+        assert_response :service_unavailable
+        assert_nil response.parsed_body['url']
+      end
+    end
+    assert_equal 0, @account.inboxes.count
+  end
+
+  def test_legacy_callback_cannot_exchange_a_code_or_decode_a_token
+    [nil, @account.to_sgid(expires_in: 15.minutes).to_s].each do |state|
+      get '/google/callback', params: { state: state, code: 'fixture-unused-code' }
+      assert_response :gone
+      assert_equal 'no-store', response.headers['Cache-Control']
+      assert_equal 0, @account.inboxes.count
+    end
+    assert_empty @google.exchanges
+  end
+
   def test_a_cancelled_google_prompt_does_not_create_or_charge_anything
     with_google do
       state = authorize
