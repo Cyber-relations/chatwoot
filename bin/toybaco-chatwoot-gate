@@ -184,6 +184,7 @@ control_file_list() {
     'tests/toybaco_microsoft_outgoing_test.rb' \
     'tests/toybaco_microsoft_runtime_test.rb' \
     'tests/toybaco_gmail_runtime_test.rb' \
+    'tests/toybaco_fetch_error_logging_runtime_test.rb' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
@@ -1235,6 +1236,11 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_gmail_runtime_test.rb
+
+  STAGE='外部取得エラーログの資格情報抑止'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_fetch_error_logging_runtime_test.rb
 
   STAGE='Microsoft Graph・認可・差分受信・送信契約'
   for microsoft_test in toybaco_microsoft_api_test toybaco_microsoft_sync_test toybaco_microsoft_parts_test toybaco_microsoft_outgoing_test; do

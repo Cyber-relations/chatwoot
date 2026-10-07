@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../lib/toybaco/connections/google_authorization'
+require_relative '../../lib/toybaco/connections/legacy_google_callback'
 require_relative '../../lib/toybaco/connections/gmail_send'
 require_relative '../../lib/toybaco/connections/gmail_schedule'
 require_relative '../../lib/toybaco/connections/gmail_cleanup'
@@ -19,6 +20,7 @@ end
 
 Rails.application.config.to_prepare do
   Api::V1::Accounts::Google::AuthorizationsController.prepend(Toybaco::Connections::GoogleAuthorization)
+  Google::CallbacksController.prepend(Toybaco::Connections::LegacyGoogleCallback)
   Api::V1::Accounts::Microsoft::AuthorizationsController.prepend(Toybaco::Connections::MicrosoftAuthorization)
   Email::SendOnEmailService.prepend(Toybaco::Connections::GmailSendRouting)
   Email::SendOnEmailService.prepend(Toybaco::Connections::MicrosoftSendRouting)
