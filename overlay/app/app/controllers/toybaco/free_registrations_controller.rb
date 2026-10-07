@@ -16,7 +16,9 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
 
   def create
     return render_error('利用規約とプライバシーポリシーをご確認ください。', :unprocessable_entity) unless params[:accept_terms] == '1'
-    return render_error('確認に失敗しました。もう一度お試しください。', :unprocessable_entity) unless valid_captcha?
+
+    captcha_message = captcha_error
+    return render_error(captcha_message, :unprocessable_entity) if captcha_message
 
     user, = Toybaco::Growth::FreeRegistration.new.register!(registration_attributes)
     # A confirmation email is the only next step. No session, usable store or
@@ -42,7 +44,10 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
   end
 
   def render_form(status: :ok)
-    @captcha_site_key = GlobalConfigService.load('HCAPTCHA_SITE_KEY', '')
+    # server keyが空ならcaptcha_errorは検査しない。site keyだけが残った構成で部品と送信前の確認を出すと、
+    # hCaptchaを読み込めない人の送信が画面側で止まって先へ進めないため、どちらも出さない。
+    server_key = GlobalConfigService.load('HCAPTCHA_SERVER_KEY', '')
+    @captcha_site_key = server_key.present? ? GlobalConfigService.load('HCAPTCHA_SITE_KEY', '') : ''
     render 'toybaco/free_registrations/show', layout: false, status: status
   end
 
@@ -54,8 +59,16 @@ class Toybaco::FreeRegistrationsController < ActionController::Base # rubocop:di
     end
   end
 
-  def valid_captcha?
-    ChatwootCaptcha.new(params[:h_captcha_client_response].presence || params['h-captcha-response']).valid?
+  # server keyが未設定なら検査しない(上流ChatwootCaptchaと同じ)。tokenが無いのはチェック前の送信や
+  # 部品の読み込み失敗で、hCaptchaに検証を断られた場合とは利用者のすることが違うので文言を分ける。
+  def captcha_error
+    server_key = GlobalConfigService.load('HCAPTCHA_SERVER_KEY', '')
+    return if server_key.blank?
+
+    token = params[:h_captcha_client_response].presence || params['h-captcha-response'].presence
+    return '「私は人間です」の確認にチェックを入れてから送信してください。確認欄が表示されない場合はページを再読み込みしてください。' if token.blank?
+
+    '確認に失敗しました。もう一度お試しください。' unless ChatwootCaptcha.new(token).valid?
   end
 
   def registration_attributes

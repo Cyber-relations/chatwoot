@@ -10,9 +10,10 @@
 # ID・秘密の接頭辞(cus_ / in_ / sk_ など)か数字だけの値は invalid と出す(_ を - にするとマスクも当たらないため)。
 # 時刻は UTC の ISO 8601。行の事実は種類ごとに 50 件、renewal_attention の各行は 200 件までで、超えた分は truncated=<残り件数>。
 # 該当なしは none。rake は Rails の初期化前にこのファイルを読むため、モジュールは入れ子で定義し、Rails の定数は実行時に参照する。
-# 店舗の属性のキーは、初期化前に読める lib(toybaco.rake も読む)の定数を使う。更新の精算(RenewalSettlement)の記録のキーだけは、
-# 依存が重いので実行時に読む。renewal_attention は先頭に、更新系に関係する DB flag の現在値を出す(installation_configs を
-# GlobalConfig の cache を経由せずに読む。GlobalConfigService.load は行が無いと ENV から行を作るため使わない)。
+# 店舗の属性のキーは、初期化前に読める lib(toybaco.rake も読む)の定数を使う。更新の精算(RenewalSettlement)と更新の案内
+# (RenewalReminder)の記録のキーだけは、依存が重いので実行時に読む。renewal_attention は先頭に、更新系に関係する DB flag の
+# 現在値を出す(installation_configs を GlobalConfig の cache を経由せずに読む。GlobalConfigService.load は行が無いと ENV から
+# 行を作るため使わない)。
 require_relative '../toybaco/ops/ops_flag'
 require_relative '../toybaco/ops/renewal_overdue'
 require_relative '../toybaco/entitlements'
@@ -73,8 +74,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       module_function
 
-      # 1 店舗の更新の進み。店舗の属性の事実(契約・支払い済みの期間・更新の失敗・更新の精算・journal・Free 復帰の記録)に続けて、
-      # 行の事実(dispatch・coordinator・provider の精算・照合 request・投稿停止)を出す。店舗が無ければ found=false の 1 行。
+      # 1 店舗の更新の進み。店舗の属性の事実(契約・支払い済みの期間・更新の失敗・更新の精算・journal・Free 復帰の記録・案内の記録)に
+      # 続けて、行の事実(operation・dispatch・coordinator・provider の精算・照合 request・投稿停止)を出す。店舗が無ければ found=false の 1 行。
       def status_lines(account_id, now: Time.now.utc)
         account = Account.find_by(id: account_id)
         return ["#{STATUS} account=#{account_id} found=false"] unless account
@@ -116,10 +117,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module RenewalStoreFacts
       extend RenewalFormat
 
+      # 案内の記録の段階(出す順)と、記録が対象にする更新(購読 ID:期首の Unix 時刻。RenewalReminder#eligible? が作る)。
+      REMINDER_STAGES = %w[initial expired free_transition].freeze
+      REMINDER_RENEWAL = /\A(sub_[A-Za-z0-9]+):([1-9]\d*)\z/
+
       module_function
 
       def lines(account, attrs)
-        [contract(account, attrs), period(attrs), failure(attrs), settlement(attrs), journal(attrs), free_return(account, attrs)]
+        [contract(account, attrs), period(attrs), failure(attrs), settlement(attrs), journal(attrs), free_return(account, attrs),
+         *reminder(attrs)]
       end
 
       def contract(account, attrs)
@@ -175,17 +181,49 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         { 'kind' => 'free-return', 'pointer' => 'present', 'returned_at' => time(pointer['returned_at']), 'records' => records }
       end
+
+      # 更新の案内の記録(RenewalReminder の initial・expired と RenewalFreeNotice の free_transition)。先頭 1 行に対象の更新・
+      # 次の確認の時刻・段階の数、続けて段階を決まった順に 1 行ずつ。token・user_id と未知の段階の中身は出さない(数には含める)。
+      def reminder(attrs)
+        require_relative '../toybaco/growth/renewal_reminder'
+        record = attrs[Toybaco::Growth::RenewalReminder::KEY]
+        return [{ 'kind' => 'reminder', 'renewal' => RenewalFormat::NONE }] unless record.is_a?(Hash)
+
+        stages = record['stages'].is_a?(Hash) ? record['stages'] : {}
+        subscription, term_start = reminder_renewal(record['renewal'])
+        [{ 'kind' => 'reminder', 'renewal' => 'present', 'subscription' => subscription, 'term_start' => term_start,
+           'next_check_at' => time(record['next_check_at']), 'stages' => stages.size },
+         *REMINDER_STAGES.map { |stage| reminder_stage(stage, stages) }]
+      end
+
+      # 対象の更新の購読(末尾 6 字)と期首。形が違えば両方 invalid。
+      def reminder_renewal(value)
+        match = value.is_a?(String) ? value.match(REMINDER_RENEWAL) : nil
+        match ? [masked(match[1]), time(Integer(match[2], 10))] : %w[invalid invalid]
+      end
+
+      # 段階が無ければ none、値が Hash でなければ other。
+      def reminder_stage(stage, stages)
+        fields = { 'kind' => 'reminder', 'stage' => stage.tr('_', '-') }
+        return fields.merge('state' => RenewalFormat::NONE, 'attempted_at' => RenewalFormat::NONE) unless stages.key?(stage)
+
+        value = stages[stage]
+        return fields.merge('state' => 'other', 'attempted_at' => RenewalFormat::NONE) unless value.is_a?(Hash)
+
+        fields.merge('state' => token(value['state']), 'attempted_at' => time(value['attempted_at']))
+      end
     end
 
-    # 行から読む事実。dispatch と照合 request は、店舗に結び付いた行と、店舗の今の購読の行を読む。
+    # 行から読む事実。operation・dispatch・照合 request は、店舗に結び付いた行と、店舗の今の購読の行を読む。
     module RenewalRowFacts
       extend RenewalFormat
 
       module_function
 
       def lines(account, subscription, now)
-        [*dispatches(account, subscription, now), *coordinators(account), *provider_settlements(account), *requests(account, subscription),
-         posting_stop(account)]
+        scope = operation_scope(account, subscription)
+        [*operations(account, scope), *dispatches(scope, now), *coordinators(account), *provider_settlements(account),
+         *requests(account, subscription), posting_stop(account)]
       end
 
       # 種類ごとに RenewalReport::STATUS_ROWS 件まで(id の順)。超えた分は truncated=<残り件数> の 1 行、無ければ none の 1 行。
@@ -198,10 +236,33 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         hidden.positive? ? [*yield(rows), { 'kind' => kind, 'truncated' => hidden }] : yield(rows)
       end
 
-      def dispatches(account, subscription, now)
-        operations = Toybaco::RenewalOperation.where(account_id: account.id)
-        operations = operations.or(Toybaco::RenewalOperation.where(subscription_id: subscription)) if subscription.present?
-        by_id = operations.index_by(&:id)
+      # 店舗に結び付いた operation と、店舗の今の購読の operation(購読が無ければ店舗に結び付いた operation だけ)。
+      def operation_scope(account, subscription)
+        scope = Toybaco::RenewalOperation.where(account_id: account.id)
+        subscription.present? ? scope.or(Toybaco::RenewalOperation.where(subscription_id: subscription)) : scope
+      end
+
+      # operation の行(dispatch 行の無い operation も出す)。owner は operation の店舗が同じなら same、未設定なら none、
+      # 別の店舗なら other(その店舗の id は出さない)。顧客・請求書の ID、source_hash、first_fact_id は出さない。
+      def operations(account, scope)
+        capped('operation', scope, 'state') do |rows|
+          rows.map do |row|
+            { 'kind' => 'operation', 'id' => row.id, 'mode' => token(row.mode), 'subscription' => masked(row.subscription_id),
+              'state' => token(row.state), 'result' => token(row.result), 'owner' => owner(account, row.account_id),
+              'first_failed_at' => time(row.first_failed_at), 'due_at' => time(row.due_at), 'verified_at' => time(row.verified_at),
+              'created_at' => time(row.created_at), 'updated_at' => time(row.updated_at) }
+          end
+        end
+      end
+
+      def owner(account, account_id)
+        return RenewalFormat::NONE if account_id.nil?
+
+        account_id == account.id ? 'same' : 'other'
+      end
+
+      def dispatches(operation_relation, now)
+        by_id = operation_relation.index_by(&:id)
         scope = Toybaco::GrowthRenewalDispatch.where(renewal_operation_id: by_id.keys)
         capped('dispatch', scope, 'state') do |rows|
           overdue = RenewalOverdue.overdue_grace(scope.where(id: rows.map(&:id)), now).pluck(:id)

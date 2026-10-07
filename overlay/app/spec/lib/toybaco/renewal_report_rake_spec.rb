@@ -34,7 +34,10 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
     end
   end
 
-  before { require Rails.root.join('lib/toybaco/growth/renewal_settlement') }
+  before do
+    require Rails.root.join('lib/toybaco/growth/renewal_settlement')
+    require Rails.root.join('lib/toybaco/growth/renewal_reminder')
+  end
 
   # rake の監査行は別の DB セッションで確定させるため、transactional test のロールバックでは消えない(ops_rake_audit_spec と同じ後片付け)。
   after { delete_committed_rows(baseline) }
@@ -124,6 +127,25 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
     result
   end
 
+  # dispatch か請求事実の行が参照する operation。
+  def operation_of(row)
+    Toybaco::RenewalOperation.find(row.renewal_operation_id)
+  end
+
+  # renewal_status の operation の行。作成と更新の時刻は作った行から読む(operation は時刻を指定せずに作る)。
+  def operation_line(operation, owner, state: 'unverified', result: 'none', dates: %w[none none none])
+    operation.reload
+    "#{prefix} kind=operation id=#{operation.id} mode=test subscription=...#{operation.subscription_id[-6..]} state=#{state} " \
+      "result=#{result} owner=#{owner} first_failed_at=#{dates[0]} due_at=#{dates[1]} verified_at=#{dates[2]} " \
+      "created_at=#{iso(operation.created_at)} updated_at=#{iso(operation.updated_at)}"
+  end
+
+  # 案内の記録の先頭行。
+  def reminder_head(stages, next_check_at: 'none')
+    "#{prefix} kind=reminder renewal=present subscription=#{masked} term_start=#{iso(at - 30.days)} next_check_at=#{next_check_at} " \
+      "stages=#{stages}"
+  end
+
   # renewal_status の dispatch の行(attention・received・期日なしの行)。
   def dispatch_line(row, result)
     "#{prefix} kind=dispatch id=#{row.id} mode=test subscription=#{masked} state=attention phase=received attempts=0 " \
@@ -149,6 +171,9 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
          "#{prefix} kind=journal state=provider-closed cause=cancel subscription=#{masked} prepared_at=#{iso(at - 2.days)} " \
          "observed_at=#{iso(at)}",
          "#{prefix} kind=free-return pointer=present returned_at=#{iso(at - 1.day)} records=1",
+         "#{prefix} kind=reminder renewal=none",
+         operation_line(operation_of(grace), 'same'),
+         operation_line(operation_of(stuck), 'none'),
          "#{prefix} kind=dispatch id=#{grace.id} mode=test subscription=#{masked} state=idle phase=grace-ready attempts=0 " \
          "due_at=#{iso(at)} deadline_at=#{iso(at + 1.day)} result=grace-ready overdue=true updated_at=#{iso(at)}",
          "#{prefix} kind=dispatch id=#{stuck.id} mode=test subscription=#{masked} state=attention phase=received attempts=0 " \
@@ -166,6 +191,7 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
         ["#{prefix} kind=contract status=active subscription=none plan=none", "#{prefix} kind=paid-period term_start=none",
          "#{prefix} kind=renewal-failure first_failed_at=none", "#{prefix} kind=renewal-settlement state=none",
          "#{prefix} kind=journal state=none", "#{prefix} kind=free-return pointer=none records=0",
+         "#{prefix} kind=reminder renewal=none", "#{prefix} kind=operation state=none",
          "#{prefix} kind=dispatch state=none", "#{prefix} kind=coordinator phase=none", "#{prefix} kind=provider-settlement phase=none",
          "#{prefix} kind=sync-request state=none", "#{prefix} kind=posting-stop state=none"]
       )
@@ -188,6 +214,8 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
     it '処理の結果が Stripe の ID・秘密の接頭辞か数字だけなら invalid と出し、生の値も cus- / in- の形も出さない' do
       secrets = %w[cus_NffrFeUfNV2Hib in_ReportSecret1 sk_live_abc 12345]
       rows = secrets.map { |value| dispatch!(state: 'attention', phase: 'received', result: value, account_id: account.id) }
+      # operation の result にも同じ値を入れ、operation の行も同じ表記になることを見る。
+      rows.zip(secrets).each { |row, value| operation_of(row).update!(result: value) }
       status, attention = read_only { [described_class.status_lines(account.id, now: now), described_class.attention_lines(now: now)] }
 
       expect(status.grep(/ kind=dispatch /)).to eq(rows.map { |row| dispatch_line(row, 'invalid') })
@@ -200,6 +228,113 @@ RSpec.describe Toybaco::Ops::RenewalReport do # rubocop:disable RSpec/SpecFilePa
       expect(output.scan(/ result=\S+/).uniq).to eq([' result=invalid'])
       expect(output).not_to include('NffrFeUfNV2Hib', 'ReportSecret1', 'live_abc', 'live-abc')
       expect(output).not_to match(/=(?:cus|in|sk)[-_]/)
+    end
+
+    it '案内の記録を先頭 1 行と段階 3 行(決まった順)で出し、operation を行の事実の先頭に出して、token・宛先・ID を出さない' do
+      stages = { 'initial' => { 'state' => 'attempted', 'user_id' => 987_654, 'attempted_at' => (at - 5.days).to_i },
+                 'expired' => { 'state' => 'cancelled' },
+                 'free_transition' => { 'state' => 'uncertain', 'user_id' => 987_654, 'transition_id' => 'transition-fixture',
+                                        'attempted_at' => at.to_i } }
+      record = { 'renewal' => "#{subscription}:#{(at - 30.days).to_i}", 'next_check_at' => (at + 1.hour).to_i, 'stages' => stages }
+      store!(Toybaco::Growth::RenewalReminder::KEY => record)
+      fact = invoice_fact!(subscription, account.id)
+      operation = operation_of(fact)
+      operation.update!(state: 'observed_failure', result: 'first_failure_recorded', first_fact_id: fact.id, first_failed_at: at - 6.days,
+                        due_at: at + 1.day, verified_at: at - 5.days, source_hash: 'f' * 64)
+      lines = read_only { described_class.status_lines(account.id, now: now) }
+
+      expect(lines).to eq(
+        ["#{prefix} kind=contract status=active subscription=#{masked} plan=standard version=2026-09-25.1 cycle=month addons=0 legacy=false",
+         "#{prefix} kind=paid-period term_start=none", "#{prefix} kind=renewal-failure first_failed_at=none",
+         "#{prefix} kind=renewal-settlement state=none", "#{prefix} kind=journal state=none", "#{prefix} kind=free-return pointer=none records=0",
+         reminder_head(3, next_check_at: iso(at + 1.hour)),
+         "#{prefix} kind=reminder stage=initial state=attempted attempted_at=#{iso(at - 5.days)}",
+         "#{prefix} kind=reminder stage=expired state=cancelled attempted_at=none",
+         "#{prefix} kind=reminder stage=free-transition state=uncertain attempted_at=#{iso(at)}",
+         operation_line(operation, 'same', state: 'observed-failure', result: 'first-failure-recorded',
+                                           dates: [iso(at - 6.days), iso(at + 1.day), iso(at - 5.days)]),
+         "#{prefix} kind=dispatch state=none", "#{prefix} kind=coordinator phase=none", "#{prefix} kind=provider-settlement phase=none",
+         "#{prefix} kind=sync-request state=none", "#{prefix} kind=posting-stop state=none"]
+      )
+      expect(lines.join("\n")).not_to include('987654', 'user_id', 'transition-fixture', 'cus_', 'in_report', 'f' * 64, subscription)
+    end
+
+    it '案内の記録に段階が無ければ stages=0 と出し、3 つの段階を state=none attempted_at=none で出す' do
+      store!(Toybaco::Growth::RenewalReminder::KEY => { 'renewal' => "#{subscription}:#{(at - 30.days).to_i}", 'stages' => {} })
+      lines = read_only { described_class.status_lines(account.id, now: now) }.grep(/ kind=reminder /)
+
+      expect(lines).to eq(
+        [reminder_head(0), *%w[initial expired free-transition].map { |stage| "#{prefix} kind=reminder stage=#{stage} state=none attempted_at=none" }]
+      )
+    end
+
+    it '案内の記録の形が崩れていれば invalid、段階の state が token の形でなければ other・秘密の形なら invalid と出し、生の値を出さない' do
+      # read_only の検査は例の終わりまで続くため、書き込みのある準備(1 つ目の記録)はその前に読む。
+      store!(Toybaco::Growth::RenewalReminder::KEY => { 'renewal' => 1_759_633_200, 'stages' => 'initial' })
+      bare = described_class.status_lines(account.id, now: now).grep(/ kind=reminder /)
+      stages = { 'initial' => { 'state' => 'sent to owner@example.com', 'attempted_at' => 'yesterday' }, 'expired' => 'attempted',
+                 'free_transition' => { 'state' => 'sk_live_abc', 'attempted_at' => 0 }, 'mystery' => { 'state' => 'hidden_stage' } }
+      record = { 'renewal' => 'cus_NotASubscription:1759633200', 'next_check_at' => 'soon', 'stages' => stages }
+      store!(Toybaco::Growth::RenewalReminder::KEY => record)
+      broken = read_only { described_class.status_lines(account.id, now: now) }.grep(/ kind=reminder /)
+
+      expect(bare).to eq(
+        ["#{prefix} kind=reminder renewal=present subscription=invalid term_start=invalid next_check_at=none stages=0",
+         *%w[initial expired free-transition].map { |stage| "#{prefix} kind=reminder stage=#{stage} state=none attempted_at=none" }]
+      )
+      expect(broken).to eq(
+        ["#{prefix} kind=reminder renewal=present subscription=invalid term_start=invalid next_check_at=invalid stages=4",
+         "#{prefix} kind=reminder stage=initial state=other attempted_at=invalid",
+         "#{prefix} kind=reminder stage=expired state=other attempted_at=none",
+         "#{prefix} kind=reminder stage=free-transition state=invalid attempted_at=invalid"]
+      )
+      expect([*bare, *broken].join("\n")).not_to include('cus_', 'NotASubscription', '@', 'example.com', 'yesterday', 'soon', 'live_abc',
+                                                         'live-abc', 'mystery', 'hidden', '1759633200')
+    end
+
+    it '段階が送信の途中(dispatching。token を持つ)なら state=dispatching と出し、token と宛先を出さない' do
+      token = SecureRandom.hex(16)
+      stages = { 'initial' => { 'state' => 'attempted', 'user_id' => 987_654, 'attempted_at' => (at - 5.days).to_i },
+                 'expired' => { 'state' => 'dispatching', 'token' => token, 'user_id' => 987_654, 'attempted_at' => at.to_i } }
+      store!(Toybaco::Growth::RenewalReminder::KEY => { 'renewal' => "#{subscription}:#{(at - 30.days).to_i}", 'stages' => stages })
+      lines = read_only { described_class.status_lines(account.id, now: now) }.grep(/ kind=reminder /)
+
+      expect(lines).to eq(
+        [reminder_head(2), "#{prefix} kind=reminder stage=initial state=attempted attempted_at=#{iso(at - 5.days)}",
+         "#{prefix} kind=reminder stage=expired state=dispatching attempted_at=#{iso(at)}",
+         "#{prefix} kind=reminder stage=free-transition state=none attempted_at=none"]
+      )
+      expect(lines.join("\n")).not_to include(token, '987654', 'token', 'user_id')
+    end
+
+    it 'operation は id の順に上限まで出して超えた分を truncated=<残り件数> の 1 行にし、dispatch 行の無い operation も出す' do
+      stub_const('Toybaco::Ops::RenewalReport::STATUS_ROWS', 2)
+      operations = Array.new(3) { operation_of(invoice_fact!(subscription, account.id)) }
+      capped = read_only { described_class.status_lines(account.id, now: now) }
+
+      expect(capped.grep(/ kind=(?:operation|dispatch) /)).to eq(
+        [*operations.first(2).map { |operation| operation_line(operation, 'same') }, "#{prefix} kind=operation truncated=1",
+         "#{prefix} kind=dispatch state=none"]
+      )
+      # 上限ちょうどなら truncated の行は出さない。
+      stub_const('Toybaco::Ops::RenewalReport::STATUS_ROWS', 3)
+      expect(described_class.status_lines(account.id, now: now).grep(/ kind=operation /))
+        .to eq(operations.map { |operation| operation_line(operation, 'same') })
+    end
+
+    it 'operation の owner は店舗が同じなら same、未設定なら none、別の店舗なら other と出し、範囲外の operation は出さない' do
+      store!
+      other = create(:account)
+      operations = [account.id, nil, other.id].map { |owner| operation_of(invoice_fact!(subscription, owner)) }
+      operations.first.update!(state: 'outside_terms', result: 'outside_growth_terms', verified_at: at)
+      invoice_fact!('sub_ReportNoStore3', nil)
+      lines = read_only { described_class.status_lines(account.id, now: now) }.grep(/ kind=operation /)
+
+      # 別の店舗の id は出さない(行は owner=other だけで、店舗の id の項目を持たない)。
+      expect(lines).to eq(
+        [operation_line(operations[0], 'same', state: 'outside-terms', result: 'outside-growth-terms', dates: ['none', 'none', iso(at)]),
+         operation_line(operations[1], 'none'), operation_line(operations[2], 'other')]
+      )
     end
   end
 

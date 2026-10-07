@@ -34,6 +34,65 @@
       <% if @captcha_site_key.present? %><div class="h-captcha" data-sitekey="<%= @captcha_site_key %>"></div><% end %>
       <button type="submit">確認メールを送る</button>
     </form>
+    <% if @captcha_site_key.present? %>
+    <%# 部品の準備 = hCaptcha の API があり、ウィジェットの iframe が現れていること。
+        token の無い送信は止める。準備ができていなければ読み込み失敗の案内のまま止め、準備済みのときだけチェックを促す。
+        読み込み失敗の案内は 6 秒たっても準備できないときに出し、最大 30 秒まで 500ms ごとに準備を確かめて、準備できたら消す。 %>
+    <script>
+      (function () {
+        var form = document.querySelector('form[action="/toybaco/free/signup"]');
+        var widget = document.querySelector('.h-captcha');
+        if (!form || !widget) return;
+        var CHECK = '「私は人間です」の確認にチェックを入れてから送信してください。';
+        var FAILED = '確認部品を読み込めませんでした。ページを再読み込みしてください。';
+        var notice = document.createElement('p');
+        notice.className = 'error';
+        notice.setAttribute('role', 'alert');
+        notice.hidden = true;
+        notice.textContent = CHECK;
+        widget.insertAdjacentElement('afterend', notice);
+        function show(message) {
+          notice.hidden = false;
+          notice.textContent = message;
+        }
+        function api() {
+          return window.hcaptcha && typeof window.hcaptcha.getResponse === 'function' ? window.hcaptcha : null;
+        }
+        function ready() {
+          return Boolean(api() && widget.querySelector('iframe'));
+        }
+        form.addEventListener('submit', function (event) {
+          var token = '';
+          var failed = !api();
+          if (!failed) {
+            try {
+              token = api().getResponse();
+            } catch (error) {
+              failed = true;
+            }
+          }
+          if (token) {
+            notice.hidden = true;
+            return;
+          }
+          event.preventDefault();
+          show(failed || !widget.querySelector('iframe') ? FAILED : CHECK);
+          widget.scrollIntoView({ block: 'center' });
+        });
+        var started = Date.now();
+        var poll = window.setInterval(function () {
+          if (ready()) {
+            window.clearInterval(poll);
+            if (notice.textContent === FAILED) notice.hidden = true;
+            return;
+          }
+          var elapsed = Date.now() - started;
+          if (elapsed >= 6000 && (notice.hidden || notice.textContent !== FAILED)) show(FAILED);
+          if (elapsed >= 30000) window.clearInterval(poll);
+        }, 500);
+      })();
+    </script>
+    <% end %>
     <p class="login">登録済みの方は <a href="/app/login">ログイン</a></p>
   </main>
 </body>
