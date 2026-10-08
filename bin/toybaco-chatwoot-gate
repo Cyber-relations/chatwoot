@@ -231,10 +231,14 @@ control_file_list() {
     'tests/chatwoot_billing_plan_names_test.rb' \
     'tests/chatwoot-notification-login.test.mjs' \
     'tests/chatwoot-post-entry.test.mjs' \
+    'scripts/verify-chatwoot-ee-view-twins.sh' \
+    'tests/chatwoot-ee-view-twins.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
     'tests/chatwoot-logout-cleanup.test.mjs' \
     'tests/chatwoot-browser-session.test.mjs' \
+    'tests/chatwoot-widget-cookie.test.mjs' \
+    'tests/chatwoot_widget_parameter_logging_test.rb' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
@@ -248,6 +252,7 @@ control_file_list() {
     'tests/chatwoot-migrations-v4.16.2-to-v4.18.0.json' \
     'tests/chatwoot-overlay-manifest.tsv' \
     'tests/chatwoot-rspec-manifest.json' \
+    'tests/chatwoot-confirmation-rspec-manifest.json' \
     'tests/chatwoot-test.Dockerfile' \
     'tests/chatwoot_frame_policy_test.rb' \
     'tests/chatwoot_brand_injector_test.rb' \
@@ -528,7 +533,8 @@ assert_control_contract() {
     'overlay/app/spec/lib/toybaco/oidc/session_reader_spec.rb' \
     'overlay/app/spec/lib/toybaco/inbound_email_route_log_spec.rb' \
     'overlay/app/spec/mailboxes/support_mailbox_spec.rb' \
-    'overlay/app/spec/models/toybaco/postiz_lifecycle_spec.rb'; do
+    'overlay/app/spec/models/toybaco/postiz_lifecycle_spec.rb' \
+    'overlay/app/spec/models/user_toybaco_confirmation_expiry_spec.rb'; do
     [[ -f "$CONTROL_ROOT/$required_path" ]] || fail "必須Toybaco specがありません: $required_path"
   done
   integration_ruby_count="$(integration_ruby_file_list "$CONTROL_ROOT" | wc -l | tr -d ' ')"
@@ -1060,6 +1066,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/toybaco-growth-posting-release-ui.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
+  TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-ee-view-twins.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
@@ -1213,7 +1220,24 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby /contract/tests/staging_growth_webhook_probe_test.rb
 
+  STAGE='確認期限の固定4件RSpec'
+  run_test_container \
+    --mount "type=bind,src=$results,dst=/results" \
+    "$TEST_IMAGE" bundle exec rspec \
+    --format progress --format json --out /results/confirmation-rspec.json \
+    spec/models/user_toybaco_confirmation_expiry_spec.rb
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    --mount "type=bind,src=$results,dst=/results,readonly" \
+    "$TEST_IMAGE" ruby /contract/tests/verify_chatwoot_rspec_result.rb \
+    /results/confirmation-rspec.json /contract/tests/chatwoot-confirmation-rspec-manifest.json
+
   STAGE='全Toybaco RSpec'
+  node "$CONTROL_ROOT/tests/chatwoot-widget-cookie.test.mjs" "$CONTROL_ROOT"
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/chatwoot_widget_parameter_logging_test.rb
   run_test_container \
     --mount "type=bind,src=$results,dst=/results" \
     "$TEST_IMAGE" bundle exec rspec \

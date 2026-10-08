@@ -1,0 +1,65 @@
+<%
+  brand_name = global_config['BRAND_NAME'] || 'トイバコ'
+  recipient_name = @resource.name.presence || @resource.email
+  account_user = @resource&.account_users&.first
+  inviter = account_user&.inviter
+  account_name = account_user&.account&.name
+  invited_user = inviter.present? && @resource.unconfirmed_email.blank?
+
+  eyebrow = 'ようこそ'
+  heading = 'メールアドレスの確認'
+  intro_text =
+    "#{brand_name}へようこそ。アカウントのご利用を開始する前に、メールアドレスの確認をお願いします。"
+  supporting_text = '確認は数秒で完了します。'
+  action_text = 'アカウントを確認する'
+  action_url = frontend_url('auth/confirmation', confirmation_token: @token)
+  info_title = nil
+  info_text = nil
+  detail_rows = []
+  detail_rows << ['新しいメールアドレス', @resource.unconfirmed_email] if @resource.unconfirmed_email.present?
+
+  if @resource.unconfirmed_email.present?
+    eyebrow = 'メールアドレスの変更'
+    heading = '新しいメールアドレスの確認'
+    intro_text = "#{brand_name}アカウントのメールアドレス変更のリクエストを受け付けました。"
+    supporting_text = '以下のボタンから新しいメールアドレスを確認すると、変更が完了します。'
+    action_text = 'メールアドレスを確認する'
+  elsif @resource.confirmed?
+    eyebrow = '利用開始できます'
+    heading = 'アカウントの準備ができました'
+    intro_text = "#{brand_name}アカウントはすでに有効です。"
+    supporting_text = '以下のボタンからログインして、ご利用を続けてください。'
+    action_text = 'ログインする'
+    action_url = frontend_url('auth/sign_in')
+    detail_rows = []
+  elsif invited_user
+    eyebrow = 'ワークスペースへの招待'
+    heading = account_name.present? ? "「#{account_name}」に招待されています" : "#{brand_name}に招待されています"
+    intro_text = if account_name.present?
+      "#{inviter.name} さんから、#{brand_name}のワークスペース「#{account_name}」への招待が届いています。"
+    else
+      "#{inviter.name} さんから、#{brand_name}への招待が届いています。"
+    end
+    supporting_text = 'アカウントを作成して、チームでの応対を始めましょう。'
+    action_text = '招待を受け入れる'
+    action_url = frontend_url(
+      'auth/password/edit',
+      reset_password_token: @resource.send(:set_reset_password_token)
+    )
+    detail_rows = [['招待者', inviter.name]]
+    detail_rows << ['ワークスペース', account_name] if account_name.present?
+  end
+%>
+
+<%= render partial: 'devise/mailer/confirmation_body', locals: {
+  action_text: action_text,
+  action_url: action_url,
+  detail_rows: detail_rows,
+  eyebrow: eyebrow,
+  heading: heading,
+  info_text: info_text,
+  info_title: info_title,
+  intro_text: intro_text,
+  recipient_name: recipient_name,
+  supporting_text: supporting_text
+} %>

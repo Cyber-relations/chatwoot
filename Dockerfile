@@ -3,6 +3,8 @@ ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e5534
 
 FROM ${CHATWOOT_IMAGE} AS overlay-normalizer
 COPY overlay/app/ /toybaco-overlay/
+COPY scripts/verify-chatwoot-ee-view-twins.sh /opt/toybaco/verify-ee-view-twins.sh
+RUN sh /opt/toybaco/verify-ee-view-twins.sh /app/enterprise/app/views /toybaco-overlay
 RUN find /toybaco-overlay -exec touch -t 200001010000.00 {} +
 
 FROM ${CHATWOOT_IMAGE} AS bundled-gems
