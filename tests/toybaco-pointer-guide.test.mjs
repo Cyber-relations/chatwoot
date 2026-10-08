@@ -617,6 +617,62 @@ test('a control drawn only on hover does not push the paused prompt away', () =>
   assert.equal(guide.panel.getBoundingClientRect().top, 116, 'a visible control is');
 });
 
+// 段 1a: on the real dashboard the tour card (ToybacoTour) carries the words and the buttons, and the guide only
+// lights the step's target. The page behind stays usable (the dim takes no click) and Escape belongs to the card.
+test('spotlight lights the target without a prompt or a pointer and leaves Escape to the tour card', () => {
+  const { doc, Element, flush } = fakeDocument(1280, 800);
+  const keys = [];
+  doc.addEventListener = (type, listener) => { if (type === 'keydown') keys.push(listener); };
+  const link = new Element('a', {}, () => target(16, 300, 200, 36));
+  doc.body.append(link);
+  const registry = new GuideRegistry();
+  registry.register('sidebar.store_facts', link);
+  let dismissed = 0;
+  const guide = new PointerGuide({ registry, document: doc, onDismiss: () => { dismissed += 1; } });
+  guide.spotlight({ actionId: 'sidebar.store_facts', dim: 'strong' });
+  flush();
+  assert.equal(guide.root.hidden, false);
+  assert.equal(guide.root.getAttribute('data-spotlight'), 'strong');
+  assert.equal(guide.panel.hidden, true, 'no prompt: the card speaks');
+  assert.equal(guide.pointer.hidden, true, 'no pointer');
+  assert.equal(guide.outline.hidden, false);
+  assert.deepEqual(guide.outline.style, { left: '11px', top: '295px', width: '210px', height: '46px' });
+  assert.equal(link.getAttribute('aria-describedby'), null, 'no prompt text describes the target');
+  keys.forEach((listener) => listener({ key: 'Escape' }));
+  assert.equal(dismissed, 0, 'Escape is the card’s「あとで続ける」');
+  assert.equal(guide.root.hidden, false);
+  // The soft dim is the default; a dim the stylesheet does not know is refused like an unknown target.
+  guide.spotlight({ actionId: 'sidebar.store_facts' });
+  assert.equal(guide.root.getAttribute('data-spotlight'), 'soft');
+  for (const step of [{ actionId: 'sidebar.store_facts', dim: 'dark' }, { actionId: 'sidebar.store_facts', dim: '' },
+    { actionId: 'a b', dim: 'strong' }])
+    assert.throws(() => guide.spotlight(step), TypeError, JSON.stringify(step));
+  // A target that left the screen loses the light (the card stays on its own).
+  link.remove();
+  guide.update();
+  assert.equal(guide.outline.hidden, true);
+  // show() is the prompt again, with its own Escape; hide() clears the spotlight.
+  doc.body.append(link);
+  guide.show({ actionId: 'sidebar.store_facts', text: '店舗情報を開きます。' });
+  flush();
+  assert.equal(guide.root.getAttribute('data-spotlight'), null);
+  assert.equal(guide.panel.hidden, false);
+  keys.forEach((listener) => listener({ key: 'Escape' }));
+  assert.equal(dismissed, 1, 'the prompt keeps its own Escape');
+  guide.spotlight({ actionId: 'sidebar.store_facts', dim: 'strong' });
+  guide.hide();
+  assert.equal(guide.root.getAttribute('data-spotlight'), null);
+  assert.equal(guide.root.hidden, true);
+});
+
+test('the strong spotlight only darkens the page more and never takes a click', () => {
+  const css = readFileSync(new URL('../overlay/app/public/brand-assets/toybaco-pointer-guide.css', import.meta.url), 'utf8');
+  const outline = css.match(/\n\.toybaco-guide__outline \{([^}]*)\}/)?.[1];
+  assert(outline?.includes('box-shadow: 0 0 0 9999px var(--toybaco-dim);') && outline.includes('pointer-events: none;'));
+  const strong = css.match(/\n\.toybaco-guide\[data-spotlight='strong'\] \.toybaco-guide__outline \{([^}]*)\}/)?.[1];
+  assert.equal(strong?.trim(), 'box-shadow: 0 0 0 9999px var(--toybaco-spotlight-dim);');
+});
+
 // Reproducible images retain the same Last-Modified timestamp across releases.
 // A new byte sequence must request a new URL instead of revalidating the old one.
 for (const extension of ['mjs', 'css']) {

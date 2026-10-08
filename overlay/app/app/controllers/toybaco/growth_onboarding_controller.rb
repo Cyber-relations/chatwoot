@@ -13,8 +13,11 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
 
   def update
     preference = params.require(:preference)
-    attributes = preference.permit(:purpose, :inbox_id, :dismissed, skipped: [], opened: []).to_h
-    raise ArgumentError, 'invalid guide steps' unless step_lists_kept?(preference, attributes)
+    # AI返信の使い方を決めるのは管理者だけ(店舗情報の保存と同じ)。「あとで設定する」(skipped の decide)は案内の記録なので誰でもよい。
+    return head :forbidden if preference.key?(:ai_reply_choice) && !@onboarding.administrator?
+
+    attributes = preference.permit(:purpose, :inbox_id, :dismissed, :ai_reply_choice, skipped: [], opened: []).to_h
+    raise ArgumentError, 'invalid guide steps' unless step_lists_kept?(preference, attributes) && choice_kept?(preference, attributes)
 
     render json: @onboarding.update!(attributes)
   rescue ArgumentError, ActionController::ParameterMissing
@@ -37,6 +40,11 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
   # 段の一覧(skipped・opened)は配列だけを受け付ける。strong parameters が落とした値(配列以外)を、指定なしとして通さない。
   def step_lists_kept?(preference, attributes)
     Toybaco::Growth::Onboarding::STEP_LISTS.all? { |key| preference.key?(key) == attributes.key?(key) }
+  end
+
+  # AI返信の使い方は文字列 1 つだけ。配列や連想配列(strong parameters が落とす値)を、指定なしとして通さない。
+  def choice_kept?(preference, attributes)
+    preference.key?(:ai_reply_choice) == attributes.key?('ai_reply_choice')
   end
 
   def load_membership
