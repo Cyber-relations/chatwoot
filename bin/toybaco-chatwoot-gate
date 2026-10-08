@@ -241,6 +241,10 @@ control_file_list() {
     'tests/chatwoot-widget-cookie.test.mjs' \
     'tests/verify_chatwoot_sdk_artifacts.mjs' \
     'tests/chatwoot-sdk-artifacts.test.mjs' \
+    'tests/chatwoot_rds_trust_test.rb' \
+    'tests/verify_chatwoot_quality_secret_paths.rb' \
+    'tests/chatwoot_quality_secret_paths_test.rb' \
+    'docs/rds-client-trust-rollout.md' \
     'tests/chatwoot_widget_parameter_logging_test.rb' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
@@ -308,6 +312,7 @@ integration_ruby_file_list() {
       find overlay/app/lib/toybaco/connections -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/growth -type f -name '*.rb' -print
       printf '%s\n' overlay/app/lib/toybaco/subscription_reconciliation.rb overlay/app/lib/toybaco/subscription_sync_status.rb
+      printf '%s\n' overlay/app/lib/toybaco_rds_trust.rb
       printf '%s\n' overlay/app/lib/toybaco/subscription_reconciliation/execution.rb overlay/app/lib/toybaco/subscription_reconciliation/processing.rb
       find overlay/app/lib/toybaco/support -type f -name '*.rb' -print
       printf '%s\n' overlay/app/config/initializers/toybaco_support.rb
@@ -439,11 +444,8 @@ assert_control_contract() {
   if find "$CONTROL_ROOT/overlay/app" -mindepth 1 ! -type d ! -type f -print -quit | grep -q .; then
     fail 'overlay/appに通常file/directory以外があります'
   fi
-  if find "$CONTROL_ROOT" -type f \( \
-    -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' -o \
-    -name 'id_rsa' -o -iname '*credential*' \) -print -quit | grep -q .; then
-    fail 'secretになり得るfile名をquality snapshotへ含めません'
-  fi
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_quality_secret_paths.rb" "$CONTROL_ROOT"
+  ruby "$CONTROL_ROOT/tests/chatwoot_quality_secret_paths_test.rb"
   if LC_ALL=C grep -R -I -E \
     -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|(^|[^A-Z0-9])(AKIA|ASIA)[A-Z0-9]{16}([^A-Z0-9]|$)' \
     "$CONTROL_ROOT" >/dev/null 2>&1; then
@@ -1072,6 +1074,10 @@ verify_base_and_frame_contract() {
   TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-ee-view-twins.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-sdk-artifacts.test.mjs"
+  docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=2m \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$CHATWOOT_IMAGE" ruby /contract/tests/chatwoot_rds_trust_test.rb
   node --test "$CONTROL_ROOT/tests/chatwoot-customer-brand.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
@@ -1580,6 +1586,9 @@ build_and_smoke_production_image() {
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     "$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    "$PRODUCTION_IMAGE" ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --tmpfs /tmp:rw,noexec,nosuid,size=1m \
