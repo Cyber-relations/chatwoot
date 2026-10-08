@@ -185,6 +185,7 @@ control_file_list() {
     'tests/toybaco_microsoft_runtime_test.rb' \
     'tests/toybaco_gmail_runtime_test.rb' \
     'tests/toybaco_fetch_error_logging_runtime_test.rb' \
+    'tests/toybaco_widget_inbox_binding_runtime_test.rb' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
@@ -1250,6 +1251,11 @@ run_ruby_quality() {
     --mount "type=bind,src=$results,dst=/results,readonly" \
     "$TEST_IMAGE" ruby /contract/tests/verify_chatwoot_rspec_result.rb \
     /results/rspec.json /contract/tests/chatwoot-rspec-manifest.json
+
+  STAGE='公開widgetの署名inbox・訪問者継続境界'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_widget_inbox_binding_runtime_test.rb
 
   STAGE='Gmail MIME・添付分離'
   run_test_container \

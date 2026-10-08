@@ -17,6 +17,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         trial = Toybaco::GrowthTrial.find_by(account_id: @account.id)
         return preparation unless trial
 
+        recheck_imap(trial)
         grant = Toybaco::GrowthAiGrant.find_by(account_id: @account.id, source: 'trial', source_key: "trial:#{trial.id}")
         used = grant&.used || TrialStart::UNITS
         { 'state' => trial.completed_at ? 'completed' : 'active', 'ends_at' => trial.ends_at.utc.iso8601,
@@ -25,6 +26,14 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
+
+      # 体験中に開始画面を開くと、ログインの記録が今の設定と合わない IMAP の受信箱(パスワードを変えたなど)を確かめ直す
+      # (TrialConnection.recheck!)。受信箱のパスワードを変えたときは、この画面を開き直すことが確かめ直しの操作になる。
+      def recheck_imap(trial)
+        return if trial.completed_at
+
+        @account.inboxes.where(channel_type: 'Channel::Email').includes(:channel).find_each { |inbox| TrialConnection.recheck!(inbox, trial) }
+      end
 
       def preparation
         facts = StoreFacts.new(@account).read

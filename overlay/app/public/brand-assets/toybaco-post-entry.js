@@ -69,10 +69,11 @@
   var AI_MODE_TIMEOUT_MS = 10000;
   // 返信欄の上の1行は、いま開いている会話の窓口で AI が実際にすること(オフ・下書き・自動)だけを示す。
   var AI_INBOX_LABELS = { off: 'オフ', draft: '下書き', auto: '自動' };
-  // 自動応答が契約に含まれない新料金の店舗(無料プラン・ライト)の体験は、トイバコで接続したメール受信箱だけで動く。
-  // 開放済みのメール接続(利用状況の trial_connections)が無ければ審査を待つ案内のまま、あれば開放済みの名前だけを書く。
-  var AI_TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
-    'メールの接続は提供元の審査完了後に開放します。';
+  // 自動応答が契約に含まれない新料金の店舗(無料プラン・ライト)の体験は、IMAP で接続したメール受信箱と、開放済みの
+  // Gmail / Microsoft の直接接続だけで動く。開放済みの直接接続(利用状況の trial_connections)が無ければ審査を待つ一文を添え、
+  // あれば開放済みの名前だけを書く(体験の画面の文言と同じ組み立て)。
+  var AI_TRIAL_INBOX_NOTE = '自動応答の体験は、IMAP で接続したメール受信箱だけが対象です。' +
+    'Gmail / Microsoft の直接接続は提供元の審査完了後に開放します。';
   var AI_TRIAL_CONNECTIONS = ['Gmail', 'Microsoft'];
   var aiModeStates = {};
   var aiModeInflight = {};
@@ -1980,8 +1981,8 @@
     if (!(usage.phase === 'ready' && usage.data.meter === 'business_generation' &&
       usage.data.automatic_included === false)) return '';
     var released = usage.data.trial_connections || [];
-    return released.length ? '自動応答の体験は、トイバコで接続した ' + released.join(' または ') +
-      ' のメール受信箱だけが対象です。' : AI_TRIAL_INBOX_NOTE;
+    return released.length ? '自動応答の体験は、IMAP で接続したメール受信箱、または ' + released.join(' / ') +
+      ' の直接接続だけが対象です。' : AI_TRIAL_INBOX_NOTE;
   }
 
   // 開放済みのメール接続の表示名は、既知の名前だけを重複なく並べた配列(0 件なら空)。

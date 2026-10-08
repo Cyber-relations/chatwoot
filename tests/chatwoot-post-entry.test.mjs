@@ -3431,10 +3431,10 @@ function createAiUsageEnv(handler, options = {}) {
   assert.equal(env.usageCalls.length, 2, 'DOM mutations must not retry unavailable usage in a loop');
 }
 
-// The auto-reply trial (free plan and Light) runs only on the mail inboxes connected through Toybaco, which the
-// providers still review.
-const TRIAL_INBOX_NOTE = '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。' +
-  'メールの接続は提供元の審査完了後に開放します。';
+// The auto-reply trial (free plan and Light) runs only on the mail inboxes connected over IMAP and, once the providers'
+// review opens them, the direct Gmail / Microsoft connections.
+const TRIAL_INBOX_NOTE = '自動応答の体験は、IMAP で接続したメール受信箱だけが対象です。' +
+  'Gmail / Microsoft の直接接続は提供元の審査完了後に開放します。';
 
 for (const reset of ['2026-10-19T01:00:00Z', null]) {
   const env = createAiUsageEnv(() => Promise.resolve(usageResponse({ meter: 'business_generation', period: 'contract',
@@ -3488,9 +3488,9 @@ for (const included of [true, false, undefined]) {
 for (const [connections, expected] of [
   [undefined, TRIAL_INBOX_NOTE],
   [[], TRIAL_INBOX_NOTE],
-  [['Gmail'], '自動応答の体験は、トイバコで接続した Gmail のメール受信箱だけが対象です。'],
-  [['Microsoft'], '自動応答の体験は、トイバコで接続した Microsoft のメール受信箱だけが対象です。'],
-  [['Gmail', 'Microsoft'], '自動応答の体験は、トイバコで接続した Gmail または Microsoft のメール受信箱だけが対象です。'],
+  [['Gmail'], '自動応答の体験は、IMAP で接続したメール受信箱、または Gmail の直接接続だけが対象です。'],
+  [['Microsoft'], '自動応答の体験は、IMAP で接続したメール受信箱、または Microsoft の直接接続だけが対象です。'],
+  [['Gmail', 'Microsoft'], '自動応答の体験は、IMAP で接続したメール受信箱、または Gmail / Microsoft の直接接続だけが対象です。'],
 ]) {
   const label = JSON.stringify(connections);
   const env = loadInjectEntry((url, opts) => String(url).includes('/ai_usage')
