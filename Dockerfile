@@ -26,6 +26,7 @@ RUN BUNDLE_FROZEN=true bundle install --jobs 4 --retry 3 \
     && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
 
 FROM bundled-gems AS localized-assets
+COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
 ENV HUSKY=0 \
     PNPM_HOME=/usr/local/share/pnpm \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
@@ -46,6 +47,7 @@ RUN node --version \
     && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \
       bundle exec rake assets:precompile \
+    && node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js \
     && test -s /app/public/vite/.vite/manifest.json \
     && test -s /app/public/vite/.vite/manifest-assets.json \
     && for sentinel in \
@@ -94,11 +96,14 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpa
     && cp -a /usr/lib/libopenjp2.so.7 /usr/lib/libopenjp2.so.2.5.4 /toybaco-runtime-root/usr/lib/ \
     && mkdir -p /toybaco-runtime-root/app/public \
     && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \
+    && mkdir -p /toybaco-runtime-root/app/public/packs/js \
+    && cp -a /app/public/packs/js/sdk.js /app/public/packs/js/sdk.js.gz /app/public/packs/js/sdk.js.br /toybaco-runtime-root/app/public/packs/js/ \
     && find /toybaco-runtime-root -exec touch -t 200001010000.00 {} +
 
 FROM bundled-gems
 RUN rm -rf /app/public/vite
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
+COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
 # Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1 and CVE-2026-75804 /
 # CVE-2026-84782 in 3.3.7-r2 (the publisher's ECR scan gate, 2026-10-02). Upgrade the final
 # filesystem and APK inventory together, including both linked libraries.
@@ -141,3 +146,4 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
     fi \
     && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+RUN node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js
