@@ -1,0 +1,32 @@
+{
+  "schema": "toybaco-chatwoot-rspec-v1",
+  "rspec_version": "3.13.0",
+  "result_keys": [
+    "examples",
+    "summary",
+    "summary_line",
+    "version"
+  ],
+  "summary_keys": [
+    "duration",
+    "errors_outside_of_examples_count",
+    "example_count",
+    "failure_count",
+    "pending_count"
+  ],
+  "example_keys": [
+    "description",
+    "file_path",
+    "full_description",
+    "id",
+    "line_number",
+    "pending_message",
+    "run_time",
+    "status"
+  ],
+  "example_count": 4,
+  "examples_sha256": "eb99169b867e4fe2dd05b2aec6e4adad6a75a4fb77c64c05830998d73dd03a53",
+  "spec_files": [
+    "spec/models/user_toybaco_confirmation_expiry_spec.rb"
+  ]
+}
