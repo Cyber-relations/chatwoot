@@ -2,6 +2,7 @@
 
 require_relative '../connections/gmail'
 require_relative '../connections/microsoft'
+require_relative 'trial_connection'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Growth
@@ -74,7 +75,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account.inboxes.where(channel_type: TYPES).includes(:channel).order(:created_at, :id)
       end
 
+      # IMAP で受信する標準メール受信箱の返信は、Chatwoot の送信(Email::SendOnEmailService)が送り、送れたときだけ送ったメールの
+      # Message-ID を source_id に入れる(送れなければ failed)。source_id があることは accepted_reply? で確かめている。
       def accepted_mail_reply?(reply, inbox)
+        return reply.status != 'failed' if TrialConnection.imap_mailbox?(inbox.channel)
+
         key = Connections::Microsoft.connected?(inbox.channel) ? 'toybaco_microsoft_send' : 'toybaco_gmail_send'
         receipt = reply.content_attributes[key]
         receipt.is_a?(Hash) && receipt['state'] == 'accepted' && receipt['provider_id'].present? && receipt['accepted_at'].present?
@@ -85,8 +90,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         when Channel::Line then 'line'
         when Channel::WebWidget then 'web_widget'
         when Channel::Instagram then 'instagram'
-        else Connections::Gmail.connected?(channel) ? 'gmail' : 'microsoft'
+        else mail_provider(channel)
         end
+      end
+
+      # メールの受信箱の種類。Gmail / Microsoft の API 接続はその名前、IMAP や転送だけの標準メール受信箱は 'email'
+      # (表示名は受信箱のアドレスのまま。describe)。
+      def mail_provider(channel)
+        return 'gmail' if Connections::Gmail.connected?(channel)
+        return 'microsoft' if Connections::Microsoft.connected?(channel)
+
+        'email'
       end
 
       def usable?(channel)
@@ -98,9 +112,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      # Gmail / Microsoft の API 接続は店舗ごとの開放判定に従う。それ以外の標準メール受信箱は、IMAP で受信していて体験の identity の
+      # 規則に合うものだけ(TrialConnection.imap_identity。Gmail のアドレスは Google の IMAP だけ)。転送だけの受信箱は数えない。
+      # ガイドは表示のたびに受信箱へ接続しない(体験はさらに Toybaco の実認証で絞る。TrialConnection.ready?)。
       def mail_usable?(channel)
         return false if channel.reauthorization_required?
         return Connections::Gmail.allowed?(@account) if Connections::Gmail.connected?(channel)
+        return TrialConnection.imap_identity(channel).present? unless Connections::Microsoft.connected?(channel)
 
         Connections::Microsoft.application_current?(channel) && Connections::Microsoft.allowed?(@account)
       end
