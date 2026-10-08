@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { slotPlacement } from '../overlay/app/public/brand-assets/toybaco-pointer-guide.mjs';
+import { guidePosition, slotPlacement } from '../overlay/app/public/brand-assets/toybaco-pointer-guide.mjs';
 
 // The first-run guide reads the dashboard overlay (Vue routes, locale, views). The Chatwoot gate carries the whole
 // overlay; the Postiz gate runs only toybaco-pointer-guide.test.mjs with the pointer assets, so these stay here.
@@ -207,6 +207,8 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start', readi
       refreshGrowthGuide() {},
       updateGrowthGuide: (preference) => answer({ preference }),
       saveGrowthFacts: (fields) => answer({ fields }),
+      // The tour's pure helpers (段 1a) are the composable's own.
+      ...tourHelpers(),
     },
   };
   const requests = [];
@@ -221,7 +223,8 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start', readi
   };
   const page = runInNewContext(`(function (modules) {${body}
     return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace,
-      connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink, aiStep };
+      connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink, aiStep, stepNumber,
+      decideLine, autoReplyPath };
   })`, { fetch, window })(modules);
   // The template shows「店舗情報を保存しました。」with exactly this condition.
   const notice = () => page.factsSaved.value && !page.showFacts.value;
@@ -371,7 +374,9 @@ test('first-login wording names the guide, the password setting and the inbox co
     assert.doesNotMatch(readFileSync(new URL(name, localeDirectory), 'utf8'), /受信トレイ|受信ボックス/, name);
   }
   const guide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
-  assert(guide.includes('<span>お店の準備を、画面で案内します。</span>'));
+  // 段 1a: after「あとで続ける」the band names the step the tour comes back to (the purpose card has no number).
+  assert(guide.includes('<span v-if="!bandProgress">お店の準備を、画面で案内します。</span>'));
+  assert(guide.includes('<span v-else>お店の準備の続きを案内します({{ bandProgress }})</span>'));
   const mail = readFileSync(new URL('../overlay/app/app/views/devise/mailer/reset_password_instructions.html.erb', import.meta.url), 'utf8');
   assert(mail.includes('問い合わせの受信や投稿・AIの利用には、ログイン後の案内に沿った窓口の接続や設定が必要です。'));
   assert(!mail.includes('お店の準備'));
@@ -562,8 +567,9 @@ test('the completion screen makes「ホームへ」the main button and adds one 
   assert.equal(done([{ id: 4, provider: 'web_widget' }], { administrator: false }).snippetLink.value, null);
   assert.equal(done([{ id: 5, provider: 'instagram' }]).nextStep.value, 'InstagramのDMに、受信箱から返信する');
   assert.equal(done([{ id: 6, provider: 'line' }]).nextStep.value, 'LINEのメッセージに、受信箱から返信する');
-  for (const provider of ['gmail', 'microsoft'])
-    assert.equal(done([{ id: 7, provider }]).nextStep.value, '届いたメールに、受信箱から返信する');
+  // The mail inboxes: Gmail and Microsoft through their APIs, and every other mail inbox (IMAP, forwarding) as email.
+  for (const provider of ['gmail', 'microsoft', 'email'])
+    assert.equal(done([{ id: 7, provider }]).nextStep.value, '届いたメールに、受信箱から返信する', provider);
   assert.equal(done([{ id: 5, provider: 'instagram' }]).snippetLink.value, null);
   // The posting purpose completes without an inbox id: the first listed window decides the line.
   assert.equal(done([{ id: 8, provider: 'web_widget' }], { inbox_id: undefined }).nextStep.value, 'Webチャットの設置コードを、お店のサイトに貼る');
@@ -823,10 +829,11 @@ test('the inbox finish screen leads back to the store setup while the guide is n
   const back = finish.slice(finish.indexOf('async function returnToGrowthGuide()'), finish.indexOf('\n}\n', finish.indexOf('async function returnToGrowthGuide()')));
   assert(back.includes('await updateGrowthGuide({ dismissed: false });'));
   assert(/router\.push\(\{\s*name: 'toybaco_growth_start',\s*params: \{ accountId: accountId\.value \},\s*\}\);/.test(back));
-  // The banner「設定を続ける」opens the same screen the same way.
+  // 段 1a: the banner「設定を続ける」shows the tour card again on the screen the store is on; it opens no other screen.
   const guide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
   const resume = guide.slice(guide.indexOf('async function resume()'), guide.indexOf('\n}\n', guide.indexOf('async function resume()')));
-  assert(resume.includes('await updateGrowthGuide({ dismissed: false });') && resume.includes("name: 'toybaco_growth_start',"));
+  assert(resume.includes('paused.value = false;') && resume.includes('await updateGrowthGuide({ dismissed: false });'));
+  assert(!resume.includes('router.') && !resume.includes('toybaco_growth_start'));
 });
 
 // U4: at the mobile width (≤ 680px) the connection step's prompt is two lines (2 × 22.4px + padding, border and
@@ -853,7 +860,8 @@ function guideComposable(respond) {
   const events = [];
   const requests = [];
   const answers = [];
-  const api = runInNewContext(`${source}\n({ selectGrowthGuideAccount, saveGrowthFacts, updateGrowthGuide, growthGuideError });`, {
+  const api = runInNewContext(`${source}
+    ({ selectGrowthGuideAccount, saveGrowthFacts, updateGrowthGuide, growthGuideError, refreshGrowthGuide, growthGuideState });`, {
     AbortController,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     window: { dispatchEvent: (event) => { events.push(plain({ type: event.type, detail: event.detail })); return true; } },
@@ -863,7 +871,8 @@ function guideComposable(respond) {
       return new Promise((resolve) => answers.push(() => resolve(respond(url, options))));
     },
   });
-  const answer = async () => { answers.shift()(); for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
+  // Answers the oldest request still waiting, or the one at `index` (a later request can be answered first).
+  const answer = async (index = 0) => { answers.splice(index, 1)[0](); for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
   return { api, events, requests, answer };
 }
 const guideResponse = (status, body = {}) => ({ status, ok: status >= 200 && status < 300, redirected: false, json: async () => body });
@@ -917,4 +926,788 @@ test('saving the store facts tells the AI panel which store saved them, only whe
   const none = guideComposable(() => guideResponse(200, { account_id: 15 }));
   assert.equal(await none.api.saveGrowthFacts({ name: 'トイバコ食堂' }), undefined);
   assert.deepEqual([none.requests, none.events], [[], []]);
+});
+
+// 段 1a(2026-10-06 owner 裁定): the first-run tour runs on the real dashboard. The card's words, buttons and targets
+// come from the guide state and the AI readiness only (server values). The composable's pure helpers run here
+// without Vue.
+function tourHelpers() {
+  const source = readFileSync(new URL('../overlay/app/app/javascript/dashboard/composables/toybacoGrowthGuide.js', import.meta.url), 'utf8')
+    .replace("import { ref } from 'vue';", 'const ref = (value) => ({ value });')
+    .replace(/^export /gm, '');
+  return runInNewContext(`${source}
+    ({ growthTourCard, growthTourProgress, growthDecideLine, growthAutoReplyPath, GROWTH_TOUR_REPLY_HINTS });`);
+}
+const tourState = (phase, extra = {}) => ({
+  phase, administrator: true, inboxes: [], facts: { confirmed: true }, pending: [],
+  preference: { purpose: 'inbox', dismissed: false, skipped: [], opened: [] }, ...extra,
+});
+const growthGuide = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue', import.meta.url), 'utf8');
+
+test('the tour numbers the four steps of an inquiry store and leaves the purpose card unnumbered', () => {
+  const { growthTourProgress: progress } = tourHelpers();
+  const at = (phase, purpose = 'inbox') => plain(progress({ phase, preference: { purpose } }));
+  // The server's order (Onboarding::STEPS) without the purpose and completion screens; receiving and the first reply
+  // are one step on the card (お客さん役で試す).
+  const onboarding = readFileSync(new URL('../overlay/app/lib/toybaco/growth/onboarding.rb', import.meta.url), 'utf8');
+  const steps = Object.fromEntries([...onboarding.matchAll(/'(inbox|posting)' => %w\[([a-z ]+)\]/g)]
+    .map(([, purpose, list]) => [purpose, list.split(' ')]));
+  assert.deepEqual(steps, { inbox: ['purpose', 'facts', 'connect', 'receive', 'reply', 'decide', 'complete'],
+    posting: ['purpose', 'facts', 'posting', 'connect', 'complete'] });
+  assert.deepEqual(steps.inbox.map((phase) => at(phase)), [null, { index: 1, total: 4 }, { index: 2, total: 4 },
+    { index: 3, total: 4 }, { index: 3, total: 4 }, { index: 4, total: 4 }, null]);
+  assert.deepEqual(steps.posting.map((phase) => at(phase, 'posting')), [null, { index: 1, total: 3 }, { index: 2, total: 3 },
+    { index: 3, total: 3 }, null]);
+  assert.equal(progress({ phase: 'purpose', preference: {} }), null);
+  assert.equal(progress(null), null);
+  // The guide screen counts the same way.
+  assert(/const stepNumber = computed\(\(\) => \{\n  const progress = growthTourProgress\(state\.value\);\n  return progress \? `\$\{progress\.index\} \/ \$\{progress\.total\}` : "";\n\}\);/
+    .test(start));
+});
+
+test('each tour card says what its step does and offers only what the member can do', () => {
+  const { growthTourCard: card } = tourHelpers();
+  const show = (state, readiness = null) => plain(card(state, readiness, 1));
+  const purpose = show(tourState('purpose', { preference: { dismissed: false, skipped: [], opened: [] } }));
+  assert.deepEqual([purpose.progress, purpose.title], ['', '最初に何をしますか']);
+  assert.deepEqual(purpose.actions.map(({ id, label }) => [id, label]),
+    [['purpose:inbox', '問い合わせに対応する'], ['purpose:posting', 'お店の情報を発信する']]);
+  const facts = show(tourState('facts', { facts: { confirmed: false } }));
+  assert.deepEqual([facts.progress, facts.title, facts.body.join('')], ['お店の準備 1 / 4', 'AIにお店を教える',
+    '店舗情報を保存すると、AI返信は お店の事実だけを根拠に返信案を作ります。分かるところだけで大丈夫です。']);
+  assert.deepEqual(facts.actions, [{ id: 'open:facts', label: '店舗情報を開く', kind: 'primary' },
+    { id: 'skip:facts', label: 'あとで設定する', kind: 'secondary' }]);
+  assert.deepEqual(facts.targets, ['facts.confirm', 'sidebar.store_facts']);
+  const connect = show(tourState('connect'));
+  assert.deepEqual([connect.progress, connect.title], ['お店の準備 2 / 4', '窓口をつなぐ']);
+  assert.deepEqual(connect.actions.map(({ id, label }) => [id, label]), [['open:inbox_new', '窓口を追加する'], ['skip:connect', 'あとで設定する']]);
+  assert.deepEqual(connect.targets, ['channel.line', 'channel.website', 'channel.email', 'channel.instagram', 'sidebar.inboxes']);
+  // Several windows connected and none chosen for the guide yet: the card moves on with one, like the guide screen.
+  assert.deepEqual(show(tourState('connect', { inboxes: [{ id: 5 }, { id: 7 }] })).actions.map(({ id }) => id),
+    ['open:inbox_new', 'proceed:connect', 'skip:connect']);
+  // Staff: a note instead of the store facts, the connection and the AI reply choice, and only「あとで設定する」.
+  for (const phase of ['facts', 'connect', 'decide']) {
+    const staff = show(tourState(phase, { administrator: false, inbox_id: 4 }),
+      { inboxes: [{ id: 4, status: 'off', reason: 'この窓口には AI が割り当てられていません', quota_used: false }], managed_auto_path: managedPath });
+    assert.deepEqual(staff.actions.map(({ id }) => id), [`skip:${phase}`], phase);
+    assert.deepEqual(staff.targets, [], phase);
+    assert.match(staff.note, /^.+は、店舗の管理者が.+。$/, phase);
+    if (phase === 'decide') assert.deepEqual(staff.body, [], 'only the note');
+  }
+  // Receiving and the first reply are one step (3 / 4), in the guide screen's words for each kind of window.
+  const receive = (inbox) => show(tourState('receive', { inbox_id: inbox.id, inboxes: [inbox] }));
+  const web = receive({ id: 3, provider: 'web_widget', label: '店 · Webチャット', website_token: 'tok en/1' });
+  assert.deepEqual([web.progress, web.title], ['お店の準備 3 / 4', 'お客さん役で試す']);
+  assert.deepEqual(web.body, ['サイトに設置コードを貼ると問い合わせが届きます。今すぐ試すなら、プレビューから1件送ってください。',
+    '店 · Webチャット', '届いたら、自動で次の案内に進みます。']);
+  assert.deepEqual(web.actions, [
+    { id: 'open:widget_preview', label: 'プレビューで送る', kind: 'primary', href: '/widget?website_token=tok%20en%2F1' },
+    { id: 'skip:receive', label: 'あとで設定する', kind: 'secondary' }]);
+  const screen = block(`<template v-else-if="state?.phase === 'receive'">`);
+  const mail = '別のメールアドレスから、次の窓口にテストメールを送ってください。';
+  for (const provider of ['line', 'instagram', 'gmail', 'microsoft', 'email']) {
+    const text = receive({ id: 3, provider, email: 'shop@example.test' });
+    assert(screen.includes(text.body[0]), `${provider}: the guide screen's words`);
+    assert.deepEqual(text.body.slice(1), ['shop@example.test', '届いたら、自動で次の案内に進みます。'], provider);
+    assert.deepEqual(text.actions.map(({ id }) => id), ['skip:receive'], provider);
+  }
+  // Every mail inbox (Gmail, Microsoft, and IMAP or forwarding as email) has the mail words; a kind of window the card
+  // does not know is not named.
+  for (const provider of ['gmail', 'microsoft', 'email']) assert.equal(receive({ id: 3, provider }).body[0], mail, provider);
+  for (const provider of ['telegram', 'email_forward', undefined, null, 'constructor', '__proto__'])
+    assert.deepEqual(receive({ id: 3, provider, label: '店の窓口' }).body,
+      ['この窓口へ一言送ってみてください。', '店の窓口', '届いたら、自動で次の案内に進みます。'], String(provider));
+  assert(screen.includes('届いたら、自動で次の案内に進みます。'));
+  const reply = show(tourState('reply', { inbox_id: 3, conversation_id: 9 }));
+  assert.deepEqual([reply.progress, reply.title], ['お店の準備 3 / 4', 'お客さん役で試す']);
+  assert.deepEqual(reply.actions.map(({ id, label }) => [id, label]), [['open:conversation', '開いて返信する'], ['skip:reply', 'あとで設定する']]);
+  assert.deepEqual(reply.targets, [], 'away from the conversation nothing is lit');
+  const posting = show(tourState('posting', { preference: { purpose: 'posting', dismissed: false, skipped: [], opened: [] } }));
+  assert.deepEqual([posting.progress, posting.actions.map(({ id }) => id)], ['お店の準備 2 / 3', ['open:posting', 'skip:posting']]);
+  // Completion: what is left (store facts, connection) and「初回案内を閉じる」, without「あとで続ける」(ToybacoTour).
+  const complete = show(tourState('complete', { pending: ['facts', 'connect', 'posting'] }));
+  assert.deepEqual([complete.progress, complete.title, complete.list], ['', 'お店の準備ができました', ['店舗情報の入力', '窓口の接続']]);
+  assert.deepEqual(complete.body, ['残っている準備は、設定メニューからいつでも行えます。']);
+  assert.deepEqual(complete.actions, [{ id: 'close', label: '初回案内を閉じる', kind: 'primary' }]);
+  assert.deepEqual(show(tourState('complete')).body, []);
+  assert.equal(card(null, null, 1), null);
+  assert.equal(card(tourState('unknown'), null, 1), null);
+});
+
+test('the decide card shows the window’s AI reply as the server says and offers the automatic reply or the draft only', () => {
+  const { growthTourCard: card, growthDecideLine: line, growthAutoReplyPath: path } = tourHelpers();
+  const readiness = (status, extra = {}) => ({ managed_auto_path: managedPath, inboxes: [{ id: 3, status: 'auto' },
+    { id: 4, name: '店', status, reason: 'この窓口には AI が割り当てられていません', quota_used: false, ...extra }] });
+  const decide = (answer, extra = {}) => plain(card(tourState('decide', { inbox_id: 4, ...extra }), answer, 1));
+  const open = decide(readiness('off'));
+  assert.deepEqual([open.progress, open.title, open.body],
+    ['お店の準備 4 / 4', 'この窓口の AI返信を決める', ['この窓口：AI返信 オフ', 'この窓口には AI が割り当てられていません']]);
+  assert.deepEqual(open.actions, [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedPath },
+    { id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'secondary' }]);
+  assert.equal(open.note, '');
+  // Store facts not confirmed: the reason and「店舗情報を開く」take the place of the automatic reply.
+  const unconfirmed = decide(readiness('off'), { facts: { confirmed: false } });
+  assert.deepEqual(unconfirmed.actions.map(({ id, label, kind }) => [id, label, kind]),
+    [['open:facts', '店舗情報を開く', 'primary'], ['choose:draft_only', 'まずは返信案だけ使う', 'secondary']]);
+  assert.equal(unconfirmed.note, '自動で返すには、先に店舗情報の確認が要ります。');
+  // No screen for this store, or a path that is not this store's screen: the draft choice is the main button.
+  for (const other of [undefined, null, '/toybaco/growth/automatic-replies?account_id=2', `${managedPath}&inbox_id=4`,
+    `https://example.test${managedPath}`, `//example.test${managedPath}`]) {
+    assert.deepEqual(decide({ ...readiness('off'), managed_auto_path: other }).actions,
+      [{ id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'primary' }], String(other));
+    assert.equal(path({ managed_auto_path: other }, 1), null, String(other));
+  }
+  assert.equal(path({ managed_auto_path: managedPath }, 1), managedPath);
+  // No choice is named「下書き」: that is the state of a window (docs/ux-terms-20261006.md).
+  for (const run of [open, unconfirmed]) assert(run.actions.every(({ label }) => !label.includes('下書き')));
+  // The line is the composer bar's line for the guided window (toybaco-post-entry.js), with the reason as given.
+  const text = (answer, inboxId = 4) => plain(line(answer, inboxId));
+  assert.deepEqual(text(readiness('draft', { reason: '' })), { text: 'この窓口：AI返信 下書き', reason: '' });
+  assert.deepEqual(text(readiness('auto', { reason: null })), { text: 'この窓口：AI返信 自動', reason: '' });
+  assert.deepEqual(text(readiness('auto', { quota_used: true, reason: '今月の AI 枠を使い切りました' })),
+    { text: 'この窓口：AI返信 停止中（今月の枠なし）', reason: '今月の AI 枠を使い切りました' });
+  assert.equal(text(readiness('auto', { quota_used: 'yes' })).text, 'この窓口：AI返信 自動');
+  assert.deepEqual(text(readiness('off'), '4'), text(readiness('off'), 4));
+  for (const [answer, inboxId] of [[readiness('off'), 5], [readiness('paused'), 4], [null, 4], [{}, 4], [{ inboxes: 'x' }, 4],
+    [{ inboxes: [null] }, 4]])
+    assert.equal(line(answer, inboxId), null, JSON.stringify([answer, inboxId]));
+  const postEntry = readFileSync(new URL('../overlay/app/public/brand-assets/toybaco-post-entry.js', import.meta.url), 'utf8');
+  assert(postEntry.includes("text: 'この窓口：AI返信 停止中（今月の枠なし）'") && postEntry.includes("text: 'この窓口：AI返信 ' + AI_INBOX_LABELS"));
+  // Before the readiness answers there is no line, and the draft choice is there already.
+  assert.deepEqual(decide(null).body, []);
+  assert.deepEqual(decide(null).actions.map(({ id }) => id), ['choose:draft_only']);
+});
+
+// ToybacoGrowthGuide with a minimal Vue stand-in, a recorded router and a recorded pointer guide. `screen.present` holds
+// the targets on the current screen (the pointer guide's registry finds only those). The card's helpers are the real ones.
+function guideScript({ initial, routeName = 'home', params = {}, present = [], width = 1280, height = 800, nodes = [],
+  position = (target) => ({ left: target.right + 12, top: target.top }), onboarding = true, readiness = () => new Promise(() => {}),
+  respond = (current, preference) => ({ ...current, preference: { ...current.preference, ...preference } }) } = {}) {
+  const script = growthGuide.slice(growthGuide.indexOf('<script setup>') + '<script setup>'.length, growthGuide.indexOf('</script>'));
+  const body = script
+    .replace(/import\s+(\{[^}]*\}|\w+)\s+from\s+'([^']+)';/g, (_, names, from) => (names.startsWith('{')
+      ? `const ${names.replace(/\s+as\s+/g, ': ')} = modules[${JSON.stringify(from)}];`
+      : `const ${names} = modules[${JSON.stringify(from)}].default;`))
+    .replace('await import(/* @vite-ignore */ moduleUrl)', 'await modules.pointerGuide(moduleUrl)');
+  assert(!/^import /m.test(body) && body.includes('modules.pointerGuide(moduleUrl)'), 'every import is replaced');
+  const watchers = [];
+  const same = (a, b) => (Array.isArray(a) ? a.every((value, index) => Object.is(value, b[index])) : Object.is(a, b));
+  const flush = () => watchers.forEach((watcher) => {
+    const value = watcher.read();
+    if (same(value, watcher.last)) return;
+    const previous = watcher.last;
+    watcher.last = value;
+    watcher.callback(value, previous);
+  });
+  const [mounted, unmounts, sent, navigations, reads, calls, requests, frames, intervals] = Array.from({ length: 9 }, () => []);
+  const listeners = {};
+  const state = { value: initial };
+  const account = { value: 1 };
+  const screen = { present: new Set(present), editorText: '' };
+  const route = { name: routeName, fullPath: `/${routeName}`, params: { accountId: '1', ...params }, query: {} };
+  const box = { left: 16, top: 300, width: 200, height: 36, right: 216, bottom: 336 };
+  // `nodes` are page elements with their box and the selectors they answer (`matches`); a registered one is the target.
+  const elements = nodes.map(({ matches, rect }) => ({ matches, getBoundingClientRect: () => rect, contains: () => false,
+    get textContent() { return screen.editorText; } }));
+  const registered = new Map();
+  class GuideRegistry {
+    register(id, element) {
+      registered.set(id, [...(registered.get(id) || []), element]);
+      return () => {};
+    }
+    find(id) {
+      if (!screen.present.has(id)) return null;
+      return registered.get(id)?.[0]
+        || { getBoundingClientRect: () => box, textContent: id === 'reply.editor' ? screen.editorText : '', contains: () => false };
+    }
+  }
+  class PointerGuide {
+    show(step) { calls.push(['show', plain(step)]); }
+    spotlight(step) { calls.push(['spotlight', plain(step)]); }
+    hide() { calls.push(['hide']); }
+    schedule() {}
+    suppress() {}
+    destroy() {}
+  }
+  const modules = {
+    vue: {
+      ref: (value) => ({ value }),
+      computed: (read) => ({ get value() { return read(); } }),
+      watch: (source, callback, options = {}) => {
+        const one = (item) => (typeof item === 'function' ? item() : item.value);
+        const read = Array.isArray(source) ? () => source.map(one) : () => one(source);
+        const watcher = { read, callback, last: read() };
+        watchers.push(watcher);
+        if (options.immediate) callback(watcher.last);
+      },
+      nextTick: () => Promise.resolve(),
+      onMounted: (callback) => mounted.push(callback),
+      onBeforeUnmount: (callback) => unmounts.push(callback),
+    },
+    'vue-router': {
+      useRoute: () => route,
+      useRouter: () => ({ push: (to) => navigations.push(['push', plain(to)]), replace: (to) => navigations.push(['replace', plain(to)]) }),
+    },
+    'dashboard/helper/toybacoSupportQuestion': { supportGuideArticles: () => [], supportGuideStep: () => null },
+    'dashboard/composables/useAccount': {
+      useAccount: () => ({ accountId: account, currentAccount: { value: { toybaco_growth_onboarding: onboarding } } }),
+    },
+    'dashboard/composables/toybacoGrowthGuide': {
+      ...tourHelpers(),
+      growthGuideState: state,
+      growthGuideError: { value: '' },
+      growthGuideBusy: { value: false },
+      refreshGrowthGuide: () => { reads.push(state.value?.phase); },
+      selectGrowthGuideAccount() {},
+      // A save the server refused or never answered returns nothing (respond gives undefined) and keeps the state.
+      updateGrowthGuide: async (preference) => {
+        sent.push(plain(preference));
+        const next = respond(state.value, preference);
+        if (next === undefined) return undefined;
+        state.value = next;
+        return next;
+      },
+    },
+    './ToybacoTour.vue': { default: {} },
+    pointerGuide: async () => ({ GuideRegistry, PointerGuide, guidePosition: position }),
+  };
+  const on = (type, listener) => { listeners[type] = listener; };
+  const off = (type, listener) => { if (listeners[type] === listener) delete listeners[type]; };
+  const page = runInNewContext(`(function (modules) {${body}
+    return { tourVisible, tourCard, tourPlacement, tourRef, tourAtTop, readiness, bandProgress, later, resume, onTourAction, scheduleScan };
+  })`, {
+    URL,
+    window: { innerWidth: width, innerHeight: height, location: { origin: 'https://app.example.test' }, addEventListener: on,
+      removeEventListener: off, dispatchEvent: () => true, setInterval: (callback, delay) => intervals.push({ callback, delay }) },
+    document: { visibilityState: 'visible', body: {}, head: { append() {} }, querySelector: () => null,
+      querySelectorAll: (selector) => elements.filter((node) => selector.split(',').some((part) => node.matches.includes(part.trim()))),
+      createElement: () => ({ dataset: {} }), addEventListener: on, removeEventListener: off },
+    fetch: (url, options) => {
+      requests.push(plain({ url, options }));
+      return readiness(url, options);
+    },
+    requestAnimationFrame: (callback) => frames.push(callback),
+    cancelAnimationFrame() {},
+    clearInterval() {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
+  })(modules);
+  // What the browser does after a change: Vue runs the watchers, then the next frame scans the screen.
+  const settleScreen = async () => {
+    flush();
+    await settle();
+    frames.splice(0).forEach((callback) => callback());
+  };
+  const mount = async () => {
+    for (const callback of mounted) await callback();
+    await settleScreen();
+  };
+  return { page, state, account, screen, route, sent, navigations, reads, calls, requests, intervals, listeners, flush, settleScreen,
+    mount, unmount: () => unmounts.forEach((callback) => callback()) };
+}
+const cardBox = { root: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 360, height: 220, right: 360, bottom: 220 }) } };
+
+test('the dashboard shows the tour card on the screen the store is on and never opens the guide screen by itself', async () => {
+  const first = { phase: 'purpose', administrator: true, inboxes: [], pending: [], preference: { dismissed: false, skipped: [], opened: [] } };
+  for (const routeName of ['home', 'inbox_dashboard', 'settings_inbox_list']) {
+    const run = guideScript({ initial: first, routeName });
+    await run.mount();
+    assert.equal(run.page.tourVisible.value, true, routeName);
+    assert.equal(run.page.tourCard.value.title, '最初に何をしますか');
+    run.route.fullPath = `/${routeName}?again`;
+    run.state.value = { ...first };
+    await run.settleScreen();
+    assert.deepEqual(run.navigations, [], `${routeName}: no move to the guide screen`);
+  }
+  assert(!growthGuide.includes('router.replace(') && !growthGuide.includes('toybaco_skip_tour'));
+  assert(!/name: 'toybaco_growth_start'/.test(growthGuide), 'the guide screen is only recognised, never opened');
+  assert(growthGuide.includes("const inSetup = computed(() => route.name === 'toybaco_growth_start');"));
+  // The guide screen keeps its own prompts (no card there); a closed guide and an old contract show no card.
+  const setup = guideScript({ initial: first, routeName: 'toybaco_growth_start', present: ['purpose.inbox'] });
+  await setup.mount();
+  assert.equal(setup.page.tourVisible.value, false);
+  assert.deepEqual(setup.calls.at(-1), ['show', { actionId: 'purpose.inbox', text: '最初に使いたい仕事を選んでください。' }]);
+  const closed = guideScript({ initial: { ...first, preference: { ...first.preference, dismissed: true } } });
+  await closed.mount();
+  assert.equal(closed.page.tourVisible.value, false);
+  const old = guideScript({ initial: first, onboarding: false });
+  await old.mount();
+  assert.equal(old.page.tourVisible.value, false);
+  assert.deepEqual(old.reads, [], 'an old contract reads no guide');
+});
+
+test('「あとで続ける」puts the card away and the band brings it back on the same screen', async () => {
+  const run = guideScript({ initial: tourState('connect'), present: ['sidebar.inboxes'] });
+  await run.mount();
+  assert.equal(run.page.tourVisible.value, true);
+  assert.equal(run.page.bandProgress.value, '2 / 4');
+  run.page.later();
+  assert.deepEqual(run.sent, [{ dismissed: true }]);
+  assert.equal(run.page.tourVisible.value, false);
+  await run.settleScreen();
+  assert.deepEqual(run.calls.at(-1), ['hide'], 'the light goes with the card');
+  await run.page.resume();
+  assert.deepEqual(run.sent.at(-1), { dismissed: false });
+  assert.equal(run.page.tourVisible.value, true);
+  await run.settleScreen();
+  assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'sidebar.inboxes', dim: 'strong' }]);
+  assert.deepEqual(run.navigations, [], 'the band opens no other screen');
+  // The band stands in for the card only while the card is away; the purpose card has no number.
+  const template = growthGuide.slice(growthGuide.indexOf('<template>'), growthGuide.lastIndexOf('</template>'));
+  assert(/<aside\s+v-if="\s*enabled && state && !inSetup && state\.phase !== 'complete' && !tourVisible\s*"/.test(template));
+  assert(/<ToybacoTour\s+v-if="tourVisible"\s+ref="tourRef"\s+:card="tourCard"\s+:placement="tourPlacement"\s+:top="tourAtTop"\s+:busy="growthGuideBusy"\s+@action="onTourAction"\s+@later="later"\s*\/>/
+    .test(template));
+  const purpose = guideScript({ initial: { ...tourState('purpose'), preference: { dismissed: true, skipped: [], opened: [] } } });
+  assert.equal(purpose.page.bandProgress.value, '');
+});
+
+test('the card lights the first target of its step on the screen and sits next to it on wide screens', async () => {
+  const run = guideScript({ initial: tourState('facts', { facts: { confirmed: false } }), present: ['sidebar.store_facts'] });
+  run.page.tourRef.value = cardBox;
+  await run.mount();
+  assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'sidebar.store_facts', dim: 'strong' }]);
+  assert.deepEqual(plain(run.page.tourPlacement.value), { left: 228, top: 300 });
+  // The store facts page: its confirm button comes first.
+  run.screen.present.add('facts.confirm');
+  run.page.scheduleScan();
+  await run.settleScreen();
+  assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'facts.confirm', dim: 'strong' }]);
+  // Nothing of the step on this screen: the card alone in its corner, and its main button opens the step's screen.
+  run.screen.present.clear();
+  run.page.scheduleScan();
+  await run.settleScreen();
+  assert.deepEqual(run.calls.at(-1), ['hide']);
+  assert.equal(run.page.tourPlacement.value, null);
+  await run.page.onTourAction({ id: 'open:facts' });
+  assert.deepEqual(run.navigations, [['push', { name: 'toybaco_store_facts_settings', params: { accountId: 1 } }]]);
+  // Under 640px wide the card is the bottom sheet, never next to the target.
+  const narrow = guideScript({ initial: tourState('connect'), present: ['channel.website', 'channel.line'], width: 390 });
+  narrow.page.tourRef.value = cardBox;
+  await narrow.mount();
+  assert.deepEqual(narrow.calls.at(-1), ['spotlight', { actionId: 'channel.line', dim: 'strong' }]);
+  assert.equal(narrow.page.tourPlacement.value, null);
+  // Every target a card names is one the guide registers.
+  const { growthTourCard: card, GROWTH_TOUR_REPLY_HINTS: hints } = tourHelpers();
+  const selectors = growthGuide.slice(growthGuide.indexOf('const selectors = {'), growthGuide.indexOf('};', growthGuide.indexOf('const selectors = {')));
+  const named = [...plain(card(tourState('facts'), null, 1)).targets, ...plain(card(tourState('connect'), null, 1)).targets, ...Object.keys(hints)];
+  for (const id of named) assert(selectors.includes(`'${id}':`), id);
+});
+
+test('the card buttons open the step screen or save the choice, as the guide screen does', async () => {
+  const run = guideScript({ initial: tourState('reply', { inbox_id: 3, conversation_id: 9,
+    preference: { purpose: 'inbox', dismissed: false, skipped: ['facts'], opened: [] } }) });
+  await run.mount();
+  for (const id of ['open:inbox_new', 'open:conversation', 'skip:reply', 'choose:draft_only', 'purpose:posting', 'open:posting', 'close'])
+    await run.page.onTourAction({ id });
+  assert.deepEqual(run.navigations, [
+    ['push', { name: 'settings_inbox_new', params: { accountId: 1 } }],
+    ['push', { name: 'conversation_through_inbox', params: { accountId: 1, inbox_id: 3, conversation_id: 9 } }],
+    ['push', { name: 'home', params: { accountId: 1 }, hash: '#/toybaco/posting' }],
+  ]);
+  // Choosing the purpose saves only the purpose: the card shows only while the guide is open, and reopening is the band's.
+  assert.deepEqual(run.sent, [{ skipped: ['facts', 'reply'] }, { ai_reply_choice: 'draft_only' }, { purpose: 'posting' },
+    { opened: ['posting'] }, { dismissed: true }]);
+  assert.equal(run.page.tourVisible.value, false, '「初回案内を閉じる」closes the guide');
+  // 「つないだ窓口で次へ」records the window the guide follows (the chosen one, or the first listed one).
+  const proceed = guideScript({ initial: tourState('connect', { inboxes: [{ id: 5 }, { id: 7 }] }) });
+  await proceed.page.onTourAction({ id: 'proceed:connect' });
+  const chosen = guideScript({ initial: tourState('connect', { inboxes: [{ id: 5 }, { id: 7 }], inbox_id: 7 }) });
+  await chosen.page.onTourAction({ id: 'proceed:connect' });
+  assert.deepEqual([...proceed.sent, ...chosen.sent], [{ inbox_id: 5 }, { inbox_id: 7 }]);
+});
+
+test('on the conversation of the step the card carries the three reply hints and lights each control in turn', async () => {
+  const run = guideScript({ initial: tourState('reply', { inbox_id: 3, conversation_id: 9 }), routeName: 'inbox_conversation',
+    params: { conversation_id: '9' }, present: ['reply.ai_draft', 'reply.editor'] });
+  await run.mount();
+  const shown = () => [plain(run.page.tourCard.value.body), plain(run.page.tourCard.value.actions).map(({ id }) => id), run.calls.at(-1)];
+  assert.deepEqual(shown(), [['AIの返信案を返信欄で確認できます。'], ['skip:reply'], ['spotlight', { actionId: 'reply.ai_draft', dim: 'strong' }]]);
+  run.screen.present = new Set(['reply.editor', 'reply.send']);
+  run.page.scheduleScan();
+  await run.settleScreen();
+  assert.deepEqual(shown(), [['ここに返信を入力してください。'], ['skip:reply'], ['spotlight', { actionId: 'reply.editor', dim: 'strong' }]]);
+  run.screen.editorText = 'お問い合わせありがとうございます。';
+  run.page.scheduleScan();
+  await run.settleScreen();
+  assert.deepEqual(shown(), [['宛先と内容を確認して送信してください。'], ['skip:reply'], ['spotlight', { actionId: 'reply.send', dim: 'strong' }]]);
+  // Another conversation: the card leads back to the one of the step and lights nothing here.
+  run.route.params.conversation_id = '8';
+  run.page.scheduleScan();
+  await run.settleScreen();
+  assert.deepEqual(shown(), [['メッセージが届きました。AIの返信案を使って、最初の返信を送ってみましょう。'], ['open:conversation', 'skip:reply'], ['hide']]);
+});
+
+test('the decide card reads the AI readiness for administrators, again when the store facts are confirmed, and the poll follows the step', async () => {
+  const answers = [];
+  const run = guideScript({ initial: tourState('decide', { inbox_id: 4, facts: { confirmed: false } }),
+    readiness: () => new Promise((resolve) => answers.push(resolve)) });
+  const answer = (body) => answers.shift()({ status: 200, ok: true, redirected: false, json: async () => body });
+  const row = { id: 4, status: 'off', reason: '店舗情報が未確認です', quota_used: false };
+  assert.deepEqual(run.requests, [{ url: '/toybaco/ai_readiness?account_id=1',
+    options: { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } } }]);
+  answer({ inboxes: [row] });
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 オフ', '店舗情報が未確認です']);
+  assert.deepEqual(plain(run.page.tourCard.value.actions).map(({ id }) => id), ['open:facts', 'choose:draft_only']);
+  // Confirmed on the store facts page: read once more, and the automatic reply's screen shows.
+  run.state.value = { ...run.state.value, facts: { confirmed: true } };
+  run.flush();
+  assert.equal(run.requests.length, 2);
+  answer({ inboxes: [{ ...row, reason: 'この窓口には AI が割り当てられていません' }], managed_auto_path: managedPath });
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.actions), [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedPath },
+    { id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'secondary' }]);
+  // Back from the automatic reply screen (a restored page): the guide and the readiness are read again. An answer for a
+  // step the guide has left is dropped.
+  await run.mount();
+  run.listeners.pageshow({ persisted: false });
+  assert.equal(run.requests.length, 2, 'a page that was not restored is not read again');
+  run.listeners.pageshow({ persisted: true });
+  assert.equal(run.requests.length, 3);
+  assert.equal(run.reads.at(-1), 'decide');
+  run.state.value = { ...run.state.value, phase: 'complete' };
+  run.flush();
+  answer({ inboxes: [row], managed_auto_path: managedPath });
+  await settle();
+  assert.equal(run.page.readiness.value, null);
+  assert.equal(run.requests.length, 3, 'nothing is read outside the step');
+  // The poll reads the guide every 5 seconds while a step waits for something outside the card (the decide step too).
+  assert.deepEqual(run.intervals.map(({ delay }) => delay), [5000]);
+  for (const [phase, polled] of [['connect', true], ['facts', true], ['receive', true], ['reply', true], ['decide', true],
+    ['purpose', false], ['posting', false], ['complete', false]]) {
+    run.state.value = { ...run.state.value, phase };
+    const before = run.reads.length;
+    run.intervals[0].callback();
+    assert.equal(run.reads.length - before, polled ? 1 : 0, phase);
+  }
+  // Staff decide nothing: nothing is read and the card is the note.
+  const staff = guideScript({ initial: tourState('decide', { inbox_id: 4, administrator: false }) });
+  assert.deepEqual(staff.requests, []);
+  assert.deepEqual(plain(staff.page.tourCard.value).body, []);
+  assert.equal(staff.page.tourCard.value.note, 'AI返信の使い方は、店舗の管理者が決めます。');
+});
+
+// ToybacoTour: Escape is「あとで続ける」unless an app dialog or a text field uses it. The script runs with stand-ins for
+// the compiler macros (defineProps / defineEmits / defineExpose) and a recorded document.
+const tourSource = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components/widgets/ToybacoTour.vue', import.meta.url), 'utf8');
+function tourComponent() {
+  const script = tourSource.slice(tourSource.indexOf('<script setup>') + '<script setup>'.length, tourSource.indexOf('</script>'));
+  const body = script.replace("import { onBeforeUnmount, onMounted, ref } from 'vue';", '');
+  assert(!/^import /m.test(body), 'every import is replaced');
+  const [mounted, unmounts, emitted, asked] = [[], [], [], []];
+  const listeners = {};
+  // dialogs: the elements matching the dialog selector, each with the boxes it draws (none while hidden).
+  const page = { dialogs: [] };
+  const props = { card: {}, placement: null, top: false, busy: false };
+  const exposed = runInNewContext(`(function () {${body}\n return { root, act };\n})`, {
+    ref: (value) => ({ value }),
+    onMounted: (callback) => mounted.push(callback),
+    onBeforeUnmount: (callback) => unmounts.push(callback),
+    defineProps: () => props,
+    defineEmits: () => (...args) => emitted.push(plain(args)),
+    defineExpose() {},
+    document: {
+      querySelectorAll: (selector) => { asked.push(selector); return page.dialogs; },
+      addEventListener: (type, listener) => { listeners[type] = listener; },
+      removeEventListener: (type, listener) => { if (listeners[type] === listener) delete listeners[type]; },
+    },
+  })();
+  const inside = new Set();
+  exposed.root.value = { contains: (node) => inside.has(node) };
+  mounted.forEach((callback) => callback());
+  const press = (event = {}) => listeners.keydown({ key: 'Escape', defaultPrevented: false, target: null, ...event });
+  return { exposed, emitted, asked, page, props, inside, press, listeners, unmount: () => unmounts.forEach((callback) => callback()) };
+}
+
+test('the tour card answers Escape with「あとで続ける」unless a dialog or a text field has it', () => {
+  const tour = tourComponent();
+  tour.press();
+  assert.deepEqual(tour.emitted, [['later']]);
+  assert(tour.asked.every((selector) => selector === '[role="dialog"], [aria-modal="true"], dialog[open]'));
+  const field = { matches: (selector) => selector === 'input, textarea, select' };
+  for (const event of [{ key: 'Enter' }, { defaultPrevented: true }, { target: field }, { target: { isContentEditable: true } }])
+    tour.press(event);
+  const shown = { getClientRects: () => [{ width: 400, height: 300 }] };
+  tour.page.dialogs = [{ getClientRects: () => [] }, shown];
+  tour.press();
+  // A held key and a card that is saving do nothing.
+  tour.page.dialogs = [];
+  tour.press({ repeat: true });
+  tour.props.busy = true;
+  tour.press();
+  tour.props.busy = false;
+  assert.deepEqual(tour.emitted, [['later']], 'left to the key’s owner');
+  // A dialog that was closed but left in the page (hidden, no boxes) does not take Escape away.
+  tour.page.dialogs = [{ getClientRects: () => [] }];
+  tour.press();
+  assert.deepEqual(tour.emitted, [['later'], ['later']]);
+  tour.emitted.splice(1);
+  // A button in the card, or one outside of any field, is the card's Escape.
+  const button = { matches: () => false };
+  tour.inside.add(button);
+  tour.press({ target: button });
+  tour.press({ target: { matches: () => false } });
+  assert.equal(tour.emitted.length, 3);
+  // A link goes by its own address; a button tells the guide.
+  tour.exposed.act({ id: 'open:managed_auto', href: managedPath });
+  tour.exposed.act({ id: 'choose:draft_only' });
+  assert.deepEqual(tour.emitted.slice(3), [['action', { id: 'choose:draft_only' }]]);
+  tour.unmount();
+  assert.equal(tour.listeners.keydown, undefined, 'the listener leaves with the card');
+});
+
+test('the tour card is a labelled region that never blocks the screen behind it and follows the motion setting', () => {
+  const template = tourSource.slice(tourSource.indexOf('<template>'), tourSource.lastIndexOf('</template>'));
+  assert(/<section\s+ref="root"\s+class="toybaco-tour"[\s\S]*?role="region"\s+:aria-labelledby="titleId"\s+data-toybaco-tour\s*>/.test(template));
+  assert(template.includes('<h2 :id="titleId" class="toybaco-tour__title">{{ card.title }}</h2>'));
+  // When the step changes, the progress, the heading and the body are read together (「お店の準備 2 / 4 窓口をつなぐ …」).
+  // The card is not modal: it never takes the focus.
+  const live = template.slice(template.indexOf('<div aria-live="polite">'), template.indexOf('<div v-if="card.actions.length"'));
+  assert(live.includes('class="toybaco-tour__progress"') && live.includes(':id="titleId"') && live.includes('class="toybaco-tour__body"'));
+  assert.equal(template.split('aria-live').length - 1, 1);
+  assert(!/\.focus\(|autofocus/.test(tourSource), 'no focus is taken');
+  assert(/<p v-if="card\.progress" class="toybaco-tour__progress">\s*\{\{ card\.progress \}\}\s*<\/p>/.test(template));
+  assert(/<button\s+v-if="card\.phase !== 'complete'"\s+type="button"\s+class="toybaco-tour__later"\s+:disabled="busy"\s+@click="emit\('later'\)"\s*>\s*あとで続ける\s*<\/button>/
+    .test(template));
+  // The widget preview opens in a new tab without the dashboard behind it.
+  assert(/:target="action\.id === 'open:widget_preview' \? '_blank' : undefined"/.test(template));
+  assert(/:rel="\s*action\.id === 'open:widget_preview'\s*\? 'noopener noreferrer'\s*: undefined\s*"/.test(template));
+  const style = tourSource.slice(tourSource.indexOf('<style scoped>'));
+  // A fixed card that takes clicks only on itself (no backdrop), above the spotlight's dim (z-index 10000).
+  const card = style.match(/\n\.toybaco-tour \{([^}]*)\}/)?.[1];
+  for (const rule of ['position: fixed;', 'z-index: 10001;', 'pointer-events: auto;', 'animation: toybaco-tour-in 160ms ease-out;'])
+    assert(card?.includes(rule), rule);
+  for (const [, ms] of style.matchAll(/(\d+)ms/g)) assert(Number(ms) <= 200, `${ms}ms`);
+  assert(/@media \(prefers-reduced-motion: reduce\) \{\s*\.toybaco-tour \{\s*animation: none;\s*\}\s*\}/.test(style));
+  // Under 640px wide the card is a sheet at the bottom of the screen, wherever the target is.
+  const sheet = style.slice(style.indexOf('@media (max-width: 639px) {'), style.indexOf('@media (prefers-reduced-motion'));
+  for (const rule of ['left: 0 !important;', 'right: 0;', 'top: auto !important;', 'bottom: 0;', 'width: auto;'])
+    assert(sheet.includes(rule), rule);
+  // Colours are brand tokens with light and dark values (the brand injector test checks every token sheet).
+  assert(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(style));
+  const brand = readFileSync(new URL('../overlay/app/public/toybaco-brand.css', import.meta.url), 'utf8');
+  for (const [, token] of style.matchAll(/var\((--toybaco-[a-z-]+)\)/g))
+    assert(brand.match(new RegExp(`\\n\\s+${token}: `, 'g'))?.length >= 3, `${token}: light, dark and the OS dark`);
+  assert.equal(brand.match(/\n\s+--toybaco-spotlight-dim: /g)?.length, 3, 'the strong dim has light, dark and the OS dark values');
+});
+
+test('the guide screen asks for the AI reply of the guided window and reads its state from the server', async () => {
+  const decide = block(`<template v-else-if="state?.phase === 'decide'">`);
+  assert(decide.includes('<h1>この窓口の AI返信を決める</h1>'));
+  assert(/<p v-if="decideLine" class="summary" data-toybaco-decide-line>\s*\{\{ decideLine\.text \}\}\s*<\/p>/.test(decide));
+  assert(/<a\s+v-if="state\.facts\?\.confirmed && autoReplyPath"\s+class="choice-link"\s+:href="autoReplyPath"\s+data-toybaco-decide="auto"/.test(decide));
+  assert(/<button\s+v-else-if="!state\.facts\?\.confirmed"\s+type="button"\s+data-toybaco-decide="facts"\s+@click="openFacts"/.test(decide));
+  assert(/data-toybaco-decide="draft_only"\s+:disabled="busy"\s+@click="updateGrowthGuide\(\{ ai_reply_choice: 'draft_only' \}\)"/.test(decide));
+  assert(/<template v-if="state\.administrator">[\s\S]*<\/template>\s*<p v-else>AI返信の使い方は、店舗の管理者が決めます。<\/p>/.test(decide));
+  assert(decide.includes('data-toybaco-guide-skip="decide"') && decide.includes(`@click="skipStep('decide')"`));
+  assert(!/>\s*下書き\s*</.test(decide), 'no choice named「下書き」');
+  // Administrators: the page reads the AI readiness on the decide step, as on the completion screen.
+  const body = { ...readinessBody({ managed_auto_path: managedPath }), inboxes: [{ id: 4, status: 'draft', reason: '', quota_used: false }] };
+  const run = startScript(connectState({ phase: 'decide', inbox_id: 4, facts: { confirmed: true }, inboxes: [{ id: 4, provider: 'web_widget' }] }),
+    (value) => value, undefined, readinessAnswer(body));
+  await settle();
+  assert.equal(run.requests.length, 1);
+  assert.deepEqual(plain(run.page.decideLine.value), { text: 'この窓口：AI返信 下書き', reason: '' });
+  assert.equal(run.page.autoReplyPath.value, managedPath);
+  assert.equal(run.page.stepNumber.value, '4 / 4');
+  // Staff see the note only and the page asks nothing.
+  const staff = startScript(connectState({ phase: 'decide', inbox_id: 4, administrator: false }), (value) => value, undefined, readinessAnswer(body));
+  await settle();
+  assert.deepEqual(staff.requests, []);
+  assert.equal(staff.page.decideLine.value, null);
+});
+
+test('the sidebar links and the channel list carry the tour targets', () => {
+  const sidebar = readFileSync(new URL('../overlay/app/app/javascript/dashboard/components-next/sidebar/Sidebar.vue', import.meta.url), 'utf8');
+  assert(/to: accountScopedRoute\('settings_inbox_list'\),\n\s+\/\/[^\n]*\n\s+'data-toybaco-guide-action': 'sidebar\.inboxes',\n/.test(sidebar));
+  assert(/label: '店舗情報',\n\s+icon: 'i-lucide-store',\n\s+to: accountScopedRoute\('toybaco_store_facts_settings'\),\n\s+\/\/[^\n]*\n\s+'data-toybaco-guide-action': 'sidebar\.store_facts',\n/
+    .test(sidebar));
+  const channels = readFileSync(new URL('../overlay/app/app/javascript/dashboard/routes/dashboard/settings/inbox/ChannelList.vue', import.meta.url), 'utf8');
+  assert(/:data-toybaco-guide-action="\s*\['website', 'line', 'email', 'instagram'\]\.includes\(channel\.key\)\s*\? `channel\.\$\{channel\.key\}`\s*: undefined\s*"/
+    .test(channels));
+  assert.equal(channels.split('toybaco').length - 1, 1, 'the upstream screen with the one attribute');
+});
+
+// Astra(2026-10-07): on the conversation screen (1800×872) a 360×220 card placed with nothing to avoid sat at (193, 483),
+// over the reply toolbar. The card keeps clear of the reply area's controls (toolbar, editor, send button), the header,
+// the sidebar heading and every target; the empty middle of the toolbar row may stay under it.
+test('next to the reply editor the card keeps clear of the reply toolbar and the send button', async () => {
+  const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  const editor = rect(193, 719, 1582, 96);
+  // The mode switch (返信 / プライベートメモ) on the left and the AI and size buttons on the right of the toolbar row.
+  const toolbar = [rect(201, 675, 236, 36), rect(1700, 677, 64, 32)];
+  const send = rect(1680, 822, 88, 36);
+  const nodes = [
+    { matches: ['[data-toybaco-guide-reply="public"] [contenteditable="true"]', '[data-toybaco-guide-reply] [contenteditable="true"]'],
+      rect: editor },
+    ...toolbar.map((box) => ({ matches: ['[data-toybaco-guide-reply] button'], rect: box })),
+    { matches: ['[data-toybaco-guide-action="reply.send"]', '[data-toybaco-guide-reply] button'], rect: send },
+    { matches: ['header'], rect: rect(177, 0, 1623, 64) },
+    { matches: ['[data-toybaco-sidebar-header]'], rect: rect(0, 0, 177, 64) },
+  ];
+  const place = async (page) => {
+    const run = guideScript({ initial: tourState('reply', { inbox_id: 3, conversation_id: 9 }), routeName: 'inbox_conversation',
+      params: { conversation_id: '9' }, present: ['reply.editor', 'reply.send'], width: 1800, height: 872, nodes: page,
+      position: guidePosition });
+    run.page.tourRef.value = { root: { getBoundingClientRect: () => rect(0, 0, 360, 220) } };
+    await run.mount();
+    assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'reply.editor', dim: 'strong' }]);
+    return plain(run.page.tourPlacement.value);
+  };
+  const crosses = (card, box) => card.left < box.right + 4 && card.left + 360 > box.left - 4
+    && card.top < box.bottom + 4 && card.top + 220 > box.top - 4;
+  // Nothing but the editor to avoid: the former place over the mode switch.
+  const before = await place(nodes.slice(0, 1));
+  assert.deepEqual(before, { left: 193, top: 483 });
+  assert(crosses(before, toolbar[0]));
+  const placed = await place(nodes);
+  assert.deepEqual(placed, { left: 804, top: 483 });
+  for (const box of [...toolbar, send, editor]) assert(!crosses(placed, box), JSON.stringify(box));
+  assert(growthGuide.includes("    control => `[data-toybaco-guide-reply] ${control}`\n  ),\n  'header',\n  '[data-toybaco-sidebar-header]',\n].join(', ');"));
+});
+
+test('on the conversation screen the reply step keeps the card at the top, away from the reply box at the bottom', () => {
+  const atTop = (phase, params) => guideScript({ initial: tourState(phase, { inbox_id: 3, conversation_id: 9 }),
+    routeName: 'inbox_conversation', params }).page.tourAtTop.value;
+  assert.equal(atTop('reply', { conversation_id: '9' }), true);
+  assert.equal(atTop('reply', { conversation_id: '8' }), true, 'another conversation has the reply box too');
+  assert.equal(atTop('reply', {}), false, 'a screen without a conversation');
+  for (const phase of ['receive', 'decide', 'connect']) assert.equal(atTop(phase, { conversation_id: '9' }), false, phase);
+  assert(/:class="\{\s*placed: Boolean\(props\.placement\),\s*'toybaco-tour--top': props\.top,\s*\}"/.test(tourSource));
+  const style = tourSource.slice(tourSource.indexOf('<style scoped>'));
+  // Wide screens: only when the card could not be placed next to its target.
+  assert(/\n\.toybaco-tour\.toybaco-tour--top:not\(\.placed\) \{\n  top: calc\(env\(safe-area-inset-top, 0px\) \+ 6rem\);\n  bottom: auto;\n\}/
+    .test(style));
+  // Under 640px wide: the sheet goes under the conversation heading instead of the bottom of the screen.
+  const sheet = style.slice(style.indexOf('@media (max-width: 639px) {'), style.indexOf('@media (prefers-reduced-motion'));
+  const top = sheet.indexOf('  .toybaco-tour.toybaco-tour--top {');
+  assert(top > sheet.indexOf('top: auto !important;'), 'after the bottom sheet, so it wins');
+  assert(/ {2}\.toybaco-tour\.toybaco-tour--top \{\n {4}top: calc\(env\(safe-area-inset-top, 0px\) \+ 6rem\) !important;\n {4}bottom: auto;\n {4}max-height: 40vh;\n {4}overflow-y: auto;/
+    .test(sheet));
+});
+
+// Grok(2026-10-07): a read that started before a save must not bring back the state the save replaced. A save moves the
+// guide to a new generation (epoch) and stops the read on the way; an answer from an older generation is dropped.
+test('a guide read that started before a save never overwrites what the save returned', async () => {
+  const states = { GET: { account_id: 15, phase: 'facts' }, PUT: { account_id: 15, phase: 'connect' } };
+  for (const order of [[1, 0], [0, 0]]) {
+    const run = guideComposable((url, options) => guideResponse(200, states[options.method || 'GET']));
+    run.api.selectGrowthGuideAccount(15);
+    run.api.refreshGrowthGuide();
+    const saved = run.api.updateGrowthGuide({ skipped: ['facts'] });
+    assert.deepEqual(run.requests.map(({ method }) => method), ['GET', 'PUT']);
+    // The save answers first and the late read after it, or the read answers first while the save is on the way.
+    for (const index of order) await run.answer(index);
+    assert.equal((await saved).phase, 'connect');
+    assert.equal(run.api.growthGuideState.value.phase, 'connect', JSON.stringify(order));
+  }
+  // While a save is on the way no read starts (the 5-second read and the screen's own reads wait for it).
+  const busy = guideComposable(() => guideResponse(200, states.PUT));
+  busy.api.selectGrowthGuideAccount(15);
+  const pending = busy.api.updateGrowthGuide({ dismissed: true });
+  busy.api.refreshGrowthGuide();
+  assert.equal(busy.requests.length, 1);
+  await busy.answer();
+  await pending;
+});
+
+test('a close that could not be saved gives the card back, and「あとで続ける」waits while the card is saving', async () => {
+  for (const id of [null, 'close']) {
+    const run = guideScript({ initial: tourState(id ? 'complete' : 'connect'), respond: () => undefined });
+    await run.mount();
+    if (id) await run.page.onTourAction({ id });
+    else await run.page.later();
+    assert.deepEqual(run.sent, [{ dismissed: true }]);
+    assert.equal(run.page.tourVisible.value, true, `${id || 'later'}: the card stays when the close was not saved`);
+  }
+  const saved = guideScript({ initial: tourState('connect') });
+  await saved.page.later();
+  assert.equal(saved.page.tourVisible.value, false);
+  // The button is disabled while the card saves (and Escape does nothing then: ToybacoTour).
+  assert(/class="toybaco-tour__later"\s+:disabled="busy"/.test(tourSource));
+});
+
+test('another store never shows the previous store’s AI reply, and a closed card comes back in the new store', async () => {
+  const answers = [];
+  const run = guideScript({ initial: tourState('decide', { inbox_id: 4 }), readiness: () => new Promise((resolve) => answers.push(resolve)) });
+  const answer = (body) => answers.shift()({ status: 200, ok: true, redirected: false, json: async () => body });
+  await run.mount();
+  answer({ inboxes: [{ id: 4, status: 'auto', reason: '', quota_used: false }], managed_auto_path: managedPath });
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 自動']);
+  await run.page.later();
+  assert.equal(run.page.tourVisible.value, false);
+  // A read for this store is on the way (the 5-second read) when the store changes.
+  run.intervals[0].callback();
+  run.account.value = 2;
+  run.state.value = { ...tourState('decide', { inbox_id: 4 }), account_id: 2 };
+  // The previous store's line is gone at once, before the new store's readiness answers.
+  assert.deepEqual(plain(run.page.tourCard.value.body), []);
+  run.flush();
+  assert.equal(run.page.tourVisible.value, true, 'a card closed for later in one store is not closed in the next');
+  assert.equal(run.requests.at(-1).url, '/toybaco/ai_readiness?account_id=2');
+  // The previous store's answer arrives late and is dropped; the new store's answer is shown.
+  answer({ inboxes: [{ id: 4, status: 'off', reason: '', quota_used: false }] });
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), []);
+  answer({ inboxes: [{ id: 4, status: 'draft', reason: '', quota_used: false }] });
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 下書き']);
+});
+
+test('the decide card keeps its line fresh and says so when the AI reply could not be read', async () => {
+  const replies = [];
+  const run = guideScript({ initial: tourState('decide', { inbox_id: 4 }), readiness: () => new Promise((resolve, reject) => replies.push({ resolve, reject })) });
+  const ok = (body) => replies.shift().resolve({ status: 200, ok: true, redirected: false, json: async () => body });
+  const row = (status) => ({ inboxes: [{ id: 4, status, reason: '', quota_used: false }], managed_auto_path: managedPath });
+  await run.mount();
+  ok(row('off'));
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 オフ']);
+  // Every 5 seconds on the decide step, and back on the tab, the readiness is read again; the line stays while it reads.
+  const before = run.requests.length;
+  run.intervals[0].callback();
+  assert.equal(run.requests.length, before + 1);
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 オフ'], 'no blank line while reading again');
+  ok(row('auto'));
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['この窓口：AI返信 自動']);
+  run.listeners.visibilitychange();
+  assert.equal(run.requests.length, before + 2);
+  // A read that fails says so (the next read tries again): no answer, a refused answer, a redirect, an empty answer.
+  replies.shift().reject(new TypeError('Failed to fetch'));
+  await settle();
+  assert.deepEqual(plain(run.page.tourCard.value.body), ['AI返信の状態を読み込めませんでした。']);
+  for (const response of [{ status: 503, ok: false, redirected: false, json: async () => ({}) },
+    { status: 200, ok: true, redirected: true, json: async () => row('auto') },
+    { status: 200, ok: true, redirected: false, json: async () => null }]) {
+    run.intervals[0].callback();
+    replies.shift().resolve(response);
+    await settle();
+    assert.deepEqual(plain(run.page.tourCard.value.body), ['AI返信の状態を読み込めませんでした。'], JSON.stringify(response));
+  }
+  // Other steps never read it.
+  run.state.value = { ...run.state.value, phase: 'reply' };
+  run.flush();
+  const after = run.requests.length;
+  run.intervals[0].callback();
+  run.listeners.visibilitychange();
+  assert.equal(run.requests.length, after);
+});
+
+test('the light leaves at once when the card goes or the guide screen opens, and the guided window id is read as text', async () => {
+  const run = guideScript({ initial: tourState('connect'), present: ['sidebar.inboxes'] });
+  await run.mount();
+  assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'sidebar.inboxes', dim: 'strong' }]);
+  // Opening the guide screen: the light is gone before the next frame scans the screen.
+  run.route.name = 'toybaco_growth_start';
+  run.flush();
+  assert.deepEqual(run.calls.at(-1), ['hide']);
+  run.route.name = 'home';
+  await run.settleScreen();
+  assert.deepEqual(run.calls.at(-1), ['spotlight', { actionId: 'sidebar.inboxes', dim: 'strong' }]);
+  // The server's inbox id and the listed id are compared as text.
+  const { growthTourCard: card } = tourHelpers();
+  const receive = plain(card(tourState('receive', { inbox_id: '3', inboxes: [{ id: 3, provider: 'line', label: '店 · LINE公式' }] }), null, 1));
+  assert.deepEqual(receive.body.slice(0, 2), ['ご自身のLINEから、この公式アカウントにメッセージを送ってください。', '店 · LINE公式']);
 });

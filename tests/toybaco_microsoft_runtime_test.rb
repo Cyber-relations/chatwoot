@@ -397,6 +397,9 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
       assert_equal 'reply', guide.read['phase']
       message.update!(source_id: nil, content_attributes: {})
       Send.new(message).perform
+      # 段 1a: 返信の段のあとは、この窓口の AI返信を決める段(decide)。返信案だけにすると完了する。
+      assert_equal 'decide', guide.read['phase']
+      guide.update!('ai_reply_choice' => 'draft_only')
       assert_equal 'complete', guide.read['phase']
       assert_equal message.inbox_id, guide.read['inbox_id']
     end

@@ -250,6 +250,7 @@ class ChatwootBrandInjectorTest < Minitest::Test
     public/brand-assets/toybaco-help.css
     app/javascript/dashboard/routes/dashboard/onboarding/ToybacoStart.vue
     app/javascript/dashboard/components/widgets/ToybacoGrowthGuide.vue
+    app/javascript/dashboard/components/widgets/ToybacoTour.vue
   ].freeze
   COLOR_LITERAL = /#\h{3,8}\b|rgba?\(|:\s*white\b|color-scheme:\s*light/i
   BRAND_ASSET_URL = %r{/(brand-assets/[\w.-]+\.(?:css|js|mjs)|toybaco-brand\.css|toybaco-superadmin\.css)(?:\?v=(\h{64}))?}

@@ -11,6 +11,9 @@ const SLOT = '[data-toybaco-guide-slot]';
 // dashboard sidebar heading, which holds the logo.
 const LANDMARKS = 'header, [data-toybaco-sidebar-header]';
 const WAITING = '対象の画面に戻ると案内を再開します。';
+// The first-run tour card (ToybacoTour) carries the words and the buttons; the guide
+// only lights the target then. soft uses --toybaco-dim, strong --toybaco-spotlight-dim.
+const SPOTLIGHT_DIMS = ['soft', 'strong'];
 
 export function guidePosition(target, panel, viewport, occupied = []) {
   const left = viewport.left || 0;
@@ -201,7 +204,9 @@ export class PointerGuide {
       this.doc,
       'keydown',
       (event) => {
-        if (event.key === 'Escape' && this.step) this.dismiss();
+        // The tour card handles Escape itself while the guide only lights a target.
+        if (event.key === 'Escape' && this.step && !this.step.spotlight)
+          this.dismiss();
       },
       true
     );
@@ -276,7 +281,20 @@ export class PointerGuide {
     this.detachDescription();
     this.step = { actionId, text };
     this.suppressed = false;
+    this.root.removeAttribute('data-spotlight');
     this.text.textContent = text;
+    this.root.hidden = false;
+    this.schedule();
+  }
+
+  // Light the target only: the outline and the dim, without a prompt or a pointer.
+  spotlight({ actionId, dim = 'soft' }) {
+    if (!SAFE_ID.test(actionId) || !SPOTLIGHT_DIMS.includes(dim))
+      throw new TypeError('invalid guide step');
+    this.detachDescription();
+    this.step = { actionId, spotlight: true };
+    this.suppressed = true;
+    this.root.setAttribute('data-spotlight', dim);
     this.root.hidden = false;
     this.schedule();
   }
@@ -308,6 +326,15 @@ export class PointerGuide {
 
   update() {
     if (!this.step) return;
+    if (this.step.spotlight) {
+      this.release();
+      this.panel.hidden = true;
+      const target = this.registry.find(this.step.actionId, this.doc);
+      const box = target?.getBoundingClientRect();
+      if (target && this.pointable(target, box, this.viewport())) this.point(box);
+      else this.unpoint();
+      return;
+    }
     // The page may have removed the place (another step); find the current one.
     if (this.slotElement && !this.slotElement.isConnected) this.release();
     const target = this.registry.find(this.step.actionId, this.doc);
@@ -544,6 +571,7 @@ export class PointerGuide {
     this.step = null;
     this.detachDescription();
     this.release();
+    this.root.removeAttribute('data-spotlight');
     this.root.hidden = true;
   }
 

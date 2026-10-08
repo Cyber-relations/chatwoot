@@ -71,9 +71,10 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     authenticated do
       update_preference({ purpose: 'inbox' })
       state = response.parsed_body
-      assert_equal ['connect', %w[purpose connect facts receive reply complete], 0], [*state.values_at('phase', 'steps'), state.dig('connections', 'count')]
-      assert_equal 'facts', skip('connect')['phase']
-      state = skip('connect', 'facts')
+      assert_equal ['facts', %w[purpose facts connect receive reply decide complete], 0],
+                   [*state.values_at('phase', 'steps'), state.dig('connections', 'count')]
+      assert_equal 'connect', skip('facts')['phase']
+      state = skip('facts', 'connect')
       assert_equal ['complete', false, %w[facts connect]], state.values_at('phase', 'replied', 'pending')
       refute Facts.new(@account.reload).read['confirmed']
       assert_equal 'facts', skip('connect')['phase']
@@ -124,13 +125,73 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       inbox = connect
       save_facts
       assert_equal 'receive', read_guide['phase']
-      assert_equal ['complete', false, inbox.id], skip('receive').values_at('phase', 'replied', 'inbox_id')
+      assert_equal ['decide', false, inbox.id], skip('receive').values_at('phase', 'replied', 'inbox_id')
+      assert_equal ['complete', false, inbox.id], skip('receive', 'decide').values_at('phase', 'replied', 'inbox_id')
       assert_equal 'receive', skip['phase']
       conversation = create(:conversation, account: @account, inbox: inbox)
       create(:message, account: @account, inbox: inbox, conversation: conversation,
                        message_type: :incoming, private: false, source_id: 'received-later@example.test')
       assert_equal 'reply', read_guide['phase']
-      assert_equal ['complete', false, conversation.display_id], skip('reply').values_at('phase', 'replied', 'conversation_id')
+      assert_equal ['decide', false, conversation.display_id], skip('reply').values_at('phase', 'replied', 'conversation_id')
+      assert_equal ['complete', false, conversation.display_id],
+                   skip('reply', 'decide').values_at('phase', 'replied', 'conversation_id')
+    end
+  end
+
+  # 段 decide(この窓口の AI返信を決める)は、返信案だけ・自動の記録、窓口の自動応答の登録、「あとで設定する」のどれかで済む。
+  def test_decide_step_is_done_by_a_choice_a_managed_auto_registration_or_leaving_it_for_later
+    authenticated do
+      update_preference({ purpose: 'inbox' })
+      inbox = connect
+      save_facts
+      assert_equal ['decide', inbox.id], skip('receive').values_at('phase', 'inbox_id')
+      update_preference({ ai_reply_choice: 'draft_only' })
+      assert_equal ['complete', 'draft_only'], [response.parsed_body['phase'], response.parsed_body.dig('preference', 'ai_reply_choice')]
+      update_preference({ ai_reply_choice: 'auto' })
+      assert_equal ['complete', 'auto'], [response.parsed_body['phase'], response.parsed_body.dig('preference', 'ai_reply_choice')]
+      @user.update!(custom_attributes: @user.custom_attributes.merge(
+        'toybaco_guides' => { @account.id.to_s => { 'version' => Toybaco::Growth::Onboarding::VERSION, 'purpose' => 'inbox',
+                                                    'skipped' => ['receive'] } }
+      ))
+      assert_equal 'decide', read_guide['phase']
+      registered = ->(**where) { where == { account_id: @account.id, inbox_id: inbox.id } }
+      Toybaco::GrowthAutoInstallation.stub(:exists?, registered) { assert_equal 'complete', read_guide['phase'] }
+      assert_equal 'decide', read_guide['phase']
+      assert_equal 'complete', skip('receive', 'decide')['phase']
+    end
+  end
+
+  # 選べるのは「自動で返す」(auto)と「まずは返信案だけ使う」(draft_only)だけ。ほかの値は 422 で保存しない。
+  def test_ai_reply_choice_accepts_only_auto_or_draft_only
+    authenticated do
+      ['draft', 'off', '', nil, 1, ['draft_only'], { draft_only: true }].each do |value|
+        update_preference({ purpose: 'inbox', ai_reply_choice: value })
+        assert_response :unprocessable_entity, value.inspect
+      end
+      assert_equal ['purpose', {}], read_guide.values_at('phase', 'preference')
+      update_preference({ purpose: 'inbox', ai_reply_choice: 'draft_only' })
+      assert_response :success
+      assert_equal 'draft_only', response.parsed_body.dig('preference', 'ai_reply_choice')
+    end
+  end
+
+  # AI返信の使い方を決めるのは管理者だけ(店舗情報の保存と同じ 403)。「あとで設定する」は案内の記録なので、スタッフもできる。
+  def test_only_administrators_choose_the_ai_reply_and_anyone_can_leave_it_for_later
+    authenticated do
+      update_preference({ purpose: 'inbox' })
+      assert_response :success
+      @user.account_users.find_by!(account: @account).update!(role: :agent)
+      saved = read_guide['preference']
+      [{ ai_reply_choice: 'draft_only' }, { ai_reply_choice: 'auto' }, { ai_reply_choice: 'draft' },
+       { dismissed: true, ai_reply_choice: 'draft_only' }].each do |preference|
+        update_preference(preference)
+        assert_response :forbidden, preference.inspect
+      end
+      assert_equal saved, read_guide['preference'], 'nothing is saved'
+      assert_nil saved['ai_reply_choice']
+      update_preference({ skipped: ['decide'] })
+      assert_response :success
+      assert_equal ['decide'], read_guide.dig('preference', 'skipped')
     end
   end
 
@@ -164,8 +225,8 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       assert_equal %w[available preparing available connected preparing],
                    %w[gmail microsoft line web_widget instagram].map { |key| rows[key]['state'] }
       update_preference({ purpose: 'inbox' })
-      assert_equal ['connect', %w[facts connect]], response.parsed_body.values_at('phase', 'pending')
-      assert_equal 'facts', skip('connect')['phase']
+      assert_equal ['facts', %w[facts connect]], response.parsed_body.values_at('phase', 'pending')
+      assert_equal 'connect', skip('facts')['phase']
       @account.account_users.find_by!(user: @user).update!(role: :agent)
       forwarding.inbox_members.where(user: @user).delete_all
       staff = read_guide['connections']
@@ -234,7 +295,8 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
                    %w[gmail microsoft line web_widget instagram].map { |key| rows[key]['state'] }
       update_preference({ purpose: 'inbox' })
       assert_equal ['facts', ['facts']], response.parsed_body.values_at('phase', 'pending')
-      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive').values_at('phase', 'pending')
+      assert_equal ['decide', ['facts']], skip('connect', 'facts', 'receive').values_at('phase', 'pending')
+      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive', 'decide').values_at('phase', 'pending')
     end
   end
 
@@ -256,9 +318,10 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     @user.account_users.find_by!(account: @account).update!(role: :agent)
     authenticated do
       update_preference({ purpose: 'inbox' })
-      assert_equal ['connect', %w[facts connect]], response.parsed_body.values_at('phase', 'pending')
+      assert_equal ['facts', %w[facts connect]], response.parsed_body.values_at('phase', 'pending')
       yield.inbox_members.where(user: @user).delete_all
-      assert_equal ['connect', ['facts'], []], read_guide.values_at('phase', 'pending', 'inboxes')
+      assert_equal ['facts', ['facts'], []], read_guide.values_at('phase', 'pending', 'inboxes')
+      assert_equal ['connect', ['facts'], []], skip('facts').values_at('phase', 'pending', 'inboxes')
       assert_equal ['complete', ['facts']], skip('connect', 'facts').values_at('phase', 'pending')
     end
   end
@@ -355,6 +418,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
 
   def test_client_flags_cannot_complete_a_connection_or_tour
     authenticated do
+      save_facts
       update_preference({ purpose: 'inbox', phase: 'complete', connected: true })
       assert_response :success
       assert_equal 'connect', response.parsed_body['phase']
@@ -381,8 +445,10 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
         'toybaco_gmail_send' => { 'state' => 'accepted', 'provider_id' => 'provider-guide', 'accepted_at' => Time.now.utc.iso8601 }
       })
       assert_equal 'accepted', message.reload.content_attributes.dig('toybaco_gmail_send', 'state')
-      assert_equal 'complete', read_guide['phase']
+      assert_equal 'decide', read_guide['phase']
       assert_equal conversation.display_id, response.parsed_body['conversation_id']
+      update_preference({ ai_reply_choice: 'draft_only' })
+      assert_equal ['complete', true], response.parsed_body.values_at('phase', 'replied')
     end
   end
 
@@ -513,7 +579,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       assert_equal 1, client.pushes.size
       assert reply.reload.delivered?
       assert_nil reply.source_id
-      assert_equal 'complete', read_guide['phase']
+      assert_equal 'decide', read_guide['phase']
       assert_equal incoming.conversation.display_id, read_guide['conversation_id']
     end
   end
@@ -587,6 +653,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       line = line_inbox
       foreign = line_inbox(create(:account))
       update_preference({ purpose: 'inbox' })
+      save_facts
       assert_equal 'connect', read_guide['phase']
       assert_equal [mail.id, line.id], read_guide['inboxes'].pluck('id')
       update_preference({ inbox_id: line.id })
@@ -660,7 +727,9 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
   def test_web_chat_alone_moves_the_guide_from_connection_to_completion
     authenticated do
       update_preference({ purpose: 'inbox' })
-      assert_equal ['connect', %w[facts connect], []], response.parsed_body.values_at('phase', 'pending', 'inboxes')
+      assert_equal ['facts', %w[facts connect], []], response.parsed_body.values_at('phase', 'pending', 'inboxes')
+      assert_equal ['connect', %w[facts connect], []], skip('facts').values_at('phase', 'pending', 'inboxes')
+      skip
       inbox = web_widget_inbox
       state = read_guide
       assert_equal ['facts', inbox.id, ['facts']], state.values_at('phase', 'inbox_id', 'pending')
@@ -674,7 +743,10 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       reply = reply_from_dashboard(incoming)
       assert_equal [@user, 'sent'], [reply.sender, reply.status]
       state = read_guide
-      assert_equal ['complete', true, [], incoming.conversation.display_id], state.values_at('phase', 'replied', 'pending', 'conversation_id')
+      assert_equal ['decide', true, [], incoming.conversation.display_id], state.values_at('phase', 'replied', 'pending', 'conversation_id')
+      update_preference({ ai_reply_choice: 'draft_only' })
+      assert_equal ['complete', true, 'draft_only'], [*response.parsed_body.values_at('phase', 'replied'),
+                                                      response.parsed_body.dig('preference', 'ai_reply_choice')]
     end
   end
 
@@ -693,7 +765,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       outgoing_reply(incoming).update_columns(status: nil)
       assert_equal 'reply', read_guide['phase']
       outgoing_reply(incoming)
-      assert_equal ['complete', true], read_guide.values_at('phase', 'replied')
+      assert_equal ['decide', true], read_guide.values_at('phase', 'replied')
     end
   end
 
@@ -719,19 +791,19 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     authenticated do
       web_widget_inbox
       update_preference({ purpose: 'inbox' })
-      assert_equal ['complete', false, ['facts']], skip('facts', 'receive').values_at('phase', 'replied', 'pending')
-      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive').values_at('phase', 'pending')
+      assert_equal ['complete', false, ['facts']], skip('facts', 'receive', 'decide').values_at('phase', 'replied', 'pending')
+      assert_equal ['complete', ['facts']], skip('connect', 'facts', 'receive', 'decide').values_at('phase', 'pending')
     end
   end
 
   def test_web_chat_requires_current_inbox_membership_for_staff
     authenticated do
       inbox = web_widget_inbox
-      update_preference({ purpose: 'inbox' })
+      update_preference({ purpose: 'inbox', skipped: ['facts'] })
       @account.account_users.find_by!(user: @user).update!(role: 'agent')
       assert_equal ['connect', []], read_guide.values_at('phase', 'inboxes')
       member = inbox.inbox_members.create!(user: @user)
-      assert_equal ['facts', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
+      assert_equal ['receive', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
       member.destroy!
       assert_empty read_guide['inboxes']
     end
@@ -744,7 +816,7 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
   def test_instagram_alone_moves_the_guide_on_a_provider_message_and_a_reply
     authenticated do
       update_preference({ purpose: 'inbox' })
-      assert_equal 'connect', response.parsed_body['phase']
+      assert_equal 'facts', response.parsed_body['phase']
       inbox = instagram_inbox
       state = read_guide
       assert_equal ['facts', inbox.id, ['facts']], state.values_at('phase', 'inbox_id', 'pending')
@@ -763,19 +835,19 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       outgoing_reply(incoming, private_note: true)
       assert_equal 'reply', read_guide['phase']
       outgoing_reply(incoming)
-      assert_equal ['complete', true, []], read_guide.values_at('phase', 'replied', 'pending')
+      assert_equal ['decide', true, []], read_guide.values_at('phase', 'replied', 'pending')
     end
   end
 
   def test_instagram_needing_reauthorization_is_not_guided
     inbox = instagram_inbox
     authenticated do
-      update_preference({ purpose: 'inbox' })
-      assert_equal ['facts', [inbox.id]], [response.parsed_body['phase'], response.parsed_body['inboxes'].pluck('id')]
+      update_preference({ purpose: 'inbox', skipped: ['facts'] })
+      assert_equal ['receive', [inbox.id]], [response.parsed_body['phase'], response.parsed_body['inboxes'].pluck('id')]
       inbox.channel.prompt_reauthorization!
       assert_equal ['connect', [], %w[facts connect]], read_guide.values_at('phase', 'inboxes', 'pending')
       inbox.channel.reauthorized!
-      assert_equal ['facts', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
+      assert_equal ['receive', [inbox.id]], [read_guide['phase'], response.parsed_body['inboxes'].pluck('id')]
     end
   ensure
     inbox&.channel&.reauthorized!

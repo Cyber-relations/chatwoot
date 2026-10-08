@@ -16,10 +16,15 @@ import { useAccount } from 'dashboard/composables/useAccount';
 import {
   growthGuideState as state,
   growthGuideError,
+  growthGuideBusy,
+  growthTourCard,
+  growthTourProgress,
   refreshGrowthGuide,
   selectGrowthGuideAccount,
   updateGrowthGuide,
+  GROWTH_TOUR_REPLY_HINTS,
 } from 'dashboard/composables/toybacoGrowthGuide';
+import ToybacoTour from './ToybacoTour.vue';
 
 const { accountId, currentAccount } = useAccount();
 const route = useRoute();
@@ -36,13 +41,13 @@ const enabled = computed(
 );
 let registry;
 let guide;
+let guideModule;
 let observer;
 let scanFrame;
 let poll;
 let disposed = false;
 let lastStep;
 const targets = new Map();
-const launched = new Set();
 const selectors = {
   'purpose.inbox': '[data-toybaco-guide-action="purpose.inbox"]',
   'connection.google': '[data-toybaco-guide-action="connection.google"]',
@@ -60,6 +65,13 @@ const selectors = {
     '[data-toybaco-guide-reply="public"] [contenteditable="true"]',
   'reply.send': '[data-toybaco-guide-action="reply.send"]',
   'posting.open': '[data-toybaco-guide-action="posting.open"]',
+  // 段 1a のツアーの的: サイドバーの「店舗情報」「受信箱」と、窓口を追加する画面の媒体。
+  'sidebar.store_facts': '[data-toybaco-guide-action="sidebar.store_facts"]',
+  'sidebar.inboxes': '[data-toybaco-guide-action="sidebar.inboxes"]',
+  'channel.website': '[data-toybaco-guide-action="channel.website"]',
+  'channel.line': '[data-toybaco-guide-action="channel.line"]',
+  'channel.email': '[data-toybaco-guide-action="channel.email"]',
+  'channel.instagram': '[data-toybaco-guide-action="channel.instagram"]',
 };
 const setupSteps = {
   purpose: ['purpose.inbox', '最初に使いたい仕事を選んでください。'],
@@ -124,20 +136,240 @@ function wantedStep() {
     return null;
   if (inSetup.value && state.value.phase === 'connect') return connectionStep();
   if (inSetup.value) return setupSteps[state.value.phase] || null;
-  if (
-    state.value.phase !== 'reply' ||
-    String(route.params.conversation_id) !==
-      String(state.value.conversation_id) ||
-    String(route.params.accountId) !== String(accountId.value)
+  // 案内の画面の外では、ツアーのカード(ToybacoTour)が文とボタンを持つ。ここでは文付きの案内を出さない。
+  return null;
+}
+
+// 段 1a: 本物の管理画面の上のカード。開いた画面がツアーの画面(toybaco_growth_start)のときと、サポートの「画面で案内」の
+// 間は出さない(どちらも文付きの案内を使う)。「あとで続ける」の後は上部の帯の「設定を続ける」で戻す。
+const replyHint = ref(null);
+// 段 decide の readiness は、読んだ店舗と組で持つ({ account, data }。data は応答の JSON、読めなかったときは false)。
+// カードは今の店舗の値だけを使う(別の店舗の窓口の状態を一瞬でも出さない)。
+const readiness = ref(null);
+const tourReadiness = computed(() =>
+  readiness.value?.account === String(accountId.value)
+    ? readiness.value.data
+    : null
+);
+const tourPlacement = ref(null);
+const tourRef = ref(null);
+// カードを的の横に置くときに覆わないもの: 返信欄のまわりの操作(ツールバー・送信ボタン・返信欄)、ページの見出しと
+// サイドバーの見出し。案内の的(光らせている的を含む)も覆わない(placeTour)。
+const TOUR_AVOIDS = [
+  ...['button', '[role="button"]', 'a[href]', '[contenteditable="true"]'].map(
+    control => `[data-toybaco-guide-reply] ${control}`
+  ),
+  'header',
+  '[data-toybaco-sidebar-header]',
+].join(', ');
+// 会話画面の返信の段は、返信欄と送信ボタンが画面の下にある。的の横に置けないとき(幅 640px 未満を含む)は、カードを
+// 画面の下ではなく上(会話の見出しの下)に出す。
+const tourAtTop = computed(
+  () => state.value?.phase === 'reply' && Boolean(route.params.conversation_id)
+);
+const tourCard = computed(() => {
+  const card = growthTourCard(
+    state.value,
+    tourReadiness.value,
+    accountId.value
+  );
+  if (!card || card.phase !== 'reply' || !replyHint.value) return card;
+  // 届いた会話の画面では、これまでの 3 段の案内(返信案・入力・送信)を本文に出し、その操作を光らせる。
+  return {
+    ...card,
+    body: [GROWTH_TOUR_REPLY_HINTS[replyHint.value]],
+    actions: card.actions.filter(action => action.id !== 'open:conversation'),
+    targets: [replyHint.value],
+  };
+});
+const tourVisible = computed(() =>
+  Boolean(
+    enabled.value &&
+    state.value &&
+    !inSetup.value &&
+    !paused.value &&
+    !state.value.preference.dismissed &&
+    tourCard.value
   )
-    return null;
-  if (registry.find('reply.ai_draft', document))
-    return ['reply.ai_draft', 'AIの返信案を返信欄で確認できます。'];
+);
+const bandProgress = computed(() => {
+  const progress = growthTourProgress(state.value);
+  return progress ? `${progress.index} / ${progress.total}` : '';
+});
+
+function onConversationOfStep() {
+  return (
+    state.value?.phase === 'reply' &&
+    String(route.params.conversation_id) ===
+      String(state.value.conversation_id) &&
+    String(route.params.accountId) === String(accountId.value)
+  );
+}
+
+function currentReplyHint() {
+  if (!onConversationOfStep()) return null;
+  if (registry.find('reply.ai_draft', document)) return 'reply.ai_draft';
   const editor = registry.find('reply.editor', document);
   if (!editor) return null;
   if (editor.textContent.trim() && registry.find('reply.send', document))
-    return ['reply.send', '宛先と内容を確認して送信してください。'];
-  return ['reply.editor', 'ここに返信を入力してください。'];
+    return 'reply.send';
+  return 'reply.editor';
+}
+
+function occupiedBoxes() {
+  const registered = [...targets.values()].flatMap(entries =>
+    entries.map(entry => entry.el)
+  );
+  return [...document.querySelectorAll(TOUR_AVOIDS), ...registered]
+    .map(element => element.getBoundingClientRect())
+    .filter(box => box.width > 0 && box.height > 0);
+}
+
+// カードはデスクトップでは光らせた的の近く(案内の配置の決まりをそのまま使う)、幅 640px 未満は画面下のシート。
+function placeTour(target) {
+  const card = tourRef.value?.root;
+  let next = null;
+  if (target && card && guideModule && window.innerWidth >= 640) {
+    const position = guideModule.guidePosition(
+      target.getBoundingClientRect(),
+      card.getBoundingClientRect(),
+      { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+      occupiedBoxes()
+    );
+    if (position)
+      next = { left: Math.round(position.left), top: Math.round(position.top) };
+  }
+  if (JSON.stringify(next) !== JSON.stringify(tourPlacement.value))
+    tourPlacement.value = next;
+}
+
+function showTour() {
+  const hint = currentReplyHint();
+  if (hint !== replyHint.value) replyHint.value = hint;
+  const spot = tourVisible.value
+    ? tourCard.value.targets.find(id => registry.find(id, document))
+    : null;
+  if (!spot) {
+    guide.hide();
+    lastStep = null;
+    placeTour(null);
+    return;
+  }
+  const key = `${accountId.value}:spotlight:${spot}`;
+  if (key !== lastStep) {
+    guide.spotlight({ actionId: spot, dim: 'strong' });
+    lastStep = key;
+  } else guide.schedule();
+  placeTour(registry.find(spot, document));
+}
+
+async function later() {
+  paused.value = true;
+  // 閉じたことを保存できなかったら、カードを消したままにしない(帯も出ず、案内が見えなくなるため)。
+  if (!(await updateGrowthGuide({ dismissed: true })) && !supportStep)
+    paused.value = false;
+}
+
+async function onTourAction(action) {
+  const id = accountId.value;
+  const [kind, value] = action.id.split(':');
+  const preference = state.value?.preference || {};
+  if (kind === 'purpose') await updateGrowthGuide({ purpose: value });
+  else if (kind === 'skip')
+    await updateGrowthGuide({
+      skipped: [...new Set([...(preference.skipped || []), value])],
+    });
+  else if (kind === 'choose')
+    await updateGrowthGuide({ ai_reply_choice: value });
+  else if (kind === 'proceed') {
+    const [first] = state.value?.inboxes || [];
+    if (first)
+      await updateGrowthGuide({ inbox_id: state.value.inbox_id ?? first.id });
+  } else if (kind === 'close') await later();
+  else if (action.id === 'open:facts')
+    router.push({
+      name: 'toybaco_store_facts_settings',
+      params: { accountId: id },
+    });
+  else if (action.id === 'open:inbox_new')
+    router.push({ name: 'settings_inbox_new', params: { accountId: id } });
+  else if (action.id === 'open:conversation' && state.value?.conversation_id)
+    router.push({
+      name: 'conversation_through_inbox',
+      params: {
+        accountId: id,
+        inbox_id: state.value.inbox_id,
+        conversation_id: state.value.conversation_id,
+      },
+    });
+  else if (action.id === 'open:posting') {
+    // 投稿画面を開いたら投稿の段は済み(「あとで設定する」ではない)。ToybacoStart の openPosting と同じ。
+    const opened = preference.opened || [];
+    if (!opened.includes('posting'))
+      await updateGrowthGuide({ opened: [...opened, 'posting'] });
+    router.push({
+      name: 'home',
+      params: { accountId: id },
+      hash: '#/toybaco/posting',
+    });
+  }
+}
+
+// 段 decide の本文(この窓口の AI返信の状態)と「自動で返す」の行き先は readiness のサーバー値。段に入ったとき・画面に戻ったとき・
+// 5 秒ごとの読み直しのたびに読む(古い応答は readinessEpoch で捨てる)。決めるのは管理者なので、読むのも管理者のときだけ
+// (スタッフのカードは注記だけ。案内の画面と同じ)。
+let readinessEpoch = 0;
+async function readReadiness() {
+  readinessEpoch += 1;
+  const epoch = readinessEpoch;
+  const account = String(accountId.value || '');
+  // 別の店舗の値は、読み直しを待たずに捨てる。同じ店舗の読み直しの間は前の値を出したままにする(本文をちらつかせない)。
+  if (readiness.value?.account !== account) readiness.value = null;
+  if (
+    !enabled.value ||
+    state.value?.phase !== 'decide' ||
+    !state.value.administrator ||
+    !account
+  ) {
+    readiness.value = null;
+    return;
+  }
+  let data = false;
+  try {
+    const response = await fetch(
+      `/toybaco/ai_readiness?account_id=${encodeURIComponent(account)}`,
+      {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      }
+    );
+    if (response.ok && !response.redirected)
+      data = (await response.json()) || false;
+  } catch {
+    data = false;
+  }
+  if (epoch === readinessEpoch) readiness.value = { account, data };
+}
+// 店舗情報の確認で「自動で返す」の行き先が出るので、確認が変わったときも読み直す。
+watch(
+  [
+    () => String(accountId.value),
+    () => state.value?.phase,
+    () => Boolean(state.value?.administrator),
+    () => Boolean(state.value?.facts?.confirmed),
+  ],
+  readReadiness,
+  { immediate: true }
+);
+function returned(event) {
+  if (!event.persisted || !enabled.value) return;
+  refreshGrowthGuide();
+  readReadiness();
+}
+// ほかのタブ・画面から戻ったときも、段 decide の本文を読み直す。
+function shown() {
+  if (document.visibilityState === 'visible' && enabled.value) readReadiness();
 }
 
 function scan() {
@@ -177,7 +409,12 @@ function scan() {
   if (supportStep && !available.includes(supportStep.articleId))
     supportStep = null;
   const step = wantedStep();
-  if (!step || !registry.find(step[0], document)) {
+  if (!step) {
+    showTour();
+    return;
+  }
+  placeTour(null);
+  if (!registry.find(step[0], document)) {
     guide.hide();
     lastStep = null;
     return;
@@ -235,15 +472,11 @@ watch(
   }
 );
 
+// 上部の帯の「設定を続ける」: カードをもう一度出す(案内の画面へは移らない)。
 async function resume() {
   supportStep = null;
   paused.value = false;
   await updateGrowthGuide({ dismissed: false });
-  if (state.value)
-    router.push({
-      name: 'toybaco_growth_start',
-      params: { accountId: accountId.value },
-    });
 }
 
 function refreshSupportAvailability() {
@@ -300,31 +533,25 @@ watch(
   },
   { immediate: true }
 );
-watch([state, () => route.fullPath], async () => {
-  if (
-    enabled.value &&
-    state.value?.phase === 'purpose' &&
-    !state.value.preference.dismissed &&
-    !paused.value &&
-    route.name === 'home' &&
-    route.query.toybaco_skip_tour !== '1' &&
-    !launched.has(String(accountId.value))
-  ) {
-    launched.add(String(accountId.value));
-    await router.replace({
-      name: 'toybaco_growth_start',
-      params: { accountId: accountId.value },
-    });
+// 案内の画面へは自動で移らない(段 1a)。画面と状態が変わるたびに、今の画面の的とカードを置き直す。案内の画面に出入りした
+// とき・カードが出たり消えたりしたときは、前の画面の光と案内を scan を待たずに消す。
+watch(
+  [state, () => route.fullPath, tourVisible, inSetup],
+  async ([, , visible, setup], previous = []) => {
+    if (visible !== previous[2] || setup !== previous[3]) {
+      guide?.hide();
+      lastStep = null;
+    }
+    await nextTick();
+    scheduleScan();
   }
-  await nextTick();
-  scheduleScan();
-});
+);
 
 onMounted(async () => {
   let module;
   try {
     const moduleUrl = new URL(
-      '/brand-assets/toybaco-pointer-guide.mjs?v=8ba90f163fe5131724b90fb16fd010600b20081b121085f3dc2d174ef8dafa91',
+      '/brand-assets/toybaco-pointer-guide.mjs?v=494de6f79aa954895c93d34de99a5704a047e0211d3c7bfee39f1270572ca39f',
       window.location.origin
     ).href;
     module = await import(/* @vite-ignore */ moduleUrl);
@@ -334,10 +561,11 @@ onMounted(async () => {
     return;
   }
   if (disposed) return;
+  guideModule = module;
   if (!document.querySelector('link[data-toybaco-guide-style]')) {
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = '/brand-assets/toybaco-pointer-guide.css?v=b67c0edd3eb908f6ef0b49716d5151270de54c4a452fcc6efeff1a321b9941d2';
+    style.href = '/brand-assets/toybaco-pointer-guide.css?v=8df6f6a144be8e1ff75bc3d043fdee0e12779abfd1d21a28e3ad7eb790d1a424';
     style.dataset.toybacoGuideStyle = 'true';
     document.head.append(style);
   }
@@ -354,7 +582,12 @@ onMounted(async () => {
     },
   });
   observer = new MutationObserver(records => {
-    if (records.some(record => !record.target.closest?.('.toybaco-guide')))
+    if (
+      records.some(
+        record =>
+          !record.target.closest?.('.toybaco-guide, [data-toybaco-tour]')
+      )
+    )
       scheduleScan();
   });
   observer.observe(document.body, {
@@ -380,13 +613,22 @@ onMounted(async () => {
     'toybaco:support-guide-refresh',
     refreshSupportAvailability
   );
+  window.addEventListener('resize', scheduleScan);
+  document.addEventListener('scroll', scheduleScan, true);
+  // 窓口の自動応答の画面(Rails の単独ページ)から「戻る」で復元されたときは、段と AI返信の状態を読み直す。
+  window.addEventListener('pageshow', returned);
+  document.addEventListener('visibilitychange', shown);
   poll = window.setInterval(() => {
     if (
-      document.visibilityState === 'visible' &&
-      enabled.value &&
-      ['connect', 'receive', 'reply', 'facts'].includes(state.value?.phase)
+      document.visibilityState !== 'visible' ||
+      !enabled.value ||
+      !['connect', 'receive', 'reply', 'facts', 'decide'].includes(
+        state.value?.phase
+      )
     )
-      refreshGrowthGuide();
+      return;
+    refreshGrowthGuide();
+    if (state.value.phase === 'decide') readReadiness();
   }, 5000);
   scheduleScan();
 });
@@ -410,20 +652,38 @@ onBeforeUnmount(() => {
     'toybaco:support-guide-refresh',
     refreshSupportAvailability
   );
+  window.removeEventListener('resize', scheduleScan);
+  document.removeEventListener('scroll', scheduleScan, true);
+  window.removeEventListener('pageshow', returned);
+  document.removeEventListener('visibilitychange', shown);
+  readinessEpoch += 1;
   selectGrowthGuideAccount(null);
 });
 </script>
 
 <template>
   <aside
-    v-if="enabled && state && !inSetup && state.phase !== 'complete'"
+    v-if="
+      enabled && state && !inSetup && state.phase !== 'complete' && !tourVisible
+    "
     class="toybaco-guide-entry"
   >
-    <span>お店の準備を、画面で案内します。</span>
+    <span v-if="!bandProgress">お店の準備を、画面で案内します。</span>
+    <span v-else>お店の準備の続きを案内します({{ bandProgress }})</span>
     <button type="button" @click="resume">
       {{ state.preference.purpose ? '設定を続ける' : '使い始める' }}
     </button>
   </aside>
+  <ToybacoTour
+    v-if="tourVisible"
+    ref="tourRef"
+    :card="tourCard"
+    :placement="tourPlacement"
+    :top="tourAtTop"
+    :busy="growthGuideBusy"
+    @action="onTourAction"
+    @later="later"
+  />
 </template>
 
 <style scoped>

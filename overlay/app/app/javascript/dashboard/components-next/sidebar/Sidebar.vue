@@ -1032,6 +1032,8 @@ const menuItems = computed(() => {
             'settings_inboxes_add_agents',
           ],
           to: accountScopedRoute('settings_inbox_list'),
+          // 初回ツアー(段 1a)の「窓口をつなぐ」で光らせる的。
+          'data-toybaco-guide-action': 'sidebar.inboxes',
         },
         {
           name: 'Settings Templates',
@@ -1130,6 +1132,8 @@ const menuItems = computed(() => {
                 label: '店舗情報',
                 icon: 'i-lucide-store',
                 to: accountScopedRoute('toybaco_store_facts_settings'),
+                // 初回ツアー(段 1a)の「AIにお店を教える」で光らせる的。
+                'data-toybaco-guide-action': 'sidebar.store_facts',
               },
             ]
           : []),

@@ -21,6 +21,10 @@
   box-shadow: 0 0 0 9999px var(--toybaco-dim);
   pointer-events: none;
 }
+/* While the tour card speaks, the guide only lights the target; strong dims the page more. */
+.toybaco-guide[data-spotlight='strong'] .toybaco-guide__outline {
+  box-shadow: 0 0 0 9999px var(--toybaco-spotlight-dim);
+}
 .toybaco-guide__pointer {
   position: fixed;
   left: 0;

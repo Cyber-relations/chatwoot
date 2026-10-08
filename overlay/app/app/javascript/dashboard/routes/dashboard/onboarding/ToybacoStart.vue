@@ -11,6 +11,9 @@ import {
   refreshGrowthGuide,
   updateGrowthGuide,
   saveGrowthFacts,
+  growthAutoReplyPath,
+  growthDecideLine,
+  growthTourProgress,
 } from "dashboard/composables/toybacoGrowthGuide";
 
 const { accountId } = useAccount();
@@ -88,6 +91,8 @@ const nextSteps = {
   line: "LINEのメッセージに、受信箱から返信する",
   gmail: "届いたメールに、受信箱から返信する",
   microsoft: "届いたメールに、受信箱から返信する",
+  // IMAP・転送のメールの受信箱(Gmail・Microsoft の API 以外の Channel::Email)。
+  email: "届いたメールに、受信箱から返信する",
 };
 const nextInbox = computed(
   () => selectedInbox.value || state.value?.inboxes?.[0],
@@ -109,14 +114,15 @@ const snippetLink = computed(() =>
 // 完了画面の「次にやること」の 2 行目: AI返信の準備(窓口の自動応答の画面)への導線。bot の割当はここではしない。
 // 会話画面の AI パネル(toybaco-post-entry.js)と同じく、/toybaco/ai_readiness の managed_auto_path がこの店舗の画面を
 // 指すときだけ出す(登録できる店舗か登録済みの店舗にだけ付く)。この API は所属メンバーなら誰にでも path を返すが、
-// 窓口の自動応答の画面は管理者しか開けないので、管理者に限る。読むのは管理者に完了画面を出したときに 1 回だけで、
+// 窓口の自動応答の画面は管理者しか開けないので、管理者に限る。読むのは管理者に完了画面(と、この窓口の AI返信を決める段。
+// 窓口の状態の 1 行と「自動で返す」の行き先に使う)を出したときに 1 回だけで、
 // 画面を離れたら捨てる。完了画面から店舗情報を入力して戻ったときは 1 回読み直す(確認済みの店舗情報で準備できるように
 // なるため)。読めなかったときは行を出さない(再試行しない。console にも出さない)。
 const aiReadiness = ref(null);
 let aiReadinessEpoch = 0;
 const aiReadinessAccount = () =>
   !showFacts.value &&
-  state.value?.phase === "complete" &&
+  ["complete", "decide"].includes(state.value?.phase) &&
   state.value.administrator
     ? String(accountId.value)
     : "";
@@ -201,11 +207,18 @@ function keepsGuidePlace(phase) {
   if (phase === "facts") return Boolean(current.administrator);
   return true;
 }
+// 段の番号は、管理画面の上のカードと同じ数え方(問い合わせは 店舗情報・窓口・試す・AI返信を決める の 4 段)。
 const stepNumber = computed(() => {
-  const steps = state.value?.steps || [];
-  const index = steps.indexOf(state.value?.phase);
-  return index < 0 ? "" : `${index + 1} / ${steps.length}`;
+  const progress = growthTourProgress(state.value);
+  return progress ? `${progress.index} / ${progress.total}` : "";
 });
+// 段 decide: 案内した窓口の AI返信の状態(サーバーの値のまま)と、「自動で返す」の行き先(窓口の自動応答の登録ページ)。
+const decideLine = computed(() =>
+  growthDecideLine(aiReadiness.value, state.value?.inbox_id),
+);
+const autoReplyPath = computed(() =>
+  growthAutoReplyPath(aiReadiness.value, accountId.value),
+);
 const channelStates = {
   ready: "設定済み",
   connected: "接続済み",
@@ -398,7 +411,6 @@ async function openPosting() {
         :to="{
           name: 'home',
           params: { accountId },
-          query: { toybaco_skip_tour: '1' },
         }"
         @click="updateGrowthGuide({ dismissed: true })"
         >あとで続ける</RouterLink
@@ -845,6 +857,55 @@ async function openPosting() {
           </button>
         </div>
       </template>
+      <template v-else-if="state?.phase === 'decide'">
+        <h1>この窓口の AI返信を決める</h1>
+        <p v-if="decideLine" class="summary" data-toybaco-decide-line>
+          {{ decideLine.text }}
+        </p>
+        <p v-if="decideLine?.reason">{{ decideLine.reason }}</p>
+        <template v-if="state.administrator">
+          <div class="choices">
+            <a
+              v-if="state.facts?.confirmed && autoReplyPath"
+              class="choice-link"
+              :href="autoReplyPath"
+              data-toybaco-decide="auto"
+              ><strong>自動で返す</strong
+              ><span>窓口の自動応答を登録します</span></a
+            >
+            <button
+              v-else-if="!state.facts?.confirmed"
+              type="button"
+              data-toybaco-decide="facts"
+              @click="openFacts"
+            >
+              <strong>店舗情報を開く</strong
+              ><span>自動で返すには、先に店舗情報の確認が要ります</span>
+            </button>
+            <button
+              type="button"
+              data-toybaco-decide="draft_only"
+              :disabled="busy"
+              @click="updateGrowthGuide({ ai_reply_choice: 'draft_only' })"
+            >
+              <strong>まずは返信案だけ使う</strong
+              ><span>AIの返信案を確認してから、人が送ります</span>
+            </button>
+          </div>
+        </template>
+        <p v-else>AI返信の使い方は、店舗の管理者が決めます。</p>
+        <div class="later">
+          <button
+            type="button"
+            class="text-button"
+            data-toybaco-guide-skip="decide"
+            :disabled="busy"
+            @click="skipStep('decide')"
+          >
+            あとで設定する
+          </button>
+        </div>
+      </template>
       <template v-else-if="state?.phase === 'complete'">
         <template v-if="state.replied">
           <h1>最初の返信を送信しました</h1>
@@ -940,7 +1001,6 @@ async function openPosting() {
           :to="{
             name: 'home',
             params: { accountId },
-            query: { toybaco_skip_tour: '1' },
           }"
           >ホームへ</RouterLink
         >
@@ -1041,6 +1101,7 @@ async function openPosting() {
   gap: 12px;
 }
 .choices button,
+.choices .choice-link,
 .unavailable {
   display: flex;
   flex-direction: column;
@@ -1054,9 +1115,13 @@ async function openPosting() {
   text-align: left;
   color: var(--toybaco-heading);
 }
-.choices button:hover:not(:disabled) {
+.choices button:hover:not(:disabled),
+.choices .choice-link:hover {
   border-color: var(--toybaco-heading);
   background: var(--toybaco-wash);
+}
+.choices .choice-link {
+  text-decoration: none;
 }
 .choices span {
   font-size: 13px;

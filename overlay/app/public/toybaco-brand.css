@@ -542,6 +542,8 @@ select:focus {
   --toybaco-notice-wash: #fff0ed;
   --toybaco-backdrop: rgba(22, 48, 73, 0.42);
   --toybaco-dim: rgba(31, 58, 95, 0.05);
+  /* 初回ツアーのスポットライトの暗幕(カードが文を持ち、案内は的を光らせるだけの段)。 */
+  --toybaco-spotlight-dim: rgba(22, 48, 73, 0.32);
   --toybaco-shadow: rgba(31, 58, 95, 0.08);
   /* 副ボタンのホバー。wash との差をライト・ダークとも 1.2:1 前後にそろえる。 */
   --toybaco-wash-strong: #d3deec;
@@ -567,6 +569,7 @@ select:focus {
   --toybaco-notice-wash: #3a2422;
   --toybaco-backdrop: rgba(0, 0, 0, 0.6);
   --toybaco-dim: rgba(0, 0, 0, 0.3);
+  --toybaco-spotlight-dim: rgba(0, 0, 0, 0.5);
   --toybaco-shadow: rgba(0, 0, 0, 0.45);
   --toybaco-wash-strong: #2a3d5c;
 }
@@ -602,6 +605,7 @@ select:focus {
     --toybaco-notice-wash: #3a2422;
     --toybaco-backdrop: rgba(0, 0, 0, 0.6);
     --toybaco-dim: rgba(0, 0, 0, 0.3);
+    --toybaco-spotlight-dim: rgba(0, 0, 0, 0.5);
     --toybaco-shadow: rgba(0, 0, 0, 0.45);
     --toybaco-wash-strong: #2a3d5c;
   }

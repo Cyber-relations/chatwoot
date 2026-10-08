@@ -14,17 +14,19 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     class Onboarding
       VERSION = GrowthTerms::VERSION
       PREFERENCES = 'toybaco_guides'
-      # 各段は「あとで設定する」で先へ進める(接続が 0 件でも進める)。投稿から始める店舗は
-      # 店舗情報 → 投稿 → 接続の順にし、AI に必要な店舗情報へ接続を通らずに届くようにする。
+      # 各段は「あとで設定する」で先へ進める(接続が 0 件でも進める)。どちらの目的も店舗情報から始め、AI に必要な
+      # 店舗情報へ接続を通らずに届くようにする(2026-10-06 owner 裁定: AIにお店を教える → 窓口をつなぐ → 試す → AI返信を決める)。
       STEPS = {
-        'inbox' => %w[purpose connect facts receive reply complete],
+        'inbox' => %w[purpose facts connect receive reply decide complete],
         'posting' => %w[purpose facts posting connect complete]
       }.freeze
-      SKIPPABLE = %w[connect facts receive reply posting].freeze
+      SKIPPABLE = %w[connect facts receive reply decide posting].freeze
       # skipped は「あとで設定する」にした段、opened は画面を開いて済ませた段(投稿画面を開いた投稿の段)。
       # どちらも段を先へ進めるが、完了画面で再開を案内するのは「あとで」にした段だけ。
       STEP_LISTS = %w[skipped opened].freeze
-      PREFERENCE_KEYS = %w[purpose inbox_id dismissed skipped opened].freeze
+      PREFERENCE_KEYS = %w[purpose inbox_id dismissed skipped opened ai_reply_choice].freeze
+      # 段 decide で選んだ、案内した窓口の AI返信の使い方。「自動で返す」は窓口の自動応答の登録でも済む。
+      AI_REPLY_CHOICES = %w[auto draft_only].freeze
 
       def initialize(account, user)
         @account = account
@@ -103,6 +105,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def valid_values?(attributes)
         optional_value?(attributes, 'purpose', %w[inbox posting]) && optional_value?(attributes, 'dismissed', [true, false]) &&
+          optional_value?(attributes, 'ai_reply_choice', AI_REPLY_CHOICES) &&
           STEP_LISTS.all? { |key| !attributes.key?(key) || valid_steps?(attributes[key]) }
       end
 
@@ -146,8 +149,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def inquiry_progress(inbox)
-        return { 'phase' => 'connect' } unless inbox || skipped?('connect')
         return { 'phase' => 'facts', 'inbox_id' => inbox&.id }.compact unless facts_confirmed? || skipped?('facts')
+        return { 'phase' => 'connect' } unless inbox || skipped?('connect')
+        # 案内する窓口が無い(接続を「あとで」にした)ときは AI返信を決める窓口も無いので、decide を通らずに完了にする(pending に connect が残り、
+        # あとで窓口をつなぐと receive から decide へ進む)。
         return { 'phase' => 'complete', 'replied' => false } unless inbox
 
         inbox_progress(inbox)
@@ -164,7 +169,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def inbox_progress(inbox)
         incoming = guide_inboxes.first_incoming(inbox)
         unless incoming
-          return { 'phase' => 'complete', 'inbox_id' => inbox.id, 'replied' => false } if skipped?('receive')
+          return decision(inbox, 'inbox_id' => inbox.id, 'replied' => false) if skipped?('receive')
 
           return { 'phase' => 'receive', 'inbox_id' => inbox.id }
         end
@@ -173,7 +178,18 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         accepted = first_reply_accepted?(incoming, inbox)
         return state.merge('phase' => 'reply') unless accepted || skipped?('reply')
 
-        state.merge('phase' => 'complete', 'replied' => accepted)
+        decision(inbox, state.merge('replied' => accepted))
+      end
+
+      # 段 decide: 案内した窓口の AI返信の使い方を決める。済むのは、選んだ記録(返信案だけ・自動)、窓口の自動応答の登録、
+      # 「あとで設定する」のどれか。どれも無ければ decide の段にとどまる。
+      def decision(inbox, state)
+        state.merge('phase' => decided?(inbox) ? 'complete' : 'decide')
+      end
+
+      def decided?(inbox)
+        AI_REPLY_CHOICES.include?(preference['ai_reply_choice']) || skipped?('decide') ||
+          Toybaco::GrowthAutoInstallation.exists?(account_id: @account.id, inbox_id: inbox.id)
       end
 
       def first_reply_accepted?(incoming, inbox)
