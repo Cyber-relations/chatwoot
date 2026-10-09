@@ -4,6 +4,7 @@ import {
   parseAPIErrorResponse,
 } from 'dashboard/store/utils/api';
 import wootAPI from './apiClient';
+import { isToybacoJapaneseMessage, toybacoPasswordServerMessage } from 'shared/helpers/toybacoPasswordRules';
 import {
   getLoginRedirectURL,
   getCredentialsFromEmail,
@@ -102,6 +103,28 @@ export const verifyPasswordToken = async ({ confirmationToken }) => {
   }
 };
 
+// auth/password の失敗理由を日本語だけで返す。サーバー文言は仮名漢字あり・英字 3 連続なしのときだけ通し(英語の混在を出さない)、
+// 確認用の重複文を落とす。
+const TOYBACO_PASSWORD_LINK_EXPIRED =
+  'このリンクは無効か、すでに使用済みです。ログイン画面の「パスワードを忘れた場合」から新しいメールを受け取ってください。';
+const TOYBACO_PASSWORD_GENERIC = '操作を完了できませんでした。もう一度お試しください。';
+const toybacoPasswordError = error => {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  const message = typeof data?.message === 'string' ? data.message : '';
+  if (status === 422 && message === 'Invalid token') {
+    const expired = new Error(TOYBACO_PASSWORD_LINK_EXPIRED);
+    expired.errorCode = 'invalid_token';
+    return expired;
+  }
+  if (status === 422 && isToybacoJapaneseMessage(message)) {
+    const invalid = new Error(toybacoPasswordServerMessage(message));
+    invalid.errorCode = 'invalid_password';
+    return invalid;
+  }
+  return new Error(TOYBACO_PASSWORD_GENERIC);
+};
+
 export const setNewPassword = async ({
   resetPasswordToken,
   password,
@@ -115,7 +138,7 @@ export const setNewPassword = async ({
     });
     setAuthCredentials(response);
   } catch (error) {
-    throw new Error('操作を完了できませんでした。もう一度お試しください。');
+    throw toybacoPasswordError(error);
   }
 };
 

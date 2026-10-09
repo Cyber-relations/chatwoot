@@ -28,12 +28,12 @@
       "LABEL": "パスワード",
       "PLACEHOLDER": "パスワード",
       "ERROR": "パスワードが短すぎます",
-      "IS_INVALID_PASSWORD": "パスワードは少なくとも1つの大文字、1つの小文字、1つの数字、1つの特殊文字を含む必要があります",
-      "REQUIREMENTS_LENGTH": "6 文字以上",
-      "REQUIREMENTS_UPPERCASE": "少なくとも 1 つの大文字",
-      "REQUIREMENTS_LOWERCASE": "少なくとも 1 つの小文字",
-      "REQUIREMENTS_NUMBER": "少なくとも 1 つの番号",
-      "REQUIREMENTS_SPECIAL": "少なくとも 1 つの特殊文字"
+      "IS_INVALID_PASSWORD": "パスワードには英大文字・英小文字・数字・記号をそれぞれ 1 文字以上含めてください",
+      "REQUIREMENTS_LENGTH": "6〜128 文字",
+      "REQUIREMENTS_UPPERCASE": "英大文字（A〜Z）を 1 文字以上",
+      "REQUIREMENTS_LOWERCASE": "英小文字（a〜z）を 1 文字以上",
+      "REQUIREMENTS_NUMBER": "数字（0〜9）を 1 文字以上",
+      "REQUIREMENTS_SPECIAL": "記号（! # $ % など）を 1 文字以上"
     },
     "CONFIRM_PASSWORD": {
       "LABEL": "パスワードの確認",

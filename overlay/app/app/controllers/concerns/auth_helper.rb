@@ -26,6 +26,9 @@ module AuthHelper
   end
 
   def inherited_toybaco_mfa_proof(user)
+    # Devise の passwords/confirmations は未認証の流れで、引き継ぐ端末の MFA 証拠は無い。DeviseController では DTA の current_user
+    # (set_user_by_token → resource_class(mapping))が DeviseController#resource_class(引数 0)と衝突して ArgumentError になる(#375 の回帰)。
+    return if is_a?(DeviseController)
     return unless current_user&.id == user.id && user.mfa_enabled?
 
     client = @token&.client
