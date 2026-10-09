@@ -480,6 +480,10 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     'grep -Fq "libexpat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile"',
     'test ! -e /usr/lib/libexpat.so.1.12.3',
     'Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}',
+    "grep -Fq \"'tiff=4.7.2-r0'\" \"$CONTROL_ROOT/Dockerfile\"",
+    'tiff-4.7.2-r0',
+    'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
+    'Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}',
     '"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n',
     'assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'',
     'test ! -e /app/spec',
@@ -719,6 +723,20 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
 }
 const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerignore'].map(path =>
   readFileSync(join(root, path), 'utf8'));
+function validateFinalTiff(dockerfile) {
+  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
+  for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",
+    'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
+    'call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}']) {
+    assert.ok(final.includes(required), 'final TIFF artifact contract missing: ' + required);
+  }
+}
+validateFinalTiff(buildInputs[0]);
+for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",
+  'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
+  'call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}']) {
+  assert.throws(() => validateFinalTiff(buildInputs[0].replace(required, 'obsolete TIFF contract')));
+}
 validateBackportBuild(...buildInputs, gate);
 let buildNegativeCount = 0;
 for (const [index, text] of [
