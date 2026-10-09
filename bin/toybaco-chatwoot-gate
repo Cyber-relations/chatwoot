@@ -234,6 +234,7 @@ control_file_list() {
     'tests/chatwoot-post-entry.test.mjs' \
     'scripts/verify-chatwoot-ee-view-twins.sh' \
     'tests/chatwoot-ee-view-twins.test.mjs' \
+    'tests/chatwoot-password-policy-ui.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
     'tests/chatwoot-logout-cleanup.test.mjs' \
@@ -1076,6 +1077,7 @@ verify_base_and_frame_contract() {
   node --test "$CONTROL_ROOT/tests/chatwoot-notification-login.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-ee-view-twins.test.mjs"
+  TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-password-policy-ui.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-sdk-artifacts.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \

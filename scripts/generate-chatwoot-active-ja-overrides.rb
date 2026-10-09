@@ -133,6 +133,8 @@ SOURCE_SHA256 = {
     '45fcf58ad970e6fe48f316dc0a638349558f7aa486bc972395d2b59ed33c1dbf',
   'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue' =>
     '825fd61c613ba1b232edc677bed3bd724725d20621b692a42cfe82035d58f831',
+  'app/javascript/dashboard/routes/dashboard/settings/profile/ChangePassword.vue' =>
+    '10baf0afd53775e1ee69e1a6b5211336f817b25d50f77a6c8d34bf13533881f6',
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
     'a3f3dbd89a7a470965276345da3b851d12b091c0ac0610d0c36debff78b05ce1',
   'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue' =>
@@ -305,6 +307,7 @@ MAJOR_ROUTE_ANCHORS = {
     required_overlays: [
       'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue',
       'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue',
+      'app/javascript/dashboard/routes/dashboard/settings/profile/ChangePassword.vue',
       'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue',
       'app/javascript/dashboard/routes/dashboard/settings/profile/MfaSetupWizard.vue',
       'public/assets/images/dashboard/profile/hot-key-enter.svg',
@@ -859,11 +862,111 @@ REPLACEMENTS = {
     replacement("  throwErrorMessage,\n", ''),
     replacement('const loginError = new Error(parseAPIErrorResponse(error));',
                 "const parsedError = parseAPIErrorResponse(error);\n    const loginError = new Error(\n      typeof parsedError === 'string' && /[ぁ-んァ-ヶ一-龠々ー]/.test(parsedError)\n        ? parsedError\n        : 'ログインできませんでした。入力内容を確認して、もう一度お試しください。'\n    );"),
-    replacement('throwErrorMessage(error);', "throw new Error('操作を完了できませんでした。もう一度お試しください。');", 3)
+    replacement('throwErrorMessage(error);', "throw new Error('操作を完了できませんでした。もう一度お試しください。');", 3),
+    # setNewPassword(auth/password)の catch だけは失敗理由を日本語で返す。後続の resetPassword まで含めて一意にする。
+    # 判定と重複文の除去は shared/helpers/toybacoPasswordRules.js(パスワード規則の唯一の定義)に置く。
+    replacement("import wootAPI from './apiClient';\n",
+                "import wootAPI from './apiClient';\nimport { isToybacoJapaneseMessage, toybacoPasswordServerMessage } from 'shared/helpers/toybacoPasswordRules';\n"),
+    replacement("    setAuthCredentials(response);\n  } catch (error) {\n    throw new Error('操作を完了できませんでした。もう一度お試しください。');\n  }\n};\n\nexport const resetPassword",
+                "    setAuthCredentials(response);\n  } catch (error) {\n    throw toybacoPasswordError(error);\n  }\n};\n\nexport const resetPassword"),
+    replacement('export const setNewPassword = async ({', <<~'JS'.chomp)
+      // auth/password の失敗理由を日本語だけで返す。サーバー文言は仮名漢字あり・英字 3 連続なしのときだけ通し(英語の混在を出さない)、
+      // 確認用の重複文を落とす。
+      const TOYBACO_PASSWORD_LINK_EXPIRED =
+        'このリンクは無効か、すでに使用済みです。ログイン画面の「パスワードを忘れた場合」から新しいメールを受け取ってください。';
+      const TOYBACO_PASSWORD_GENERIC = '操作を完了できませんでした。もう一度お試しください。';
+      const toybacoPasswordError = error => {
+        const status = error?.response?.status;
+        const data = error?.response?.data;
+        const message = typeof data?.message === 'string' ? data.message : '';
+        if (status === 422 && message === 'Invalid token') {
+          const expired = new Error(TOYBACO_PASSWORD_LINK_EXPIRED);
+          expired.errorCode = 'invalid_token';
+          return expired;
+        }
+        if (status === 422 && isToybacoJapaneseMessage(message)) {
+          const invalid = new Error(toybacoPasswordServerMessage(message));
+          invalid.errorCode = 'invalid_password';
+          return invalid;
+        }
+        return new Error(TOYBACO_PASSWORD_GENERIC);
+      };
+
+      export const setNewPassword = async ({
+    JS
   ],
+  # 要件(6〜128 文字、英大小・数字・記号各 1、半角の英数字と記号のみ)を入力欄の直下に出し、クライアント側でも同じ規則
+  # (shared/helpers/toybacoPasswordRules.js)で止める。
+  # auth.js の setNewPassword は日本語の Error だけを投げる(toybacoPasswordError)ので、error?.message をそのまま出す。
   'app/javascript/v3/views/auth/password/Edit.vue' => [
-    replacement("        .catch(error => {\n          this.showAlertMessage(\n            error?.message || this.$t('SET_NEW_PASSWORD.API.ERROR_MESSAGE')\n          );\n        });",
-                "        .catch(() => {\n          this.showAlertMessage(this.$t('SET_NEW_PASSWORD.API.ERROR_MESSAGE'));\n        });")
+    replacement("import { setNewPassword } from '../../../api/auth';",
+                "import { setNewPassword } from '../../../api/auth';\nimport { isToybacoPasswordValid, toybacoPasswordRequirements } from 'shared/helpers/toybacoPasswordRules';\nimport ToybacoPasswordRequirements from 'shared/components/ToybacoPasswordRequirements.vue';"),
+    replacement("    FormInput,\n    NextButton,\n  },", "    FormInput,\n    NextButton,\n    ToybacoPasswordRequirements,\n  },"),
+    replacement("      error: '',\n    };", "      error: '',\n      linkExpired: false,\n    };"),
+    replacement("  mounted() {\n", <<~'JS'.gsub(/^(?=.)/, '  ')),
+      computed: {
+        passwordErrorMessage() {
+          const password = this.v$.credentials.password;
+          if (!password.$error) return '';
+          const unmet = toybacoPasswordRequirements(this.credentials.password)
+            .filter(item => !item.met)
+            .map(item => item.id);
+          // IME の全角など使えない文字は、短すぎるより先に伝える(空入力の allowed 未達は「短すぎる」に任せる)。
+          if (this.credentials.password && unmet.includes('allowed')) {
+            return '半角の英数字と記号だけを使ってください';
+          }
+          if (password.required.$invalid || password.minLength.$invalid) {
+            return this.$t('SET_NEW_PASSWORD.PASSWORD.ERROR');
+          }
+          if (unmet.includes('length')) return '128 文字以内にしてください';
+          return this.$t('REGISTER.PASSWORD.IS_INVALID_PASSWORD');
+        },
+      },
+      mounted() {
+    JS
+    replacement("      password: {\n        required,\n        minLength: minLength(6),\n      },\n",
+                "      password: {\n        required,\n        minLength: minLength(6),\n        isToybacoPasswordValid,\n      },\n"),
+    # ボタンの disabled だけに頼らず、送信時にも検証する。
+    replacement("    submitForm() {\n      this.newPasswordAPI.showLoading = true;\n",
+                "    submitForm() {\n      this.v$.$touch();\n      if (this.v$.$invalid) return;\n      this.newPasswordAPI.showLoading = true;\n"),
+    replacement("        .catch(error => {\n          this.showAlertMessage(\n",
+                "        .catch(error => {\n          this.linkExpired = error?.errorCode === 'invalid_token';\n          this.showAlertMessage(\n"),
+    # 親の space-y-5 は wrapper に当て、要件リストを password 入力に寄せる(リストの mt-2 が生きる)。
+    replacement(<<~'VUE'.gsub(/^(?=.)/, '        '), <<~'VUE'.gsub(/^(?=.)/, '        ')),
+      <FormInput
+        v-model="credentials.password"
+        class="mt-3"
+        name="password"
+        type="password"
+        :has-error="v$.credentials.password.$error"
+        :error-message="$t('SET_NEW_PASSWORD.PASSWORD.ERROR')"
+        :placeholder="$t('SET_NEW_PASSWORD.PASSWORD.PLACEHOLDER')"
+        @blur="v$.credentials.password.$touch"
+      />
+    VUE
+      <div>
+        <FormInput
+          v-model="credentials.password"
+          class="mt-3"
+          name="password"
+          type="password"
+          aria-describedby="toybaco-password-requirements"
+          :has-error="v$.credentials.password.$error"
+          :error-message="passwordErrorMessage"
+          :placeholder="$t('SET_NEW_PASSWORD.PASSWORD.PLACEHOLDER')"
+          @blur="v$.credentials.password.$touch"
+        />
+        <ToybacoPasswordRequirements :password="credentials.password" />
+      </div>
+    VUE
+    replacement("        <NextButton\n          lg\n          type=\"submit\"", <<~'VUE'.chomp.gsub(/^(?=.)/, '        '))
+      <p v-if="linkExpired" role="status" class="text-sm text-n-ruby-11">
+        このリンクは無効か、すでに使用済みです。<a href="/app/auth/reset/password" class="underline underline-offset-4">パスワード再設定メールを受け取る</a>
+      </p>
+      <NextButton
+        lg
+        type="submit"
+    VUE
   ],
   'app/javascript/v3/views/auth/reset/password/Index.vue' => [
     replacement("        .then(res => {\n          let successMessage = this.$t('RESET_PASSWORD.API.SUCCESS_MESSAGE');\n          if (res.data && res.data.message) {\n            successMessage = res.data.message;\n          }\n          this.showAlertMessage(successMessage);\n        })\n        .catch(error => {\n          let errorMessage = this.$t('RESET_PASSWORD.API.ERROR_MESSAGE');\n          if (error?.response?.data?.message) {\n            errorMessage = error.response.data.message;\n          }\n          this.showAlertMessage(errorMessage);\n        });",
@@ -871,7 +974,31 @@ REPLACEMENTS = {
   ],
   'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' => [
     replacement("  } catch (error) {\n    const errorMessage = error?.message || t('REGISTER.API.ERROR_MESSAGE');",
-                "  } catch {\n    const errorMessage = t('REGISTER.API.ERROR_MESSAGE');")
+                "  } catch {\n    const errorMessage = t('REGISTER.API.ERROR_MESSAGE');"),
+    # 新規登録も設定・変更画面と同じ規則(shared/helpers/toybacoPasswordRules.js)と inline の要件リストにする。
+    # 上流の PasswordRequirements(長さは 6 以上だけ)と isValidPassword だと、129 文字でも「達成」と出て送信でき、
+    # サーバー拒否後に汎用エラーになる(signup.json の「6〜128 文字」と矛盾する)。
+    replacement("import PasswordRequirements from './PasswordRequirements.vue';",
+                "import ToybacoPasswordRequirements from 'shared/components/ToybacoPasswordRequirements.vue';"),
+    replacement("import { isValidPassword } from 'shared/helpers/Validators';",
+                "import { isToybacoPasswordValid } from 'shared/helpers/toybacoPasswordRules';"),
+    replacement("      isValidPassword,\n", "      isToybacoPasswordValid,\n"),
+    replacement("          name=\"password\"\n", "          name=\"password\"\n          aria-describedby=\"toybaco-password-requirements\"\n"),
+    replacement(<<~'VUE'.gsub(/^(?=.)/, '        '), "        <ToybacoPasswordRequirements :password=\"credentials.password\" />\n")
+      <Transition
+        enter-active-class="transition duration-200 ease-out origin-left"
+        enter-from-class="opacity-0 scale-90 translate-x-1"
+        enter-to-class="opacity-100 scale-100 translate-x-0"
+        leave-active-class="transition duration-150 ease-in origin-left"
+        leave-from-class="opacity-100 scale-100 translate-x-0"
+        leave-to-class="opacity-0 scale-90 translate-x-1"
+      >
+        <PasswordRequirements
+          v-if="isPasswordFocused"
+          :password="credentials.password"
+        />
+      </Transition>
+    VUE
   ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/channels/Twitter.vue' => [
     replacement('label="Sign in with Twitter"', 'label="X（旧Twitter）で接続"')
@@ -883,6 +1010,85 @@ REPLACEMENTS = {
     replacement("channelWidgetColor: '#009CE0'", "channelWidgetColor: '#1F3A5F'"),
     replacement("      } catch (error) {\n        useAlert(\n          error.message ||\n            this.$t('INBOX_MGMT.ADD.WEBSITE_CHANNEL.API.ERROR_MESSAGE')\n        );",
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.ADD.WEBSITE_CHANNEL.API.ERROR_MESSAGE'));")
+  ],
+  # 自分のパスワード変更も、要件の表示・クライアント側検証・422 の日本語化を設定画面と揃える。
+  'app/javascript/dashboard/routes/dashboard/settings/profile/ChangePassword.vue' => [
+    replacement("import { parseAPIErrorResponse } from 'dashboard/store/utils/api';\n",
+                "import {\n  isToybacoJapaneseMessage,\n  isToybacoPasswordValid,\n  toybacoPasswordRequirements,\n  toybacoPasswordServerMessage,\n} from 'shared/helpers/toybacoPasswordRules';\nimport ToybacoPasswordRequirements from 'shared/components/ToybacoPasswordRequirements.vue';\n"),
+    replacement("  components: {\n    NextButton,\n  },", "  components: {\n    NextButton,\n    ToybacoPasswordRequirements,\n  },"),
+    replacement("    password: {\n      minLength: minLength(6),\n    },",
+                "    password: {\n      required,\n      minLength: minLength(6),\n      isToybacoPasswordValid,\n    },"),
+    replacement("  computed: {\n    isButtonDisabled() {", <<~'JS'.chomp.gsub(/^(?=.)/, '  ')),
+      computed: {
+        passwordErrorMessage() {
+          const password = this.v$.password;
+          if (!password.$error) return '';
+          const unmet = toybacoPasswordRequirements(this.password)
+            .filter(item => !item.met)
+            .map(item => item.id);
+          // IME の全角など使えない文字は、短すぎるより先に伝える(空入力の allowed 未達は「短すぎる」に任せる)。
+          if (this.password && unmet.includes('allowed')) {
+            return '半角の英数字と記号だけを使ってください';
+          }
+          if (password.required.$invalid || password.minLength.$invalid) {
+            return this.$t('PROFILE_SETTINGS.FORM.PASSWORD.ERROR');
+          }
+          if (unmet.includes('length')) return '128 文字以内にしてください';
+          return this.$t('REGISTER.PASSWORD.IS_INVALID_PASSWORD');
+        },
+        isButtonDisabled() {
+    JS
+    # 上流の !this.v$.passwordConfirmation.isEqPassword は vuelidate v2 ではルールオブジェクトで常に false(不一致でも押せる)。
+    replacement("        !this.v$.passwordConfirmation.isEqPassword\n      );",
+                "        this.v$.passwordConfirmation.$invalid ||\n        this.v$.password.$invalid\n      );"),
+    replacement("  methods: {\n    async changePassword() {", <<~'JS'.chomp.gsub(/^(?=.)/, '  ')),
+      methods: {
+        toybacoPasswordAlert(error) {
+          const data = error?.response?.data;
+          if (error?.response?.status === 422 && data?.error === 'Invalid current password') {
+            return '現在のパスワードが正しくありません。';
+          }
+          const message = typeof data?.message === 'string' ? data.message : '';
+          if (error?.response?.status === 422 && isToybacoJapaneseMessage(message)) {
+            return toybacoPasswordServerMessage(message);
+          }
+          return this.$t('RESET_PASSWORD.API.ERROR_MESSAGE');
+        },
+        async changePassword() {
+    JS
+    replacement("        alertMessage =\n          parseAPIErrorResponse(error) ||\n          this.$t('RESET_PASSWORD.API.ERROR_MESSAGE');",
+                "        alertMessage = this.toybacoPasswordAlert(error);"),
+    # 親の gap-4 は wrapper に当て、要件リストを新しいパスワードの入力に寄せる。
+    replacement(<<~'VUE'.gsub(/^(?=.)/, '      '), <<~'VUE'.gsub(/^(?=.)/, '      '))
+      <woot-input
+        v-model="password"
+        type="password"
+        :styles="inputStyles"
+        :class="{ error: v$.password.$error }"
+        :label="$t('PROFILE_SETTINGS.FORM.PASSWORD.LABEL')"
+        :placeholder="$t('PROFILE_SETTINGS.FORM.PASSWORD.PLACEHOLDER')"
+        :error="`${
+          v$.password.$error ? $t('PROFILE_SETTINGS.FORM.PASSWORD.ERROR') : ''
+        }`"
+        @input="v$.password.$touch"
+        @blur="v$.password.$touch"
+      />
+    VUE
+      <div>
+        <woot-input
+          v-model="password"
+          type="password"
+          :styles="inputStyles"
+          :class="{ error: v$.password.$error }"
+          :label="$t('PROFILE_SETTINGS.FORM.PASSWORD.LABEL')"
+          :placeholder="$t('PROFILE_SETTINGS.FORM.PASSWORD.PLACEHOLDER')"
+          :error="passwordErrorMessage"
+          @input="v$.password.$touch"
+          @blur="v$.password.$touch"
+        />
+        <ToybacoPasswordRequirements :password="password" />
+      </div>
+    VUE
   ],
   'app/javascript/dashboard/routes/dashboard/settings/profile/AudioAlertTone.vue' => [
     replacement("label: 'Ding'", "label: 'ディン'"),
@@ -1253,6 +1459,9 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/dashboard/routes/dashboard/settings/data/importSources.js' => ['File import'],
   'app/javascript/dashboard/components/auth/SessionLimitOverlay.vue' => ["parts.join(' on ')", 'MMMM d, yyyy', 'hh:mma'],
   'app/javascript/dashboard/routes/dashboard/settings/profile/ActiveSessions.vue' => ["parts.join(' on ')", 'formatDistanceToNow(parseISO(dateStr), { addSuffix: true })'],
+  # 422 の英語本文(Invalid current password / Validation failed…)をそのまま出す経路と、複雑さ検証の無い上流の検証ブロック。
+  'app/javascript/dashboard/routes/dashboard/settings/profile/ChangePassword.vue' =>
+    ['parseAPIErrorResponse', "password: {\n      minLength: minLength(6),\n    },"],
   'app/javascript/dashboard/routes/dashboard/settings/profile/Index.vue' =>
     [
       'Light themed image for',
@@ -1309,10 +1518,13 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/dashboard/routes/dashboard/settings/automation/operators.js' =>
     ["label: 'Equal to'", "label: 'Not equal to'", "label: 'Contains'", "label: 'Starts With'"],
   'app/javascript/v3/api/auth.js' => ['throwErrorMessage(error)'],
-  'app/javascript/v3/views/auth/password/Edit.vue' => ['error?.message'],
+  # auth.js の setNewPassword は日本語の Error だけを投げる契約(toybacoPasswordError)になったので、error?.message は
+  # 可視英語ではない。代わりに上流の検証ブロックが残る(複雑さ検証 isToybacoPasswordValid が入っていない)と abort させる。
+  'app/javascript/v3/views/auth/password/Edit.vue' => ["      password: {\n        required,\n        minLength: minLength(6),\n      },\n"],
   'app/javascript/v3/views/auth/reset/password/Index.vue' =>
     ['res.data.message', 'error.response.data.message'],
-  'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' => ['error?.message']
+  'app/javascript/v3/views/auth/signup/components/Signup/Form.vue' =>
+    ['error?.message', "from 'shared/helpers/Validators'", './PasswordRequirements.vue']
 }.freeze
 
 # Login recovery uses the actual route and the same public help as login.

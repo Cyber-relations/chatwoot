@@ -10,8 +10,8 @@ import { useAlert } from 'dashboard/composables';
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha';
 import FormInput from '../../../../../components/Form/Input.vue';
 import NextButton from 'dashboard/components-next/button/Button.vue';
-import PasswordRequirements from './PasswordRequirements.vue';
-import { isValidPassword } from 'shared/helpers/Validators';
+import ToybacoPasswordRequirements from 'shared/components/ToybacoPasswordRequirements.vue';
+import { isToybacoPasswordValid } from 'shared/helpers/toybacoPasswordRules';
 import GoogleOAuthButton from '../../../../../components/GoogleOauth/Button.vue';
 import { register } from '../../../../../api/auth';
 import * as CompanyEmailValidator from 'company-email-validator';
@@ -43,7 +43,7 @@ const rules = {
     },
     password: {
       required,
-      isValidPassword,
+      isToybacoPasswordValid,
       minLength: minLength(MIN_PASSWORD_LENGTH),
     },
   },
@@ -139,6 +139,7 @@ const onCaptchaError = () => {
           v-model="credentials.password"
           type="password"
           name="password"
+          aria-describedby="toybaco-password-requirements"
           :class="{ error: v$.credentials.password.$error }"
           :label="$t('LOGIN.PASSWORD.LABEL')"
           :placeholder="$t('SET_NEW_PASSWORD.PASSWORD.PLACEHOLDER')"
@@ -149,19 +150,7 @@ const onCaptchaError = () => {
             v$.credentials.password.$touch();
           "
         />
-        <Transition
-          enter-active-class="transition duration-200 ease-out origin-left"
-          enter-from-class="opacity-0 scale-90 translate-x-1"
-          enter-to-class="opacity-100 scale-100 translate-x-0"
-          leave-active-class="transition duration-150 ease-in origin-left"
-          leave-from-class="opacity-100 scale-100 translate-x-0"
-          leave-to-class="opacity-0 scale-90 translate-x-1"
-        >
-          <PasswordRequirements
-            v-if="isPasswordFocused"
-            :password="credentials.password"
-          />
-        </Transition>
+        <ToybacoPasswordRequirements :password="credentials.password" />
       </div>
       <VueHcaptcha
         v-if="globalConfig.hCaptchaSiteKey"
