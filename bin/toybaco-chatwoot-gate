@@ -484,6 +484,10 @@ assert_control_contract() {
     'production Dockerfileが旧libexpat実体を拒否しません'
   grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileがlibexpatの実ロードを検証しません'
+  grep -Fq "'tiff=4.7.2-r0'" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production DockerfileのTIFF修正版が固定されていません'
+  grep -Fq 'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production DockerfileがTIFFの実ロードを検証しません'
   for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
     scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
     ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
@@ -1563,6 +1567,8 @@ build_and_smoke_production_image() {
       test -f /usr/lib/libexpat.so.1.12.4
       test ! -e /usr/lib/libexpat.so.1.12.3
       ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
+      test "$(apk info -v | grep "^tiff-")" = "tiff-4.7.2-r0"
+      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}"
       for package in openssl libcrypto3 libssl3; do
         test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"
       done

@@ -107,11 +107,15 @@ COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
 # Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1 and CVE-2026-75804 /
 # CVE-2026-84782 in 3.3.7-r2 (the publisher's ECR scan gate, 2026-10-02). Upgrade the final
 # filesystem and APK inventory together, including both linked libraries.
-RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' \
+# Alpine v3.21 tiff 4.7.2-r0 fixes CVE-2026-4775. Upgrade the final
+# runtime library and its APK inventory, then verify the actually loaded ABI.
+RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' 'tiff=4.7.2-r0' \
     && for package in openssl libcrypto3 libssl3; do \
       test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"; \
     done \
-    && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)'
+    && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)' \
+    && test "$(apk info -v | grep '^tiff-')" = 'tiff-4.7.2-r0' \
+    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}'
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
     && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libopenjp2.so.2.5.2 \
     && test ! -e /usr/local/lib/node_modules/npm \
