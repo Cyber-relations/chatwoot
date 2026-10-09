@@ -147,3 +147,6 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
     && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
 RUN node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js
+# Inspect the public trust artifact after every final filesystem write.
+# Enabling each client's certificate verification is a separate change.
+RUN ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'
