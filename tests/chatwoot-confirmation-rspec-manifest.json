@@ -26,6 +26,7 @@
   ],
   "example_count": 4,
   "examples_sha256": "eb99169b867e4fe2dd05b2aec6e4adad6a75a4fb77c64c05830998d73dd03a53",
+  "spec_inventory": "subset",
   "spec_files": [
     "spec/models/user_toybaco_confirmation_expiry_spec.rb"
   ]

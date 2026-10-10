@@ -256,6 +256,7 @@ control_file_list() {
     'tests/chatwoot_agent_seat_limit_test.rb' \
     'tests/chatwoot_agent_login_test.rb' \
     'tests/chatwoot_postgres_health_test.rb' \
+    'tests/verify_chatwoot_rspec_result_test.rb' \
     'docs/staging-agent-login.md' \
     'tests/chatwoot-http-smoke.rb' \
     'tests/chatwoot-migrations-v4.16.2-to-v4.18.0.json' \
@@ -577,6 +578,8 @@ assert_control_contract() {
   ruby "$ROOT/tests/chatwoot_agent_login_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_postgres_health_test.rb"
   ruby "$ROOT/tests/chatwoot_postgres_health_test.rb"
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_rspec_result_test.rb"
+  ruby "$ROOT/tests/verify_chatwoot_rspec_result_test.rb"
 }
 
 git_source_fingerprint() {
