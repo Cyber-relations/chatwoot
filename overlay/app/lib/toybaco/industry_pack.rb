@@ -10,10 +10,33 @@ module Toybaco
   class IndustryPack
     PACKS_DIR = 'toybaco-packs'
     INDUSTRY_KEY = 'toybaco_industry'
+    # 店舗情報の画面の「よく聞かれること」。業種の無い店舗には、この汎用の 5 件を出す(field は店舗情報の 7 項目のどれか)。
+    DEFAULT_AI_QUESTIONS = [
+      { 'question' => '営業時間と定休日を教えてください', 'field' => 'hours' },
+      { 'question' => 'お店の場所はどこですか', 'field' => 'address' },
+      { 'question' => '料金やメニューを教えてください', 'field' => 'services' },
+      { 'question' => '予約はどうすればできますか', 'field' => 'booking' },
+      { 'question' => 'キャンセルはいつまでできますか', 'field' => 'cancellation' }
+    ].freeze
 
     class << self
       def known_industries
         Dir.glob(Rails.root.join(PACKS_DIR, '*.yaml')).map { |p| File.basename(p, '.yaml') }.sort
+      end
+
+      # 店舗情報の画面で使う、業種の選択肢(id と表示名)と業種ごとの「よく聞かれること」(ai_questions)。
+      # 読むだけで、店舗には何も書き込まない(定型文・ラベルなどの適用は apply)。
+      def choices
+        catalog.map { |id, pack| { 'id' => id, 'label' => pack['label'] } }
+      end
+
+      def known?(industry)
+        industry.is_a?(String) && catalog.key?(industry)
+      end
+
+      def ai_questions(industry)
+        questions = known?(industry) ? catalog.dig(industry, 'ai_questions') : nil
+        questions.is_a?(Array) ? questions : DEFAULT_AI_QUESTIONS
       end
 
       def load_pack(industry)
@@ -73,6 +96,16 @@ module Toybaco
       rescue StandardError => e
         Rails.logger.warn("[toybaco] industry out-of-office skipped: #{e.class}: #{e.message}")
         false
+      end
+
+      private
+
+      # パックは image に固定なので、一度読んだものを使い続ける(案内の状態は 5 秒ごとに読まれる)。
+      def catalog
+        @catalog ||= known_industries.filter_map do |id|
+          pack = load_pack(id)
+          [id, pack] if pack.is_a?(Hash) && pack['label'].is_a?(String)
+        end.to_h.freeze
       end
     end
   end

@@ -29,12 +29,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         input = claim!
         return unless input
 
-        prompt = DraftPrompt.build(facts: input.fetch('facts').fetch('fields'), messages: input.fetch('messages'), draft: input.fetch('draft'))
+        fields = input.fetch('facts').fetch('fields')
+        prompt = DraftPrompt.build(facts: fields, messages: input.fetch('messages'), draft: input.fetch('draft'))
         result = @model.generate(prompt)
-        raise DraftModel::Unavailable, 'invalid generated URL' unless DraftPrompt.urls_allowed?(result.fetch('content'),
-                                                                                                input.fetch('facts').fetch('fields'))
+        raise DraftModel::Unavailable, 'invalid generated URL' unless DraftPrompt.urls_allowed?(result.fetch('content'), fields)
 
-        DraftResult.new(@request).complete!(input, result)
+        # 返信案に添える「参照した店舗情報」: prompt に渡した店舗情報のうち、値のある項目のキー(値は残さない)。
+        DraftResult.new(@request).complete!(input, result, facts_fields: fields.select { |_key, value| value.present? }.keys)
       end
 
       def claim!

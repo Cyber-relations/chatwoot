@@ -90,3 +90,15 @@ post_templates:
       【◯に関する制度改正のお知らせ】
       ◯月◯日から、◯が変わります。一般的なご案内はこちらです。<URL>
       お客様ごとの影響は、担当者との面談でご案内します。
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 初回相談は無料ですか
+    field: services
+  - question: オンラインで相談できますか
+    field: services
+  - question: 相談の予約はどうすればいいですか
+    field: booking
+  - question: 土日や夜も相談できますか
+    field: hours
+  - question: 事務所の場所を教えてください
+    field: address

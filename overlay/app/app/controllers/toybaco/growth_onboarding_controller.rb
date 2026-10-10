@@ -26,6 +26,7 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
 
   def facts
     return head :forbidden unless @onboarding.administrator?
+    return choose_industry if params.key?(:industry)
     return head :unprocessable_entity unless params[:confirmed] == true
 
     fields = params.require(:fields).permit(*Toybaco::Growth::StoreFacts::LIMITS.keys).to_h
@@ -36,6 +37,16 @@ class Toybaco::GrowthOnboardingController < ActionController::Base # rubocop:dis
   end
 
   private
+
+  # 業種だけを保存する(パックの id か null)。店舗情報の fields・確認は変えず、業種パックの適用もしない。
+  def choose_industry
+    industry = params[:industry]
+    raise ArgumentError, 'industry only' if params.key?(:fields) || params.key?(:confirmed)
+    raise ArgumentError, 'invalid industry' unless industry.nil? || industry.is_a?(String)
+
+    Toybaco::Growth::StoreFacts.new(@account).choose_industry!(industry, user: @user)
+    render json: @onboarding.read
+  end
 
   # 段の一覧(skipped・opened)は配列だけを受け付ける。strong parameters が落とした値(配列以外)を、指定なしとして通さない。
   def step_lists_kept?(preference, attributes)

@@ -95,3 +95,15 @@ post_templates:
       掲載の許可をいただいた◯さんが、◯を達成しました。
       ※個人の事例で、成果には個人差があります。
       取り組みの様子はこちらからご覧いただけます: <URL>
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 体験授業はありますか
+    field: booking
+  - question: 月謝はいくらですか
+    field: services
+  - question: 授業の時間帯を教えてください
+    field: hours
+  - question: 欠席したときの振替はできますか
+    field: cancellation
+  - question: 教室の場所を教えてください
+    field: address

@@ -95,3 +95,15 @@ post_templates:
       【納車事例のご紹介】
       掲載の許可をいただいた◯様に◯を納車しました。
       お車の詳細はこちらからご覧いただけます: <URL>
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 車検の費用はいくらですか
+    field: services
+  - question: 代車はありますか
+    field: services
+  - question: 車検や点検の予約はどうすればいいですか
+    field: booking
+  - question: 営業時間と定休日を教えてください
+    field: hours
+  - question: 予約の変更や取り消しはできますか
+    field: cancellation

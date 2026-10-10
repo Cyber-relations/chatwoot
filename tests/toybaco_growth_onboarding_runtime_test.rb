@@ -60,6 +60,11 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     response.parsed_body
   end
 
+  def choose_industry(industry)
+    put '/toybaco/growth/facts', params: { account_id: @account.id, industry: industry },
+                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+  end
+
   def save_facts(fields = { name: 'テスト店舗', hours: '10時から19時' })
     put '/toybaco/growth/facts', params: { account_id: @account.id, confirmed: true, fields: fields },
                                  headers: { 'Origin' => 'http://www.example.com' }, as: :json
@@ -476,6 +481,75 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
       @user.account_users.find_by!(account: @account).update!(role: :agent)
       put '/toybaco/growth/facts', params: input, headers: { 'Origin' => 'http://www.example.com' }, as: :json
       assert_response :forbidden
+    end
+  end
+
+  # 段 1b-1: 店舗情報の画面の「AI はこう理解しています」は、保存した店舗情報の 7 項目のうち値のある項目(入力中の内容ではない)。
+  def test_understanding_counts_the_saved_store_facts
+    authenticated do
+      assert_equal({ 'filled' => ['name'], 'missing' => %w[hours address phone services booking cancellation], 'total' => 7 },
+                   read_guide.dig('facts', 'understanding'), 'the account name stands in before the first save')
+      save_facts({ name: 'テスト店舗', hours: '10時から19時', booking: '  ', cancellation: '前日まで無料' })
+      understanding = read_guide.dig('facts', 'understanding')
+      assert_equal [%w[name hours cancellation], %w[address phone services booking], 7], understanding.values_at('filled', 'missing', 'total')
+      # A value of spaces only (kept before the save trimmed values) is not an answer either.
+      saved = Toybaco::Entitlements.attributes(@account.reload)[Facts::KEY]
+      @account.update!(internal_attributes: @account.internal_attributes.merge(
+        Facts::KEY => saved.merge('fields' => saved['fields'].merge('phone' => "   \n", 'services' => '　'))
+      ))
+      assert_equal %w[address phone services booking], read_guide.dig('facts', 'understanding', 'missing')
+    end
+  end
+
+  # 業種は有料申込の業種(toybaco_industry)を優先し、無い店舗は管理者が店舗情報の画面で選ぶ(fields の外)。選んでも
+  # 店舗情報の fields・revision・確認は変わらず、業種パックも適用しない。「よく聞かれること」は業種のパック(無ければ汎用の 5 件)。
+  def test_industry_is_chosen_outside_the_store_facts_and_never_applies_the_pack
+    authenticated do
+      facts = read_guide['facts']
+      assert_equal [nil, false, Toybaco::IndustryPack::DEFAULT_AI_QUESTIONS], facts.values_at('industry', 'industry_fixed', 'questions')
+      assert_equal Toybaco::IndustryPack.known_industries, facts['industries'].pluck('id')
+      assert_equal '美容室・サロン', facts['industries'].find { |choice| choice['id'] == 'beauty' }['label']
+      saved = save_facts
+      choose_industry('beauty')
+      assert_response :success
+      facts = response.parsed_body['facts']
+      assert_equal ['beauty', false], facts.values_at('industry', 'industry_fixed')
+      assert_equal saved['facts'].slice('fields', 'revision', 'confirmed'), facts.slice('fields', 'revision', 'confirmed')
+      pack = Toybaco::IndustryPack.load_pack('beauty')['ai_questions']
+      assert_equal pack.map { |item| item.slice('question', 'field') }, facts['questions']
+      assert_equal 'beauty', Toybaco::Entitlements.attributes(@account.reload).dig(Facts::KEY, 'industry')
+      assert_nil @account.internal_attributes[Toybaco::IndustryPack::INDUSTRY_KEY], 'the pack is not applied'
+      assert_empty @account.canned_responses
+      assert_empty @account.labels
+      # Saving the store facts again keeps the chosen industry; the revision is made from the fields only.
+      save_facts
+      assert_equal ['beauty', saved['facts']['revision']], read_guide['facts'].values_at('industry', 'revision')
+      choose_industry(nil)
+      assert_response :success
+      assert_nil read_guide.dig('facts', 'industry')
+      assert_nil Toybaco::Entitlements.attributes(@account.reload)[Facts::KEY]['industry']
+    end
+  end
+
+  def test_only_a_known_industry_from_an_administrator_and_never_over_the_contract
+    authenticated do
+      ['unknown', '', 'BEAUTY', '../beauty', 1, ['beauty'], { id: 'beauty' }].each do |value|
+        choose_industry(value)
+        assert_response :unprocessable_entity, value.inspect
+      end
+      put '/toybaco/growth/facts', params: { account_id: @account.id, industry: 'beauty', confirmed: true, fields: { name: '店舗' } },
+                                   headers: { 'Origin' => 'http://www.example.com' }, as: :json
+      assert_response :unprocessable_entity
+      assert_nil read_guide.dig('facts', 'industry')
+      @account.reload.update!(internal_attributes: @account.internal_attributes.merge(Toybaco::IndustryPack::INDUSTRY_KEY => 'food'))
+      assert_equal ['food', true], read_guide['facts'].values_at('industry', 'industry_fixed')
+      choose_industry('beauty')
+      assert_response :unprocessable_entity
+      @account.reload.update!(internal_attributes: @account.internal_attributes.except(Toybaco::IndustryPack::INDUSTRY_KEY))
+      @user.account_users.find_by!(account: @account).update!(role: :agent)
+      choose_industry('beauty')
+      assert_response :forbidden
+      assert_nil read_guide.dig('facts', 'industry')
     end
   end
 

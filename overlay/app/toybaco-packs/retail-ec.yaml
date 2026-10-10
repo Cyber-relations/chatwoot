@@ -91,3 +91,15 @@ post_templates:
       ◯月◯日から◯月◯日まで、◯を実施します。
       対象・条件: ◯
       詳細はこちらです: <URL>
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 送料はいくらですか
+    field: services
+  - question: 返品や交換はできますか
+    field: cancellation
+  - question: 取り置きや予約注文はできますか
+    field: booking
+  - question: お店の場所を教えてください
+    field: address
+  - question: 問い合わせの受付時間は何時までですか
+    field: hours

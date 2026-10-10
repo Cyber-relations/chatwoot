@@ -207,6 +207,7 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start', readi
       refreshGrowthGuide() {},
       updateGrowthGuide: (preference) => answer({ preference }),
       saveGrowthFacts: (fields) => answer({ fields }),
+      saveGrowthIndustry: (industry) => answer({ industry }),
       // The tour's pure helpers (段 1a) are the composable's own.
       ...tourHelpers(),
     },
@@ -224,7 +225,7 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start', readi
   const page = runInNewContext(`(function (modules) {${body}
     return { factsSaved, showFacts, factsRequested, openFacts, saveFacts, updateGrowthGuide, keepsGuidePlace,
       connectionGroups, canProceed, proceed, widgetPreviewUrl, nextInbox, nextStep, snippetLink, aiStep, stepNumber,
-      decideLine, autoReplyPath };
+      decideLine, autoReplyPath, understanding, industryLabel, questionsFor, chooseIndustry };
   })`, { fetch, window })(modules);
   // The template shows「店舗情報を保存しました。」with exactly this condition.
   const notice = () => page.factsSaved.value && !page.showFacts.value;
@@ -936,7 +937,8 @@ function tourHelpers() {
     .replace("import { ref } from 'vue';", 'const ref = (value) => ({ value });')
     .replace(/^export /gm, '');
   return runInNewContext(`${source}
-    ({ growthTourCard, growthTourProgress, growthDecideLine, growthAutoReplyPath, GROWTH_TOUR_REPLY_HINTS });`);
+    ({ growthTourCard, growthTourProgress, growthDecideLine, growthAutoReplyPath, GROWTH_TOUR_REPLY_HINTS, growthUnderstanding,
+      growthFactQuestions, GROWTH_FACT_LABELS, GROWTH_FACT_ANSWERS });`);
 }
 const tourState = (phase, extra = {}) => ({
   phase, administrator: true, inboxes: [], facts: { confirmed: true }, pending: [],
@@ -1710,4 +1712,129 @@ test('the light leaves at once when the card goes or the guide screen opens, and
   const { growthTourCard: card } = tourHelpers();
   const receive = plain(card(tourState('receive', { inbox_id: '3', inboxes: [{ id: 3, provider: 'line', label: '店 · LINE公式' }] }), null, 1));
   assert.deepEqual(receive.body.slice(0, 2), ['ご自身のLINEから、この公式アカウントにメッセージを送ってください。', '店 · LINE公式']);
+});
+
+// 段 1b-1(2026-10-08): 「本当に AI はうちのことわかってるの?」に答える。店舗情報の画面に「AI はこう理解しています」
+// (保存した店舗情報の 7 項目のうち入力済みの項目と、聞かれたときの返し方)、業種の選択肢、未入力の項目の
+// 「よく聞かれること」を出す。どれもサーバーの facts(understanding・industry・questions)の値だけで描く。
+const factsState = (extra = {}) => ({
+  fields: { name: 'テスト店舗', hours: '10時から19時' }, confirmed: true, revision: 'r1',
+  understanding: { filled: ['name', 'hours'], missing: ['address', 'phone', 'services', 'booking', 'cancellation'], total: 7 },
+  industry: null, industry_fixed: false,
+  industries: [{ id: 'beauty', label: '美容室・サロン' }, { id: 'food', label: '飲食店' }],
+  questions: [{ question: '当日予約はできますか', field: 'booking' }, { question: '駐車場はありますか', field: 'address' },
+    { question: '定休日はいつですか', field: 'hours' }, { question: '予約は電話でもできますか', field: 'booking' },
+    { question: '予約の取り方を教えてください', field: 'booking' }],
+  ...extra,
+});
+
+test('the store facts screen says what AI understands from the saved store facts, with the rules the reply draft follows', () => {
+  const { growthUnderstanding: understanding, growthFactQuestions: questions, GROWTH_FACT_LABELS: labels, GROWTH_FACT_ANSWERS: answers } =
+    tourHelpers();
+  const seen = plain(understanding(factsState()));
+  assert.deepEqual([seen.filled, seen.total], [2, 7]);
+  assert.deepEqual(seen.rows.map(({ key, label, filled }) => [key, label, filled]), [
+    ['name', '店舗名', true], ['hours', '営業日・営業時間', true], ['address', '住所', false], ['phone', '電話番号', false],
+    ['services', 'サービス・メニュー', false], ['booking', '予約方法', false], ['cancellation', 'キャンセル条件', false]]);
+  // Only the server's list counts (never the input fields); unknown keys count for nothing.
+  assert.equal(plain(understanding(factsState({ understanding: { filled: ['name', 'secret'], missing: [], total: 7 } }))).filled, 1);
+  for (const facts of [null, {}, { understanding: {} }, { understanding: { filled: 'name' } }]) assert.equal(understanding(facts), null);
+  // The labels are the store facts form's labels (and the reply draft's line uses the same ones).
+  for (const [key, label] of Object.entries(plain(labels))) assert(start.includes(label), `${key}: ${label}`);
+  const helper = readFileSync(new URL('../overlay/app/app/javascript/dashboard/helper/toybacoManualDraft.js', import.meta.url), 'utf8');
+  const draftLabels = Object.fromEntries([...helper.slice(helper.indexOf('const FACT_LABELS = {'), helper.indexOf('};', helper.indexOf('const FACT_LABELS = {')))
+    .matchAll(/(\w+): '([^']+)'/g)].map(([, key, label]) => [key, label]));
+  assert.deepEqual(draftLabels, plain(labels));
+  // 「お客さまに聞かれたら」follows the reply draft's rules: confirmed facts only, nothing asserted without them (needs_review).
+  const rules = readFileSync(new URL('../overlay/app/lib/toybaco/growth/draft_prompt.rb', import.meta.url), 'utf8');
+  assert(rules.includes('確認済み店舗情報だけを事実の根拠にし') && rules.includes('断言しないでください。不明なら確認が必要な点を短く示し needs_review を true'));
+  assert.deepEqual(plain(answers), { filled: '店舗情報の内容で答えます', missing: '断言せず、担当者の確認が要る返信案にします' });
+  // 「よく聞かれること」: up to two questions of a missing item only.
+  assert.deepEqual(plain(questions(factsState(), 'booking')), ['当日予約はできますか', '予約は電話でもできますか']);
+  assert.deepEqual(plain(questions(factsState(), 'address')), ['駐車場はありますか']);
+  assert.deepEqual(plain(questions(factsState(), 'hours')), [], 'a filled item has none');
+  assert.deepEqual(plain(questions(factsState(), 'phone')), []);
+  assert.deepEqual(plain(questions(factsState({ questions: 'x' }), 'booking')), []);
+  assert.deepEqual(plain(questions(null, 'booking')), []);
+});
+
+test('the understanding is shown to every member above the form, with a meter and the table of the seven items', () => {
+  const facts = block('<template v-if="showFacts">');
+  const section = facts.slice(facts.indexOf('<section'), facts.indexOf('</section>'));
+  assert(facts.indexOf('<section') < facts.indexOf('<form'), 'above the form');
+  assert(!section.includes('state.administrator') || section.includes('v-if="state.administrator && !state.facts.industry_fixed"'),
+    'only the industry choice is for administrators');
+  assert(/<section\s+v-if="understanding"\s+class="understanding"\s+aria-labelledby="toybaco-understanding"\s*>/.test(facts));
+  assert(section.includes('<h2 id="toybaco-understanding">AI はこう理解しています</h2>'));
+  assert(/店舗情報 \{\{ understanding\.total \}\} 項目のうち\s+\{\{ understanding\.filled \}\} 項目が入力済み/.test(section));
+  assert(/role="progressbar"\s+aria-labelledby="toybaco-understanding-count"\s+aria-valuemin="0"\s+:aria-valuemax="understanding\.total"\s+:aria-valuenow="understanding\.filled"/
+    .test(section));
+  // Administrators save the store facts themselves; other members are told who does.
+  assert(/<template v-if="!state\.facts\.confirmed">\s*<p v-if="state\.administrator" class="notice">\s*まだ確認されていません。保存すると AI返信が使い始めます。\s*<\/p>\s*<p v-else class="notice">\s*まだ確認されていません。店舗の管理者が保存すると\s*AI返信が使い始めます。\s*<\/p>\s*<\/template>/
+    .test(section));
+  assert(section.indexOf('class="notice"') < section.indexOf('<table>') && section.indexOf('class="industry"') < section.indexOf('<table>'));
+  for (const heading of ['項目', '状態', 'お客さまに聞かれたら']) assert(section.includes(`<th scope="col">${heading}</th>`), heading);
+  assert(/\{\{ row\.filled \? "入力済み" : "未入力" \}\}/.test(section));
+  assert(/row\.filled\s+\? GROWTH_FACT_ANSWERS\.filled\s+: GROWTH_FACT_ANSWERS\.missing/.test(section));
+  // The page reads the server's facts only.
+  const page = startScript({ phase: 'facts', administrator: false, inboxes: [], facts: factsState(),
+    preference: { purpose: 'inbox', skipped: [], opened: [] } }, (value) => value).page;
+  assert.deepEqual([page.understanding.value.filled, page.understanding.value.total], [2, 7]);
+  // Tokens only, no motion on the meter (the brand injector test checks the colours of the whole page).
+  const style = start.slice(start.indexOf('<style scoped>'));
+  assert(/\n\.toybaco-start \.meter span \{\n  display: block;\n  height: 100%;\n  background: var\(--toybaco-heading\);\n\}/.test(style));
+});
+
+test('a store without a contract industry chooses one there, a contract industry is shown as it is', async () => {
+  const facts = block('<template v-if="showFacts">');
+  assert(/<select\s+id="toybaco-facts-industry"\s+:value="state\.facts\.industry \|\| ''"\s+:disabled="busy"\s+data-toybaco-industry\s+@change="chooseIndustry"\s*>\s*<option value="">指定なし<\/option>/
+    .test(facts));
+  assert(/<p v-else-if="industryLabel" class="industry">\s*業種: \{\{ industryLabel \}\}\s*<\/p>/.test(facts));
+  const sent = [];
+  const run = startScript({ phase: 'facts', administrator: true, inboxes: [], facts: factsState(),
+    preference: { purpose: 'inbox', skipped: [], opened: [] } }, (current, body) => {
+    sent.push(plain(body));
+    return body.industry === 'food' ? { ...current, facts: factsState({ industry: 'food' }) } : current;
+  });
+  assert.equal(run.page.industryLabel.value, '');
+  // Choosing saves the industry alone; the choice follows what the server kept, also when the save failed.
+  const select = { value: 'food' };
+  await run.page.chooseIndustry({ target: select });
+  assert.equal(select.value, 'food');
+  assert.equal(run.page.industryLabel.value, '飲食店');
+  const refused = { value: 'beauty' };
+  await run.page.chooseIndustry({ target: refused });
+  assert.equal(refused.value, 'food', 'back to the saved industry');
+  const cleared = { value: '' };
+  await run.page.chooseIndustry({ target: cleared });
+  assert.deepEqual(sent, [{ industry: 'food' }, { industry: 'beauty' }, { industry: null }]);
+  // The questions under each missing item come from the server's list.
+  assert.deepEqual(plain(run.page.questionsFor('booking')), ['当日予約はできますか', '予約は電話でもできますか']);
+  // Each hint is the description of its own input (aria-describedby), only while it is shown.
+  assert(/:aria-describedby="\s*questionsFor\('hours'\)\.length\s*\? 'toybaco-facts-hours-asked'\s*: undefined\s*"\s*\/>\s*<p\s+v-if="questionsFor\('hours'\)\.length"\s+id="toybaco-facts-hours-asked"\s+class="asked"\s*>\s*よく聞かれること: \{\{ questionsFor\("hours"\)\.join\(" \/ "\) \}\}\s*<\/p>/
+    .test(facts));
+  assert(/:aria-describedby="\s*questionsFor\(field\.key\)\.length\s*\? `toybaco-facts-\$\{field\.key\}-asked`\s*: undefined\s*"\s*\/>\s*<p\s+v-if="questionsFor\(field\.key\)\.length"\s+:id="`toybaco-facts-\$\{field\.key\}-asked`"\s+class="asked"\s*>\s*よく聞かれること: \{\{ questionsFor\(field\.key\)\.join\(" \/ "\) \}\}\s*<\/p>/
+    .test(facts));
+  // Saving the industry never confirms the store facts or touches their fields.
+  const composable = readFileSync(new URL('../overlay/app/app/javascript/dashboard/composables/toybacoGrowthGuide.js', import.meta.url), 'utf8');
+  assert(/export const saveGrowthIndustry = industry =>\n  update\('\/toybaco\/growth\/facts', \{ industry \}\);/.test(composable));
+});
+
+test('every industry pack has three to five questions, each on one of the seven store facts', () => {
+  const directory = new URL('../overlay/app/toybaco-packs/', import.meta.url);
+  const packs = readdirSync(directory).filter((name) => name.endsWith('.yaml'));
+  assert.equal(packs.length, 12);
+  const keys = ['name', 'hours', 'address', 'phone', 'services', 'booking', 'cancellation'];
+  for (const name of packs) {
+    const text = readFileSync(new URL(name, directory), 'utf8');
+    const block = text.slice(text.indexOf('\nai_questions:'));
+    assert(block.length > 1 && !/\n[a-z_]+:/.test(block.slice(1)), `${name}: ai_questions is the last block`);
+    const items = [...block.matchAll(/\n {2}- question: (.+)\n {4}field: ([a-z_]+)/g)].map(([, question, field]) => ({ question, field }));
+    assert(items.length >= 3 && items.length <= 5, `${name}: ${items.length}`);
+    for (const item of items) assert(keys.includes(item.field) && !item.question.includes('◯'), `${name}: ${JSON.stringify(item)}`);
+  }
+  const pack = readFileSync(new URL('../overlay/app/lib/toybaco/industry_pack.rb', import.meta.url), 'utf8');
+  const generic = [...pack.slice(pack.indexOf('DEFAULT_AI_QUESTIONS = ['), pack.indexOf('].freeze', pack.indexOf('DEFAULT_AI_QUESTIONS = [')))
+    .matchAll(/'field' => '([a-z]+)'/g)].map(([, field]) => field);
+  assert.deepEqual(generic, ['hours', 'address', 'services', 'booking', 'cancellation']);
 });

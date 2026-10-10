@@ -89,3 +89,15 @@ post_templates:
       【トリミング事例のご紹介】
       掲載の許可をいただいた◯ちゃんの仕上がりをご紹介します。
       ご予約とご相談はメッセージからどうぞ。
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: トリミングの料金はいくらですか
+    field: services
+  - question: 初めてでも予約できますか
+    field: booking
+  - question: 当日のキャンセルはできますか
+    field: cancellation
+  - question: 駐車場はありますか
+    field: address
+  - question: 営業時間は何時までですか
+    field: hours

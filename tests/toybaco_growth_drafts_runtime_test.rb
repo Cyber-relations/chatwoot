@@ -77,6 +77,26 @@ class ToybacoGrowthDraftsRuntimeTest < ActionDispatch::IntegrationTest
     assert_empty @conversation.messages.where(message_type: :outgoing, private: false)
   end
 
+  # 段 1b-1: 返信案の下の「参照した店舗情報」。prompt に渡した店舗情報のうち値のある項目のキーだけを残し、値は残さない。
+  # 返信案を作ったときの店舗情報の revision も返す(店舗情報が保存し直されたかを画面が比べる)。
+  def test_draft_keeps_the_keys_of_the_store_facts_it_used_and_their_revision
+    request = start!
+    work!(request)
+    result = Growth::DraftState.new(request.reload).read
+    assert_equal [%w[name hours], @facts['revision']], result.values_at('facts_fields', 'facts_revision')
+    stored = @account.messages.find(result['message_id']).additional_attributes['toybaco_growth_reply']
+    assert_equal %w[name hours], stored['facts_fields']
+    refute_includes stored.to_json, 'テスト店舗'
+    refute_includes stored.to_json, '10時から18時'
+    assert_includes @calls.first.to_json, '10時から18時', 'the prompt still had the values'
+    # A draft saved before this change has no keys: nothing is shown for it. Unknown keys are dropped.
+    message = @account.messages.find(result['message_id'])
+    message.update!(additional_attributes: { 'toybaco_growth_reply' => stored.except('facts_fields') })
+    refute Growth::DraftState.new(request.reload).read.key?('facts_fields')
+    message.update!(additional_attributes: { 'toybaco_growth_reply' => stored.merge('facts_fields' => %w[name secret hours]) })
+    assert_equal %w[name hours], Growth::DraftState.new(request.reload).read['facts_fields']
+  end
+
   def test_double_click_and_network_replay_reuse_the_same_request
     nonce = SecureRandom.uuid
     first = start!(nonce: nonce)

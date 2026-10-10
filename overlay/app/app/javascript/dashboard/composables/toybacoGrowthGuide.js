@@ -105,6 +105,54 @@ export async function saveGrowthFacts(fields) {
   return data;
 }
 
+// 業種だけを保存する(パックの id か null)。店舗情報の fields・確認は変えず、業種パックの適用もしない。
+export const saveGrowthIndustry = industry =>
+  update('/toybaco/growth/facts', { industry });
+
+// 段 1b-1: 店舗情報の画面の「AI はこう理解しています」と「よく聞かれること」。表示はサーバーの facts(understanding・
+// questions)の値だけで決める(入力欄の状態からは数えない)。項目の名前は店舗情報の画面の入力欄と同じ。
+export const GROWTH_FACT_LABELS = {
+  name: '店舗名',
+  hours: '営業日・営業時間',
+  address: '住所',
+  phone: '電話番号',
+  services: 'サービス・メニュー',
+  booking: '予約方法',
+  cancellation: 'キャンセル条件',
+};
+// 「お客さまに聞かれたら」: 返信案のルール(draft_prompt.rb の RULES)と同じ。確認済みの店舗情報だけを根拠に答え、
+// 店舗情報に無いことは断言せず、確認が必要な返信案(needs_review)にする。
+export const GROWTH_FACT_ANSWERS = {
+  filled: '店舗情報の内容で答えます',
+  missing: '断言せず、担当者の確認が要る返信案にします',
+};
+const FACT_KEYS = Object.keys(GROWTH_FACT_LABELS);
+
+export function growthUnderstanding(facts) {
+  const understanding = facts?.understanding;
+  if (!Array.isArray(understanding?.filled)) return null;
+  const rows = FACT_KEYS.map(key => ({
+    key,
+    label: GROWTH_FACT_LABELS[key],
+    filled: understanding.filled.includes(key),
+  }));
+  return {
+    filled: rows.filter(row => row.filled).length,
+    total: FACT_KEYS.length,
+    rows,
+  };
+}
+
+// 未入力の項目にだけ、その項目に対応する質問を 2 件まで出す(入力済みの項目には出さない)。
+export function growthFactQuestions(facts, key) {
+  const missing = facts?.understanding?.missing;
+  if (!Array.isArray(missing) || !missing.includes(key)) return [];
+  return (Array.isArray(facts.questions) ? facts.questions : [])
+    .filter(item => item?.field === key && typeof item.question === 'string')
+    .slice(0, 2)
+    .map(item => item.question);
+}
+
 // 段 1a(2026-10-06 owner 裁定): 初回ツアーは本物の管理画面の上で、スポットライトとカードで案内する。カードに出す内容は
 // サーバーの値(この案内の phase・inboxes・facts・pending・administrator と、/toybaco/ai_readiness の inboxes・
 // managed_auto_path)だけで決める。DOM や SPA の API からは推定しない(的を光らせるかどうかは、的が今の画面にあるかで決める)。

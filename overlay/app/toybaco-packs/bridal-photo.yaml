@@ -100,3 +100,15 @@ post_templates:
       ◯月◯日から◯月◯日まで、◯プランをご案内します。
       対象・条件: ◯
       詳細は<URL>からご確認ください。
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 撮影プランの料金はいくらですか
+    field: services
+  - question: 衣装は持ち込みできますか
+    field: services
+  - question: 撮影の予約はどうすればいいですか
+    field: booking
+  - question: キャンセル料はいつからかかりますか
+    field: cancellation
+  - question: 駐車場はありますか
+    field: address

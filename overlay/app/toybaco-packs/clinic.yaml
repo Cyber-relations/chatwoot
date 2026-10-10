@@ -95,3 +95,15 @@ post_templates:
       【◯のご予約を受け付けています】
       ◯月◯日から、◯のご予約を受け付けています。
       ご予約とご不明な点はメッセージでお問い合わせください。
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 初診でも予約できますか
+    field: booking
+  - question: 診療時間と休診日を教えてください
+    field: hours
+  - question: 自費診療の料金はいくらですか
+    field: services
+  - question: 駐車場はありますか
+    field: address
+  - question: 予約を取り消すときはどうすればいいですか
+    field: cancellation
