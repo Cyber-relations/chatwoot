@@ -72,8 +72,18 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       private
 
       def setup_state(mailboxes)
-        { 'steps' => STEPS.fetch(preference['purpose'] || 'inbox'), 'facts' => StoreFacts.new(@account).read,
+        { 'steps' => STEPS.fetch(preference['purpose'] || 'inbox'), 'facts' => facts_state,
           'pending' => pending(mailboxes), 'connections' => OnboardingConnections.new(@account, @user, administrator: administrator?).read }
+      end
+
+      # 店舗情報に、店舗情報の画面の「AI はこう理解しています」(understanding)・業種・「よく聞かれること」を添える。
+      # 業種の選択肢は、有料申込の業種が無い店舗の管理者が選ぶときに使う(industry_fixed は有料申込の業種)。
+      def facts_state
+        store = StoreFacts.new(@account)
+        industry = store.industry
+        store.read.merge('understanding' => store.understanding, 'industry' => industry&.fetch('id'),
+                         'industry_fixed' => industry&.fetch('fixed') == true, 'industries' => IndustryPack.choices,
+                         'questions' => store.questions(industry&.fetch('id')))
       end
 
       def availability

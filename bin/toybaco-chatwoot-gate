@@ -240,6 +240,7 @@ control_file_list() {
     'tests/chatwoot-logout-cleanup.test.mjs' \
     'tests/chatwoot-browser-session.test.mjs' \
     'tests/chatwoot-widget-cookie.test.mjs' \
+    'tests/chatwoot-widget-message-origin.test.mjs' \
     'tests/verify_chatwoot_sdk_artifacts.mjs' \
     'tests/chatwoot-sdk-artifacts.test.mjs' \
     'tests/chatwoot_rds_trust_test.rb' \
@@ -1251,6 +1252,7 @@ run_ruby_quality() {
 
   STAGE='全Toybaco RSpec'
   node "$CONTROL_ROOT/tests/chatwoot-widget-cookie.test.mjs" "$CONTROL_ROOT"
+  node "$CONTROL_ROOT/tests/chatwoot-widget-message-origin.test.mjs" "$CONTROL_ROOT"
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/chatwoot_widget_parameter_logging_test.rb

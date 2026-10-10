@@ -14,6 +14,10 @@ import {
   growthAutoReplyPath,
   growthDecideLine,
   growthTourProgress,
+  growthFactQuestions,
+  growthUnderstanding,
+  saveGrowthIndustry,
+  GROWTH_FACT_ANSWERS,
 } from "dashboard/composables/toybacoGrowthGuide";
 
 const { accountId } = useAccount();
@@ -225,6 +229,24 @@ const channelStates = {
   available: "未接続",
   preparing: "準備中(近日対応)",
 };
+// 段 1b-1: 「AI はこう理解しています」・業種・「よく聞かれること」。どれもサーバーの facts の値だけで描く。
+const understanding = computed(() => growthUnderstanding(state.value?.facts));
+const industryLabel = computed(() => {
+  const facts = state.value?.facts;
+  return (
+    facts?.industries?.find((choice) => choice.id === facts.industry)?.label ||
+    ""
+  );
+});
+function questionsFor(key) {
+  return growthFactQuestions(state.value?.facts, key);
+}
+// 業種は選んだときに保存する(店舗情報の確認とは別)。保存できなかったときも、選択肢はサーバーの値に戻す。
+async function chooseIndustry(event) {
+  const select = event.target;
+  await saveGrowthIndustry(select.value || null);
+  select.value = state.value?.facts?.industry || "";
+}
 const extras = [
   { key: "address", label: "住所", max: 500 },
   { key: "phone", label: "電話番号", max: 100 },
@@ -443,6 +465,91 @@ async function openPosting() {
         <p>
           AIの返信案や投稿文に使います。分かる内容だけで大丈夫です。空欄をAIが推測することはありません。
         </p>
+        <section
+          v-if="understanding"
+          class="understanding"
+          aria-labelledby="toybaco-understanding"
+        >
+          <h2 id="toybaco-understanding">AI はこう理解しています</h2>
+          <p id="toybaco-understanding-count">
+            店舗情報 {{ understanding.total }} 項目のうち
+            {{ understanding.filled }} 項目が入力済み
+          </p>
+          <div
+            class="meter"
+            role="progressbar"
+            aria-labelledby="toybaco-understanding-count"
+            aria-valuemin="0"
+            :aria-valuemax="understanding.total"
+            :aria-valuenow="understanding.filled"
+          >
+            <span
+              :style="{
+                width: `${(understanding.filled / understanding.total) * 100}%`,
+              }"
+            ></span>
+          </div>
+          <template v-if="!state.facts.confirmed">
+            <p v-if="state.administrator" class="notice">
+              まだ確認されていません。保存すると AI返信が使い始めます。
+            </p>
+            <p v-else class="notice">
+              まだ確認されていません。店舗の管理者が保存すると
+              AI返信が使い始めます。
+            </p>
+          </template>
+          <div
+            v-if="state.administrator && !state.facts.industry_fixed"
+            class="industry"
+          >
+            <label for="toybaco-facts-industry">業種</label>
+            <select
+              id="toybaco-facts-industry"
+              :value="state.facts.industry || ''"
+              :disabled="busy"
+              data-toybaco-industry
+              @change="chooseIndustry"
+            >
+              <option value="">指定なし</option>
+              <option
+                v-for="choice in state.facts.industries"
+                :key="choice.id"
+                :value="choice.id"
+              >
+                {{ choice.label }}
+              </option>
+            </select>
+          </div>
+          <p v-else-if="industryLabel" class="industry">
+            業種: {{ industryLabel }}
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">項目</th>
+                <th scope="col">状態</th>
+                <th scope="col">お客さまに聞かれたら</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in understanding.rows"
+                :key="row.key"
+                :data-toybaco-fact="row.key"
+              >
+                <th scope="row">{{ row.label }}</th>
+                <td>{{ row.filled ? "入力済み" : "未入力" }}</td>
+                <td>
+                  {{
+                    row.filled
+                      ? GROWTH_FACT_ANSWERS.filled
+                      : GROWTH_FACT_ANSWERS.missing
+                  }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
         <form
           v-if="state.administrator"
           @submit.prevent="saveFacts"
@@ -466,7 +573,19 @@ async function openPosting() {
             rows="3"
             maxlength="1000"
             placeholder="例：火〜日 10:00〜19:00、月曜定休"
+            :aria-describedby="
+              questionsFor('hours').length
+                ? 'toybaco-facts-hours-asked'
+                : undefined
+            "
           />
+          <p
+            v-if="questionsFor('hours').length"
+            id="toybaco-facts-hours-asked"
+            class="asked"
+          >
+            よく聞かれること: {{ questionsFor("hours").join(" / ") }}
+          </p>
           <details>
             <summary>ほかのお店情報を追加</summary>
             <template v-for="field in extras" :key="field.key"
@@ -478,7 +597,19 @@ async function openPosting() {
                 v-model="fields[field.key]"
                 rows="2"
                 :maxlength="field.max"
+                :aria-describedby="
+                  questionsFor(field.key).length
+                    ? `toybaco-facts-${field.key}-asked`
+                    : undefined
+                "
               />
+              <p
+                v-if="questionsFor(field.key).length"
+                :id="`toybaco-facts-${field.key}-asked`"
+                class="asked"
+              >
+                よく聞かれること: {{ questionsFor(field.key).join(" / ") }}
+              </p>
             </template>
           </details>
           <button
@@ -1181,6 +1312,62 @@ async function openPosting() {
 }
 .toybaco-start details {
   margin-bottom: 16px;
+}
+/* 段 1b-1: 「AI はこう理解しています」と「よく聞かれること」。 */
+.toybaco-start .understanding {
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 1px solid var(--toybaco-hairline);
+  border-radius: 12px;
+  background: var(--toybaco-card);
+}
+.toybaco-start .understanding h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--toybaco-heading);
+}
+.toybaco-start .understanding p {
+  margin: 0 0 8px;
+}
+.toybaco-start .meter {
+  height: 8px;
+  margin: 0 0 12px;
+  border-radius: 4px;
+  background: var(--toybaco-wash);
+  overflow: hidden;
+}
+.toybaco-start .meter span {
+  display: block;
+  height: 100%;
+  background: var(--toybaco-heading);
+}
+.toybaco-start .understanding .notice {
+  margin-bottom: 12px;
+}
+.toybaco-start .industry select {
+  margin-top: 4px;
+}
+.toybaco-start .understanding table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.toybaco-start .understanding th,
+.toybaco-start .understanding td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--toybaco-hairline);
+  text-align: left;
+  vertical-align: top;
+}
+.toybaco-start .understanding thead th {
+  border-top: 0;
+  font-size: 12px;
+  color: var(--toybaco-muted);
+}
+.toybaco-start .asked {
+  margin: -8px 0 12px;
+  font-size: 12px;
+  color: var(--toybaco-muted);
 }
 .toybaco-start details label {
   display: block;

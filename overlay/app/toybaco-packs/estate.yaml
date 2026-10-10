@@ -91,3 +91,13 @@ post_templates:
       【住まい探し相談会のお知らせ】
       ◯月◯日(◯)に、住まい探しの相談会を開催します。
       詳細はこちらです: <URL>
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 内見はいつできますか
+    field: booking
+  - question: お店の営業時間と定休日を教えてください
+    field: hours
+  - question: 仲介手数料はいくらですか
+    field: services
+  - question: お店の場所と駐車場を教えてください
+    field: address

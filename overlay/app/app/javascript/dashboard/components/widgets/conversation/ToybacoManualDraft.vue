@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { canApplyDraft, digestDraft, draftEndpoint, draftError, draftPending } from 'dashboard/helper/toybacoManualDraft';
+import { canApplyDraft, digestDraft, draftEndpoint, draftError, draftFactsChanged, draftFactsLine, draftPending } from 'dashboard/helper/toybacoManualDraft';
+import { growthGuideState } from 'dashboard/composables/toybacoGrowthGuide';
 
 const props = defineProps({
   accountId: { type: [Number, String], required: true },
@@ -46,6 +47,11 @@ const applicable = computed(() => canApplyDraft(result.value, {
   incomingId: props.incomingId, digest: digest.value, canEdit: props.canEdit,
 }));
 const hasResult = computed(() => result.value?.state === 'completed');
+// 返信案の下の「参照した店舗情報」と、作ったあとに店舗情報が保存し直されたことの知らせ。どちらもサーバーの値(この返信案の
+// facts_fields・facts_revision と、案内の状態の店舗情報の revision)だけで決める。
+const factsLine = computed(() => draftFactsLine(result.value?.facts_fields));
+const factsChanged = computed(() => String(growthGuideState.value?.account_id) === String(props.accountId) &&
+  draftFactsChanged(result.value, growthGuideState.value?.facts));
 const wasApplied = computed(() => applied.value?.requestId === result.value?.id && applied.value?.draft === props.draft);
 const billingUrl = computed(() => `/toybaco/billing?account_id=${encodeURIComponent(props.accountId)}`);
 // ボットの下書きは、署名だけの返信欄には入れられ、署名以外の入力があるときは入力を守ってコピーを案内する。
@@ -292,6 +298,8 @@ onBeforeUnmount(() => {
     <template v-if="hasResult">
       <p v-if="result.needs_review" class="toybaco-manual-ai__notice">送信前に内容の確認が必要です。</p>
       <p class="toybaco-manual-ai__text">{{ result.content }}</p>
+      <p v-if="factsLine" class="toybaco-manual-ai__facts">{{ factsLine }}</p>
+      <p v-if="factsChanged" class="toybaco-manual-ai__facts" role="status">店舗情報が更新されています。作り直すと反映されます。</p>
       <p v-if="wasApplied" role="status">返信欄に入れました。内容を確認して送信してください。</p>
       <div v-else class="toybaco-manual-ai__actions">
         <span v-if="!applicable">入力・会話が更新されています。現在の内容から作り直せます。</span>
@@ -335,6 +343,7 @@ onBeforeUnmount(() => {
 .toybaco-manual-ai .toybaco-manual-ai__label { font-weight: 600; }
 .toybaco-manual-ai__notice { color: var(--toybaco-ink); font-weight: 600; }
 .toybaco-manual-ai__actions span { color: var(--toybaco-muted); }
+.toybaco-manual-ai .toybaco-manual-ai__facts { margin-top: 0; color: var(--toybaco-muted); }
 .toybaco-manual-ai a { color: var(--toybaco-ink); text-decoration: underline; margin-left: 6px; }
 .toybaco-manual-ai__chip { display: block; margin: 8px 12px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--toybaco-hairline); border-radius: 999px; background: var(--toybaco-surface); color: var(--toybaco-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
 </style>

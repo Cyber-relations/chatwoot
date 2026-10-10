@@ -13,7 +13,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         @account = request.account
       end
 
-      def complete!(input, result)
+      # facts_fields: 返信案を作るときに参照した店舗情報の項目のキー(値のあるものだけ)。
+      def complete!(input, result, facts_fields: [])
         @account.with_lock do
           @request.with_lock do
             return unless @request.state == 'running'
@@ -21,7 +22,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             conversation = @account.conversations.find_by(id: @request.conversation_id)
             return fail!('conversation_changed') unless conversation
 
-            conversation.with_lock { save_if_current!(conversation, input, result) }
+            conversation.with_lock { save_if_current!(conversation, input, result.merge('facts_fields' => facts_fields)) }
           end
         end
       end
@@ -57,7 +58,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
                                                 message_type: :outgoing, private: true, content: ReplyResult::DRAFT_PREFIX + result.fetch('content'),
                                                 additional_attributes: { ReplyResult::KEY => {
                                                   'operation_id' => @request.operation_id, 'request_id' => @request.id, 'state' => 'draft',
-                                                  'needs_review' => result.fetch('needs_review')
+                                                  'needs_review' => result.fetch('needs_review'), 'facts_fields' => result.fetch('facts_fields')
                                                 } })
         @request.update!(state: 'completed', encrypted_input: nil)
         "message:#{message.id}"

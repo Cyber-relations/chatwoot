@@ -8,7 +8,8 @@ const root = new URL('../', import.meta.url);
 const read = path => fs.readFileSync(new URL(path, root), 'utf8');
 const helper = read('overlay/app/app/javascript/dashboard/helper/toybacoManualDraft.js');
 const sandbox = { crypto: webcrypto, TextEncoder, URLSearchParams };
-vm.runInNewContext(helper.replaceAll('export ', '') + '\nthis.api = { canApplyDraft, digestDraft, draftEndpoint, draftError, draftPending };', sandbox);
+vm.runInNewContext(helper.replaceAll('export ', '') +
+  '\nthis.api = { canApplyDraft, digestDraft, draftEndpoint, draftError, draftFactsChanged, draftFactsLine, draftPending };', sandbox);
 const api = sandbox.api;
 
 test('only a current, authorized result for the exact draft and question can be adopted', async () => {
@@ -110,8 +111,10 @@ function draftPanel(respond, props = {}, context = {}) {
       onBeforeUnmount(hook) { unmounts.push(hook); },
     },
     'dashboard/helper/toybacoManualDraft': api,
+    // The growth guide state (the onboarding JSON) the panel compares the store facts revision with.
+    'dashboard/composables/toybacoGrowthGuide': { growthGuideState: context.guide || { value: null } },
   };
-  const panel = vm.runInNewContext(`${body};\n({ refresh, generate, cancel, pending, pendingText, checkable, error, uncertain, available, result, remaining, narrow, expanded, toggleExpanded, botDraftLocked, botDraftHint });`, {
+  const panel = vm.runInNewContext(`${body};\n({ refresh, generate, cancel, pending, pendingText, checkable, error, uncertain, available, result, remaining, narrow, expanded, toggleExpanded, botDraftLocked, botDraftHint, factsLine, factsChanged });`, {
     modules,
     defineProps: () => shared,
     defineEmits: () => (...args) => emitted.push(args),
@@ -168,8 +171,8 @@ test('the waiting text follows the time and offers「状況を確認」after a m
   assert(panelTemplate.includes('<button v-if="checkable" type="button" class="toybaco-manual-ai__quiet toybaco-manual-ai__check" @click="refresh()">状況を確認</button>'));
   assert.equal(panelTemplate.split('>状況を確認</button>').length - 1, 1, 'one「状況を確認」');
   const statusLines = [...panelTemplate.matchAll(/<p\b[^>]*role="status"[^>]*>([\s\S]*?)<\/p>/g)].map(([, line]) => line);
-  // 作成中・返信欄に入れた(返信案)・返信欄に入れた(ボットの案)・エラーの4行。
-  assert.equal(statusLines.length, 4);
+  // 作成中・返信欄に入れた(返信案)・返信欄に入れた(ボットの案)・エラー・店舗情報の更新(段 1b-1)の5行。
+  assert.equal(statusLines.length, 5);
   for (const line of statusLines) assert(!line.includes('<button'), `no button inside a status line: ${line}`);
   latest = { ...QUEUED, state: 'completed', content: '返信案', current: true };
   await poll(80);
@@ -575,4 +578,34 @@ test('on a phone the panel stays a chip until opened, and remembers that per con
   assert.equal(folded.panel.expanded.value, false, 'an unreadable session keeps the panel folded');
   folded.panel.toggleExpanded();
   assert.equal(folded.panel.expanded.value, true, 'the chip still opens when the session cannot be written');
+});
+
+// 段 1b-1: under a reply draft, the store facts it used (the keys DraftState keeps, never the values) and a notice when
+// the store facts were saved again after the draft was made (its revision and the guide state's revision differ).
+test('a reply draft names the store facts it used and tells when they were saved again', async () => {
+  assert.equal(api.draftFactsLine(['name', 'hours', 'booking']), '参照した店舗情報: 店舗名、営業日・営業時間、予約方法');
+  assert.equal(api.draftFactsLine(['services', 'secret', 'cancellation']), '参照した店舗情報: サービス・メニュー、キャンセル条件');
+  for (const value of [undefined, null, [], ['secret'], 'name', { 0: 'name' }]) assert.equal(api.draftFactsLine(value), '', JSON.stringify(value));
+  assert.equal(api.draftFactsChanged({ facts_revision: 'a' }, { revision: 'b' }), true);
+  for (const [result, facts] of [[{ facts_revision: 'a' }, { revision: 'a' }], [{}, { revision: 'b' }], [{ facts_revision: 'a' }, null],
+    [{ facts_revision: 'a' }, { revision: 1 }]]) assert.equal(api.draftFactsChanged(result, facts), false, JSON.stringify([result, facts]));
+  // The panel shows both lines under the draft, from the server values only.
+  assert(panelTemplate.includes('<p v-if="factsLine" class="toybaco-manual-ai__facts">{{ factsLine }}</p>'));
+  // The notice may appear after the draft (the store facts saved again later): it is a status, so it is read out then.
+  assert(panelTemplate.includes('<p v-if="factsChanged" class="toybaco-manual-ai__facts" role="status">店舗情報が更新されています。作り直すと反映されます。</p>'));
+  const done = { id: 21, state: 'completed', current: true, content: '10時からです。', incoming_id: 10, draft_digest: 'd',
+    facts_fields: ['name', 'hours'], facts_revision: 'r1' };
+  const guide = { value: { account_id: 4, facts: { revision: 'r1' } } };
+  const { panel } = draftPanel(() => status(done), {}, { guide });
+  await settle();
+  assert.equal(panel.factsLine.value, '参照した店舗情報: 店舗名、営業日・営業時間');
+  assert.equal(panel.factsChanged.value, false);
+  guide.value = { account_id: 4, facts: { revision: 'r2' } };
+  assert.equal(panel.factsChanged.value, true);
+  // Another store's guide state is never compared; a draft made before the keys were kept shows no line.
+  guide.value = { account_id: 5, facts: { revision: 'r2' } };
+  assert.equal(panel.factsChanged.value, false);
+  const { panel: old } = draftPanel(() => status({ ...done, facts_fields: undefined }), {}, { guide });
+  await settle();
+  assert.equal(old.factsLine.value, '');
 });

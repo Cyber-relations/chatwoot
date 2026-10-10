@@ -56,6 +56,32 @@ RSpec.describe 'Toybaco growth onboarding', type: :request do
     expect(guide.dig('preference', 'skipped')).to eq(['decide'])
   end
 
+  it '店舗情報の画面の「AI はこう理解しています」は、保存した店舗情報の 7 項目のうち値のある項目を数える' do
+    Toybaco::Growth::StoreFacts.new(account).save!({ 'name' => 'テスト店舗', 'booking' => 'お電話で' }, user: user)
+    expect(guide.dig('facts', 'understanding')).to eq(
+      'filled' => %w[name booking], 'missing' => %w[hours address phone services cancellation], 'total' => 7
+    )
+  end
+
+  it '業種はパックの id だけを管理者が選べ、店舗情報の fields と確認は変えない' do
+    put '/toybaco/growth/facts', params: { account_id: account.id, industry: 'unknown' },
+                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+    expect(response).to have_http_status(:unprocessable_entity)
+    put '/toybaco/growth/facts', params: { account_id: account.id, industry: 'beauty' },
+                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+    expect(response).to have_http_status(:ok)
+    expect(response.parsed_body['facts'].values_at('industry', 'industry_fixed', 'confirmed')).to eq(['beauty', false, false])
+    expect(response.parsed_body.dig('facts', 'questions').first).to eq('question' => '当日予約はできますか', 'field' => 'booking')
+  end
+
+  it '管理者以外が業種を送ると 403 で、何も保存しない' do
+    account.account_users.find_by!(user: user).update!(role: :agent)
+    put '/toybaco/growth/facts', params: { account_id: account.id, industry: 'beauty' },
+                                 headers: { 'Origin' => 'http://www.example.com' }, as: :json
+    expect(response).to have_http_status(:forbidden)
+    expect(guide.dig('facts', 'industry')).to be_nil
+  end
+
   it '案内する窓口の AI返信を決めるまで decide の段にとどまり、返信案だけを選ぶと完了する' do
     inbox = create(:inbox, account: account)
     Toybaco::Growth::StoreFacts.new(account).save!({ 'name' => 'テスト店舗' }, user: user)

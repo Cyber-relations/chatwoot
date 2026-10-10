@@ -20,10 +20,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         return state.merge('state' => 'failed', 'error_code' => 'result_unavailable') unless message
 
         state.merge('content' => message.content.delete_prefix(ReplyResult::DRAFT_PREFIX), 'message_id' => message.id, 'current' => current?(message),
-                    'needs_review' => message.additional_attributes.dig(ReplyResult::KEY, 'needs_review') == true)
+                    'needs_review' => message.additional_attributes.dig(ReplyResult::KEY, 'needs_review') == true,
+                    'facts_revision' => @request.facts_revision).merge(facts_fields(message))
       end
 
       private
+
+      # 返信案を作ったときに参照した店舗情報の項目(キーだけ)。記録の無い旧い返信案には付けない。
+      def facts_fields(message)
+        fields = message.additional_attributes.dig(ReplyResult::KEY, 'facts_fields')
+        fields.is_a?(Array) ? { 'facts_fields' => fields.select { |key| StoreFacts::LIMITS.key?(key) } } : {}
+      end
 
       def current?(message)
         conversation = message.conversation

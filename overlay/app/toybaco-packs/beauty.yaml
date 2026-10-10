@@ -95,3 +95,15 @@ post_templates:
       【◯月の営業について】
       ◯月◯日(◯)はお休みをいただきます。
       前後の日程は空きがございますので、お早めにご相談ください。
+
+ai_questions:               # 店舗情報の画面の「よく聞かれること」(field は店舗情報の 7 項目のどれか)
+  - question: 当日予約はできますか
+    field: booking
+  - question: 駐車場はありますか
+    field: address
+  - question: 指名料はかかりますか
+    field: services
+  - question: キャンセル料はいつからかかりますか
+    field: cancellation
+  - question: 定休日はいつですか
+    field: hours
