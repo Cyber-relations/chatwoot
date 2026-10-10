@@ -635,3 +635,64 @@ namespace :toybaco do
     puts Toybaco::Ops::E2eCaptcha.run(args)
   end
 end
+
+# Postiz の利用者の解放(toybaco:postiz_identity_release[chatwoot_user_id])。担当者を削除して同じメールアドレスで追加し直すと、
+# 削除前の Chatwoot user に結び付いた Postiz の GENERIC 利用者が同じ email のまま残り、新しい担当者の同期(PostizMembershipJob)が
+# IdentityConflict で止まる。この task はその行の email を tombstone(<local>+released-<unix 秒>-<chatwoot user id>@<domain>)にして解放し、新しい担当者の
+# 同期を積み直す。判定と書き込みは Toybaco::PostizSync.release_conflicting_identity! が新しい担当者の identity lock の下で行い
+# (email の書き換えは削除時の解放と同じ PostizSync.release_identity!)、旧 Chatwoot user が残っている・旧行に有効な所属がある・
+# 持ち主を確かめられない時は書かない(refused)。衝突の行が無ければ書かずに同期だけを積み直す(no-conflict の reason=none。解放の後に
+# 積みそこねた時の経路で、2 回目の実行もこれになる)。投稿は organization に属するので、利用者の email の解放では変わらない。恒久対応(削除時の解放)までの運用の手当てで、両環境で使う
+# (production は ops-rake の Environment 承認の後)。出力は 1 行で ID と状態だけを出し、メールアドレス・氏名は出さない。監査行
+# (started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、モデル・ジョブ・PostizSync は実行時に参照する。
+# Toybaco::Ops は先頭の RakeAudit で定義済み(このファイルの読み込み時に参照できる)。
+module Toybaco::Ops::PostizIdentityRelease
+  USER_ID_FORMAT = /\A[1-9]\d{0,9}\z/
+  PREFIX = 'TOYBACO_POSTIZ_IDENTITY_RELEASE'
+  # 同期を積む結果(state, reason)。解放した時と、衝突の行が無い時(解放の後に積みそこねた時の積み直し。job は冪等)。
+  # 本人の行がある(same-user)・refused・found=false では積まない。
+  REENQUEUE = [%w[released none], %w[no-conflict none]].freeze
+
+  module_function
+
+  # 新しい担当者が無ければ found=false。
+  def run(args)
+    user_id = user_id!(args)
+    user = User.find_by(id: user_id)
+    return "#{PREFIX} user=#{user_id} found=false" unless user
+
+    result = Toybaco::PostizSync.release_conflicting_identity!(user: user)
+    line(user_id, result, REENQUEUE.include?(result.values_at(:state, :reason)) && enqueue!(user))
+  end
+
+  # 検査と変換を同じ判定にする(通すのは 1 以上の整数の文字列 1 つだけで、Integer や余分な引数は通さない)。入力の値は出さない。
+  def user_id!(args)
+    raw = args[:chatwoot_user_id]
+    return Integer(raw, 10) if raw.is_a?(String) && raw.match?(USER_ID_FORMAT) && args.extras.empty?
+
+    abort "#{PREFIX}_ABORT reason=user_id_invalid"
+  end
+
+  # 既存の積み直し(PostizLifecycle の UserHooks)と同じく、Postiz を管理している店舗ごとに user id と店舗 id で積む。
+  def enqueue!(user)
+    accounts = Toybaco::PostizLifecycle.managed_accounts_for(user)
+    accounts.each { |account| Toybaco::PostizMembershipJob.perform_later(user.id, account.id) }
+    accounts.any?
+  end
+
+  # 旧行の Postiz id は先頭 8 字だけ。旧 Chatwoot user id は providerId から逆算できた時だけ出す。
+  def line(user_id, result, enqueued)
+    fields = { 'user' => user_id, 'old_postiz_user' => result[:postiz_user_id]&.slice(0, 8) || 'none',
+               'old_chatwoot_user' => result[:chatwoot_user_id] || 'none', 'state' => result.fetch(:state),
+               'reason' => result.fetch(:reason), 'enqueued' => enqueued }
+    [PREFIX, *fields.map { |key, value| "#{key}=#{value}" }].join(' ')
+  end
+end
+
+namespace :toybaco do
+  desc 'Postiz の同期を止めている削除済み担当者の利用者行を解放し、新しい担当者の同期を積み直す' \
+       '(rake "toybaco:postiz_identity_release[chatwoot_user_id]"。chatwoot_user_id は新しい担当者の 1 以上の整数)'
+  task :postiz_identity_release, %i[chatwoot_user_id] => :environment do |_t, args|
+    puts Toybaco::Ops::PostizIdentityRelease.run(args)
+  end
+end
