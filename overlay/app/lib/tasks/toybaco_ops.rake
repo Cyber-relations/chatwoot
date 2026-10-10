@@ -358,7 +358,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # 契約者がいれば abort し、一致集合には閉じるがバッチの外の一致した店舗にも所属する利用者・契約者は消さずに数え、所属がバッチに閉じた
       # 回に消す(同じ利用者が 6 件以上の一致した店舗に所属しても、毎回同じ先頭 5 件で止まらない)。範囲の安全は、全ての一致が E2E の店舗名の
       # 厳格な形であること(1 件でも違えば何も消さない。transaction の中でも全ての一致を行ロックして確かめ直す)と、利用者・契約者の検査で
-      # 守る。削除の手順は Purge にある。
+      # 守る。削除の手順は Purge にある。店舗を消した後に、店舗に FK を持たない体験と自動応答の記録(Purge::GrowthRecords)のうち、
+      # 消した店舗の id のものも同じ transaction で消し、件数を TOYBACO_E2E_PURGE の次の 1 行(TOYBACO_E2E_PURGE_GROWTH)に出す
+      # (TOYBACO_E2E_PURGE の行の形は変えない)。
       def purge(args)
         staging!('e2e_purge_accounts')
         prefix = prefix!(args)
@@ -428,19 +430,22 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         # matched は一致集合の店舗(run_names! を通った全ての店舗、id の順)、stores はバッチ(その先頭 5 件)。remaining は一致集合のうち
         # バッチの外の件数。候補の下見は transaction の前の id で選び、消すかどうかは transaction の中でロックした店舗で決める。
-        # skipped_users は候補(所属からの候補と契約者)のうち消さなかった利用者の数(同じ利用者は 1 回)。
+        # skipped_users は候補(所属からの候補と契約者)のうち消さなかった利用者の数(同じ利用者は 1 回)。返すのは TOYBACO_E2E_PURGE の行と、
+        # 消した体験と自動応答の記録の件数の行(TOYBACO_E2E_PURGE_GROWTH)の 2 行。
         def run(prefix, matched)
           stores = matched.first(PURGE_LIMIT)
           found = candidates(stores.map(&:id), matched.map(&:id))
-          users, kept = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
+          users, kept, growth = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
           skipped = ((found + kept).map(&:id) - users.map(&:id)).uniq.size
           remaining = matched.size - stores.size
-          "TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{skipped} remaining=#{remaining}"
+          ["TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{skipped} remaining=#{remaining}",
+           GrowthRecords.line(prefix, growth)]
         end
 
         # transaction の中で呼ぶ。最初に一致集合の全店舗を行ロックして確かめ直し(バッチの店舗も同じ object が読み直される)、以後の判定と
-        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者を返す。契約者は所属から選んだ候補とは別に、確かめた上で
-        # 消す集合に入れる(所属が既に無い契約者も残さない)。
+        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者と、消した体験と自動応答の記録の件数を返す。契約者は所属から
+        # 選んだ候補とは別に、確かめた上で消す集合に入れる(所属が既に無い契約者も残さない)。体験と自動応答の記録は、店舗を消す前に控えた
+        # バッチの id(全ての一致が E2E の店舗名の厳格な形で、ロックして確かめ直した店舗)のものだけを、店舗を消した後に消す。
         def delete!(prefix, matched, stores, found)
           WriteGuard.relock!(prefix, matched, '削除')
           ids = stores.map(&:id)
@@ -448,9 +453,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           eligible = (removable + found.select { |user| locked_eligible?(user, ids) }).uniq(&:id)
           children!(ids)
           (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
-          return [eligible, kept] unless remaining?(ids, eligible)
+          growth = GrowthRecords.delete!(ids)
+          return [eligible, kept, growth] unless remaining?(ids, eligible)
 
-          abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。"
+          abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。"
         end
 
         # 店舗の契約者(無料登録の owner)を行ロックして読み直し、消す契約者(所属がバッチに閉じる)と残す契約者(一致集合には閉じるが、
@@ -503,7 +509,35 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         def remaining?(account_ids, users)
           Account.exists?(id: account_ids) || User.exists?(id: users.map(&:id)) ||
-            CHILDREN.any? { |name| name.constantize.exists?(account_id: account_ids) }
+            CHILDREN.any? { |name| name.constantize.exists?(account_id: account_ids) } || GrowthRecords.remaining?(account_ids)
+        end
+
+        # 店舗に FK を持たない体験(toybaco_growth_trials と、trial_id で結ぶ toybaco_growth_trial_identities)と自動応答
+        # (toybaco_growth_auto_installations / commands / requests)の記録。本番では店舗を消しても残す(同じ接続先・店舗での体験の再発行を
+        # 防ぐ)が、E2E の店舗の記録は run ごとに溜まり、次の run の体験が同じ形の identity で断られうるため、消した店舗の分だけ消す。
+        # 店舗の id の集合は Purge が E2E の店舗名の厳格な形で確かめたバッチだけ(ほかの店舗の記録には触れない)。identity は体験への FK が
+        # あるので先に消す(体験の通知は体験と店舗への FK の on_delete cascade で消える)。検証もコールバックも通さない(delete_all)。
+        module GrowthRecords
+          module_function
+
+          def delete!(account_ids)
+            trials = Toybaco::GrowthTrial.where(account_id: account_ids)
+            identities = Toybaco::GrowthTrialIdentity.where(trial_id: trials.select(:id)).delete_all
+            Toybaco::GrowthAutoRequest.where(account_id: account_ids).delete_all
+            Toybaco::GrowthAutoCommand.where(account_id: account_ids).delete_all
+            { 'trials' => trials.delete_all, 'identities' => identities,
+              'installations' => Toybaco::GrowthAutoInstallation.where(account_id: account_ids).delete_all }
+          end
+
+          def remaining?(account_ids)
+            [Toybaco::GrowthTrial, Toybaco::GrowthAutoInstallation, Toybaco::GrowthAutoCommand, Toybaco::GrowthAutoRequest]
+              .any? { |model| model.exists?(account_id: account_ids) }
+          end
+
+          def line(prefix, counts)
+            "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} trials=#{counts.fetch('trials')} identities=#{counts.fetch('identities')} " \
+              "installations=#{counts.fetch('installations')}"
+          end
         end
       end
     end
@@ -522,10 +556,397 @@ namespace :toybaco do
     Toybaco::Ops::E2eConsent.confirm(args).each { |line| puts line }
   end
 
-  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(id の順に 1 回 5 件まで。残りの件数を出す)と、その店舗だけの利用者を削除する' \
-       '(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(id の順に 1 回 5 件まで。残りの件数を出す)と、その店舗だけの利用者と、' \
+       'その店舗の体験・自動応答の記録を削除する(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
   task :e2e_purge_accounts, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eConsent.purge(args)
+  end
+end
+
+# staging の E2E(規約同意の記録の経路の確認)のうち、Stripe を使わない 2 経路(体験の開始 trial と、おまかせ自動返信の開始 managed_auto)用。
+# 無料登録の E2E で有効にした店舗に対し、本番の開始処理(Growth::TrialStart#start! と、Growth::ManagedAutoInstall の create! → change!)を
+# 契約者として呼び、規約同意の記録(route trial / managed_auto)を残す。本番の処理は変えず、その前提だけを rake の中で作る。外部には
+# 接続しない: IMAP の実ログインは ImapVerification の成功の記録(今の設定の指紋と時刻)を先に書いて起こさず、回答例は LLM を呼ばずに bot の
+# 結果の受け口(Growth::BotReply の reserve → consumed)に固定の本文で作り、Stripe・SES・Postiz の経路は通らない。受信箱のホストとアドレスは
+# 名前解決されない予約ドメイン(.invalid、RFC 6761)にする。2 本とも引数は E2E の店舗名の prefix だけで、一致する店舗が E2E の店舗名の
+# 厳格な形でちょうど 1 件・有効、契約者(無料登録の owner)が E2E の利用者で確認済みの管理者のときだけ進む。環境の判定と prefix の形は
+# E2eConsent と同じ(staging 以外は引数を読む前に abort。ops-rake workflow も e2e_ で始まるタスクを staging 以外で拒否する二重の
+# fail-closed)。出力は TOYBACO_E2E_TRIAL / TOYBACO_E2E_MANAGED_AUTO の 1 行(result・店舗の id・reason)だけで、メールアドレス・
+# パスワード・鍵・氏名は出さない。進めないとき(refused と、機能フラグが off の skipped)は同じ形の 1 行で abort する(非 0 で終わり、監査行は
+# failed)。同じ prefix の 2 回目は何も書かずに skipped(already_done)で正常に終わる。監査行(started / ok|failed)は上の RakeAudit が
+# 書く。rake は Rails の初期化前にこのファイルを読むため、モデルとサービスは実行時に参照する。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module E2eGrowth
+      TRIAL = 'TRIAL'
+      MANAGED_AUTO = 'MANAGED_AUTO'
+      NONE = '-'
+
+      module_function
+
+      def staging!(task)
+        E2eConsent.staging!(task)
+      end
+
+      # 本番の開始処理と回答例の受け口。rake では controller(画面)が読まれないため、ここで読む(読み済みなら何もしない)。
+      def require_growth!
+        %w[trial_start bot_reply managed_auto_install].each { |name| require Rails.root.join("lib/toybaco/growth/#{name}").to_s }
+      end
+
+      # toybaco:e2e_trial[prefix]。体験の前提(店舗情報・IMAP の受信箱と bot・回答例)を作ってから体験を開始する(TrialSeam)。
+      # 体験が既にあれば何も書かずに skipped。
+      def trial(args)
+        staging!('e2e_trial')
+        require_growth!
+        prefix = E2eConsent.prefix!(args)
+        account, owner = target!(TRIAL, prefix)
+        return line(TRIAL, 'skipped', account.id, 'already_done') if Toybaco::GrowthTrial.exists?(account_id: account.id)
+
+        TrialSeam.start!(prefix, account, owner)
+        line(TRIAL, 'started', account.id, NONE)
+      end
+
+      # toybaco:e2e_managed_auto[prefix]。体験の後の店舗を Standard にし、体験の bot を外して、おまかせ自動返信を全自動で開始する
+      # (AutoSeam)。全自動の設置と同意の記録が既にあれば何も書かずに skipped。機能フラグ(ManagedAuto.enabled?)が off なら、何も書かずに
+      # skipped(flag_off)で abort する。前の実行が設置の後の切り替えで止まっていれば、切り替えから再開する。
+      def managed_auto(args)
+        staging!('e2e_managed_auto')
+        require_growth!
+        prefix = E2eConsent.prefix!(args)
+        account, owner = target!(MANAGED_AUTO, prefix)
+        return line(MANAGED_AUTO, 'skipped', account.id, 'already_done') if AutoSeam.installed?(account)
+
+        refuse!(MANAGED_AUTO, account.id, 'flag_off', result: 'skipped') unless Toybaco::Growth::ManagedAuto.enabled?
+
+        AutoSeam.install!(prefix, account, owner)
+        line(MANAGED_AUTO, 'installed', account.id, NONE)
+      end
+
+      # 対象の店舗と契約者。prefix に一致する店舗が全て E2E の店舗名の厳格な形で、ちょうど 1 件のときだけ。
+      def target!(label, prefix)
+        stores = E2eConsent.accounts(prefix)
+        refuse!(label, nil, 'name_format') unless stores.all? { |store| store.name.match?(E2eConsent::RUN_NAME_FORMAT) }
+        refuse!(label, nil, stores.empty? ? 'no_account' : 'multiple_accounts') unless stores.size == 1
+
+        [stores.first, owner!(label, stores.first)]
+      end
+
+      # 有効な店舗の契約者(無料登録の owner)。E2E の利用者(E2eConsent.e2e_user?)で、店舗の管理者で、メール確認済みであること。
+      def owner!(label, account)
+        refuse!(label, account.id, 'account_inactive') unless account.active?
+        state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
+        owner = state.is_a?(Hash) ? User.find_by(id: state['owner_id']) : nil
+        refuse!(label, account.id, 'owner_missing') unless owner
+        administrator = account.account_users.exists?(user_id: owner.id, role: :administrator)
+        refuse!(label, account.id, 'owner_not_e2e') unless E2eConsent.e2e_user?(owner) && administrator
+        refuse!(label, account.id, 'owner_unconfirmed') unless owner.confirmed?
+        owner
+      end
+
+      # transaction の中で、店舗を行ロックして読み直し、名前(prefix と厳格な形)と有効なことを確かめ直す。
+      def relock!(label, prefix, account)
+        account.lock!
+        return if account.name.start_with?(prefix) && account.name.match?(E2eConsent::RUN_NAME_FORMAT) && account.active?
+
+        refuse!(label, account.id, 'account_changed')
+      end
+
+      def line(label, result, account_id, reason)
+        "TOYBACO_E2E_#{label} result=#{result} account=#{account_id || NONE} reason=#{reason}"
+      end
+
+      # 進めないときの 1 行で abort する(transaction の中なら rollback する)。
+      def refuse!(label, account_id, reason, result: 'refused')
+        abort line(label, result, account_id, reason)
+      end
+
+      # 体験の前提を作って開始する。前提の作成から TrialStart#start! と結果の読み直しまでを 1 つの transaction で行い、その間に積まれる
+      # job は commit の後に送る(E2eConsent::WriteGuard.jobs_after_commit)。断られたら(TrialStart::Unavailable)前提も残さずに
+      # TrialStart::MESSAGES のキーを reason に出す。受信箱は commit まで上流の IMAP の fetch job から見えない。
+      module TrialSeam
+        # 受信箱の IMAP の設定。.invalid は名前解決されないので、上流の fetch job が接続を試みても外に出ない。gmail.com のアドレスは使わない
+        # (TrialConnection は imap.gmail.com 以外のホストの Gmail のアドレスを対象外にする)。アドレスとログインは店舗名(run ごとに違う)で作る。
+        DOMAIN = 'e2e-imap.invalid'
+        HOST = "imap.#{DOMAIN}".freeze
+        PORT = 993
+        # 固定のダミー(どこにもログインしない。ImapVerification の指紋の材料になるだけ)。
+        PASSWORD = 'e2e-imap-dummy-password'
+        BOT_NAME = 'E2E 体験 AI'
+        HOURS = '10時から18時'
+        QUESTION = '営業時間を教えてください。'
+        REPLY = '10時から18時まで営業しています。'
+
+        module_function
+
+        def address(account)
+          "#{account.name}@#{DOMAIN}"
+        end
+
+        # TrialStart#start! は店舗の全ての受信箱の identity を確かめ、IMAP の受信箱は成功の記録が無ければ実際にログインする。ほかの IMAP の
+        # 受信箱が既にある店舗では、接続しないことを保てないので前提を作らずに断る(other_mail_inbox)。
+        def start!(prefix, account, owner)
+          E2eConsent::WriteGuard.jobs_after_commit do
+            ActiveRecord::Base.transaction do
+              E2eGrowth.relock!(TRIAL, prefix, account)
+              E2eGrowth.refuse!(TRIAL, account.id, 'other_mail_inbox') if Channel::Email.exists?(account_id: account.id, imap_enabled: true)
+              example = prepare!(account, owner)
+              revision = Toybaco::Growth::StoreFacts.new(account).read['revision']
+              Toybaco::Growth::TrialStart.new(account, owner).start!(example_id: example.id, revision: revision, confirmed: true)
+              verify!(account)
+            end
+          end
+        rescue Toybaco::Growth::TrialStart::Unavailable => e
+          E2eGrowth.refuse!(TRIAL, account.id, reason(e.message))
+        end
+
+        # 店舗情報(店舗名と営業時間)を契約者として確認済みで保存し、返信の形を下書きにして(無料登録と同じ)、IMAP の受信箱に bot を
+        # 割り当て、ログインの成功の記録を書いてから、その受信箱で回答例を作る。
+        def prepare!(account, owner)
+          Toybaco::Growth::StoreFacts.new(account).save!({ 'name' => account.name, 'hours' => HOURS }, user: owner)
+          Toybaco::AiReplyMode.write_to!(account, Toybaco::AiReplyMode::DRAFT)
+          inbox = mail_inbox!(account)
+          bot = AgentBot.create!(account_id: account.id, name: BOT_NAME, outgoing_url: nil)
+          AgentBotInbox.create!(account_id: account.id, inbox: inbox, agent_bot: bot, status: :active)
+          verified!(inbox.channel)
+          example!(account, inbox, bot)
+        end
+
+        # IMAP で受信する標準メール受信箱(SMTP は使わない)。認証方式は plain(ImapVerification が確かめられる方式)。
+        def mail_inbox!(account)
+          email = address(account)
+          channel = Channel::Email.create!(account: account, email: email, imap_enabled: true, imap_login: email, imap_password: PASSWORD,
+                                           imap_address: HOST, imap_port: PORT, imap_enable_ssl: true, imap_authentication: 'plain',
+                                           smtp_enabled: false)
+          account.inboxes.create!(channel: channel, name: "#{account.name} メール")
+        end
+
+        # ImapVerification の成功の記録(今の設定の指紋と、今の時刻)を、ImapVerification と同じ書き方(受信箱の最新の provider_config に
+        # このキーだけを merge)で書く。TrialConnection.identity(:full) は同じ指紋の 7 日以内の成功を記録から決め、接続しない。
+        def verified!(channel)
+          verification = Toybaco::Growth::ImapVerification
+          record = { 'fingerprint' => verification.fingerprint(verification.snapshot(channel)), 'verified_at' => Time.now.utc.iso8601 }
+          verification.write_record!(channel, verification.recorded(channel).merge(record))
+        end
+
+        # 回答例: 保留中の会話の問い合わせ(incoming、source_id つき)に、bot の結果の受け口(BotReply の reserve → consumed)で固定の本文の
+        # 下書きを付ける。TrialExample が確かめる操作の記録(consumed の reply_draft、result_reference、問い合わせと店舗情報の版の digest)は
+        # BotReply と AiLedger が本番と同じ形で作る(店舗の AI 枠を 1 回使う)。
+        def example!(account, inbox, bot)
+          conversation, incoming = inquiry!(account, inbox)
+          service = Toybaco::Growth::BotReply.new(account, bot: bot, conversation: conversation, message: incoming)
+          reserved = service.update(action_type: 'reserve')
+          E2eGrowth.refuse!(TRIAL, account.id, "example_#{reserved['reason'] || 'unreserved'}") unless reserved['result'] == 'reserved'
+          settled = service.update(action_type: 'consumed', operation_id: reserved['operation_id'], token: reserved['token'],
+                                   reply: REPLY, mode: 'draft')
+          E2eGrowth.refuse!(TRIAL, account.id, 'example_unsettled') unless settled['result'] == 'consumed'
+          account.messages.find(settled.fetch('result_reference').delete_prefix('message:'))
+        end
+
+        def inquiry!(account, inbox)
+          contact = account.contacts.create!(name: 'E2E 問い合わせ', email: "guest-#{account.name}@#{DOMAIN}")
+          contact_inbox = ContactInbox.create!(contact: contact, inbox: inbox, source_id: contact.email)
+          conversation = account.conversations.create!(inbox: inbox, contact: contact, contact_inbox: contact_inbox, status: :pending)
+          incoming = conversation.messages.create!(account_id: account.id, inbox_id: inbox.id, message_type: :incoming, private: false,
+                                                   content: QUESTION, sender: contact, source_id: "<#{SecureRandom.uuid}@#{DOMAIN}>")
+          [conversation, incoming]
+        end
+
+        # 開始の結果を読み直す。体験が 1 件、identity が IMAP の 1 件、route trial の同意の記録が 1 件でなければ取り消す。
+        def verify!(account)
+          trial = Toybaco::GrowthTrial.find_by(account_id: account.id)
+          providers = trial ? trial.identities.pluck(:provider) : []
+          routes = Toybaco::LegalTerms.records(account.reload).count { |record| record.is_a?(Hash) && record['route'] == 'trial' }
+          E2eGrowth.refuse!(TRIAL, account.id, 'trial_unverified') unless providers == ['imap'] && routes == 1
+        end
+
+        # 断りの文から TrialStart::MESSAGES のキーを引く。開放済みの直接接続の名前を入れた文(PROVIDER_MESSAGES)は形で照らし合わせる。
+        def reason(message)
+          start = Toybaco::Growth::TrialStart
+          key = start::MESSAGES.key(message)
+          key ||= start::PROVIDER_MESSAGES.find { |_, text| message.match?(provider_pattern(text)) }&.first
+          key || 'unavailable'
+        end
+
+        def provider_pattern(text)
+          /\A#{Regexp.escape(text).sub(Regexp.escape('%<providers>s'), '.+')}\z/
+        end
+      end
+
+      # 体験の後の店舗を Standard にし、体験の bot を外して、おまかせ自動返信を全自動で開始する。Standard の適用(toybaco:apply_plan と
+      # 同じ Entitlements.snapshot_for → apply!、Stripe なし)と bot の削除は 1 つの transaction で行い、設置と全自動への切り替えは外側の
+      # transaction を開かずに行う(ManagedAuto.locked が transaction の中を拒む)。設置と切り替えは別の transaction なので、設置の後に
+      # 止まった実行は、同じ rake の再実行が切り替えから再開する。
+      module AutoSeam
+        PLAN = 'standard'
+        CYCLE = 'month'
+
+        module_function
+
+        # 全自動の設置と route managed_auto の同意の記録があれば済み。
+        def installed?(account)
+          Toybaco::GrowthAutoInstallation.find_by(account_id: account.id)&.state == 'auto' && routes(account).positive?
+        end
+
+        def routes(account)
+          Toybaco::LegalTerms.records(account).count { |record| record.is_a?(Hash) && record['route'] == 'managed_auto' }
+        end
+
+        # 新しい設置は、Standard の適用と体験の bot の削除の後に create! してから change! する。この seam が作った未完了の設置(create! の
+        # 後の change! が NOWAIT の競合やプロセスの停止で終わらなかったもの)があれば、create! を飛ばして change! だけを行って再開する。
+        def install!(prefix, account, owner)
+          inbox, pending = prerequisites!(account, owner)
+          row = pending || register!(prefix, account, owner, inbox)
+          switch!(account, owner, row)
+          verify!(account)
+        end
+
+        # 体験(toybaco:e2e_trial)の後であること: 体験と体験の受信箱があり、店舗情報が確認済み。設置が無ければ、契約は無料プラン
+        # (Stripe の契約なし)か適用済みの Standard で、bot は体験の受信箱の 1 組だけ(外すのはその 1 組だけ)。未完了の設置を再開する
+        # ときは、契約が適用済みの Standard で、bot は設置の bot と体験の受信箱への割り当ての 1 組だけ(体験の bot は外し終えている)。
+        # 体験の受信箱と、再開する設置(無ければ nil)を返す。
+        def prerequisites!(account, owner)
+          inbox, pending = trial_inbox!(account, owner)
+          refuse!(account, 'facts_unconfirmed') unless Toybaco::Growth::StoreFacts.new(account).read['confirmed']
+          refuse!(account, 'unexpected_contract') unless replaceable_contract?(account, pending)
+          refuse!(account, 'other_bots') unless expected_bots?(account, inbox, pending)
+          [inbox, pending]
+        end
+
+        # 体験と、体験の受信箱(toybaco:e2e_trial が店舗名で作ったもの)。設置の記録があれば、この seam が作った未完了の設置
+        # (unfinished?)のときだけ再開に回し、ほかは installation_not_auto で断る。
+        def trial_inbox!(account, owner)
+          refuse!(account, 'trial_missing') unless Toybaco::GrowthTrial.exists?(account_id: account.id)
+          inbox = Channel::Email.find_by(account_id: account.id, email: TrialSeam.address(account))&.inbox
+          refuse!(account, 'inbox_missing') unless inbox
+          installation = Toybaco::GrowthAutoInstallation.find_by(account_id: account.id)
+          return [inbox, nil] unless installation
+          return [inbox, installation] if unfinished?(installation, account, inbox, owner)
+
+          refuse!(account, 'installation_not_auto')
+        end
+
+        # この seam が作った未完了の設置: 全自動でなく、この店舗の、体験の受信箱への、契約者による設置。
+        def unfinished?(installation, account, inbox, owner)
+          installation.state != 'auto' && installation.account_id == account.id && installation.inbox_id == inbox.id &&
+            installation.actor_id == owner.id
+        end
+
+        def replaceable_contract?(account, pending)
+          contract = Toybaco::Entitlements.contract_for(account)
+          return false if contract.nil? || Toybaco::Entitlements.attributes(account)['toybaco_subscription_id'].present?
+
+          standard?(contract) || (pending.nil? && contract['plan_id'] == 'free')
+        end
+
+        def standard?(contract)
+          contract['plan_id'] == PLAN && contract['plan_version'] == Toybaco::GrowthTerms::VERSION
+        end
+
+        # bot の割り当てが体験の受信箱の 1 件だけで、店舗の bot がその 1 つだけ(再開のときは、それが設置の bot)。新しい設置で bot を
+        # 外し終えた後(再実行)は bot も割り当ても無い。
+        def expected_bots?(account, inbox, pending)
+          assignments = AgentBotInbox.where(account_id: account.id).to_a
+          bots = AgentBot.where(account_id: account.id).pluck(:id)
+          return pending.nil? && bots.empty? if assignments.empty?
+
+          bot_id = assignments.first.agent_bot_id
+          assignments.size == 1 && assignments.first.inbox_id == inbox.id && bots == [bot_id] && (pending.nil? || pending.bot_id == bot_id)
+        end
+
+        # 新しい設置: Standard の適用と体験の bot の削除の後、登録できることを確かめてから契約者として設置する(create!、画面と同じ)。
+        def register!(prefix, account, owner, inbox)
+          Preparation.run!(prefix, account, inbox)
+          refuse!(account, 'registration_unavailable') unless Toybaco::Growth::ManagedAuto.registration_available?(account.reload)
+
+          installing(account) { service(account, owner).create!(inbox_id: inbox.id, request_id: SecureRandom.uuid) }
+        end
+
+        # 同意つきで全自動に切り替える(change!、画面と同じ)。request_id は呼び出しごとの UUID、generation と epoch は設置の行の今の値
+        # (画面は GET で返された値を送る)。
+        def switch!(account, owner, row)
+          row.reload
+          installing(account) do
+            service(account, owner).change!(mode: 'auto', generation: row.generation.to_s, epoch: row.epoch, request_id: SecureRandom.uuid,
+                                            consent: true)
+          end
+        end
+
+        def service(account, owner)
+          Toybaco::Growth::ManagedAutoInstall.new(account.id, actor_id: owner.id)
+        end
+
+        # 外側の transaction を開かずに呼ぶ(ManagedAuto.locked が transaction の中を拒む)。断りと競合は理由を出して止める。
+        def installing(account)
+          yield
+        rescue Toybaco::Growth::ManagedAuto::Invalid
+          refuse!(account, 'install_invalid')
+        rescue Toybaco::Growth::InboxRetention::Busy
+          refuse!(account, 'install_busy')
+        rescue Toybaco::Growth::InboxRetention::Held, Toybaco::Growth::InboxRetention::Invalid
+          refuse!(account, 'install_inbox_unavailable')
+        end
+
+        # 設置の結果を読み直す。設置が全自動で、route managed_auto の同意の記録が 1 件でなければ止める。
+        def verify!(account)
+          auto = Toybaco::GrowthAutoInstallation.find_by(account_id: account.id)&.state == 'auto'
+          refuse!(account, 'install_unverified') unless auto && routes(account.reload) == 1
+        end
+
+        def refuse!(account, reason)
+          E2eGrowth.refuse!(MANAGED_AUTO, account.id, reason)
+        end
+
+        # 新しい設置の前の 1 つの transaction: 店舗を行ロックして確かめ直し、Standard を付け、体験の受信箱の bot の割り当てと bot を消す。
+        module Preparation
+          module_function
+
+          def run!(prefix, account, inbox)
+            E2eConsent::WriteGuard.jobs_after_commit do
+              ActiveRecord::Base.transaction do
+                E2eGrowth.relock!(MANAGED_AUTO, prefix, account)
+                AutoSeam.refuse!(account, 'other_bots') unless AutoSeam.expected_bots?(account, inbox, nil)
+                apply_standard!(account)
+                remove_trial_bot!(account, inbox)
+              end
+            end
+          end
+
+          # toybaco:apply_plan[account_id,standard,<版>,month] と同じ実装(今の契約の追加契約を引き継いだ snapshot を Entitlements.apply! で
+          # 付ける)。既に Standard(同じ版)なら付け直さない。
+          def apply_standard!(account)
+            old = Toybaco::Entitlements.contract_for(account)
+            return if AutoSeam.standard?(old)
+
+            terms = Toybaco::PlanCatalog.default.definition(AutoSeam::PLAN, Toybaco::GrowthTerms::VERSION)
+            Toybaco::Entitlements.apply!(account, Toybaco::Entitlements.snapshot_for(terms, cycle: AutoSeam::CYCLE, addons: old.fetch('addons')))
+          end
+
+          # 体験の受信箱の bot の割り当てと、その bot を消す(ManagedAutoBoundaries は設置の無い bot の削除を拒まない)。
+          def remove_trial_bot!(account, inbox)
+            assignment = AgentBotInbox.find_by(account_id: account.id, inbox_id: inbox.id)
+            return unless assignment
+
+            bot = AgentBot.find_by(id: assignment.agent_bot_id, account_id: account.id)
+            assignment.destroy!
+            bot&.destroy!
+          end
+        end
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(ちょうど 1 件)に、体験の前提(店舗情報・IMAP の受信箱・回答例)を外部に接続せずに' \
+       '作って体験を開始する(rake "toybaco:e2e_trial[e2e-consent-<run>]")'
+  task :e2e_trial, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eGrowth.trial(args)
+  end
+
+  desc 'staging 専用: 体験を開始した E2E の店舗(ちょうど 1 件)を Standard にし、体験の bot を外して、おまかせ自動返信を全自動で開始する' \
+       '(rake "toybaco:e2e_managed_auto[e2e-consent-<run>]")'
+  task :e2e_managed_auto, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eGrowth.managed_auto(args)
   end
 end
 

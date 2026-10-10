@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 592,
-  "examples_sha256": "c81b2b140bd7eb1d6994e62fc17a2c48b2a96504f735be52dc1cff21b9c6105b",
+  "example_count": 611,
+  "examples_sha256": "0e2b4ebac078eb64823c45d2832d7c6bf86789e26aa6af802cbe76c3306964df",
   "spec_inventory": "complete",
   "spec_files": [
     "spec/lib/toybaco/ai_inbox_status_spec.rb",
@@ -41,6 +41,7 @@
     "spec/lib/toybaco/ops_digest_spec.rb",
     "spec/lib/toybaco/ops_e2e_captcha_spec.rb",
     "spec/lib/toybaco/ops_e2e_consent_spec.rb",
+    "spec/lib/toybaco/ops_e2e_growth_spec.rb",
     "spec/lib/toybaco/ops_flag_spec.rb",
     "spec/lib/toybaco/ops_rake_audit_spec.rb",
     "spec/lib/toybaco/ops_store_index_spec.rb",

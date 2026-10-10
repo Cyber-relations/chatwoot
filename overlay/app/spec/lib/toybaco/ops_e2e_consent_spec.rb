@@ -11,7 +11,8 @@ Rails.application.load_tasks unless Rake::Task.task_defined?('toybaco:legal_cons
 # 先頭 5 件の外の一致した店舗も)、確認と選んだ店舗だけの有効化(1 transaction)、削除の範囲(対象の店舗と、その店舗にだけ所属する E2E 用の
 # 利用者と、所属が無くなった契約者。契約者が一致した店舗の外にも所属すれば削除しない。先頭 5 件の外の一致した店舗にも所属する利用者・契約者
 # は消さずに数え、次の呼び出しで消す)と、確認の上限・削除の 1 回 5 件と残りの件数、commit 後にだけ送る job、削除の取り消し(rollback で
-# job も残さない)を確かめる。
+# job も残さない)を確かめる。削除は、消した店舗の体験(identity を含む)と自動応答の記録も消して件数を次の行に出し、E2E 以外の店舗の
+# 同じ記録は残すことも確かめる。
 # 別の接続の割り込みは、transactional fixtures の行が別の接続から見えないため、選んだ後に同じ接続で行を書き換えて表す(選んだ object は
 # 古い値のまま)。
 # Postiz の DB は外部の境界として PostizSync をスタブし(postiz_lifecycle_spec と同じ)、削除で無効化が呼ばれることを確かめる。
@@ -88,6 +89,37 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
 
   def phase(account)
     account.reload.internal_attributes.dig('toybaco_growth_registration', 'phase')
+  end
+
+  # 削除の出力の 2 行(店舗・利用者の件数の行と、消した体験と自動応答の記録の件数の行)。
+  def purged(prefix, counts, growth = 'trials=0 identities=0 installations=0')
+    ["TOYBACO_E2E_PURGE prefix=#{prefix} #{counts}", "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} #{growth}"]
+  end
+
+  # 店舗に FK を持たない体験(identity を含む)と自動応答の記録(設置・切り替え・要求)を 1 組ずつ作り、id を返す。
+  def growth_records(account)
+    trial = Toybaco::GrowthTrial.create!(account_id: account.id, facts_revision: 'fixture', example_id: 1, starts_at: Time.now.utc,
+                                         ends_at: 14.days.from_now)
+    identity = trial.identities.create!(provider: 'imap', identity_digest: SecureRandom.hex(32))
+    { trial: trial.id, identity: identity.id }.merge(auto_records(account))
+  end
+
+  # 設置の bot と受信箱は実在しない id にする(bot の削除の検査に当たらない)。要求は終わった状態(cancelled)にする。
+  def auto_records(account)
+    installation = Toybaco::GrowthAutoInstallation.create!(account_id: account.id, inbox_id: 900_000 + account.id, bot_id: 900_000 + account.id,
+                                                           actor_id: 1, request_id: SecureRandom.uuid, epoch: SecureRandom.uuid, state: 'stopped')
+    command = Toybaco::GrowthAutoCommand.create!(account_id: account.id, installation_id: installation.id, actor_id: 1,
+                                                 request_id: SecureRandom.uuid, request_hash: 'fixture')
+    request = Toybaco::GrowthAutoRequest.create!(account_id: account.id, inbox_id: installation.inbox_id, installation_id: installation.id,
+                                                 generation: 1, epoch: installation.epoch, message_id: 1, conversation_id: 1,
+                                                 enqueue_after: Time.now.utc, state: 'cancelled', terminal_at: Time.now.utc)
+    { installation: installation.id, command: command.id, request: request.id }
+  end
+
+  def growth_counts(ids)
+    [Toybaco::GrowthTrial.where(id: ids[:trial]), Toybaco::GrowthTrialIdentity.where(id: ids[:identity]),
+     Toybaco::GrowthAutoInstallation.where(id: ids[:installation]), Toybaco::GrowthAutoCommand.where(id: ids[:command]),
+     Toybaco::GrowthAutoRequest.where(id: ids[:request])].map(&:count)
   end
 
   describe 'toybaco:legal_consents_by_name' do
@@ -336,7 +368,7 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
         :revoked
       end
       expect(run!('e2e_purge_accounts', 'e2e-consent-r201-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r201- accounts=2 users=2 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r201-', 'accounts=2 users=2 skipped_users=0 remaining=0'))
       expect([store, other_store, inbox].map { |record| record.class.exists?(record.id) }).to eq([false, false, false])
       expect(User.where(id: [owner, other_owner, staff, admin].map(&:id)).pluck(:id)).to contain_exactly(staff.id, admin.id)
       expect(AccountUser.where(user_id: [staff, admin].map(&:id)).pluck(:account_id)).to eq([kept_account.id])
@@ -354,17 +386,41 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       create(:agent_bot_inbox, account: store, inbox: inbox, agent_bot: bot)
       installation = Toybaco::GrowthAutoInstallation.create!(account_id: store.id, inbox_id: inbox.id, bot_id: bot.id, actor_id: owner.id,
                                                              request_id: SecureRandom.uuid, epoch: SecureRandom.uuid, state: 'stopped')
+      invalidated = []
+      allow(Toybaco::Growth::ManagedAuto).to receive(:invalidate!).and_wrap_original do |original, account_id, **options|
+        invalidated << [account_id, Account.exists?(account_id)]
+        original.call(account_id, **options)
+      end
       queue_adapter.enqueued_jobs.clear
       expect(run!('e2e_purge_accounts', 'e2e-consent-r206-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r206-1 accounts=1 users=1 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r206-1', 'accounts=1 users=1 skipped_users=0 remaining=0', 'trials=0 identities=0 installations=1'))
       # 所属の削除の後始末(Agents::DestroyJob)は transaction の中で積まれ、commit の後に送られる(owner と staff の 2 件)。
       expect(Agents::DestroyJob).to have_been_enqueued.exactly(2).times
       expect { perform_enqueued_jobs }.not_to raise_error
       expect([Account.exists?(store.id), User.exists?(owner.id), User.exists?(staff.id)]).to eq([false, false, true])
       expect([AccountUser, AgentBotInbox, AgentBot].map { |model| model.where(account_id: store.id).count }).to eq([0, 0, 0])
       expect(AccountUser.where(user_id: [owner.id, staff.id]).count).to eq(0)
-      # 自動応答の設置記録は店舗を消しても残る(trial と同じく再発行を防ぐ記録)。店舗が残っているうちに無効化されている。
-      expect(installation.reload.generation).to be > 1
+      # 自動応答の設置記録は、店舗が残っているうちに無効化され(割り当て・bot・店舗の削除の検査)、店舗を消した後に E2E の店舗の分として消える。
+      expect([invalidated.uniq, Toybaco::GrowthAutoInstallation.exists?(installation.id)]).to eq([[[store.id, true]], false])
+    end
+
+    it '店舗を消した後に、E2E の店舗の体験(identity を含む)と自動応答の記録(設置・切り替え・要求)を消して件数を次の行に出し、E2E 以外の店舗の同じ記録は残す' do
+      _, store = register('r241-1')
+      kept_store = create(:account, name: '残す店舗')
+      ids = [store, kept_store].index_with { |account| growth_records(account) }
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r241-1'))
+        .to eq(purged('e2e-consent-r241-1', 'accounts=1 users=1 skipped_users=0 remaining=0', 'trials=1 identities=1 installations=1'))
+      expect(growth_counts(ids.fetch(store))).to eq([0, 0, 0, 0, 0])
+      expect(growth_counts(ids.fetch(kept_store))).to eq([1, 1, 1, 1, 1])
+      expect([Account.exists?(store.id), Account.exists?(kept_store.id)]).to eq([false, true])
+    end
+
+    it '体験と自動応答の記録が無い店舗だけを消すときも、件数 0 の行を出す(一致が 0 件の再実行も同じ)' do
+      register('r242-1')
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r242-1').last)
+        .to eq('TOYBACO_E2E_PURGE_GROWTH prefix=e2e-consent-r242-1 trials=0 identities=0 installations=0')
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r242-1'))
+        .to eq(purged('e2e-consent-r242-1', 'accounts=0 users=0 skipped_users=0 remaining=0'))
     end
 
     it '店舗の契約者が E2E の利用者でないかほかの店舗にも所属すれば、店舗を消す前に abort して何も消さない' do
@@ -400,7 +456,7 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
         original.call(*arguments).tap { create(:account_user, account: elsewhere, user: member, role: :agent) }
       end
       expect(run!('e2e_purge_accounts', 'e2e-consent-r209-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r209-1 accounts=1 users=1 skipped_users=1 remaining=0'])
+        .to eq(purged('e2e-consent-r209-1', 'accounts=1 users=1 skipped_users=1 remaining=0'))
       expect([Account.exists?(store.id), User.exists?(owner.id), User.exists?(member.id)]).to eq([false, false, true])
       expect(AccountUser.where(user_id: member.id).pluck(:account_id)).to eq([elsewhere.id])
     end
@@ -426,7 +482,7 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       owner, store = register('r211-1')
       AccountUser.find_by!(account: store, user: owner).destroy!
       expect(run!('e2e_purge_accounts', 'e2e-consent-r211-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r211-1 accounts=1 users=1 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r211-1', 'accounts=1 users=1 skipped_users=0 remaining=0'))
       expect([Account.exists?(store.id), User.exists?(owner.id)]).to eq([false, false])
     end
 
@@ -473,9 +529,9 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
     it '一致する店舗が無ければ何も消さずに 0 件を出す(後片付けの再実行も正常に終わり、監査行は ok)' do
       _, store = register('r203-1')
       expect(run!('e2e_purge_accounts', 'e2e-consent-r203-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=1 users=1 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r203-1', 'accounts=1 users=1 skipped_users=0 remaining=0'))
       expect(run!('e2e_purge_accounts', 'e2e-consent-r203-1'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r203-1 accounts=0 users=0 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r203-1', 'accounts=0 users=0 skipped_users=0 remaining=0'))
       expect(Account.exists?(store.id)).to be(false)
       expect(new_rows.pluck(:action, :result)).to eq([%w[rake.toybaco:e2e_purge_accounts started], %w[rake.toybaco:e2e_purge_accounts ok]] * 2)
     end
@@ -483,10 +539,10 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
     it '一致する店舗が 5 件を超えれば id の順の先頭 5 件だけを消して残りの件数を出し、繰り返せば全て消せる' do
       stores = (1..7).map { |index| create(:account, name: "e2e-consent-r231-#{index}") }
       expect(run!('e2e_purge_accounts', 'e2e-consent-r231-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r231- accounts=5 users=0 skipped_users=0 remaining=2'])
+        .to eq(purged('e2e-consent-r231-', 'accounts=5 users=0 skipped_users=0 remaining=2'))
       expect(Account.where(id: stores.map(&:id)).order(:id).pluck(:id)).to eq(stores.last(2).map(&:id))
       expect(run!('e2e_purge_accounts', 'e2e-consent-r231-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r231- accounts=2 users=0 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r231-', 'accounts=2 users=0 skipped_users=0 remaining=0'))
       expect(Account.where(id: stores.map(&:id)).count).to eq(0)
     end
 
@@ -500,12 +556,12 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       user_ids = [*owners, last_owner].map(&:id)
       account_ids = [*stores, sixth, seventh].map(&:id)
       expect(run!('e2e_purge_accounts', 'e2e-consent-r232-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r232- accounts=5 users=4 skipped_users=1 remaining=2'])
+        .to eq(purged('e2e-consent-r232-', 'accounts=5 users=4 skipped_users=1 remaining=2'))
       expect(Account.where(id: account_ids).order(:id).pluck(:id)).to eq([sixth.id, seventh.id])
       expect(User.where(id: user_ids).order(:id).pluck(:id)).to eq([shared.id, last_owner.id])
       expect(AccountUser.where(user_id: shared.id).pluck(:account_id)).to eq([sixth.id])
       expect(run!('e2e_purge_accounts', 'e2e-consent-r232-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r232- accounts=2 users=2 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r232-', 'accounts=2 users=2 skipped_users=0 remaining=0'))
       expect([Account.where(id: account_ids).count, User.where(id: user_ids).count]).to eq([0, 0])
       expect(AccountUser.where(account_id: account_ids).or(AccountUser.where(user_id: user_ids)).count).to eq(0)
     end
@@ -515,10 +571,10 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       member = create(:user, email: 'qa+e2e-consent-r233-member@example.com', account: stores[1], role: :agent)
       create(:account_user, account: stores.last, user: member, role: :agent)
       expect(run!('e2e_purge_accounts', 'e2e-consent-r233-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r233- accounts=5 users=0 skipped_users=1 remaining=1'])
+        .to eq(purged('e2e-consent-r233-', 'accounts=5 users=0 skipped_users=1 remaining=1'))
       expect([User.exists?(member.id), AccountUser.where(user_id: member.id).pluck(:account_id)]).to eq([true, [stores.last.id]])
       expect(run!('e2e_purge_accounts', 'e2e-consent-r233-'))
-        .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-r233- accounts=1 users=1 skipped_users=0 remaining=0'])
+        .to eq(purged('e2e-consent-r233-', 'accounts=1 users=1 skipped_users=0 remaining=0'))
       expect([Account.where(id: stores.map(&:id)).count, User.exists?(member.id)]).to eq([0, false])
     end
 
@@ -573,7 +629,7 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       allow(Account).to receive(:exists?).with(id: [store.id]).and_return(true)
       # 会話の関連を消すときに初めて読む model の非推奨警告が abort の文に混ざらないよう、警告を止めて実行する。
       expect(Rails.application.deprecators.silence { refusal('e2e_purge_accounts', 'e2e-consent-r205-1') })
-        .to eq('prefix=e2e-consent-r205-1 の削除を読み直すと店舗・利用者・所属・bot が残っているため、削除を取り消します。')
+        .to eq('prefix=e2e-consent-r205-1 の削除を読み直すと店舗・利用者・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。')
       # 所属の削除の Agents::DestroyJob・destroy_async の削除・イベントの配信は commit の後にだけ送るため、rollback では残らない。
       # 残るのは、削除の前に Postiz で外した所属を戻す PostizMembershipJob(overlay の after_rollback が積む、戻すための job)だけ。
       expect(queue_adapter.enqueued_jobs.map { |job| [job[:job], job['arguments']] }).to eq([[Toybaco::PostizMembershipJob, [owner.id, store.id]]])
