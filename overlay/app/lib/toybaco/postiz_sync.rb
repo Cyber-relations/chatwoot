@@ -20,6 +20,27 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
   POSTIZ_ADVISORY_LOCK_NAMESPACE = 1_415_139_403
   CHATWOOT_USER_LOCK_NAMESPACE = 1_415_139_404
   CHATWOOT_ACCOUNT_LOCK_NAMESPACE = 1_415_139_405
+  # release_identity! の 1 文。本人の無効な行で、有効な所属(deactivate_user_without_memberships! と同じ判定)が無い時だけ、
+  # email を <local>+released-<unix 秒>-<chatwoot user id>@<domain> にする(同じ秒に別の user が同じメールを解放しても、
+  # user id で一意になる)。user id は $3 の bind で渡す。
+  RELEASE_IDENTITY_SQL = <<~SQL.squish.freeze
+    UPDATE "User"
+       SET email = CASE WHEN strpos(email, '@') > 0
+                        THEN regexp_replace(email, '@([^@]*)$',
+                                            '+released-' || floor(extract(epoch FROM now()))::bigint || '-' || $3::bigint || '@\\1')
+                        ELSE email || '+released-' || floor(extract(epoch FROM now()))::bigint END,
+           "updatedAt" = NOW()
+     WHERE "providerName" = 'GENERIC'::"Provider" AND "providerId" = $1 AND id = $2 AND activated = false
+       AND NOT EXISTS (
+         SELECT 1
+           FROM "UserOrganization" uo
+           JOIN "Organization" o ON o.id = uo."organizationId"
+          WHERE uo."userId" = "User".id
+            AND uo.disabled = false
+            AND o."deletedAt" IS NULL
+       )
+    RETURNING "providerId"
+  SQL
 
   class Error < StandardError; end
   class NotConfigured < Error; end
@@ -135,6 +156,32 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
         end
       end
       :disabled
+    end
+
+    # Chatwoot user(user_id)本人の GENERIC 行(providerId cw:<id> かつ決定的 id)が無効(activated=false)で、有効な所属
+    # (deactivate_user_without_memberships! と同じ判定)が無い時だけ、email を <local>+released-<unix 秒>-<user_id>@<domain>
+    # に 1 回書き換えて email の一意性から外す。所属の条件も同じ 1 文に入れるので、呼び出し側の判定の後に旧 user の同期が所属を
+    # 戻しても、有効な所属が付いた行は書き換えない。返り値は解放した行の providerId(cw:<id>)、該当が無ければ nil。
+    # transaction は開かず 1 文の UPDATE だけを流すので、呼び出し側の transaction の中ではその一部になり、単独なら 1 文で
+    # 確定する。行の削除や id の付け替えはしない。同期 role の列権限(User の email と updatedAt の UPDATE)の範囲で書く。
+    def release_identity!(user_id:)
+      require_configuration!
+
+      exec(RELEASE_IDENTITY_SQL, [provider_id_for(user_id), deterministic_user_id(user_id), Integer(user_id)]).first&.fetch('providerId')
+    end
+
+    # 運用の手当て(ops-rake toybaco:postiz_identity_release)。削除済みの Chatwoot user に結び付いた GENERIC 行が同じ email の
+    # まま残り、user の同期(ensure_user)を IdentityConflict で止めている時に、その行を release_identity! で解放する。
+    # user の identity lock と 1 つの Postiz transaction の中で、同期と同じ条件の email の行を FOR UPDATE で引き、持ち主の
+    # Chatwoot user が存在せず、行に有効な所属が無い時だけ、有効なら無効にしてから解放する。ensure_user と sync! は変えない。
+    # 投稿(Post)は organization に属し利用者を指さないため、利用者の email の解放では変わらない。
+    # 返り値は state(released / no-conflict / refused)と reason、旧行の Postiz id、providerId から逆算した旧 Chatwoot user id。
+    def release_conflicting_identity!(user:)
+      require_configuration!
+
+      with_chatwoot_identity_locks(user_id: user.id) do
+        with_transaction { release_conflicting_user(user) }
+      end
     end
 
     def organization_id_for(account)
@@ -332,6 +379,67 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
         SQL
         [provider_id]
       )
+    end
+
+    # 同期と同じ条件(email と GENERIC)で行を引く。行が無いか、この user 自身の行なら衝突は無い。
+    def release_conflicting_user(user)
+      row = query_one(
+        <<~SQL.squish,
+          SELECT id, "providerId", activated
+            FROM "User"
+           WHERE email = $1 AND "providerName" = 'GENERIC'::"Provider"
+           FOR UPDATE
+        SQL
+        [user.email]
+      )
+      return { state: 'no-conflict', reason: 'none' } unless row
+      return { state: 'no-conflict', reason: 'same-user' } if row.fetch('providerId') == provider_id_for(user.id)
+
+      release_or_refuse(row)
+    end
+
+    def release_or_refuse(row)
+      postiz_user_id = row.fetch('id')
+      owner = release_owner_id(row)
+      result = { postiz_user_id: postiz_user_id, chatwoot_user_id: owner }
+      reason = release_refusal(postiz_user_id, owner)
+      return result.merge(state: 'refused', reason: reason) if reason
+
+      # 有効な所属が無いことは確かめたので、有効な行は既存の判定で無効にしてから解放する。release_identity! も同じ所属の
+      # 条件で書くので、判定の後に所属が戻れば 0 行になり、IdentityConflict で transaction ごと戻す。
+      deactivate_user_without_memberships!(owner) if ActiveModel::Type::Boolean.new.cast(row.fetch('activated'))
+      raise IdentityConflict, 'Postiz user の解放が競合しました' unless release_identity!(user_id: owner) == provider_id_for(owner)
+
+      result.merge(state: 'released', reason: 'none')
+    end
+
+    # providerId(provider_id_for の形 cw:<id>)から逆算した旧 Chatwoot user id。形が違うか、行の id が決定的 id でなければ
+    # 持ち主を確かめられないので nil。
+    def release_owner_id(row)
+      match = row.fetch('providerId').to_s.match(/\Acw:([1-9]\d*)\z/)
+      owner = match && Integer(match[1], 10)
+      owner if owner && row.fetch('id') == deterministic_user_id(owner)
+    end
+
+    def release_refusal(postiz_user_id, owner)
+      return 'unknown-owner' unless owner
+      return 'old-user-exists' if User.unscoped.exists?(id: owner)
+
+      'old-user-has-memberships' if active_membership?(postiz_user_id)
+    end
+
+    # 有効な所属(deactivate_user_without_memberships! と同じ判定)。削除で disabled になった所属は数えない。
+    def active_membership?(postiz_user_id)
+      query_one(
+        <<~SQL.squish,
+          SELECT uo."userId"
+            FROM "UserOrganization" uo
+            JOIN "Organization" o ON o.id = uo."organizationId"
+           WHERE uo."userId" = $1 AND uo.disabled = false AND o."deletedAt" IS NULL
+           LIMIT 1
+        SQL
+        [postiz_user_id]
+      ).present?
     end
 
     def ensure_membership(postiz_user_id, organization_id, role)

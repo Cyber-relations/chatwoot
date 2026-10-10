@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 574,
-  "examples_sha256": "262e02e1da5f19d70d334ea960ae8fd8e94289f1c22d62fecf21964ba8543cf9",
+  "example_count": 588,
+  "examples_sha256": "f540d0f50ca52edab2bf6914daaf454374b37479d02c34bd0b6697bc3f33c45d",
   "spec_files": [
     "spec/lib/toybaco/ai_inbox_status_spec.rb",
     "spec/lib/toybaco/ai_usage_database_spec.rb",
@@ -44,6 +44,7 @@
     "spec/lib/toybaco/ops_rake_audit_spec.rb",
     "spec/lib/toybaco/ops_store_index_spec.rb",
     "spec/lib/toybaco/postgres_health_spec.rb",
+    "spec/lib/toybaco/postiz_identity_release_spec.rb",
     "spec/lib/toybaco/postiz_sync_database_spec.rb",
     "spec/lib/toybaco/postiz_sync_spec.rb",
     "spec/lib/toybaco/renewal_report_rake_spec.rb",
