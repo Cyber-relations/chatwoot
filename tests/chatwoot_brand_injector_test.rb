@@ -233,8 +233,8 @@ class ChatwootBrandInjectorTest < Minitest::Test
 
   # S0-2(2026-10-06): トイバコ独自の画面は --toybaco-* トークンだけで色を書く。SPA の中は .dark に従う。
   # 単独画面は <html data-toybaco-theme="system"> で OS の設定に従い、ご契約内容の iframe で開く画面は親のテーマ
-  # (dark / light)を受け取る。どちらのダークも .dark と同じ値にする。ブランドの CSS は画面自身で読み込む
-  # (エラー応答には差し込みが無い)。
+  # (dark / light)を受け取る。SPA から開く登録ページ・体験ページも SPA のテーマを受け取る(段 1a 追補)。どちらの
+  # ダークも .dark と同じ値にする。ブランドの CSS は画面自身で読み込む(エラー応答には差し込みが無い)。
   STANDALONE_PAGES = %w[
     toybaco/billing/show toybaco/checkout/confirm toybaco/checkout/error toybaco/growth/held toybaco/growth/inbox_release
     toybaco/growth/posting_release toybaco/growth/retention toybaco/growth/purchase toybaco/growth/packs toybaco/growth/trial
@@ -243,6 +243,7 @@ class ChatwootBrandInjectorTest < Minitest::Test
   ].map { |name| "app/views/#{name}.html.erb" }.freeze
   FRAMED_PAGES = %w[billing/show growth/held growth/inbox_release growth/posting_release growth/retention]
                  .map { |name| "app/views/toybaco/#{name}.html.erb" }.freeze
+  SPA_THEMED_PAGES = %w[managed_auto/show growth/trial].map { |name| "app/views/toybaco/#{name}.html.erb" }.freeze
   TOKEN_SHEETS = %w[
     public/brand-assets/toybaco-pointer-guide.css public/brand-assets/toybaco-managed-auto.css
     public/brand-assets/toybaco-growth-purchase.css public/brand-assets/toybaco-growth-trial.css
@@ -306,14 +307,15 @@ class ChatwootBrandInjectorTest < Minitest::Test
   def test_standalone_pages_load_the_brand_and_colour_their_own_styles_with_tokens
     STANDALONE_PAGES.each do |path|
       page = overlay_file(path)
-      theme = FRAMED_PAGES.include?(path) ? '<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>' : 'system'
+      theme = (FRAMED_PAGES + SPA_THEMED_PAGES).include?(path) ? '<%= Toybaco::BrandInjector.page_theme(@toybaco_theme) %>' : 'system'
       assert_includes(page, %(<html lang="ja" data-toybaco-theme="#{theme}">), path)
       assert_includes(page, %(<link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">), path)
       styles = page.scan(%r{<style[^>]*>(.*?)</style>}m).flatten.join("\n")
       refute_match(COLOR_LITERAL, styles, "#{path} colours its own styles with tokens")
     end
     # 同じ iframe の中でたどる導線はテーマを引き継ぐ(target="_top" で SPA の外へ出る導線は OS の設定に従う)。
-    FRAMED_PAGES.each do |path|
+    # 体験ページからご契約内容へ進む導線も引き継ぐ。
+    (FRAMED_PAGES + %w[app/views/toybaco/growth/trial.html.erb]).each do |path|
       links = overlay_file(path).scan(/<a\b(?:<%.*?%>|[^<>])*>/m).grep(%r{href="/toybaco/}).grep_v(/target="_top"/)
       refute_empty(links, path)
       links.each { |link| assert_includes(link, '<%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>', "#{path}: #{link}") }

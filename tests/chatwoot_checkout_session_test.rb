@@ -276,32 +276,36 @@ class ChatwootCheckoutSessionTest < Minitest::Test
     refute_includes client.lookups, 'opt-store'
   end
 
+  # The application link of every button a page marks for a plan, in any attribute order. The promoted pages
+  # (2026-10-10) repeat some buttons; each one is checked.
+  def lp_plan_links(html, plan)
+    html.scan(/<a\b[^>]*\bdata-lp-plan-link="#{plan}"[^>]*>/).map { |tag| tag[/\shref="([^"]*)"/, 1] }
+  end
+
   def test_lp_plan_buttons_preserve_selected_plan_to_signup_or_checkout
     index_path = File.join(ROOT, 'site/index.html')
     pricing_path = File.join(ROOT, 'site/pricing/index.html')
     skip 'site HTML はこの品質スナップショットに含まれない' unless File.file?(index_path) && File.file?(pricing_path)
 
+    # Since the promotion the home and pricing pages both link the application directly, as production does.
     [index_path, pricing_path].each do |path|
       html = File.read(path)
       %w[free light standard pro].each do |plan|
-        href = html[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
-        refute_nil href, "#{path}: #{plan} has a plan link"
-        uri = URI.parse(CGI.unescapeHTML(href))
-        if path == index_path
-          assert_equal 'app.toybaco.jp', uri.host
+        hrefs = lp_plan_links(html, plan)
+        refute_empty hrefs, "#{path}: #{plan} has a plan button"
+        hrefs.each do |href|
+          refute_nil href, "#{path}: every #{plan} button has a link"
+          uri = URI.parse(CGI.unescapeHTML(href))
+          assert_equal %w[https app.toybaco.jp], [uri.scheme, uri.host]
           if plan == 'free'
             assert_equal '/toybaco/free/signup', uri.path
             assert_nil uri.query
           else
             assert_equal '/toybaco/checkout', uri.path
-            assert_equal({ 'plan' => plan, 'version' => '2026-09-25.1', 'cycle' => 'month' }, URI.decode_www_form(uri.query).to_h)
+            query = URI.decode_www_form(uri.query).to_h
+            assert_equal({ 'plan' => plan, 'version' => VERSION, 'cycle' => 'month' }, query)
+            assert_equal VERSION, Toybaco::Checkout::Catalog.sale(query['plan'], query['cycle'], version: query['version'])['plan_version']
           end
-        else
-          assert_equal '/signup/', uri.path
-          assert_nil uri.host
-          expected = { 'plan' => plan, 'version' => '2026-09-25.1' }
-          expected['cycle'] = 'month' unless plan == 'free'
-          assert_equal expected, URI.decode_www_form(uri.query).to_h
         end
       end
     end
@@ -320,25 +324,37 @@ class ChatwootCheckoutSessionTest < Minitest::Test
 
     signup = File.read(signup_path)
     %w[free light standard pro].each do |plan|
-      href = signup[/data-lp-plan-link="#{plan}" href="([^"]+)"/, 1]
-      refute_nil href, "signup: #{plan} has a plan link"
-      uri = URI.parse(CGI.unescapeHTML(href))
-      assert_equal %w[https app.toybaco.jp], [uri.scheme, uri.host]
-      if plan == 'free'
-        # The free registration opens by the catalog's free_registration_version, not by a query.
-        assert_equal ['/toybaco/free/signup', nil], [uri.path, uri.query]
-        next
+      hrefs = lp_plan_links(signup, plan)
+      refute_empty hrefs, "signup: #{plan} has a plan button"
+      hrefs.each do |href|
+        refute_nil href, "signup: every #{plan} button has a link"
+        uri = URI.parse(CGI.unescapeHTML(href))
+        assert_equal %w[https app.toybaco.jp], [uri.scheme, uri.host]
+        if plan == 'free'
+          # The free registration opens by the catalog's free_registration_version, not by a query.
+          assert_equal ['/toybaco/free/signup', nil], [uri.path, uri.query]
+          next
+        end
+        assert_equal '/toybaco/checkout', uri.path
+        query = URI.decode_www_form(uri.query).to_h
+        assert_equal({ 'plan' => plan, 'version' => VERSION, 'cycle' => 'month' }, query)
+        # The checkout accepts exactly this version for the linked plan and cycle.
+        assert_equal VERSION, Toybaco::Checkout::Catalog.sale(query['plan'], query['cycle'], version: query['version'])['plan_version']
       end
-      assert_equal '/toybaco/checkout', uri.path
-      query = URI.decode_www_form(uri.query).to_h
-      assert_equal({ 'plan' => plan, 'version' => VERSION, 'cycle' => 'month' }, query)
-      # The checkout accepts exactly this version for the linked plan and cycle.
-      assert_equal VERSION, Toybaco::Checkout::Catalog.sale(query['plan'], query['cycle'], version: query['version'])['plan_version']
     end
     free = Toybaco::PlanCatalog.default.definition('free', Toybaco::PlanCatalog.default.data.fetch('free_registration_version'))
     assert_equal [VERSION, true, {}], [free['plan_version'], free['sellable'], free['cycles']]
-    assert_includes(signup, '/assets/lp-candidate.js?')
-    assert_includes(signup, 'data-lp-cycle="year"')
+    # The promoted signup page switches the paid links to annual billing: signup-page.js rebuilds each entry link from
+    # data-entry-url with cycle=year when the year button is chosen.
+    assert_includes(signup, '<script src="/assets/service-redesign/assets/signup-page.js?')
+    assert_includes(signup, 'data-signup-cycle="year"')
+    %w[light standard pro].each do |plan|
+      tags = signup.scan(/<a\b[^>]*\bdata-signup-entry="#{plan}"[^>]*>/)
+      assert_equal 1, tags.size, "signup: #{plan} has one annual-switching entry link"
+      assert_equal tags.first[/\sdata-entry-url="([^"]*)"/, 1], tags.first[/\shref="([^"]*)"/, 1], "signup: #{plan} switches the linked checkout"
+    end
+    script = File.read(File.join(ROOT, 'site/assets/service-redesign/assets/signup-page.js'))
+    assert_includes(script, "url.searchParams.set('cycle', cycle);")
     refute_includes(signup, 'SNS 投稿機能はありません')
     refute_includes(signup, 'buy.stripe.com')
     refute_includes(signup, '/contact/?topic=service')

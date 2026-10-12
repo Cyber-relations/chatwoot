@@ -68,6 +68,15 @@ module ToybacoManagedAutoCases
     Toybaco::LegalTerms.records(@account.reload)
   end
 
+  # Account#destroy! removes email channels with destroy_async, which the test queue never runs, so a run leaves its
+  # Channel::Email rows behind. The gate runs the runtime tests in new processes on the same database, where the
+  # channel_email factory sequence restarts at care-1. Per-test addresses keep the uniqueness independent of run order.
+  def unique_email_inbox
+    token = SecureRandom.hex(8)
+    create(:channel_email, account: @account, email: "care-#{token}@example.com",
+                           forward_to_email: "forward-#{token}@chatwoot.com").inbox
+  end
+
   def incoming(content: '営業時間は？')
     conversation = create(:conversation, account: @account, inbox: @inbox, status: :pending)
     message = create(:message, account: @account, inbox: @inbox, conversation: conversation,
@@ -150,6 +159,82 @@ module ToybacoManagedAutoCases
     assert_equal first, legal_consents, 'stopping needs no consent and records nothing'
     travel_to(Time.now.utc + 60) { switch('auto') }
     assert_equal 2, legal_consents.size, 'each explicit start keeps its own consent time'
+  end
+
+  # 段 2a: 一斉配信・自動送信・配信不能・noreply のメールには、窓口の自動応答が返信しない。受け付けず(AI の返信も課金も
+  # 無い)、会話を開いて担当者に渡し、理由を内部メモに 1 件残す(Lambda が予約を断られたときの引き継ぎと同じ形。2026-10-08 裁定)。
+  # 記録は内訳だけ。普通のお客さまのメールは従来どおり受け付ける。
+  def test_automated_mail_is_handed_to_staff_with_a_note_and_no_reply
+    @inbox = unique_email_inbox
+    switch('auto')
+    bot = AgentBot.find(install.bot_id)
+    logged = StringIO.new
+    handed_over = lambda do |conversation, message, kind|
+      assert_nil Requests.find_by(account_id: @account.id, message_id: message.id), kind
+      assert_equal 'open', conversation.reload.status, kind
+      notes = conversation.messages.where(private: true)
+      assert_equal [["AI返信は自動で送りません: #{Growth::AutomatedMail::NOTE_LABELS.fetch(kind)}と判定(kind: #{kind})", bot]],
+                   notes.map { |note| [note.content, note.sender] }, kind
+      assert notes.all?(&:outgoing?), kind
+      assert_empty conversation.messages.where(private: false, message_type: :outgoing), kind
+    end
+    { 'auto_submitted' => { 'auto_reply' => true }, 'bulk' => { 'headers' => { 'List-Unsubscribe' => '<mailto:leave@example.test>' } },
+      'bounce' => { 'from' => ['mailer-daemon@example.test'] }, 'noreply' => { 'from' => ['no-reply@example.test'] } }.each do |kind, email|
+      conversation = create(:conversation, account: @account, inbox: @inbox, status: :pending)
+      message = Rails.stub(:logger, ActiveSupport::Logger.new(logged)) do
+        create(:message, account: @account, inbox: @inbox, conversation: conversation, message_type: :incoming,
+                         private: false, content: 'お知らせ', content_attributes: { email: email })
+      end
+      # The bot event that follows finds the conversation already open and adds nothing.
+      assert_nil Ingress.receive(install.bot_id, { event: :message_created, id: message.id })
+      handed_over.call(conversation, message, kind)
+    end
+    assert_equal %w[auto_submitted bulk bounce noreply].map { |kind| "toybaco_managed_auto_skipped kind=#{kind}" },
+                 logged.string.lines.grep(/toybaco_managed_auto_skipped/).map(&:strip)
+    # A message saved into a resolved conversation is not admitted at save. Upstream reopens the conversation for the bot
+    # (pending) after commit, and the bot event (AgentBotListener runs synchronously) hands it over; it admits nothing,
+    # so no request is enqueued. A repeated event adds nothing.
+    conversation = create(:conversation, account: @account, inbox: @inbox, status: :pending)
+    conversation.resolved!
+    message = create(:message, account: @account, inbox: @inbox, conversation: conversation, message_type: :incoming,
+                               private: false, content: 'お知らせ', content_attributes: { email: { 'from' => ['noreply@example.test'] } })
+    handed_over.call(conversation, message, 'noreply')
+    assert_nil Ingress.receive(install.bot_id, { event: :message_created, id: message.id })
+    handed_over.call(conversation, message, 'noreply')
+    # Re-entry or redelivery of the same message (the conversation pending again) never adds a second note.
+    conversation.pending!
+    assert_nil Ingress.receive(install.bot_id, { event: :message_created, id: message.id })
+    handed_over.call(conversation, message, 'noreply')
+    assert_equal({ 'message_id' => message.id, 'kind' => 'noreply' },
+                 conversation.messages.find_by(private: true).content_attributes['toybaco_automated_mail'].to_h)
+    # admit itself takes only a public incoming message: the bot's own note in a pending conversation is not a request.
+    note = conversation.messages.find_by(private: true)
+    conversation.pending!
+    # (install.reload: the memoized row predates switch('auto'), and a stale non-auto state would return before admissible?)
+    assert_equal 'auto', install.reload.state
+    assert_nil Ingress.admit(@account, install, note)
+    assert_nil Requests.find_by(account_id: @account.id, message_id: note.id)
+    assert_equal 'pending', conversation.reload.status
+    conversation.open!
+    # A message saved into a snoozed conversation: upstream opens it after commit (not pending), so neither the save nor
+    # the bot event admits it. Staff find it open; no note, no reply and no request (the existing behavior, pinned).
+    conversation = create(:conversation, account: @account, inbox: @inbox, status: :pending)
+    conversation.snoozed!
+    message = create(:message, account: @account, inbox: @inbox, conversation: conversation, message_type: :incoming,
+                               private: false, content: 'お知らせ', content_attributes: { email: { 'auto_reply' => true } })
+    assert_nil Ingress.receive(install.bot_id, { event: :message_created, id: message.id })
+    assert_equal 'open', conversation.reload.status
+    assert_empty conversation.messages.where(private: true)
+    assert_empty conversation.messages.where(private: false, message_type: :outgoing)
+    assert_nil Requests.find_by(account_id: @account.id, message_id: message.id)
+    assert_equal 0, @grant.reload.used
+    assert_empty Operation.where(account_id: @account.id)
+    conversation = create(:conversation, account: @account, inbox: @inbox, status: :pending)
+    message = create(:message, account: @account, inbox: @inbox, conversation: conversation, message_type: :incoming,
+                               private: false, content: '営業時間は？', content_attributes: { email: { 'from' => ['customer@example.test'] } })
+    assert_equal 'queued', admit(message).state
+    assert_equal 'pending', conversation.reload.status
+    assert_empty conversation.messages.where(private: true)
   end
 
   def test_draft_routes_to_staff_without_model_request
@@ -644,6 +729,17 @@ unless ENV['TOYBACO_MANAGED_AUTO_LOCAL'] == 'true'
 
     def session_request
       Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @admin)) { yield }
+    end
+
+    # 段 1a 追補: SPA から開くときは、画面のテーマ(theme=dark|light)で描く。ほかの値と指定なしは OS の設定(system)。
+    def test_automatic_reply_page_follows_the_dashboard_theme
+      install
+      { 'dark' => 'dark', 'light' => 'light', 'system' => 'system', 'Dark' => 'system', 'sepia' => 'system', nil => 'system',
+        ['dark'] => 'system' }.each do |given, expected|
+        session_request { get '/toybaco/growth/automatic-replies', params: { account_id: @account.id, theme: given }.compact }
+        assert_response :success
+        assert_includes response.body, %(<html lang="ja" data-toybaco-theme="#{expected}">), given.inspect
+      end
     end
 
     def test_http_registration_rejects_cross_origin_then_registers_initial_draft

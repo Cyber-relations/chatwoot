@@ -28,6 +28,8 @@ const changeSource = read(`${javascript}/dashboard/routes/dashboard/settings/pro
 const signupSource = read(`${javascript}/v3/views/auth/signup/components/Signup/Form.vue`);
 const signup = JSON.parse(read(`${javascript}/dashboard/i18n/locale/ja/signup.json`));
 const securePasswordJa = read('overlay/app/config/locales/secure_password.ja.yml');
+// 無料登録(/toybaco/free/signup)は ERB の画面で、Vue の要件リストは載らない。入力欄の制約と案内文だけを規則に揃える。
+const freeSignupSource = read('overlay/app/app/views/toybaco/free_registrations/show.html.erb');
 
 const rules = await import(`data:text/javascript;base64,${Buffer.from(rulesSource).toString('base64')}`);
 // 生成物の vm 評価には、モックではなく実 helper をそのまま渡す。
@@ -377,6 +379,20 @@ test('Signup/Form.vue: 新規登録も同じ規則と inline の要件リスト(
   assert.match(signupSource,
     /\n {8}<FormInput\n {10}v-model="credentials\.password"[^<]*?aria-describedby="toybaco-password-requirements"[^<]*?\/>\n {8}<ToybacoPasswordRequirements :password="credentials\.password" \/>\n {6}<\/div>\n/);
   assert.doesNotThrow(() => new vm.Script(moduleBody(scriptOf(signupSource))));
+});
+
+test('無料登録(ERB): 入力欄の長さと案内文が規則の定義(6〜128 文字、英大小・数字・記号を各 1 文字以上、半角のみ)と同じ', () => {
+  const inputs = freeSignupSource.match(/<input id="password"[^>]*>/g);
+  assert.equal(inputs?.length, 1, 'one password input');
+  const [input] = inputs;
+  assert.ok(input.includes(` minlength="${rules.TOYBACO_PASSWORD_MIN_LENGTH}" `), input);
+  assert.ok(input.includes(` maxlength="${rules.TOYBACO_PASSWORD_MAX_LENGTH}" `), input);
+  assert.ok(input.includes(' aria-describedby="password-help" '), input);
+  const hint = `${rules.TOYBACO_PASSWORD_MIN_LENGTH}〜${rules.TOYBACO_PASSWORD_MAX_LENGTH}文字。` +
+    '英大文字・小文字・数字・記号を各1文字以上（半角のみ）。';
+  assert.equal(hint, '6〜128文字。英大文字・小文字・数字・記号を各1文字以上（半角のみ）。');
+  assert.equal(freeSignupSource.split(`<p id="password-help" class="hint">${hint}</p>`).length - 1, 1);
+  assert.doesNotMatch(freeSignupSource, /8\s*文字以上/, 'the old minimum of 8 is gone');
 });
 
 test('ToybacoPasswordRequirements.vue: 入力欄の下の静的リストで、状態を支援技術にも伝える', () => {

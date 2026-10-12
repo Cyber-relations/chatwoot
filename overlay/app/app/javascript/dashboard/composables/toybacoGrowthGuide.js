@@ -208,10 +208,23 @@ export function growthDecideLine(readiness, inboxId) {
   };
 }
 
-// 窓口の自動応答の登録ページ(Rails の単独ページ)。readiness がこの店舗の画面を返したときだけ使う。
+// 単独の Rails ページは SPA の外なので、今の画面のテーマを theme で渡す(ご契約内容の iframe と同じ判定:
+// ログイン後は body、ログイン前は html に .dark)。
+export function growthDashboardTheme() {
+  const dark = node => Boolean(node?.classList?.contains('dark'));
+  return typeof document !== 'undefined' &&
+    (dark(document.body) || dark(document.documentElement))
+    ? 'dark'
+    : 'light';
+}
+
+// 窓口の自動応答の登録ページ(Rails の単独ページ)。readiness がこの店舗の画面を返したときだけ使い、照合は theme を付ける前の
+// path で行う。
 export function growthAutoReplyPath(readiness, accountId) {
   const path = `/toybaco/growth/automatic-replies?account_id=${encodeURIComponent(accountId)}`;
-  return readiness?.managed_auto_path === path ? path : null;
+  return readiness?.managed_auto_path === path
+    ? `${path}&theme=${growthDashboardTheme()}`
+    : null;
 }
 
 function guidedInbox(state) {

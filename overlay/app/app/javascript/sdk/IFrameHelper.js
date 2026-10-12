@@ -51,7 +51,32 @@ const updateCampaignReadStatus = baseDomain => {
 
 export const IFrameHelper = {
   getUrl({ baseUrl, websiteToken }) {
-    return `${baseUrl}/widget?website_token=${websiteToken}`;
+    const frameBaseUrl = IFrameHelper.getFrameBaseUrl(baseUrl);
+    return `${frameBaseUrl}/widget?website_token=${websiteToken}`;
+  },
+  // トイバコ: http→https のリダイレクト後も iframe.src は書き換わらず、src 由来の origin と
+  // event.origin が食い違って loaded が捨てられる。開発ホスト以外の http は https にしてから
+  // iframe に渡す(createFrame と sdk.js の reset がこの getUrl を使う)。
+  // 文字列は置換せず、parse した URL を書き換えて serialize する。http の既定の :80 は
+  // parse の時点で落ち、:8080 などの明示の port は残る。末尾の / は getUrl の組み立てのため外す。
+  getFrameBaseUrl: baseUrl => {
+    let url;
+    try {
+      url = new URL(baseUrl);
+    } catch {
+      return baseUrl;
+    }
+    // DNS ルートの末尾の点(localhost. など)を落としてから判定する。
+    const host = url.hostname.replace(/\.$/, '');
+    const isDevelopmentHost =
+      host === 'localhost' ||
+      host === '[::1]' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.test');
+    if (url.protocol !== 'http:' || isDevelopmentHost) return baseUrl;
+    url.protocol = 'https:';
+    return url.href.replace(/\/$/, '');
   },
   createFrame: ({ baseUrl, websiteToken }) => {
     if (IFrameHelper.getAppFrame()) {
@@ -111,6 +136,12 @@ export const IFrameHelper = {
     );
   },
   initPostMessageCommunication: () => {
+    // トイバコ: listener は window に 1 つだけ持つ。sdk.js を読み直した別の IFrameHelper が
+    // init しても、前の listener を外してから登録する。
+    const previousListener = window.__toybacoChatwootSdkMessageListener;
+    if (previousListener) {
+      window.removeEventListener('message', previousListener);
+    }
     if (IFrameHelper.messageListener) {
       window.removeEventListener('message', IFrameHelper.messageListener);
     }
@@ -144,6 +175,7 @@ export const IFrameHelper = {
         IFrameHelper.events[message.event](message);
       }
     };
+    window.__toybacoChatwootSdkMessageListener = IFrameHelper.messageListener;
     window.addEventListener('message', IFrameHelper.messageListener);
   },
   initWindowSizeListener: () => {

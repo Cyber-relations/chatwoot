@@ -11,9 +11,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     class GmailParts
       MAX_ATTACHMENT_BYTES = 25_000_000
       MAX_PARTS = 1000
+      # 一斉配信・自動送信の見分けに使うヘッダー(Toybaco::MailPresenterHeaders が content_attributes に残すもの)も通す。
       HEADERS = %w[from to cc bcc reply-to subject date message-id in-reply-to references
                    content-type content-disposition content-id mime-version auto-submitted x-autoreply
-                   x-original-from x-original-sender x-forwarded-for x-failed-recipients].freeze
+                   x-original-from x-original-sender x-forwarded-for x-failed-recipients
+                   list-unsubscribe list-id precedence return-path x-auto-response-suppress].freeze
       attr_reader :omissions
 
       def initialize(api:, access_token:, data:, attachment_limit: MAX_ATTACHMENT_BYTES, attachment_count: 15)

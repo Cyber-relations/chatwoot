@@ -4,6 +4,7 @@ require_relative 'ai_ledger'
 require_relative 'store_facts'
 require_relative 'reply_result'
 require_relative 'bot_access'
+require_relative 'automated_mail'
 require_relative '../ai_reply_mode'
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
@@ -47,6 +48,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       def reserve_current
         return denied('facts_required') unless facts['confirmed']
         return denied('conversation_changed') unless current_conversation?
+        # 一斉配信・自動送信・配信不能・noreply のメールには自動で返信しない(予約しないので課金もしない)。
+        return denied(AutomatedMail::REASON) if AutomatedMail.reason(@message)
 
         mode = AiReplyMode.read_from(@account)
         return denied('trial_connection_unavailable') if mode == AiReplyMode::AUTO && !automatic_connection?

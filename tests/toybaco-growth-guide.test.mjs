@@ -587,6 +587,8 @@ const readinessAnswer = (body, status = 200) => async () =>
   ({ status, ok: status >= 200 && status < 300, redirected: false, json: async () => body });
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const managedPath = '/toybaco/growth/automatic-replies?account_id=1';
+// 段 1a 追補: the link opens the Rails page in the dashboard's theme (no .dark in these tests: light).
+const managedHref = `${managedPath}&theme=light`;
 const readinessBody = (extra = {}) =>
   ({ connection: 'unconnected', configured_inboxes: 0, total_inboxes: 1, live_verification: 'unverified', ...extra });
 const finished = (answer, extra = {}, routeName = undefined) => startScript(
@@ -626,14 +628,14 @@ test('the completion screen adds「AI返信を接続する」as the second next 
   // (a) The store can prepare the automatic reply and it is not answering yet: a link to the screen.
   const open = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath, managed_auto_registered: false })));
   await settle();
-  assert.deepEqual(plain(open.page.aiStep.value), { state: 'connect', href: managedPath });
+  assert.deepEqual(plain(open.page.aiStep.value), { state: 'connect', href: managedHref });
   assert.deepEqual(plain(open.requests), [{ url: '/toybaco/ai_readiness?account_id=1',
     options: { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } } }]);
   // A registered installation that is not answering, and a store whose connection is unknown, also lead to the screen.
   for (const extra of [{ managed_auto_registered: true }, { connection: 'unknown' }]) {
     const run = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath, ...extra })));
     await settle();
-    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath }, JSON.stringify(extra));
+    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedHref }, JSON.stringify(extra));
   }
   // (b) Already answering: the line says so, without a link.
   const connected = finished(readinessAnswer(readinessBody({ connection: 'configured', configured_inboxes: 1,
@@ -681,7 +683,7 @@ test('the completion screen adds「AI返信を接続する」as the second next 
   // state says otherwise, even before the read is dropped.
   const demoted = finished(readinessAnswer(readinessBody({ managed_auto_path: managedPath })));
   await settle();
-  assert.deepEqual(plain(demoted.page.aiStep.value), { state: 'connect', href: managedPath });
+  assert.deepEqual(plain(demoted.page.aiStep.value), { state: 'connect', href: managedHref });
   demoted.state.value = { ...demoted.state.value, administrator: false };
   assert.equal(demoted.page.aiStep.value, null);
   demoted.flush();
@@ -719,7 +721,7 @@ test('the completion screen reads the AI readiness once on arrival and drops an 
   assert.equal(run.requests.length, 1);
   answer(readinessBody({ managed_auto_path: managedPath }));
   await settle();
-  assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath });
+  assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedHref });
   // Leaving the completion step drops the line; coming back reads once more.
   run.state.value = { ...done, phase: 'connect' };
   run.flush();
@@ -775,7 +777,7 @@ test('saving the store facts on the completion screen reads the AI readiness onc
     assert.equal(run.requests.length, 2, `flushFirst=${flushFirst}: read once more after the save`);
     answer(readinessBody({ managed_auto_path: managedPath, managed_auto_registered: false }));
     await settle();
-    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedPath });
+    assert.deepEqual(plain(run.page.aiStep.value), { state: 'connect', href: managedHref });
     run.flush();
     assert.equal(run.requests.length, 2, 'only once');
   }
@@ -937,8 +939,8 @@ function tourHelpers() {
     .replace("import { ref } from 'vue';", 'const ref = (value) => ({ value });')
     .replace(/^export /gm, '');
   return runInNewContext(`${source}
-    ({ growthTourCard, growthTourProgress, growthDecideLine, growthAutoReplyPath, GROWTH_TOUR_REPLY_HINTS, growthUnderstanding,
-      growthFactQuestions, GROWTH_FACT_LABELS, GROWTH_FACT_ANSWERS });`);
+    ({ growthTourCard, growthTourProgress, growthDecideLine, growthAutoReplyPath, growthDashboardTheme, GROWTH_TOUR_REPLY_HINTS,
+      growthUnderstanding, growthFactQuestions, GROWTH_FACT_LABELS, GROWTH_FACT_ANSWERS });`);
 }
 const tourState = (phase, extra = {}) => ({
   phase, administrator: true, inboxes: [], facts: { confirmed: true }, pending: [],
@@ -1044,7 +1046,7 @@ test('the decide card shows the window’s AI reply as the server says and offer
   const open = decide(readiness('off'));
   assert.deepEqual([open.progress, open.title, open.body],
     ['お店の準備 4 / 4', 'この窓口の AI返信を決める', ['この窓口：AI返信 オフ', 'この窓口には AI が割り当てられていません']]);
-  assert.deepEqual(open.actions, [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedPath },
+  assert.deepEqual(open.actions, [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedHref },
     { id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'secondary' }]);
   assert.equal(open.note, '');
   // Store facts not confirmed: the reason and「店舗情報を開く」take the place of the automatic reply.
@@ -1059,7 +1061,7 @@ test('the decide card shows the window’s AI reply as the server says and offer
       [{ id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'primary' }], String(other));
     assert.equal(path({ managed_auto_path: other }, 1), null, String(other));
   }
-  assert.equal(path({ managed_auto_path: managedPath }, 1), managedPath);
+  assert.equal(path({ managed_auto_path: managedPath }, 1), managedHref);
   // No choice is named「下書き」: that is the state of a window (docs/ux-terms-20261006.md).
   for (const run of [open, unconfirmed]) assert(run.actions.every(({ label }) => !label.includes('下書き')));
   // The line is the composer bar's line for the guided window (toybaco-post-entry.js), with the reason as given.
@@ -1357,7 +1359,7 @@ test('the decide card reads the AI readiness for administrators, again when the 
   assert.equal(run.requests.length, 2);
   answer({ inboxes: [{ ...row, reason: 'この窓口には AI が割り当てられていません' }], managed_auto_path: managedPath });
   await settle();
-  assert.deepEqual(plain(run.page.tourCard.value.actions), [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedPath },
+  assert.deepEqual(plain(run.page.tourCard.value.actions), [{ id: 'open:managed_auto', label: '自動で返す', kind: 'primary', href: managedHref },
     { id: 'choose:draft_only', label: 'まずは返信案だけ使う', kind: 'secondary' }]);
   // Back from the automatic reply screen (a restored page): the guide and the readiness are read again. An answer for a
   // step the guide has left is dropped.
@@ -1451,7 +1453,7 @@ test('the tour card answers Escape with「あとで続ける」unless a dialog o
   tour.press({ target: { matches: () => false } });
   assert.equal(tour.emitted.length, 3);
   // A link goes by its own address; a button tells the guide.
-  tour.exposed.act({ id: 'open:managed_auto', href: managedPath });
+  tour.exposed.act({ id: 'open:managed_auto', href: managedHref });
   tour.exposed.act({ id: 'choose:draft_only' });
   assert.deepEqual(tour.emitted.slice(3), [['action', { id: 'choose:draft_only' }]]);
   tour.unmount();
@@ -1510,7 +1512,7 @@ test('the guide screen asks for the AI reply of the guided window and reads its 
   await settle();
   assert.equal(run.requests.length, 1);
   assert.deepEqual(plain(run.page.decideLine.value), { text: 'この窓口：AI返信 下書き', reason: '' });
-  assert.equal(run.page.autoReplyPath.value, managedPath);
+  assert.equal(run.page.autoReplyPath.value, managedHref);
   assert.equal(run.page.stepNumber.value, '4 / 4');
   // Staff see the note only and the page asks nothing.
   const staff = startScript(connectState({ phase: 'decide', inbox_id: 4, administrator: false }), (value) => value, undefined, readinessAnswer(body));
@@ -1837,4 +1839,32 @@ test('every industry pack has three to five questions, each on one of the seven 
   const generic = [...pack.slice(pack.indexOf('DEFAULT_AI_QUESTIONS = ['), pack.indexOf('].freeze', pack.indexOf('DEFAULT_AI_QUESTIONS = [')))
     .matchAll(/'field' => '([a-z]+)'/g)].map(([, field]) => field);
   assert.deepEqual(generic, ['hours', 'address', 'services', 'booking', 'cancellation']);
+});
+
+// 段 1a 追補(2026-10-08): the automatic reply screen and the trial page are Rails pages outside the SPA. A link from the
+// dashboard passes the dashboard's theme (theme=dark|light, the same check as the contract frame: .dark on body after
+// login, on html before it), so the page does not follow the OS setting against the dashboard's own choice. The path
+// from /toybaco/ai_readiness is checked before the theme is added.
+test('links to the automatic reply screen carry the dashboard theme, checked on the path before it is added', () => {
+  const source = readFileSync(new URL('../overlay/app/app/javascript/dashboard/composables/toybacoGrowthGuide.js', import.meta.url), 'utf8')
+    .replace("import { ref } from 'vue';", 'const ref = (value) => ({ value });')
+    .replace(/^export /gm, '');
+  const classes = (names) => ({ classList: { contains: (name) => names.includes(name) } });
+  const helpers = (document) => runInNewContext(`${source}\n({ growthAutoReplyPath, growthDashboardTheme });`, { document });
+  const readiness = { managed_auto_path: managedPath };
+  for (const [document, theme] of [[{ body: classes(['dark']), documentElement: classes([]) }, 'dark'],
+    [{ body: classes([]), documentElement: classes(['dark']) }, 'dark'],
+    [{ body: classes(['light']), documentElement: classes([]) }, 'light'], [{ body: null, documentElement: null }, 'light']]) {
+    const { growthAutoReplyPath: path, growthDashboardTheme: dashboard } = helpers(document);
+    assert.equal(dashboard(), theme);
+    assert.equal(path(readiness, 1), `${managedPath}&theme=${theme}`);
+    // A path that already carries a theme, or belongs to another store, never becomes a link.
+    assert.equal(path({ managed_auto_path: `${managedPath}&theme=${theme}` }, 1), null);
+    assert.equal(path({ managed_auto_path: '/toybaco/growth/automatic-replies?account_id=2' }, 1), null);
+  }
+  // The guide screen's completion line and decide choice use the same theme; the conversation screen's AI panel too.
+  assert(/\? \{ state: "connect", href: `\$\{path\}&theme=\$\{growthDashboardTheme\(\)\}` \}/.test(start));
+  const postEntry = readFileSync(new URL('../overlay/app/public/brand-assets/toybaco-post-entry.js', import.meta.url), 'utf8');
+  assert(postEntry.includes("managedLinks[i].hidden = managedPath !== expectedPath;"));
+  assert(postEntry.includes("managedLinks[i].href = managedPath === expectedPath ? expectedPath + '&theme=' + postingDisplayTheme() : '#';"));
 });

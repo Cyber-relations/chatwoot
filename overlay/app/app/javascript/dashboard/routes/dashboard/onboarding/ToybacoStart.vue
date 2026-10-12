@@ -12,6 +12,7 @@ import {
   updateGrowthGuide,
   saveGrowthFacts,
   growthAutoReplyPath,
+  growthDashboardTheme,
   growthDecideLine,
   growthTourProgress,
   growthFactQuestions,
@@ -174,8 +175,9 @@ const aiStep = computed(() => {
   )
     return null;
   if (readiness.connection === "configured") return { state: "configured" };
+  // 照合は theme を付ける前の path で行い、開くときは今の画面のテーマを渡す。
   return ["unconnected", "unknown"].includes(readiness.connection)
-    ? { state: "connect", href: path }
+    ? { state: "connect", href: `${path}&theme=${growthDashboardTheme()}` }
     : null;
 });
 const skipped = computed(() => state.value?.preference?.skipped || []);

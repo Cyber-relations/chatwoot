@@ -67,6 +67,25 @@ class ToybacoMicrosoftPartsTest < Minitest::Test
     assert_equal "\x00\xff\x01".b, raw.attachments.first.decoded
   end
 
+  # 段 2a: 一斉配信・自動送信の見分けに使うヘッダーも残す(値は他のヘッダーと同じく 1 行にする)。許可していないヘッダーは落とす。
+  def test_list_and_automation_headers_survive_and_unlisted_headers_are_dropped
+    @data['internetMessageHeaders'] = [
+      { 'name' => 'List-Unsubscribe', 'value' => "<mailto:leave@example.test>,\r\n <https://example.test/leave>" },
+      { 'name' => 'list-id', 'value' => '<news.example.test>' }, { 'name' => 'List-Post', 'value' => 'NO' },
+      { 'name' => 'Precedence', 'value' => 'list' }, { 'name' => 'Return-Path', 'value' => '<>' },
+      { 'name' => 'X-Auto-Response-Suppress', 'value' => 'OOF' }, { 'name' => 'X-Spam-Score', 'value' => '9.9' }
+    ]
+    @api.pages = [{ 'value' => [] }]
+    mail = Mail.read_from_string(parts.mail.encoded)
+    assert_equal '<mailto:leave@example.test>, <https://example.test/leave>', mail['List-Unsubscribe'].value
+    assert_equal %w[<news.example.test> list OOF], [mail['List-Id'], mail['Precedence'], mail['X-Auto-Response-Suppress']].map(&:value)
+    # The empty Return-Path (<>) is kept; Mail reads it as an empty value.
+    refute_nil mail['Return-Path']
+    assert_equal '', mail['Return-Path'].value.to_s
+    assert_nil mail['List-Post']
+    assert_nil mail['X-Spam-Score']
+  end
+
   def test_inline_images_are_checked_even_when_has_attachments_is_false
     @data['hasAttachments'] = false
     @data['body'] = { 'contentType' => 'HTML', 'content' => '<p>Keep<img src="cid:picture-id"></p>' }

@@ -80,6 +80,30 @@ class ToybacoGrowthRepliesRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal 1, @grant.reload.used
   end
 
+  # 段 2a: 一斉配信・自動送信・配信不能・noreply のメールには、Lambda も予約できない(予約しないので課金もしない)。
+  # 普通のお客さまのメールは従来どおり予約できる。
+  def test_automated_mail_cannot_reserve_an_automatic_reply
+    # The gate reruns runtime tests in new processes on one database, where the channel_email factory sequence restarts
+    # and collides with email channels other runs leave behind (Account#destroy! uses destroy_async). Unique addresses.
+    token = SecureRandom.hex(8)
+    inbox = create(:channel_email, account: @account, email: "care-#{token}@example.com",
+                                   forward_to_email: "forward-#{token}@chatwoot.com").inbox
+    create(:agent_bot_inbox, inbox: inbox, agent_bot: @bot)
+    reserve_on = lambda do |email|
+      conversation = create(:conversation, account: @account, inbox: inbox, status: :pending).reload
+      message = create(:message, account: @account, inbox: inbox, conversation: conversation, message_type: :incoming,
+                                 private: false, content: 'お知らせ', content_attributes: { email: email })
+      Growth::BotReply.new(@account, bot: @bot, conversation: conversation, message: message).update(action_type: 'reserve')
+    end
+    [{ 'auto_reply' => true }, { 'headers' => { 'list-id' => '<news.example.test>' } },
+     { 'content_type' => 'multipart/report; report-type=delivery-status' }, { 'from' => ['DoNotReply@example.test'] }].each do |email|
+      assert_equal({ 'result' => 'denied', 'reason' => 'automated_mail' }, reserve_on.call(email), email.inspect)
+    end
+    assert_empty Toybaco::GrowthAiOperation.where(account_id: @account.id)
+    assert_equal 0, @grant.reload.used
+    assert_equal 'reserved', reserve_on.call({ 'from' => ['customer@example.test'] })['result']
+  end
+
   def test_invalid_result_rolls_back_the_message_and_consumption
     reservation = reserve
     assert_raises(ArgumentError) { complete(reservation, reply: '') }

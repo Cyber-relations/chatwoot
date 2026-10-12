@@ -1131,10 +1131,11 @@ assert.match(original, /requestAnimationFrame/);
   const sitePath = path.join(root, 'site/index.html');
   if (fs.existsSync(sitePath)) {
     const site = fs.readFileSync(sitePath, 'utf8');
-    assert.match(site, /src="\/assets\/service-home\/feature-inbox-demo\.html"/);
-    const demo = fs.readFileSync(path.join(root, 'site/assets/service-home/feature-inbox-demo.html'), 'utf8');
-    assert.match(demo, /href="assets\/tour-demo\.css"/);
-    const demoCss = fs.readFileSync(path.join(root, 'site/assets/service-home/assets/tour-demo.css'), 'utf8');
+    // The promoted home page (2026-10-10) embeds the inbox demo from the redesign assets, which link their stylesheet absolutely.
+    assert.match(site, /src="\/assets\/service-redesign\/feature-inbox-demo\.html"/);
+    const demo = fs.readFileSync(path.join(root, 'site/assets/service-redesign/feature-inbox-demo.html'), 'utf8');
+    assert.match(demo, /href="\/assets\/service-redesign\/assets\/tour-demo\.css"/);
+    const demoCss = fs.readFileSync(path.join(root, 'site/assets/service-redesign/assets/tour-demo.css'), 'utf8');
     assert.match(demoCss, /\.app\.night\{--ab:#121A26/);
     assert.match(demoCss, /--af:#0F151E/);
     assert.match(demoCss, /--al:#22304A/);
@@ -3142,6 +3143,29 @@ function createAiReadinessEnv(handler) {
   assert.match(collectText(env.aiPanel), /「AI返信」の設定/);
   assert.doesNotMatch(collectText(env.aiPanel), /AIがお客様へ送信します|稼働中|準備完了/);
   assert.equal(env.aiPanel.querySelector('[data-toybaco-ai-mode="draft"]').disabled, false);
+}
+
+// 段 1a 追補: the AI panel's link to the automatic reply screen (a Rails page) opens it in the dashboard's theme
+// (theme=dark|light from the resolved .dark class). The path from /toybaco/ai_readiness is checked before the theme is
+// added: a path for another store, or one that already carries a query, keeps the link hidden.
+{
+  const managedPath = '/toybaco/growth/automatic-replies?account_id=1';
+  for (const dark of [false, true]) {
+    const env = createAiReadinessEnv(() => Promise.resolve(readinessResponse({ managed_auto_path: managedPath })));
+    // The resolved dashboard theme: Chatwoot puts .dark on body after login (the fake body has no classes of its own).
+    env.body.classList = { contains: (name) => name === 'dark' && dark };
+    await flush();
+    const link = env.aiPanel.querySelector('[data-toybaco-managed-auto-link]');
+    assert.equal(link.hidden, false);
+    assert.equal(link.href, `${managedPath}&theme=${dark ? 'dark' : 'light'}`);
+  }
+  for (const other of ['/toybaco/growth/automatic-replies?account_id=2', `${managedPath}&theme=dark`]) {
+    const env = createAiReadinessEnv(() => Promise.resolve(readinessResponse({ managed_auto_path: other })));
+    await flush();
+    const link = env.aiPanel.querySelector('[data-toybaco-managed-auto-link]');
+    assert.equal(link.hidden, true, other);
+    assert.equal(link.href, '#', other);
+  }
 }
 
 for (const result of [
