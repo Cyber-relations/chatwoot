@@ -22,15 +22,19 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
   CHATWOOT_ACCOUNT_LOCK_NAMESPACE = 1_415_139_405
   # release_identity! の 1 文。本人の無効な行で、有効な所属(deactivate_user_without_memberships! と同じ判定)が無い時だけ、
   # email を <local>+released-<unix 秒>-<chatwoot user id>@<domain> にする(同じ秒に別の user が同じメールを解放しても、
-  # user id で一意になる)。user id は $3 の bind で渡す。
+  # user id で一意になる)。user id は $3 の bind で渡す。$4 は呼び出し側が知っている解放前の email(nil 可)で、渡せば
+  # その email と完全に一致する行だけを書き換える。解放済みの行は email が変わっているので書き換えず、繰り返し呼んでも
+  # 印は重ならない(email の形には依存しないので、元のメールが +released-… を含む利用者も解放できる)。$4 が nil なら
+  # email を見ない(運用の rake の経路)。@ の無い email は末尾に同じ印(user id 付き)を足す。
   RELEASE_IDENTITY_SQL = <<~SQL.squish.freeze
     UPDATE "User"
        SET email = CASE WHEN strpos(email, '@') > 0
                         THEN regexp_replace(email, '@([^@]*)$',
                                             '+released-' || floor(extract(epoch FROM now()))::bigint || '-' || $3::bigint || '@\\1')
-                        ELSE email || '+released-' || floor(extract(epoch FROM now()))::bigint END,
+                        ELSE email || '+released-' || floor(extract(epoch FROM now()))::bigint || '-' || $3::bigint END,
            "updatedAt" = NOW()
      WHERE "providerName" = 'GENERIC'::"Provider" AND "providerId" = $1 AND id = $2 AND activated = false
+       AND ($4::text IS NULL OR email = $4)
        AND NOT EXISTS (
          SELECT 1
            FROM "UserOrganization" uo
@@ -40,6 +44,26 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
             AND o."deletedAt" IS NULL
        )
     RETURNING "providerId"
+  SQL
+  # deactivate_user_without_memberships! の 1 文。本人の行(providerId cw:<id> かつ決定的 id)が有効(activated=true)で、
+  # 有効な所属(無効にされておらず、organization が削除されていない所属)が無い時だけ無効にし、遷移した行の解放前の email を
+  # 返す。所属が残るか既に無効なら 0 行。$1 は providerId、$2 は決定的 id。
+  DEACTIVATE_WITHOUT_MEMBERSHIPS_SQL = <<~SQL.squish.freeze
+    UPDATE "User" u
+       SET activated = false, "updatedAt" = NOW()
+     WHERE u."providerName" = 'GENERIC'::"Provider"
+       AND u."providerId" = $1
+       AND u.id = $2
+       AND u.activated = true
+       AND NOT EXISTS (
+         SELECT 1
+           FROM "UserOrganization" uo
+           JOIN "Organization" o ON o.id = uo."organizationId"
+          WHERE uo."userId" = u.id
+            AND uo.disabled = false
+            AND o."deletedAt" IS NULL
+       )
+    RETURNING u.email
   SQL
 
   class Error < StandardError; end
@@ -145,6 +169,10 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
     end
 
     # User 自体を削除する経路でも、destroy_async の AccountUser を待たずに全所属を閉じる。
+    # 閉じた本人の行は email を解放し、同じメールで作り直す利用者の同期を止めない。解放の鍵は Postiz 行の activated の
+    # true→false の遷移で、遷移した時だけ、その行の解放前の email(Postiz に保存されている値)で同じ transaction の中で
+    # 解放する。既に無効の行(解放済み・旧い行)は解放しない(Chatwoot 側の email には依存しない)。遷移したのに解放が 0 行
+    # なら providerId だけを warn に残す(release_after_deactivation!)。
     def disable_user!(user_id:)
       require_configuration!
       provider_id = provider_id_for(user_id)
@@ -152,7 +180,8 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       with_chatwoot_identity_locks(user_id: user_id, revoking: true) do
         with_transaction do
           disable_memberships_for_provider!(provider_id)
-          deactivate_provider_user!(provider_id)
+          email = deactivate_provider_user!(provider_id)
+          release_after_deactivation!(user_id, email) if email
         end
       end
       :disabled
@@ -161,13 +190,23 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
     # Chatwoot user(user_id)本人の GENERIC 行(providerId cw:<id> かつ決定的 id)が無効(activated=false)で、有効な所属
     # (deactivate_user_without_memberships! と同じ判定)が無い時だけ、email を <local>+released-<unix 秒>-<user_id>@<domain>
     # に 1 回書き換えて email の一意性から外す。所属の条件も同じ 1 文に入れるので、呼び出し側の判定の後に旧 user の同期が所属を
-    # 戻しても、有効な所属が付いた行は書き換えない。返り値は解放した行の providerId(cw:<id>)、該当が無ければ nil。
+    # 戻しても、有効な所属が付いた行は書き換えない。email(解放前の email、nil 可)を渡せば、その email の行だけを書き換える
+    # ので、解放済みの行は書き換えない(繰り返し呼んでも印は重ならない)。返り値は解放した行の providerId(cw:<id>)、
+    # 該当が無ければ nil。
     # transaction は開かず 1 文の UPDATE だけを流すので、呼び出し側の transaction の中ではその一部になり、単独なら 1 文で
     # 確定する。行の削除や id の付け替えはしない。同期 role の列権限(User の email と updatedAt の UPDATE)の範囲で書く。
-    def release_identity!(user_id:)
+    # disable_user! と最後の所属の削除は、無効への遷移で返った行の email を渡す。ensure_user(孤児または持ち主が email を変えた
+    # 行)は同期中の user の email(行を email で選んでいるので一致する)を渡し、運用の rake(release_conflicting_identity!)は
+    # email なしで呼ぶ。
+    # ログには旧 providerId だけを出す(email は出さない)。
+    def release_identity!(user_id:, email: nil)
       require_configuration!
 
-      exec(RELEASE_IDENTITY_SQL, [provider_id_for(user_id), deterministic_user_id(user_id), Integer(user_id)]).first&.fetch('providerId')
+      provider_id = exec(
+        RELEASE_IDENTITY_SQL, [provider_id_for(user_id), deterministic_user_id(user_id), Integer(user_id), email]
+      ).first&.fetch('providerId')
+      Rails.logger.info("postiz identity released provider_id=#{provider_id}") if provider_id
+      provider_id
     end
 
     # 運用の手当て(ops-rake toybaco:postiz_identity_release)。削除済みの Chatwoot user に結び付いた GENERIC 行が同じ email の
@@ -328,7 +367,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
 
       email_row = query_one(
         <<~SQL.squish,
-          SELECT id, "providerId"
+          SELECT id, "providerId", activated
             FROM "User"
            WHERE email = $1 AND "providerName" = 'GENERIC'::"Provider"
            FOR UPDATE
@@ -339,8 +378,12 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       if provider_rows.one?
         postiz_user_id = provider_rows.first.fetch('id')
         raise IdentityConflict, 'Postiz providerId が別の user id に束縛されています' unless postiz_user_id == expected_user_id
-        raise IdentityConflict, 'Postiz の email と providerId が別利用者を指しています' if email_row && email_row.fetch('id') != postiz_user_id
-      elsif email_row
+        # メールを削除済み利用者の旧アドレスへ変えた利用者は、その旧行が孤児(または持ち主が email を変えた行)なら解放して
+        # から続ける(そうでなければ拒否)。
+        if email_row && email_row.fetch('id') != postiz_user_id && !release_orphan!(email_row, email: user.email)
+          raise IdentityConflict, 'Postiz の email と providerId が別利用者を指しています'
+        end
+      elsif email_row && !release_orphan!(email_row, email: user.email)
         raise IdentityConflict, '同期前に作られた別の GENERIC 利用者が同じ email を使用しています'
       else
         postiz_user_id = expected_user_id
@@ -485,7 +528,23 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
         demote_membership_for_provider!(provider_id, organization_id)
       end
 
-      deactivate_user_without_memberships!(chatwoot_user_id) if disable_membership
+      return unless disable_membership
+
+      # 所属が 0 になって activated が true→false に変わった時だけ、返った解放前の email で解放する(所属が残る間は
+      # activated のまま)。User の削除の後に destroy_async の AccountUser が来た時や 2 回目の削除は、遷移が無いので
+      # 解放しない(disable_user! が解放済み)。Chatwoot 側の email は見ない(email を変えた直後の同期が失敗して Postiz の
+      # 行が旧い email のままでも、その旧い email で解放する)。店舗停止で先に無効になった行も遷移が無いので、ここでは
+      # 解放せず、持ち主が email を変えた後の同期(ensure_user の release_orphan!)で解放する。
+      email = deactivate_user_without_memberships!(chatwoot_user_id)
+      release_after_deactivation!(chatwoot_user_id, email) if email
+    end
+
+    # 無効への遷移で返った解放前の email で本人の行を解放する。遷移したのに解放が 0 行(遷移と解放の間に有効な所属が
+    # 戻った等)でも、戻り値・例外・transaction は変えず、providerId だけを warn に残す(email は出さない)。
+    def release_after_deactivation!(chatwoot_user_id, email)
+      return if release_identity!(user_id: chatwoot_user_id, email: email)
+
+      Rails.logger.warn("postiz identity not released after deactivation provider_id=#{provider_id_for(chatwoot_user_id)}")
     end
 
     def disable_memberships_for_provider!(provider_id)
@@ -504,6 +563,7 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       )
     end
 
+    # 本人の行を有効(activated=true)から無効にする。遷移した時だけ、その行の email(解放前の email)を返す。既に無効なら nil。
     def deactivate_provider_user!(provider_id)
       user_id = deterministic_user_id(provider_id.delete_prefix('cw:'))
       exec(
@@ -513,9 +573,33 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
            WHERE "providerName" = 'GENERIC'::"Provider"
              AND "providerId" = $1
              AND id = $2
+             AND activated = true
+          RETURNING email
         SQL
         [provider_id, user_id]
-      )
+      ).first&.fetch('email')
+    end
+
+    # 同じ email の GENERIC 行が、孤児または持ち主が email を変えた行(cw: の providerId と決定的 id を持ち、activated=false
+    # で、持ち主の Chatwoot user が存在しないか、存在してもその現在の email が行の email と異なる)なら解放する。持ち主が
+    # 行と同じ email のままの行は書き換えない(乗っ取り防止)。店舗停止で先に無効になった行は、その後に最後の所属を外しても
+    # 無効への遷移が無く解放されないので、持ち主が email を変えた後の同期でここで解放する。email は同期中の user の email
+    # (行の email と同じ)で、その email の行だけを解放する。有効な所属が残る行は release_identity! の 1 文が書き換えない。
+    def release_orphan!(row, email:)
+      chatwoot_user_id = row.fetch('providerId').to_s[/\Acw:(\d+)\z/, 1]
+      return false unless chatwoot_user_id && row.fetch('id') == deterministic_user_id(chatwoot_user_id)
+      # activated はドライバにより 'f' か false で返る。どちらでもなければ(有効・不明)拒否する。
+      return false unless ['f', false].include?(row.fetch('activated'))
+
+      owner = User.find_by(id: Integer(chatwoot_user_id))
+      return false unless owner.nil? || owner.email != email
+
+      return true if release_identity!(user_id: chatwoot_user_id, email: email).present?
+
+      # 孤児(または持ち主が email を変えた行)と判定したのに書き換えが 0 行(有効な所属が残っている等)。呼び出し側は IdentityConflict にする。運用の rake
+      # (toybaco:postiz_identity_release)で直す手掛かりに providerId だけを残す(email は出さない)。
+      Rails.logger.warn("postiz identity orphan not released provider_id=#{row.fetch('providerId')}")
+      false
     end
 
     def disable_membership_for_provider!(provider_id, organization_id)
@@ -562,26 +646,12 @@ class Toybaco::PostizSync # rubocop:disable Metrics/ClassLength
       )
     end
 
+    # 有効な所属が無い本人の行を有効(activated=true)から無効にする(DEACTIVATE_WITHOUT_MEMBERSHIPS_SQL)。遷移した時だけ、
+    # その行の email(解放前の email)を返す。所属が残るか既に無効なら nil。
     def deactivate_user_without_memberships!(chatwoot_user_id)
-      postiz_user_id = deterministic_user_id(chatwoot_user_id)
       exec(
-        <<~SQL.squish,
-          UPDATE "User" u
-             SET activated = false, "updatedAt" = NOW()
-           WHERE u."providerName" = 'GENERIC'::"Provider"
-             AND u."providerId" = $1
-             AND u.id = $2
-             AND NOT EXISTS (
-               SELECT 1
-                 FROM "UserOrganization" uo
-                 JOIN "Organization" o ON o.id = uo."organizationId"
-                WHERE uo."userId" = u.id
-                  AND uo.disabled = false
-                  AND o."deletedAt" IS NULL
-             )
-        SQL
-        [provider_id_for(chatwoot_user_id), postiz_user_id]
-      )
+        DEACTIVATE_WITHOUT_MEMBERSHIPS_SQL, [provider_id_for(chatwoot_user_id), deterministic_user_id(chatwoot_user_id)]
+      ).first&.fetch('email')
     end
 
     def deactivate_users_without_memberships!(organization_id)

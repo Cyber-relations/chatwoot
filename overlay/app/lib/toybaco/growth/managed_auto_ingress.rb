@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'managed_auto'
+require_relative 'automated_mail'
 
 module Toybaco::Growth::ManagedAutoIngress
   AUTO = Toybaco::Growth::ManagedAuto
@@ -54,10 +55,43 @@ module Toybaco::Growth::ManagedAutoIngress
       message.conversation.open! if message.conversation.pending?
       return
     end
-    return unless AUTO.eligible?(account) && message.conversation.pending? && message.id > installation.message_floor_id
+    return unless admissible?(account, installation, message)
+
+    automated = Toybaco::Growth::AutomatedMail.reason(message)
+    return hand_over_automated!(installation, message, automated['kind']) if automated
 
     AUTO::InboxRetention.check_access!(message.inbox, Time.now.utc)
     persist_request(account, installation, message)
+  end
+
+  # 受け付けるのはお客さまからの公開の受信だけ(bot の内部メモや担当者の返信が再入しても request にしない。receive・record
+  # でも絞っているが、ここでも守る)。
+  def admissible?(account, installation, message)
+    message.incoming? && !message.private? && AUTO.eligible?(account) && message.conversation.pending? &&
+      message.id > installation.message_floor_id
+  end
+
+  # 一斉配信・自動送信・配信不能・noreply のメールには自動で返信しない。受け付けず(AI の枠も使わない)、会話を開いて
+  # 担当者に渡し、理由を内部メモに残す(ManagedAutoWork の引き継ぎと同じ形)。ログは内訳(kind)だけにする(本文・送り手は残さない)。
+  # 受け付けないので request は返さない(receive は admit の戻り値を enqueue する)。内部メモは同じメッセージに 1 件だけ
+  # (content_attributes の toybaco_automated_mail に message_id を残し、再入・再配信では作らない)。
+  def hand_over_automated!(installation, message, kind)
+    Rails.logger.info("toybaco_managed_auto_skipped kind=#{kind}")
+    conversation = message.conversation
+    unless automated_note?(conversation, message)
+      conversation.messages.create!(account_id: conversation.account_id, inbox_id: conversation.inbox_id,
+                                    sender: AgentBot.find(installation.bot_id), message_type: :outgoing, private: true,
+                                    content: Toybaco::Growth::AutomatedMail.note(kind),
+                                    content_attributes: { 'toybaco_automated_mail' => { 'message_id' => message.id, 'kind' => kind } })
+    end
+    conversation.open!
+    nil
+  end
+
+  def automated_note?(conversation, message)
+    conversation.messages.where(private: true, message_type: :outgoing).any? do |note|
+      note.content_attributes.dig('toybaco_automated_mail', 'message_id') == message.id
+    end
   end
 
   def persist_request(account, installation, message)

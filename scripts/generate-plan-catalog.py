@@ -471,7 +471,7 @@ def lp_knowledge(data, candidate, connected):
         if len(answers) != 1 or not isinstance(answers[0], str) or answers[0].count(candidate.TRIAL_INBOXES) != 1:
             raise ValueError('LP FAQ no longer states where the trial runs; review the bot knowledge copy')
         lines.append(f"AI自動返信の体験: {'・'.join(trial_plans)}では、準備完了後にオーナーが開始してから{trial['days']}日または"
-                     f"{trial['generations']:,}回に達するまで、1店舗につき1回体験できます。自動課金はありません。"
+                     f"{trial['generations']:,}回に達するまで体験できます。{candidate.TRIAL_ONCE_SENTENCE}自動課金はありません。"
                      + candidate.TRIAL_INBOXES)
     lines.append(application_line(connected, free_offered=any(p['free'] for p in plans)))
     lines.append('プラン変更・解約: ' + change)

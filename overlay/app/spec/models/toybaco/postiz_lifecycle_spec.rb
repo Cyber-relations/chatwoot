@@ -104,6 +104,47 @@ RSpec.describe 'Toybaco Postiz lifecycle', type: :model do
     expect(User.exists?(user.id)).to be(false)
   end
 
+  describe 'Postiz identityの解放(削除した利用者と同じメールでの再追加)' do
+    let(:released) { [] }
+
+    before do
+      account.update_columns( # rubocop:disable Rails/SkipsModelValidations
+        internal_attributes: {
+          'postiz' => { 'enabled' => true, 'organization_id' => Toybaco::PostizSync.deterministic_organization_id(account.id) }
+        }
+      )
+      account.reload
+      allow(Toybaco::PostizSync).to receive(:configured?).and_return(true)
+      allow(Toybaco::PostizSync).to receive(:with_chatwoot_identity_locks).and_yield
+      allow(Toybaco::PostizSync).to receive(:with_transaction).and_yield
+      allow(Toybaco::PostizSync).to receive(:lock_account!)
+      # 無効への遷移の UPDATE は、Postiz に保存されている解放前の email を返す(Chatwoot 側の email とは別の値にする)。
+      allow(Toybaco::PostizSync).to receive(:exec) do |sql, _params = []|
+        sql.squish.match?(/SET activated = false.*RETURNING (u\.)?email\z/) ? [{ 'email' => 'postiz-stored@example.com' }] : []
+      end
+      allow(Toybaco::PostizSync).to receive(:release_identity!) { |user_id:, email: nil| released << [user_id, email] }
+    end
+
+    it 'User destroyは全所属を閉じたあと、無効へ遷移した本人のPostiz行を保存されているemailで解放する' do
+      allow(Toybaco::PostizSync).to receive(:disable_user!).and_call_original
+
+      user.destroy!
+
+      expect(Toybaco::PostizSync).to have_received(:disable_user!).with(user_id: user.id)
+      expect(released).to eq([[user.id, 'postiz-stored@example.com']])
+    end
+
+    # 所属が残る間は activated のままなので、解放の UPDATE は行を書き換えない(実 DB の契約 spec で確認)。
+    it 'AccountUser destroyは所属を閉じたあと本人のPostiz行のemailの解放を試みる' do
+      allow(Toybaco::PostizSync).to receive(:revoke_membership!).and_call_original
+
+      account_user.destroy!
+
+      expect(Toybaco::PostizSync).to have_received(:revoke_membership!).with(user_id: user.id, account: account)
+      expect(released).to eq([[user.id, 'postiz-stored@example.com']])
+    end
+  end
+
   it 'account再有効化はcommit後に全現行memberを同期する' do
     account.update_columns( # rubocop:disable Rails/SkipsModelValidations
       status: Account.statuses.fetch('suspended')

@@ -113,6 +113,25 @@ class ToybacoGmailPartsTest < Minitest::Test
     assert_raises(Error) { @reader.mail }
   end
 
+  # 段 2a: 一斉配信・自動送信の見分けに使うヘッダーも残す(値は他のヘッダーと同じく 1 行にする)。許可していないヘッダーは落とす。
+  def test_list_and_automation_headers_survive_and_unlisted_headers_are_dropped
+    build(text_part('Body'))
+    @data['payload']['headers'] += [
+      { 'name' => 'List-Unsubscribe', 'value' => "<mailto:leave@example.test>,\r\n <https://example.test/leave>" },
+      { 'name' => 'List-Id', 'value' => '<news.example.test>' }, { 'name' => 'List-Post', 'value' => 'NO' },
+      { 'name' => 'Precedence', 'value' => 'bulk' }, { 'name' => 'Return-Path', 'value' => '<>' },
+      { 'name' => 'X-Auto-Response-Suppress', 'value' => 'All' }, { 'name' => 'X-Spam-Score', 'value' => '9.9' }
+    ]
+    mail = Mail.read_from_string(@reader.mail.encoded)
+    assert_equal '<mailto:leave@example.test>, <https://example.test/leave>', mail['List-Unsubscribe'].value
+    assert_equal %w[<news.example.test> bulk All], [mail['List-Id'], mail['Precedence'], mail['X-Auto-Response-Suppress']].map(&:value)
+    # The empty Return-Path (<>) is kept; Mail reads it as an empty value.
+    refute_nil mail['Return-Path']
+    assert_equal '', mail['Return-Path'].value.to_s
+    assert_nil mail['List-Post']
+    assert_nil mail['X-Spam-Score']
+  end
+
   def test_a_message_containing_only_an_oversized_file_keeps_its_headers
     build(text_part('unused'))
     @data['payload'].merge!(file_part(size: 25_000_001))

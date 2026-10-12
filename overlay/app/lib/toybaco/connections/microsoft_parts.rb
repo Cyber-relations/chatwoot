@@ -7,7 +7,9 @@ require_relative 'microsoft_attachments'
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Connections
     class MicrosoftParts
-      HEADERS = %w[in-reply-to references auto-submitted x-autoreply x-original-from x-original-sender x-forwarded-for x-failed-recipients].freeze
+      # 一斉配信・自動送信の見分けに使うヘッダー(Toybaco::MailPresenterHeaders が content_attributes に残すもの)も通す。
+      HEADERS = %w[in-reply-to references auto-submitted x-autoreply x-original-from x-original-sender x-forwarded-for x-failed-recipients
+                   list-unsubscribe list-id precedence return-path x-auto-response-suppress].freeze
       attr_reader :omissions
 
       def initialize(api:, access_token:, data:, attachment_limit: MicrosoftApi::MAX_ATTACHMENT_BYTES, attachment_count: 15)

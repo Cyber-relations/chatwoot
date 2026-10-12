@@ -440,6 +440,38 @@ class ToybacoGrowthTrialRuntimeTest < ActionDispatch::IntegrationTest
     assert_raises(Growth::TrialStart::Unavailable) { start! }
   end
 
+  # 段 1a 追補: 体験の画面も、SPA やご契約内容から開くときは画面のテーマ(theme=dark|light)で描く。ロゴもテーマに合わせ、
+  # ご契約内容へのリンクにテーマを引き継ぐ。指定なしと不正な値は OS の設定(system)。
+  def test_trial_page_follows_the_dashboard_theme
+    page = lambda do |theme, state = nil|
+      reader = state ? OpenStruct.new(read: state) : Growth::TrialState.new(@account)
+      Growth::TrialState.stub(:new, reader) do
+        Toybaco::Oidc::SessionReader.stub(:new, OpenStruct.new(user: @owner)) do
+          get '/toybaco/growth/trial', params: { account_id: @account.id, theme: theme }.compact
+        end
+      end
+      assert_response :success
+      response.body
+    end
+    dark = page.call('dark')
+    assert_includes dark, '<html lang="ja" data-toybaco-theme="dark">'
+    assert_includes dark, '<img src="/brand-assets/toybaco-logo-c4-dark.png" alt="トイバコ" width="152">'
+    refute_includes dark, 'prefers-color-scheme'
+    light = page.call('light')
+    assert_includes light, '<html lang="ja" data-toybaco-theme="light">'
+    assert_includes light, '<img src="/brand-assets/toybaco-logo-c4.png" alt="トイバコ" width="152">'
+    refute_includes light, 'prefers-color-scheme'
+    [nil, 'evil', 'Dark'].each do |theme|
+      body = page.call(theme)
+      assert_includes body, '<html lang="ja" data-toybaco-theme="system">', theme.inspect
+      assert_includes body, '<source srcset="/brand-assets/toybaco-logo-c4-dark.png" media="(prefers-color-scheme: dark)">'
+    end
+    completed = { 'state' => 'completed', 'revision' => @facts['revision'] }
+    # 属性の中の & は &amp; で出る(ブラウザーは & として読む)。
+    assert_includes page.call('dark', completed), %(href="/toybaco/billing?account_id=#{@account.id}&amp;theme=dark">)
+    assert_includes page.call(nil, completed), %(href="/toybaco/billing?account_id=#{@account.id}">)
+  end
+
   def test_real_start_api_and_owner_only_page
     input = { account_id: @account.id, example_id: @example.id, revision: @facts['revision'], confirmed: true }
     Gmail.stub(:allowed?, true) do

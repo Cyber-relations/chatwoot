@@ -2488,7 +2488,8 @@
         var managedPath = readiness.phase === 'ready' && readiness.data.managed_auto_path;
         var expectedPath = '/toybaco/growth/automatic-replies?account_id=' + encodeURIComponent(currentAccountId());
         managedLinks[i].hidden = managedPath !== expectedPath;
-        managedLinks[i].href = managedPath === expectedPath ? expectedPath : '#';
+        // 照合は theme を付ける前の path で行い、開く画面(Rails の単独ページ)には今の画面のテーマを渡す。
+        managedLinks[i].href = managedPath === expectedPath ? expectedPath + '&theme=' + postingDisplayTheme() : '#';
       }
       // 契約内容が届いたら、AIアシスタントの設定の注記にも体験の条件を反映する。
       var replyNote = auxiliaryView && auxiliaryAccount === currentAccountId() &&

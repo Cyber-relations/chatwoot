@@ -5,6 +5,8 @@ require_relative '../../../lib/toybaco/growth/trial_state'
 class Toybaco::GrowthTrialsController < ActionController::Base # rubocop:disable Rails/ApplicationController
   skip_forgery_protection
   before_action :load_owner
+  # SPA やご契約内容から開くときは、画面のテーマを theme で受け取る(無ければ OS の設定)。
+  before_action :set_page_theme, only: :show
 
   def show
     @state = Toybaco::Growth::TrialState.new(@account).read
@@ -28,6 +30,10 @@ class Toybaco::GrowthTrialsController < ActionController::Base # rubocop:disable
   end
 
   private
+
+  def set_page_theme
+    @toybaco_theme = Toybaco::BrandInjector.page_theme(params[:theme])
+  end
 
   def load_owner
     response.headers['Cache-Control'] = 'no-store'

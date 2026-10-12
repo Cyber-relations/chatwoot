@@ -6,6 +6,8 @@ class Toybaco::ManagedAutoController < Toybaco::AiReplyController
   skip_forgery_protection
   before_action :load_account
   before_action :same_origin!, only: %i[create update]
+  # SPA から開くときは、画面のテーマを theme で受け取る(ご契約内容と同じ。無ければ OS の設定)。
+  before_action :set_page_theme, only: :show
   rescue_from Toybaco::Growth::ManagedAuto::Invalid, ActiveRecord::RecordNotFound, with: :invalid
   rescue_from Toybaco::Growth::InboxRetention::Held, Toybaco::Growth::InboxRetention::Busy,
               Toybaco::Growth::InboxRetention::Invalid, with: :busy
@@ -36,6 +38,10 @@ class Toybaco::ManagedAutoController < Toybaco::AiReplyController
 
   def service
     Toybaco::Growth::ManagedAutoInstall.new(@account.id, actor_id: @user.id)
+  end
+
+  def set_page_theme
+    @toybaco_theme = Toybaco::BrandInjector.page_theme(params[:theme])
   end
 
   def load_account
