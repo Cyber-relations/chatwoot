@@ -49,6 +49,25 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      # staging の目視用の店舗(rake toybaco:e2e_visual_store)の入口。所属を作り終えた店舗を、無料登録で確認と有効化まで済んだ店舗と同じ
+      # 契約・段階(owner は店舗の administrator)・返信の形・案内の状態にする。利用者は作らない。規約同意の記録(route free_registration)と、
+      # 段階の記録の同意の版・日時(legal_terms_version / terms_accepted_at、無料プランの版を同意の版として残す terms_version)は、本人の
+      # 同意ではないため書かない。呼び出し側の transaction の中で呼ぶ。
+      def prepare_visual!(account, owner:)
+        raise Unavailable, '無料登録は現在準備中です。' unless self.class.enabled?
+        raise ArgumentError, 'owner must be an administrator' unless account.account_users.exists?(user_id: owner.id, role: :administrator)
+
+        version = @catalog.data.fetch('free_registration_version')
+        contract = Entitlements.snapshot_for(@catalog.definition('free', version), cycle: nil, catalog: @catalog)
+        Entitlements.apply!(account, contract, catalog: @catalog)
+        state = { 'phase' => 'active', 'version' => version, 'owner_id' => owner.id, 'registered_at' => @now.iso8601,
+                  'free_anchor' => @now.iso8601, 'activated_at' => @now.iso8601 }
+        updates = { KEY => state, OWNER_KEY => owner.id, AiReplyMode::ATTR => AiReplyMode::DRAFT }
+        account.update!(status: 'active', internal_attributes: Entitlements.attributes(account).merge(updates),
+                        custom_attributes: (account.custom_attributes || {}).merge('onboarding_step' => nil))
+        FreePeriod.new(account, now: @now).refresh!
+      end
+
       private
 
       def build_account(attributes)

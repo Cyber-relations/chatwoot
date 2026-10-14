@@ -7,8 +7,11 @@ import microsoftClient from "dashboard/api/channel/microsoftClient";
 import {
   growthGuideState as state,
   growthGuideError as error,
+  growthGuideErrorStatus as errorStatus,
   growthGuideBusy as busy,
+  growthGuideAccount as guideAccount,
   refreshGrowthGuide,
+  selectGrowthGuideAccount,
   updateGrowthGuide,
   saveGrowthFacts,
   growthAutoReplyPath,
@@ -24,6 +27,48 @@ import {
 const { accountId } = useAccount();
 const route = useRoute();
 const router = useRouter();
+// 案内の状態は上部の案内(ToybacoGrowthGuide)が読むが、読むのは無料プランから始めた店舗だけで、ほかの店舗では店舗を
+// 選ばない(null)。上部の案内は店舗か「無料プランから始めた店舗か」が変わるたびに選び直し、その順番はこの画面と前後する
+// (null に戻すのが 1 tick 遅れることもある)。そこで、選んでいる店舗がこの画面の店舗でなくなったら(最初に開いたとき・
+// 店舗の切り替え・上部の案内が null に戻したとき)、この画面の店舗を選び直して読む。状態はいつも選んでいる店舗のもの
+// なので、前の店舗の状態はここで消え、前の店舗のツアーは出ない。この画面の店舗を選んでいる間は、読み込み中・読めた・
+// 404 のどれでも何もしない(二重に読まず、404 でも読み直しを繰り返さない)。案内の対象でない店舗(404)にはその旨を出す。
+//
+// 404 を確かめた店舗は画面で覚えておく(unavailableFor)。上部の案内が後から店舗を外しても(select(null) で 404 も
+// 消える)、その店舗は選び直さず、対象外の文を途切れさせない。案内の対象かどうかは店舗の固定の性質なので、店舗を
+// 切り替えて戻ってきたときも読み直さない。記録は 404 になったその場で取る(同じ tick の select(null) で消える前に)。
+const unavailableFor = ref(null);
+watch(
+  () => errorStatus.value,
+  (status) => {
+    if (status === 404 && guideAccount.value === String(accountId.value))
+      unavailableFor.value = String(accountId.value);
+  },
+  { immediate: true, flush: "sync" },
+);
+// 状態が読めていれば状態の表示を優先する。
+const unavailable = computed(
+  () =>
+    !state.value &&
+    ((errorStatus.value === 404 &&
+      guideAccount.value === String(accountId.value)) ||
+      unavailableFor.value === String(accountId.value)),
+);
+watch(
+  [() => accountId.value, guideAccount],
+  ([id, selected]) => {
+    if (!id || selected === String(id) || unavailableFor.value === String(id))
+      return;
+    selectGrowthGuideAccount(id);
+    refreshGrowthGuide();
+  },
+  { immediate: true, flush: "post" },
+);
+// 案内の対象でない店舗で画面を閉じたら、選んだ店舗を返す(上部の案内はこの店舗を選ばない。既に null なら何もしない)。
+// 無料プランから始めた店舗では、選択は上部の案内のものなのでそのままにする。
+onBeforeUnmount(() => {
+  if (unavailable.value) selectGrowthGuideAccount(null);
+});
 // ダークでは文字が白いロゴに替える(installation/onboarding と同じ切り替え)。
 const brandLogoPath = "/brand-assets/toybaco-logo-c4.png";
 const brandLogoDarkPath = "/brand-assets/toybaco-logo-c4-dark.png";
@@ -431,7 +476,9 @@ async function openPosting() {
     <header v-if="!settingsView">
       <img :src="brandLogoPath" alt="トイバコ" width="152" class="dark:hidden" />
       <img :src="brandLogoDarkPath" alt="トイバコ" width="152" class="hidden dark:block" />
+      <!-- 案内の対象でない店舗(404)には続ける案内が無いので出さない(押せるのは本文の「ホームへ」だけ)。 -->
       <RouterLink
+        v-if="!unavailable"
         :to="{
           name: 'home',
           params: { accountId },
@@ -447,13 +494,31 @@ async function openPosting() {
           · {{ stepNumber }}</span
         >
       </p>
-      <p v-if="error" role="alert" class="error">
+      <!-- 案内の対象でない店舗(404)には、再読み込みではなくホームへのリンクを出す。401・403 とほかの失敗は下の再読み込み。 -->
+      <p
+        v-if="unavailable"
+        role="status"
+        class="notice"
+        data-toybaco-guide-unavailable
+      >
+        この案内は、無料プランから始めた店舗向けです。この店舗では使えません。
+        <RouterLink
+          :to="{
+            name: 'home',
+            params: { accountId },
+          }"
+          >ホームへ</RouterLink
+        >
+      </p>
+      <p v-else-if="error" role="alert" class="error">
         {{ error }}
         <button type="button" class="text-button" @click="refreshGrowthGuide">
           再読み込み
         </button>
       </p>
-      <p v-if="!state && !error" role="status">準備しています…</p>
+      <p v-if="!state && !error && !unavailable" role="status">
+        準備しています…
+      </p>
       <p v-if="factsSaved && !showFacts" role="status" class="saved">
         店舗情報を保存しました。
       </p>

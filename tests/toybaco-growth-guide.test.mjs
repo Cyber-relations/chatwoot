@@ -204,6 +204,10 @@ function startScript(initial, respond, routeName = 'toybaco_growth_start', readi
       growthGuideState: state,
       growthGuideError: { value: '' },
       growthGuideBusy: { value: false },
+      growthGuideErrorStatus: { value: null },
+      // The guide has chosen this page's store (useAccount above), so the page reads nothing by itself.
+      growthGuideAccount: { value: '1' },
+      selectGrowthGuideAccount() {},
       refreshGrowthGuide() {},
       updateGrowthGuide: (preference) => answer({ preference }),
       saveGrowthFacts: (fields) => answer({ fields }),

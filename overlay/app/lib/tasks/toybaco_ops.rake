@@ -221,9 +221,10 @@ namespace :toybaco do
   end
 end
 
-# staging の E2E(規約同意の記録の経路の確認)用。3 本とも引数は E2E の店舗名の prefix(e2e-consent- で始まる形)だけで、E2E の利用者の
-# メールアドレスも e2e-consent- を含む形に限り、実顧客の店舗・利用者には当たらないようにする。読み取り(legal_consents_by_name)は両環境で使え、
-# 書き込み(e2e_confirm_user / e2e_purge_accounts)は staging 専用。環境の判定は ConnectionReleaseOps と同じ Input.staging?
+# staging の E2E(規約同意の記録の経路の確認)用。引数は E2E の店舗名の prefix(e2e-consent- で始まる形)だけ(確認 token の設定と
+# 担当者の招待だけは prefix と token)で、E2E の利用者のメールアドレスも e2e-consent- を含む形に限り、実顧客の店舗・利用者には当たらない
+# ようにする。読み取り(legal_consents_by_name)は両環境で使え、書き込み(e2e_confirm_user / e2e_confirmation_token / e2e_invite_agent /
+# e2e_purge_accounts)と、確認の段階の読み取り(e2e_registration_phase)は staging 専用。環境の判定は ConnectionReleaseOps と同じ Input.staging?
 # (TOYBACO_DEPLOYMENT_ENVIRONMENT)で、production と環境が不明なときは引数を読む前に abort する。ops-rake workflow も e2e_ で始まるタスクを
 # staging 以外では拒否する(二重の fail-closed)。出力は ID・経路・段階だけで、メールアドレス・氏名は出さない。監査行(started / ok|failed)は
 # 上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、モデルとジョブは実行時に参照する。
@@ -232,6 +233,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
     module E2eConsent
       NAME_PREFIX = 'e2e-consent-'
       PREFIX_FORMAT = /\Ae2e-consent-[a-z0-9-]{1,40}\z/
+      PREFIX_ERROR = 'prefix は e2e-consent- に続けて英小文字・数字・- を 1〜40 字で指定してください。'
       # 書き込みの 2 本(確認・削除)が扱う店舗名の厳格な形。staging E2E の run ごとの店舗名 e2e-consent-r<run id>-<attempt> だけ。
       # prefix に一致してもこの形でない店舗(例: 実店舗の e2e-consent-registration)が 1 件でもあれば、どちらも何もせずに abort する。
       RUN_NAME_FORMAT = /\Ae2e-consent-r\d{1,20}-\d{1,3}\z/
@@ -259,7 +261,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def prefix!(args)
-        argument!(args, :prefix, PREFIX_FORMAT, 'prefix は e2e-consent- に続けて英小文字・数字・- を 1〜40 字で指定してください。')
+        argument!(args, :prefix, PREFIX_FORMAT, PREFIX_ERROR)
       end
 
       # 名前が prefix で始まる店舗(id の順)。LIKE で絞り、Ruby でも前方一致を確かめる。
@@ -343,6 +345,208 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         abort "user=#{user.id} のメール確認を記録できません(#{reasons.join(',')})。"
       end
 
+      # 確認メールのリンクの確認の HTTP 経路(POST /auth/confirmation)を、受信箱を使わずに実ブラウザーで通すための 2 本
+      # (toybaco:e2e_confirmation_token / toybaco:e2e_registration_phase)。環境の判定・prefix の形・店舗の選び方・行ロックの読み直し・
+      # E2E の利用者の検査・段階の正規化は E2eConsent のものをそのまま使う。
+      module Confirmation
+        # 受け取る token の形。runner が作る 256 bit の乱数を英小文字の 16 進数 64 桁で渡す(確認画面の token の形 [A-Za-z0-9_-] に
+        # 収まり、rake の引数の区切り(, [ ] 空白)を含まない)。
+        TOKEN_FORMAT = /\A[0-9a-f]{64}\z/
+        ACTION = '確認 token を設定'
+
+        module_function
+
+        # toybaco:e2e_confirmation_token[prefix,token]。名前が prefix で始まる店舗(E2E の run ごとの店舗名の形で、ちょうど 1 件)が
+        # メール確認待ちで、契約者が未確認の E2E の利用者なら、契約者の確認 token を runner が作った値にする。Devise の確認 token は DB に
+        # 生値で保存され、確認の HTTP 経路は生値の一致で利用者を引く。書き込みは update_columns で、callback・検証・メール送信を通さない
+        # (確認はしない。登録時のメールの token は無効になる)。もう一度呼べば新しい token で上書きする。全体を 1 つの transaction で行い、
+        # confirm と同じく店舗と契約者を行ロックして確かめ直してから書く。進めないときは理由の 1 行(TOYBACO_E2E_CONFIRMATION_TOKEN …
+        # result=refused)で abort する。token は出力・abort の文・例外のどこにも出さない(監査行は RakeAudit が prefix と token の
+        # digest だけを残す)。
+        def confirmation_token(args)
+          E2eConsent.staging!('e2e_confirmation_token')
+          prefix, token = confirmation_arguments!(args)
+          ActiveRecord::Base.transaction { assign!(prefix, token) }
+        end
+
+        # 検査と代入を同じ判定にする(通すのは形に合う文字列 2 つだけで、Symbol・nil・余分な引数は通さない)。入力の値は出さない。
+        def confirmation_arguments!(args)
+          prefix = args[:prefix]
+          token = args[:token]
+          abort PREFIX_ERROR unless prefix.is_a?(String) && prefix.match?(PREFIX_FORMAT)
+          abort 'token は英小文字の 16 進数 64 桁で指定してください。' unless token.is_a?(String) && token.match?(TOKEN_FORMAT)
+          abort '引数は prefix と token の 2 つだけを指定してください。' unless args.extras.empty?
+
+          [prefix, token]
+        end
+
+        # transaction の中で呼ぶ。店舗を選び、行ロックして名前と段階を確かめ直し、契約者を確かめてから token を書く。同じ token を持つ
+        # 別の利用者がいれば書かない(confirmation_token に一意の index は無く、確認の HTTP 経路は token の一致で最初の 1 人を引く)。
+        def assign!(prefix, token)
+          account = store!(prefix, E2eConsent.run_names!(prefix, E2eConsent.accounts(prefix), ACTION))
+          WriteGuard.relock!(prefix, [account], ACTION) { |store| E2eConsent.phase(store) == 'email_pending' }
+          user = owner!(prefix, account)
+          refuse!(prefix, account, 'token_in_use') if User.where(confirmation_token: token).where.not(id: user.id).exists?
+
+          user.update_columns(confirmation_token: token, confirmation_sent_at: Time.now.utc) # rubocop:disable Rails/SkipsModelValidations
+          "TOYBACO_E2E_CONFIRMATION_TOKEN prefix=#{prefix} user=#{user.id} account=#{account.id} phase=email_pending result=set"
+        end
+
+        # token を設定する店舗。prefix に一致する店舗がちょうど 1 件で、メール確認待ち(phase=email_pending)であること。
+        def store!(prefix, stores)
+          refuse!(prefix, nil, 'no_account') if stores.empty?
+          refuse!(prefix, nil, 'multiple_accounts') if stores.size > 1
+          refuse!(prefix, stores.first, 'not_email_pending') unless E2eConsent.phase(stores.first) == 'email_pending'
+
+          stores.first
+        end
+
+        # 無料登録の契約者を行ロックして読み直し、token を書いてよいか確かめる。E2eConsent.owner! と同じ検査(E2E の利用者で、選んだ
+        # 店舗の外にメール確認待ちの店舗を持たない)に、所属が選んだ店舗 1 件だけであること、未確認であること、メールアドレスの変更の
+        # 再確認待ち(unconfirmed_email)でないことを足し、理由を固定の語で出す。e2e_user? は所属先の名前が e2e-consent- で始まれば通すため、
+        # 名前だけが E2E 風の実店舗(例: e2e-consent-registration)にも所属する契約者に token を書くと、ブラウザーでの確認でその店舗の
+        # 資格情報まで出る。無料登録の直後の契約者は所属が登録した店舗 1 件だけなので、それ以外は書かない。
+        def owner!(prefix, account)
+          user = User.find_by(id: Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]['owner_id'])
+          refuse!(prefix, account, 'owner_missing') unless user
+
+          user.reload(lock: true)
+          refuse!(prefix, account, 'not_e2e_user') unless E2eConsent.e2e_user?(user)
+          refuse!(prefix, account, 'other_pending') if E2eConsent.other_pending?(user, [account.id])
+          refuse!(prefix, account, 'other_memberships') unless AccountUser.where(user_id: user.id).pluck(:account_id) == [account.id]
+          refuse!(prefix, account, 'already_confirmed') if user.confirmed?
+          refuse!(prefix, account, 'unconfirmed_email') if user.unconfirmed_email.present?
+
+          user
+        end
+
+        # 進めないときの 1 行で abort する(transaction の中なら rollback する)。reason は固定の語([a-z_])で、入力の値・メールアドレスは
+        # 出さない。
+        def refuse!(prefix, account, reason)
+          abort "TOYBACO_E2E_CONFIRMATION_TOKEN prefix=#{prefix} result=refused account=#{account&.id || LegalConsentsReport::NONE} reason=#{reason}"
+        end
+
+        # toybaco:e2e_registration_phase[prefix]。名前が prefix で始まる店舗(id の順)ごとに、無料登録の契約者・段階・契約者の確認の
+        # 有無を読み取りだけで 1 行ずつ出し、最後に店舗の数を出す(ブラウザーで確認した後の段階の確認。phase=active confirmed=true を
+        # 見る)。読み取りなので店舗名の厳格な形(RUN_NAME_FORMAT)は求めない。DB へ書かず、job も積まない。メールアドレス・氏名は出さない。
+        def registration_phase(args)
+          E2eConsent.staging!('e2e_registration_phase')
+          prefix = E2eConsent.prefix!(args)
+          found = E2eConsent.accounts(prefix)
+          found.map { |account| registration_line(account) } + ["TOYBACO_E2E_REGISTRATION_SUMMARY prefix=#{prefix} accounts=#{found.size}"]
+        end
+
+        # 契約者は無料登録の記録の owner_id(Integer)の利用者。記録・利用者が無ければ user と confirmed は -。段階は E2eConsent.phase と
+        # 同じ正規化。
+        def registration_line(account)
+          state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
+          owner_id = state.is_a?(Hash) ? state['owner_id'] : nil
+          owner = owner_id.is_a?(Integer) ? User.find_by(id: owner_id) : nil
+          none = LegalConsentsReport::NONE
+          "TOYBACO_E2E_REGISTRATION user=#{owner&.id || none} account=#{account.id} phase=#{E2eConsent.phase(account)} " \
+            "confirmed=#{owner ? owner.confirmed? : none}"
+        end
+      end
+
+      # 招待 → パスワード設定の HTTP 経路(招待メールのリンク /app/auth/password/edit?reset_password_token=… の画面が送る
+      # PUT /auth/password)を、招待メールを送らずに実ブラウザーで通すための 1 本(toybaco:e2e_invite_agent)。引数の検査は
+      # Confirmation の確認 token の設定と同じで(token の形も同じ)、環境の判定・prefix の形・店舗の選び方・行ロックの読み直し・
+      # E2E の利用者の検査・段階の正規化は E2eConsent のものをそのまま使う。
+      module Invitation
+        ACTION = '担当者を招待'
+        INVITEE_NAME = 'E2E 招待 担当者'
+        # 契約者のメールアドレスのうち、受信箱の plus addressing の形(<local>+e2e-consent-<tag>@<domain>)。招待先は同じ受信箱の別の
+        # tag(<local>+<prefix>-invite@<domain>)にする。local 部が e2e-consent-<tag> そのものの形の契約者は、招待先の作り方が決まって
+        # いないため招待しない(invite_email_format)。
+        OWNER_EMAIL_FORMAT = /\A(?<local>[a-z0-9][a-z0-9._-]{0,63})\+e2e-consent-[a-z0-9-]{1,40}@(?<domain>[^@+]+)\z/
+
+        module_function
+
+        # toybaco:e2e_invite_agent[prefix,token]。名前が prefix で始まる店舗(E2E の run ごとの店舗名の形で、ちょうど 1 件)が有効
+        # (無料登録の phase=active)で、契約者が確認済みの E2E の利用者なら、upstream の AgentBuilder が行うことのうちメール送信を除いた
+        # 部分(仮パスワードの利用者を確認の通知を止めて作り、店舗の agent として所属させる。招待した人は契約者)を行い、招待先の
+        # パスワード再設定 token を runner が作った値の digest にする(Devise は再設定 token を digest で保存し、PUT /auth/password は
+        # 受け取った生値の digest で利用者を引く。DB に生値は残らない)。招待先は未確認のまま(PUT /auth/password が確認とパスワードの
+        # 設定を同時に行う)。確認・招待・再設定のメールは送らない(送信の処理を呼ばない)。全体を 1 つの transaction で行い、店舗と
+        # 契約者を行ロックして確かめ直してから書く。進めないときは理由の 1 行(TOYBACO_E2E_INVITE … result=refused)で abort する。
+        # token・仮パスワード・メールアドレスは出力・abort の文・例外のどこにも出さない(監査行は RakeAudit が prefix と token の digest
+        # だけを残す)。招待先は E2E 用のメールアドレスで所属がこの店舗だけなので、e2e_purge_accounts が契約者と一緒に消す。
+        def invite_agent(args)
+          E2eConsent.staging!('e2e_invite_agent')
+          prefix, token = Confirmation.confirmation_arguments!(args)
+          ActiveRecord::Base.transaction { invite!(prefix, token) }
+        end
+
+        # transaction の中で呼ぶ。店舗を選び、行ロックして名前と段階を確かめ直し、契約者と招待先のメールアドレスを確かめてから書く。
+        # 同じメールアドレスの利用者が既にいれば(前の run の残り。消すのは purge の仕事)作らない。
+        def invite!(prefix, token)
+          account = store!(prefix, E2eConsent.run_names!(prefix, E2eConsent.accounts(prefix), ACTION))
+          WriteGuard.relock!(prefix, [account], ACTION) { |store| E2eConsent.phase(store) == 'active' }
+          owner = owner!(prefix, account)
+          email = invitee_email!(prefix, account, owner)
+          refuse!(prefix, account, 'invitee_exists') if User.from_email(email)
+
+          invitee = create_invitee!(account, owner, email)
+          digest = Devise.token_generator.digest(User, :reset_password_token, token)
+          invitee.update_columns(reset_password_token: digest, reset_password_sent_at: Time.now.utc) # rubocop:disable Rails/SkipsModelValidations
+          "TOYBACO_E2E_INVITE prefix=#{prefix} user=#{invitee.id} account=#{account.id} owner=#{owner.id} result=invited"
+        end
+
+        # 招待する店舗。prefix に一致する店舗がちょうど 1 件で、無料登録が有効(phase=active。契約者の確認の後)であること。
+        def store!(prefix, stores)
+          refuse!(prefix, nil, 'no_account') if stores.empty?
+          refuse!(prefix, nil, 'multiple_accounts') if stores.size > 1
+          refuse!(prefix, stores.first, 'not_active') unless E2eConsent.phase(stores.first) == 'active'
+
+          stores.first
+        end
+
+        # 無料登録の契約者を行ロックして読み直し、招待してよいか確かめる。Confirmation.owner! と同じ検査(E2E の利用者で、選んだ店舗の
+        # 外にメール確認待ちの店舗を持たず、所属が選んだ店舗 1 件だけで、メールアドレスの変更の再確認待ちでない)の、確認の有無だけを
+        # 逆にしたもの(招待は確認済みの契約者だけ)。理由の語は Confirmation と揃える。
+        def owner!(prefix, account)
+          user = User.find_by(id: Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]['owner_id'])
+          refuse!(prefix, account, 'owner_missing') unless user
+
+          user.reload(lock: true)
+          refuse!(prefix, account, 'not_e2e_user') unless E2eConsent.e2e_user?(user)
+          refuse!(prefix, account, 'other_pending') if E2eConsent.other_pending?(user, [account.id])
+          refuse!(prefix, account, 'other_memberships') unless AccountUser.where(user_id: user.id).pluck(:account_id) == [account.id]
+          refuse!(prefix, account, 'not_confirmed') unless user.confirmed?
+          refuse!(prefix, account, 'unconfirmed_email') if user.unconfirmed_email.present?
+
+          user
+        end
+
+        # 招待先のメールアドレス。契約者の <local>+e2e-consent-<tag>@<domain> から <local>+<prefix>-invite@<domain> を作り
+        # (prefix は e2e-consent- で始まる)、小文字にして E2E 用の形(EMAIL_FORMAT)に合うことを確かめる。合わなければ作らない。
+        def invitee_email!(prefix, account, owner)
+          parts = owner.email.to_s.match(OWNER_EMAIL_FORMAT)
+          email = parts && "#{parts[:local]}+#{prefix}-invite@#{parts[:domain]}".downcase
+          refuse!(prefix, account, 'invite_email_format') unless email&.match?(EMAIL_FORMAT)
+
+          email
+        end
+
+        # AgentBuilder#find_or_create_user と #create_account_user のうち、新しい利用者を作る側(既にいる利用者は上で止める)。仮パスワードは
+        # AgentBuilder と同じ形の乱数で、どこにも出さない(招待先は PUT /auth/password でパスワードを設定する)。確認の通知を止めて
+        # 保存し(確認メールを送らない)、招待メールの送信(send_confirmation_instructions)と送信枠の予約は行わない。
+        def create_invitee!(account, owner, email)
+          password = "1!aA#{SecureRandom.alphanumeric(12)}"
+          invitee = User.new(email: email, name: INVITEE_NAME, password: password, password_confirmation: password)
+          invitee.skip_confirmation_notification!
+          invitee.save!
+          AccountUser.create!(account: account, user: invitee, role: :agent, inviter: owner)
+          invitee
+        end
+
+        # 進めないときの 1 行で abort する(transaction の中なら rollback する)。reason は固定の語([a-z_])で、入力の値・メールアドレスは
+        # 出さない。
+        def refuse!(prefix, account, reason)
+          abort "TOYBACO_E2E_INVITE prefix=#{prefix} result=refused account=#{account&.id || LegalConsentsReport::NONE} reason=#{reason}"
+        end
+      end
+
       # 無料登録の段階。記録が無ければ -、形に合わない値は中身を出さずに invalid と出す。
       def phase(account)
         state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
@@ -360,7 +564,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # 厳格な形であること(1 件でも違えば何も消さない。transaction の中でも全ての一致を行ロックして確かめ直す)と、利用者・契約者の検査で
       # 守る。削除の手順は Purge にある。店舗を消した後に、店舗に FK を持たない体験と自動応答の記録(Purge::GrowthRecords)のうち、
       # 消した店舗の id のものも同じ transaction で消し、件数を TOYBACO_E2E_PURGE の次の 1 行(TOYBACO_E2E_PURGE_GROWTH)に出す
-      # (TOYBACO_E2E_PURGE の行の形は変えない)。
+      # (TOYBACO_E2E_PURGE の行の形は変えない)。続けて、e2e_opening_checkout が作った開通の受付の記録のうち、合成 id が prefix の英数字で
+      # 始まる厳格な形のもの(Purge::OpeningRecords)も同じ transaction で消し、件数をその次の 1 行(TOYBACO_E2E_PURGE_OPENING。最後の行)に出す。
       def purge(args)
         staging!('e2e_purge_accounts')
         prefix = prefix!(args)
@@ -388,11 +593,12 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         module_function
 
         # transaction の中で、選んだ店舗を id の順に行ロックして読み直し、名前(prefix と厳格な形)とブロックの条件を確かめ直す。選んだ後に
-        # 別の接続が名前や状態を変えていれば、何も書かずに abort する(ロックの後は commit まで変えられない)。
-        def relock!(prefix, stores, action)
+        # 別の接続が名前や状態を変えていれば、何も書かずに abort する(ロックの後は commit まで変えられない)。厳格な形は既定で E2E の run
+        # ごとの店舗名(RUN_NAME_FORMAT)。目視用の店舗の削除(E2eVisual)は、その店舗名の形(E2eVisual::NAME_FORMAT)を渡す。
+        def relock!(prefix, stores, action, name_format: RUN_NAME_FORMAT)
           stores.sort_by(&:id).each do |store|
             store.reload(lock: true)
-            next if store.name.start_with?(prefix) && store.name.match?(RUN_NAME_FORMAT) && (!block_given? || yield(store))
+            next if store.name.start_with?(prefix) && store.name.match?(name_format) && (!block_given? || yield(store))
 
             abort "account=#{store.id} の名前か状態が選んだ後に変わったため#{action}しません。"
           end
@@ -431,21 +637,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # matched は一致集合の店舗(run_names! を通った全ての店舗、id の順)、stores はバッチ(その先頭 5 件)。remaining は一致集合のうち
         # バッチの外の件数。候補の下見は transaction の前の id で選び、消すかどうかは transaction の中でロックした店舗で決める。
         # skipped_users は候補(所属からの候補と契約者)のうち消さなかった利用者の数(同じ利用者は 1 回)。返すのは TOYBACO_E2E_PURGE の行と、
-        # 消した体験と自動応答の記録の件数の行(TOYBACO_E2E_PURGE_GROWTH)の 2 行。
+        # 消した体験と自動応答の記録の件数の行(TOYBACO_E2E_PURGE_GROWTH)と、消した開通の受付の記録の件数の行(TOYBACO_E2E_PURGE_OPENING)の
+        # 3 行。
         def run(prefix, matched)
           stores = matched.first(PURGE_LIMIT)
           found = candidates(stores.map(&:id), matched.map(&:id))
-          users, kept, growth = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
+          users, kept, growth, opening = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
           skipped = ((found + kept).map(&:id) - users.map(&:id)).uniq.size
           remaining = matched.size - stores.size
           ["TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{skipped} remaining=#{remaining}",
-           GrowthRecords.line(prefix, growth)]
+           GrowthRecords.line(prefix, growth), OpeningRecords.line(prefix, opening)]
         end
 
         # transaction の中で呼ぶ。最初に一致集合の全店舗を行ロックして確かめ直し(バッチの店舗も同じ object が読み直される)、以後の判定と
-        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者と、消した体験と自動応答の記録の件数を返す。契約者は所属から
-        # 選んだ候補とは別に、確かめた上で消す集合に入れる(所属が既に無い契約者も残さない)。体験と自動応答の記録は、店舗を消す前に控えた
-        # バッチの id(全ての一致が E2E の店舗名の厳格な形で、ロックして確かめ直した店舗)のものだけを、店舗を消した後に消す。
+        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者と、消した体験と自動応答の記録の件数と、消した開通の受付の
+        # 記録の件数を返す。契約者は所属から選んだ候補とは別に、確かめた上で消す集合に入れる(所属が既に無い契約者も残さない)。体験と
+        # 自動応答の記録は、店舗を消す前に控えたバッチの id(全ての一致が E2E の店舗名の厳格な形で、ロックして確かめ直した店舗)のものだけを、
+        # 店舗を消した後に消す。開通の受付の記録は prefix の英数字で始まる合成 id の形で選び、店舗に結んだ行はバッチの店舗のものだけを消す
+        # (OpeningRecords)。
         def delete!(prefix, matched, stores, found)
           WriteGuard.relock!(prefix, matched, '削除')
           ids = stores.map(&:id)
@@ -454,9 +663,17 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           children!(ids)
           (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
           growth = GrowthRecords.delete!(ids)
-          return [eligible, kept, growth] unless remaining?(ids, eligible)
+          opening = OpeningRecords.delete!(prefix, ids)
+          verify_deleted!(prefix, ids, eligible)
+          [eligible, kept, growth, opening]
+        end
 
-          abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。"
+        # 削除を読み直し、店舗・利用者・所属・bot・体験と自動応答の記録か、開通の受付の記録が残っていれば abort(SystemExit)で rollback する。
+        def verify_deleted!(prefix, account_ids, users)
+          abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。" if remaining?(account_ids, users)
+          return unless OpeningRecords.remaining?(prefix, account_ids)
+
+          abort "prefix=#{prefix} の削除を読み直すと開通の受付の記録が残っているため、削除を取り消します。"
         end
 
         # 店舗の契約者(無料登録の owner)を行ロックして読み直し、消す契約者(所属がバッチに閉じる)と残す契約者(一致集合には閉じるが、
@@ -539,6 +756,56 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
               "installations=#{counts.fetch('installations')}"
           end
         end
+
+        # 店舗に FK を持たない開通の受付の記録(toybaco_opening_requests と、opening_request_id で結ぶ toybaco_billing_events・
+        # toybaco_opening_notices)。e2e_opening_checkout が作る合成 id(Session cs_test_<tag>o・event evt_<tag>o。tag は run の prefix の
+        # - を x に写した英数字。E2eBilling.tag)の形の test mode の行だけを消す。選び方は prefix を同じく写した stem の前方一致と厳格な形
+        # (cs_test_<stem>[0-9x]*o / evt_<stem>[0-9x]*o)で、run の prefix(e2e-consent-r<run>-<attempt>)でも、前回までの残骸を消す族の prefix
+        # (e2e-consent-r。stem は e2exconsentxr)でも、その範囲の run の行に当たる。この形の id は E2E の run の合成 id だけが持つ(Stripe の実 id
+        # は cs_test_ / evt_ の後ろが英大文字・小文字・数字の混ざった並びで、stem・数字・x・o だけの形にならない)。前方一致で別の run の
+        # 行に当たっても、それは E2E の run が作った行なので消してよい。店舗の id の集合だけでは選ばない(E2E 以外の開通の受付には触れない)。
+        # 開通に失敗して店舗の無い受付(pending / attention、account_id は NULL)も合成 id の形で拾い、店舗に結んだ受付はバッチの店舗
+        # (消した店舗)のものだけを消す。event はその受付に結んだものと、受付に結ぶ前の合成 id の形のものを消し、案内はその受付に結んだものを
+        # 消す。FK の順(notices → events → requests)に、検証もコールバックも通さずに消す(delete_all)。durable の trigger は INSERT /
+        # UPDATE を記録するだけで、元の表の DELETE は禁じない(受入の記録は残る)。
+        module OpeningRecords
+          module_function
+
+          def delete!(prefix, account_ids)
+            ids = request_ids(prefix, account_ids)
+            notices = Toybaco::OpeningNotice.where(opening_request_id: ids).delete_all
+            events = Toybaco::BillingEvent.where(id: event_ids(prefix, ids)).delete_all
+            { 'requests' => Toybaco::OpeningRequest.where(id: ids).delete_all, 'events' => events, 'notices' => notices }
+          end
+
+          # 合成 id の形の開通の受付(店舗の無いものと、バッチの店舗に結んだもの)。DB で前方一致に絞り、Ruby で厳格な形を確かめる。
+          def request_ids(prefix, account_ids)
+            scope = Toybaco::OpeningRequest.where(mode: E2eBilling::MODE, account_id: [nil, *account_ids])
+            synthetic(scope, :session_id, 'cs_test_', prefix)
+          end
+
+          # その受付に結んだ event と、受付に結ぶ前(opening_request_id が NULL)の合成 id の形の event。
+          def event_ids(prefix, request_ids)
+            scope = Toybaco::BillingEvent.where(mode: E2eBilling::MODE)
+            scope.where(opening_request_id: request_ids).pluck(:id) | synthetic(scope.where(opening_request_id: nil), :event_id, 'evt_', prefix)
+          end
+
+          def synthetic(scope, column, head, prefix)
+            stem = E2eBilling.tag(prefix, '')
+            format = /\A#{head}#{Regexp.escape(stem)}[0-9x]*#{E2eBilling::OpeningSeam::SUFFIX}\z/
+            like = scope.klass.arel_table[column].matches("#{head}#{ActiveRecord::Base.sanitize_sql_like(stem)}%", nil, true)
+            scope.where(like).pluck(:id, column).filter_map { |id, value| id if value.match?(format) }
+          end
+
+          def remaining?(prefix, account_ids)
+            request_ids(prefix, account_ids).any? || event_ids(prefix, []).any?
+          end
+
+          def line(prefix, counts)
+            "TOYBACO_E2E_PURGE_OPENING prefix=#{prefix} requests=#{counts.fetch('requests')} events=#{counts.fetch('events')} " \
+              "notices=#{counts.fetch('notices')}"
+          end
+        end
       end
     end
   end
@@ -554,6 +821,27 @@ namespace :toybaco do
        '(rake "toybaco:e2e_confirm_user[e2e-consent-<run>]")'
   task :e2e_confirm_user, %i[prefix] => :environment do |_t, args|
     Toybaco::Ops::E2eConsent.confirm(args).each { |line| puts line }
+  end
+
+  # ops-rake workflow の allowlist には入れない(引数に確認 token(秘密)を取り、workflow の入力と run の記録に残るため)。
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(メール確認待ち、ちょうど 1 件)の未確認の契約者に、runner が作った確認 token' \
+       '(英小文字の 16 進数 64 桁)を設定する。token は出力しない(rake "toybaco:e2e_confirmation_token[e2e-consent-<run>,<token>]")'
+  task :e2e_confirmation_token, %i[prefix token] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eConsent::Confirmation.confirmation_token(args)
+  end
+
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗ごとに、無料登録の契約者・段階・契約者の確認の有無を読み取りだけで表示する' \
+       '(rake "toybaco:e2e_registration_phase[e2e-consent-<run>]")'
+  task :e2e_registration_phase, %i[prefix] => :environment do |_t, args|
+    Toybaco::Ops::E2eConsent::Confirmation.registration_phase(args).each { |line| puts line }
+  end
+
+  # ops-rake workflow の allowlist には入れない(引数にパスワード再設定 token(秘密)を取り、workflow の入力と run の記録に残るため)。
+  desc 'staging 専用: 名前が prefix で始まる E2E の店舗(有効、ちょうど 1 件)に、E2E 用のメールアドレスの未確認の担当者を招待メールを送らずに作り、' \
+       'runner が作ったパスワード再設定 token(英小文字の 16 進数 64 桁)の digest を設定する。token は出力しない' \
+       '(rake "toybaco:e2e_invite_agent[e2e-consent-<run>,<token>]")'
+  task :e2e_invite_agent, %i[prefix token] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eConsent::Invitation.invite_agent(args)
   end
 
   desc 'staging 専用: 名前が prefix で始まる E2E の店舗(id の順に 1 回 5 件まで。残りの件数を出す)と、その店舗だけの利用者と、' \
@@ -588,9 +876,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         E2eConsent.staging!(task)
       end
 
-      # 本番の開始処理と回答例の受け口。rake では controller(画面)が読まれないため、ここで読む(読み済みなら何もしない)。
+      # 本番の開始処理と回答例の受け口と、購入の記録(AutoSeam が Standard の購入を確かめる)。rake では controller(画面)が読まれない
+      # ため、ここで読む(読み済みなら何もしない)。
       def require_growth!
-        %w[trial_start bot_reply managed_auto_install].each { |name| require Rails.root.join("lib/toybaco/growth/#{name}").to_s }
+        %w[trial_start bot_reply managed_auto_install purchase_intent].each { |name| require Rails.root.join("lib/toybaco/growth/#{name}").to_s }
       end
 
       # toybaco:e2e_trial[prefix]。体験の前提(店舗情報・IMAP の受信箱と bot・回答例)を作ってから体験を開始する(TrialSeam)。
@@ -775,7 +1064,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # 体験の後の店舗を Standard にし、体験の bot を外して、おまかせ自動返信を全自動で開始する。Standard の適用(toybaco:apply_plan と
       # 同じ Entitlements.snapshot_for → apply!、Stripe なし)と bot の削除は 1 つの transaction で行い、設置と全自動への切り替えは外側の
       # transaction を開かずに行う(ManagedAuto.locked が transaction の中を拒む)。設置と切り替えは別の transaction なので、設置の後に
-      # 止まった実行は、同じ rake の再実行が切り替えから再開する。
+      # 止まった実行は、同じ rake の再実行が切り替えから再開する。toybaco:e2e_growth_purchase で Standard を購入した店舗(購読あり)も
+      # 受け付け、その Standard はそのまま使う(付け直さない)。
       module AutoSeam
         PLAN = 'standard'
         CYCLE = 'month'
@@ -803,7 +1093,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # 体験(toybaco:e2e_trial)の後であること: 体験と体験の受信箱があり、店舗情報が確認済み。設置が無ければ、契約は無料プラン
         # (Stripe の契約なし)か適用済みの Standard で、bot は体験の受信箱の 1 組だけ(外すのはその 1 組だけ)。未完了の設置を再開する
         # ときは、契約が適用済みの Standard で、bot は設置の bot と体験の受信箱への割り当ての 1 組だけ(体験の bot は外し終えている)。
-        # 体験の受信箱と、再開する設置(無ければ nil)を返す。
+        # Standard は Stripe の契約なしのものか、toybaco:e2e_growth_purchase が購入したもの(purchased_standard?)に限る。体験は購入で
+        # 完了(upgraded)していてもよい(trial_inbox! は体験の有無だけを見る)。体験の受信箱と、再開する設置(無ければ nil)を返す。
         def prerequisites!(account, owner)
           inbox, pending = trial_inbox!(account, owner)
           refuse!(account, 'facts_unconfirmed') unless Toybaco::Growth::StoreFacts.new(account).read['confirmed']
@@ -831,11 +1122,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             installation.actor_id == owner.id
         end
 
+        # 購読(toybaco_subscription_id)のある店舗は、Standard の購入(purchased_standard?)のときだけ受け付ける。この seam の対象は
+        # E2eGrowth.target! が E2E の店舗名の厳格な形(RUN_NAME_FORMAT)でちょうど 1 件の店舗に限っているため、緩めた分も E2E の店舗の外には
+        # 掛からない。
         def replaceable_contract?(account, pending)
           contract = Toybaco::Entitlements.contract_for(account)
-          return false if contract.nil? || Toybaco::Entitlements.attributes(account)['toybaco_subscription_id'].present?
+          return false if contract.nil?
+          return purchased_standard?(account, contract) if Toybaco::Entitlements.attributes(account)['toybaco_subscription_id'].present?
 
           standard?(contract) || (pending.nil? && contract['plan_id'] == 'free')
+        end
+
+        # toybaco:e2e_growth_purchase が購入した Standard: 購入の記録(toybaco_growth_purchase)が complete で、その購読が店舗の購読と一致し、
+        # 契約が同じ版の Standard。
+        def purchased_standard?(account, contract)
+          attrs = Toybaco::Entitlements.attributes(account)
+          purchase = attrs[Toybaco::Growth::PurchaseIntent::KEY]
+          purchase.is_a?(Hash) && purchase['state'] == 'complete' && purchase['subscription_id'].present? &&
+            purchase['subscription_id'] == attrs['toybaco_subscription_id'] && standard?(contract)
         end
 
         def standard?(contract)
@@ -947,6 +1251,515 @@ namespace :toybaco do
        '(rake "toybaco:e2e_managed_auto[e2e-consent-<run>]")'
   task :e2e_managed_auto, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eGrowth.managed_auto(args)
+  end
+end
+
+# staging の E2E(規約同意の記録の経路の確認)のうち、Stripe Checkout を通る 2 経路(無料店舗の有料化 growth_purchase と、LP からの開通
+# opening_checkout)用。本番の fulfilment(Growth::PurchaseSession#start! → Growth::PurchaseFulfillment#complete! と、Checkout.start! →
+# Growth::BillingReceipt.accept! → Growth::OpeningFulfillment#call)をそのまま通し、Stripe の API だけを in-process の偽 client(FakeStripe)に
+# 差し替える。Toybaco::Checkout::Client は生成せず、Net::HTTP も開かない(one-shot の container には本物の TOYBACO_STRIPE_KEY がある)。偽の
+# Price・Session・購読・請求書は本番の照合を全て通る形にし、金額と商品の名前・説明は PlanCatalog から取る。合成 id は run ごとの prefix の
+# - を x に写した英数字に経路の接尾辞(growth は g、opening は o)を付けて作る(Session・購読の unique index と、開通済みの受付の再利用に当たらないよう
+# run をまたいで使い回さない)。2 本とも引数は E2E の店舗名の prefix だけで、対象の店舗は E2eGrowth と同じ条件(一致する店舗が E2E の店舗名の
+# 厳格な形でちょうど 1 件・有効、契約者が E2E の利用者で確認済みの管理者)。環境の判定と prefix の形は E2eConsent と同じ(staging 以外は引数を
+# 読む前に abort。ops-rake workflow も e2e_ で始まるタスクを staging 以外で拒否する二重の fail-closed)。外側の transaction は開かない
+# (BillingReceipt と OpeningFulfillment が transaction の中を拒む)。出力は TOYBACO_E2E_GROWTH_PURCHASE / TOYBACO_E2E_OPENING の 1 行(prefix・
+# result・店舗の id・reason)だけで、メールアドレス・Session・購読・顧客の id・鍵は出さない。reason は固定の語で、本番の例外の文は出さない。
+# 進めないとき(refused)は同じ形の 1 行で abort する(非 0 で終わり、監査行は failed)。同じ prefix の 2 回目は何も書かずに skipped
+# (already_done)で正常に終わる。監査行(started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、
+# モデルとサービスは実行時に参照する。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module E2eBilling
+      GROWTH = 'GROWTH_PURCHASE'
+      OPENING = 'OPENING'
+      PLAN = 'standard'
+      CYCLE = 'month'
+      MODE = 'test'
+      NONE = '-'
+
+      module_function
+
+      def staging!(task)
+        E2eConsent.staging!(task)
+      end
+
+      # 本番の Checkout と fulfilment。rake では controller(画面)と webhook が読まれないため、ここで読む(読み済みなら何もしない)。
+      def require_billing!
+        require Rails.root.join('lib/toybaco/checkout').to_s
+        %w[purchase_session purchase_fulfillment billing_mode_client billing_receipt billing_snapshot billing_execution].each do |name|
+          require Rails.root.join("lib/toybaco/growth/#{name}").to_s
+        end
+      end
+
+      # 合成 id の材料。prefix の区切りの - を英字 x に写した英数字(run ごとに違う)に、経路の接尾辞を付ける。区切りを消すだけだと
+      # e2e-consent-r12-3 と e2e-consent-r1-23 が同じになるため、x を残して run と attempt の数字を混ぜない(run の店舗名は x を含まない)。
+      def tag(prefix, suffix)
+        "#{prefix.tr('-', 'x').delete('^A-Za-z0-9')}#{suffix}"
+      end
+
+      def version
+        Toybaco::GrowthTerms::VERSION
+      end
+
+      # toybaco:e2e_growth_purchase[prefix]。購入が済んでいれば(toybaco_growth_purchase が complete)何も書かずに skipped。
+      def growth_purchase(args)
+        staging!('e2e_growth_purchase')
+        require_billing!
+        prefix = E2eConsent.prefix!(args)
+        account, owner = target!(GROWTH, prefix)
+        return line(GROWTH, prefix, 'skipped', account.id, 'already_done') if GrowthSeam.done?(account)
+
+        GrowthSeam.purchase!(prefix, account, owner)
+        line(GROWTH, prefix, 'purchased', account.id, NONE)
+      end
+
+      # toybaco:e2e_opening_checkout[prefix]。この prefix の Session の開通の受付が account_ready なら何も書かずに skipped(開通の後は
+      # prefix に一致する店舗が 2 件になるため、対象の店舗を選ぶ前に確かめる)。
+      def opening_checkout(args)
+        staging!('e2e_opening_checkout')
+        require_billing!
+        prefix = E2eConsent.prefix!(args)
+        ready = OpeningSeam.ready(prefix)
+        return OpeningSeam.skipped(prefix, ready) if ready
+
+        account, owner = target!(OPENING, prefix)
+        store = OpeningSeam.open!(prefix, account, owner)
+        opening_line(prefix, 'opened', store.id, account.id, NONE)
+      end
+
+      # 対象の店舗と契約者。E2eGrowth.target! / owner! と同じ条件と理由のキーで、出力の行の形(prefix を含む)だけが違う。
+      def target!(label, prefix)
+        stores = E2eConsent.accounts(prefix)
+        refuse!(label, prefix, 'name_format') unless stores.all? { |store| store.name.match?(E2eConsent::RUN_NAME_FORMAT) }
+        refuse!(label, prefix, stores.empty? ? 'no_account' : 'multiple_accounts') unless stores.size == 1
+
+        [stores.first, owner!(label, prefix, stores.first)]
+      end
+
+      def owner!(label, prefix, account)
+        refuse!(label, prefix, 'account_inactive', account) unless account.active?
+        state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
+        owner = state.is_a?(Hash) ? User.find_by(id: state['owner_id']) : nil
+        refuse!(label, prefix, 'owner_missing', account) unless owner
+        administrator = account.account_users.exists?(user_id: owner.id, role: :administrator)
+        refuse!(label, prefix, 'owner_not_e2e', account) unless E2eConsent.e2e_user?(owner) && administrator
+        refuse!(label, prefix, 'owner_unconfirmed', account) unless owner.confirmed?
+        owner
+      end
+
+      # 販売中の Standard(月払い)の条件(PlanCatalog)。無ければ catalog_unavailable で断る。
+      def terms!(label, prefix, account)
+        Toybaco::PlanCatalog.default.sale(PLAN, CYCLE, version: version)
+      rescue Toybaco::PlanCatalog::Invalid
+        refuse!(label, prefix, 'catalog_unavailable', account)
+      end
+
+      def standard?(contract)
+        contract.is_a?(Hash) && contract.values_at('plan_id', 'plan_version', 'cycle') == [PLAN, version, CYCLE]
+      end
+
+      # route の同意の記録(店舗を読み直す)。
+      def records(account, route)
+        Toybaco::LegalTerms.records(account.reload).select { |record| record.is_a?(Hash) && record['route'] == route }
+      end
+
+      # route の同意の記録がちょうど 1 件で、この run の Session・契約者・Stripe の同意欄の結果(accepted)を持つ。
+      def consented?(account, route, owner, session_id)
+        records(account, route).map { |record| record.values_at('session_id', 'user_id', 'stripe_consent') } == [[session_id, owner.id, 'accepted']]
+      end
+
+      def line(label, prefix, result, account_id, reason)
+        "TOYBACO_E2E_#{label} prefix=#{prefix} result=#{result} account=#{account_id || NONE} reason=#{reason}"
+      end
+
+      # 開通の行。account は作った店舗 B、source_account は店舗 A。
+      def opening_line(prefix, result, account_id, source_id, reason)
+        "TOYBACO_E2E_#{OPENING} prefix=#{prefix} result=#{result} account=#{account_id || NONE} source_account=#{source_id || NONE} reason=#{reason}"
+      end
+
+      # 進めないときの 1 行で abort する。account は対象の店舗 A(開通では source_account)、store は開通で作った店舗 B(作っていれば)。
+      def refuse!(label, prefix, reason, account = nil, store: nil)
+        abort opening_line(prefix, 'refused', store&.id, account&.id, reason) if label == OPENING
+
+        abort line(label, prefix, 'refused', account&.id, reason)
+      end
+
+      # 体験の後・おまかせ自動返信の前の店舗 A を、契約者として Standard(月払い)で有料化する。購入の開始(PurchaseSession#start!)は画面と
+      # 同じく購入の記録と Checkout Session を作り、偽の支払いの後に PurchaseFulfillment#complete! を BillingModeClient 越しに呼ぶ
+      # (rake toybaco:complete_growth_checkout と同じ直接の経路で、BillingEvent は作らない)。本番の購入の条件(PurchaseIntent#authorize! と
+      # PurchaseFulfillment の無料店舗の検査)は先に確かめ、欠ければ何も書かずに断る。購入の後に結果(契約・購読・顧客・AI の枠・体験・
+      # 同意の記録)を読み直し、合わなければ payment_mismatch で止める(書いた分は e2e_purge_accounts が店舗ごと消す)。
+      module GrowthSeam
+        SUFFIX = 'g'
+
+        module_function
+
+        def done?(account)
+          Toybaco::Growth::PurchaseIntent.saved(account)&.fetch('state', nil) == 'complete'
+        end
+
+        def purchase!(prefix, account, owner)
+          terms = ready!(prefix, account, owner)
+          stripe = FakeStripe.new(E2eBilling.tag(prefix, SUFFIX), terms)
+          start!(prefix, account, owner, stripe)
+          stripe.pay!
+          complete!(prefix, account, stripe)
+          verify!(prefix, account, owner, stripe)
+        end
+
+        # 環境と販売の条件、店舗の条件(本番の購入の条件の先回り)、前の実行の購入の記録(complete でないもの。偽 client は run の中だけの
+        # ものなので再開しない)、体験(完了していないもの。購入で upgraded になることを確かめる)。販売中の条件を返す。
+        def ready!(prefix, account, owner)
+          refuse!(prefix, account, 'environment') unless ENV.fetch('TOYBACO_STRIPE_MODE', nil) == MODE
+          terms = E2eBilling.terms!(GROWTH, prefix, account)
+          store!(prefix, account)
+          refuse!(prefix, account, 'not_billing_owner') unless Toybaco::BillingAccess.permissions(account, owner)[:can_manage_billing]
+          refuse!(prefix, account, 'purchase_pending') if Toybaco::Growth::PurchaseIntent.saved(account)
+          refuse!(prefix, account, 'trial_missing') unless Toybaco::GrowthTrial.exists?(account_id: account.id, completed_at: nil)
+          terms
+        end
+
+        # 店舗の購入(子店舗の購入の記録)が無く、更新の切り替えの途中でなく、新料金版の無料プランで購読が無い。
+        def store!(prefix, account)
+          attrs = Toybaco::Entitlements.attributes(account)
+          contract = Toybaco::Entitlements.contract_for(account)
+          refuse!(prefix, account, 'store_purchase_present') if attrs.key?(Toybaco::StoreFulfillment::PURCHASE)
+          refuse!(prefix, account, 'renewal_pending') if Toybaco::Growth::RenewalTransition.pending?(account)
+          free = contract&.dig('plan_id') == 'free' && contract.dig('entitlements', 'ai_meter') == Toybaco::GrowthTerms::METER
+          refuse!(prefix, account, 'not_free_store') unless free && attrs['toybaco_subscription_id'].blank?
+        end
+
+        # 画面の購入の開始と同じく、購入の記録と Checkout Session(開いた状態)を作る。
+        def start!(prefix, account, owner, stripe)
+          selection = { 'plan_id' => PLAN, 'cycle' => CYCLE, 'plan_version' => E2eBilling.version }
+          state = Toybaco::Growth::PurchaseSession.new(account, owner, client: stripe).start!(selection)
+          refuse!(prefix, account, 'purchase_unavailable') unless state['state'] == 'open' && stripe.session_id
+        rescue Toybaco::Growth::PurchaseIntent::Unavailable, Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid
+          refuse!(prefix, account, 'purchase_unavailable')
+        end
+
+        def complete!(prefix, account, stripe)
+          client = Toybaco::Growth::BillingModeClient.new(stripe, MODE)
+          result = Toybaco::Growth::PurchaseFulfillment.new(client: client).complete!(stripe.session_id)
+          refuse!(prefix, account, 'payment_mismatch') unless result == 'complete'
+        rescue Toybaco::Growth::PurchaseIntent::Unavailable, Toybaco::Growth::PaymentSignature::Invalid, Toybaco::SubscriptionSync::Unresolved
+          refuse!(prefix, account, 'payment_mismatch')
+        end
+
+        # 契約が Standard、購読と顧客が合成値、有料期間の AI の枠が発行され無料の枠が終わり、体験が upgraded で完了し、route growth_purchase の
+        # 同意の記録が 1 件(この run の Session・契約者・accepted)。
+        def verify!(prefix, account, owner, stripe)
+          attrs = Toybaco::Entitlements.attributes(account.reload)
+          contract = Toybaco::Entitlements.contract_for(account)
+          billed = attrs.values_at('toybaco_subscription_id', 'toybaco_stripe_customer_id') == [stripe.subscription_id, stripe.customer_id]
+          upgraded = Toybaco::GrowthTrial.where(account_id: account.id).pluck(:completion_reason) == ['upgraded']
+          paid = E2eBilling.standard?(contract) && billed && granted?(account, contract, stripe)
+          return if paid && upgraded && E2eBilling.consented?(account, 'growth_purchase', owner, stripe.session_id)
+
+          refuse!(prefix, account, 'payment_mismatch')
+        end
+
+        # 有料期間の枠(paid:<購読>:<期間の始まり>:base、Standard の月の回数)が 1 件発行され、無料の枠(free:)が残っていない。
+        def granted?(account, contract, stripe)
+          grants = Toybaco::GrowthAiGrant.where(account_id: account.id, source: 'included')
+          base = "paid:#{Toybaco::GrowthAiGrant.sanitize_sql_like(stripe.subscription_id)}:%:base"
+          free = grants.where(revoked_at: nil).where('left(source_key, 5) = ?', 'free:')
+          grants.where('source_key LIKE ?', base).pluck(:units) == [contract.dig('entitlements', 'limits', 'ai_generations')] && !free.exists?
+        end
+
+        def refuse!(prefix, account, reason)
+          E2eBilling.refuse!(GROWTH, prefix, reason, account)
+        end
+      end
+
+      # 店舗 A の契約者のメール(staging の名簿にある E2E の固定アドレス。出力しない)で LP の開通を通し、店舗 A と同じ名前の店舗 B を作る
+      # (Chatwoot の店舗名は unique でない。prefix と E2E の店舗名の形に合うので e2e_purge_accounts が A と一緒に消せる)。Checkout.start! は
+      # LP と同じく顧客と Checkout Session を作り、偽の支払い(購入者のメール・会社名 = 店舗 A の名前・業種 other)の後に、BillingSnapshot が
+      # opening_checkout に分類する event を BillingReceipt.accept! で受け付け、間を置かずに同じ process で worker(BillingEventJob)と同じ
+      # BillingExecution を偽 client で呼ぶ。BillingExecution は event を claim(processing と lease)してから OpeningFulfillment で店舗 B を作り、
+      # event を completed の終端状態にする。claim の後と終端状態では、毎分の sweep(BillingReceipt.sweep → BillingEventJob)の worker は
+      # event を取らず、本物の client(Toybaco::Checkout::Client)を作らない。残る窓は accept! の commit から claim までの数 ms で、その間に
+      # sweep が event を queued にして worker が先に claim したときだけ、worker が本物の client で合成 Session を読みに行く(Stripe は 404 を
+      # 返し、event は pending に戻る)。その場合 seam の claim は取れず、request_attention で止まる。店舗 B は OpeningFulfillment が
+      # User.from_email で契約者を再利用して作る。受け付けた後に店舗 B を作り終えなければ(断り・例外)、止める前にこの run の開通の受付の
+      # 記録を消す(sweep が本物の client で再試行する pending・attention の行を残さない)。開通の後の運営宛てメール
+      # (OpeningOperations.opened!)と、毎分の初期設定(OpeningOnboarding.sweep。転送用受信箱とログイン案内)は本番と同じく動く。
+      module OpeningSeam
+        SUFFIX = 'o'
+        INDUSTRY = 'other'
+
+        module_function
+
+        def session_id(prefix)
+          "cs_test_#{E2eBilling.tag(prefix, SUFFIX)}"
+        end
+
+        def event_id(prefix)
+          "evt_#{E2eBilling.tag(prefix, SUFFIX)}"
+        end
+
+        def ready(prefix)
+          Toybaco::OpeningRequest.find_by(mode: MODE, session_id: session_id(prefix), state: 'account_ready')
+        end
+
+        # 2 回目の行。店舗 B は開通済みの受付の店舗、店舗 A は prefix に一致するほかの店舗(ちょうど 1 件のときだけ出す)。
+        def skipped(prefix, request)
+          sources = E2eConsent.accounts(prefix).reject { |store| store.id == request.account_id }
+          E2eBilling.opening_line(prefix, 'skipped', request.account_id, sources.one? ? sources.first.id : nil, 'already_done')
+        end
+
+        def open!(prefix, account, owner)
+          terms = ready!(prefix, account, owner)
+          stripe = FakeStripe.new(E2eBilling.tag(prefix, SUFFIX), terms)
+          start!(prefix, account, stripe)
+          stripe.pay!(email: owner.email.to_s.downcase, company: account.name, industry: INDUSTRY)
+          settle!(prefix, account, owner, stripe)
+        end
+
+        # 受け付けてから確かめ終えるまで。店舗 B を作り終えなければ(断りの abort と例外)、この run の開通の受付の記録を消してから止める。
+        def settle!(prefix, account, owner, stripe)
+          row = accept!(prefix, account, stripe)
+          fulfill!(row, stripe)
+          store = verify!(prefix, account, owner, stripe, row)
+          opened = true
+          store
+        ensure
+          discard!(prefix) unless opened
+        end
+
+        # この run の合成 id(Session・event)の開通の受付と、それに結んだ event・案内を消す(FK の順に 1 つの transaction で)。前の run の
+        # 残りは ready! が断るので、ここで消す行はこの run が作ったものだけ。
+        def discard!(prefix)
+          Toybaco::OpeningRequest.transaction do
+            requests = Toybaco::OpeningRequest.where(mode: MODE, session_id: session_id(prefix))
+            Toybaco::OpeningNotice.where(opening_request_id: requests.select(:id)).delete_all
+            events = Toybaco::BillingEvent.where(mode: MODE)
+            events.where(opening_request_id: requests.select(:id)).or(events.where(event_id: event_id(prefix))).delete_all
+            requests.delete_all
+          end
+        end
+
+        # 環境、staging の開通の照合(OpeningTerms)が通す名簿のメール、前の run の残り(同じ合成 id の受付・event)、販売の条件。
+        # 販売中の条件を返す。
+        def ready!(prefix, account, owner)
+          refuse!(prefix, account, 'environment') unless ENV.fetch('TOYBACO_STRIPE_MODE', nil) == MODE
+          refuse!(prefix, account, 'fixture_email') unless roster.include?(owner.email.to_s.strip.downcase)
+          leftover = Toybaco::OpeningRequest.exists?(mode: MODE, session_id: session_id(prefix)) ||
+                     Toybaco::BillingEvent.exists?(mode: MODE, event_id: event_id(prefix))
+          refuse!(prefix, account, 'request_attention') if leftover
+          E2eBilling.terms!(OPENING, prefix, account)
+        end
+
+        # OpeningTerms の名簿の読み方と同じ(カンマ区切り、前後の空白を除き小文字にそろえる)。
+        def roster
+          ENV.fetch('TOYBACO_STAGING_FIXTURE_EMAILS', '').split(',').map { |value| value.strip.downcase }
+        end
+
+        # LP の申し込みと同じ(checkout_controller の Checkout.start! に、確認画面の同意の記録を渡す)。
+        def start!(prefix, account, stripe)
+          Toybaco::Checkout.start!(plan: PLAN, cycle: CYCLE, version: E2eBilling.version, consent: Toybaco::LegalTerms.consent, client: stripe,
+                                   environment: ENV)
+        rescue Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid
+          refuse!(prefix, account, 'catalog_unavailable')
+        end
+
+        # webhook の controller と同じく event を分類して受け付ける(署名の検証は Stripe の event でないため通らない。job は積まない)。
+        def accept!(prefix, account, stripe)
+          attributes = Toybaco::Growth::BillingSnapshot.new(stripe.completed_event(event_id(prefix))).read
+          refuse!(prefix, account, 'payment_mismatch') unless attributes.is_a?(Hash) && attributes[:action] == 'opening_checkout'
+          Toybaco::Growth::BillingReceipt.accept!(attributes)
+        rescue Toybaco::Growth::PaymentSignature::Invalid, Toybaco::Growth::BillingReceipt::Conflict
+          refuse!(prefix, account, 'payment_mismatch')
+        end
+
+        # worker(BillingEventJob)と同じ BillingExecution で、event を claim して処理する(client だけ偽物)。claim が取れなければ(worker が
+        # 先に取った)何もせずに戻る。断りと例外は BillingExecution が event の状態(pending / attention)に写すので、結果は受付と event の
+        # 状態を読み直して判定する(verify!)。
+        def fulfill!(row, stripe)
+          Toybaco::Growth::BillingExecution.new(row, client: stripe).call
+        end
+
+        # 受付が account_ready で event が completed(終端状態)、店舗 B が店舗 A と同じ名前の別の店舗、B の管理者が A の契約者(同じ User)、
+        # route opening_checkout の同意の記録が B に 1 件(この run の Session・契約者・accepted)で、A には無い。店舗 B を返す。
+        def verify!(prefix, account, owner, stripe, row)
+          request = Toybaco::OpeningRequest.find_by(mode: MODE, session_id: stripe.session_id)
+          refuse!(prefix, account, 'request_attention') unless request&.state == 'account_ready' && row.reload.state == 'completed'
+          store = Account.find_by(id: request.account_id)
+          refuse!(prefix, account, 'payment_mismatch', store) unless store && opened?(store, account, owner, request.owner_id, stripe)
+          store
+        end
+
+        def opened?(store, account, owner, owner_id, stripe)
+          return false unless store.id != account.id && store.name == account.name && owner_id == owner.id
+
+          administrator = store.account_users.exists?(user_id: owner.id, role: :administrator)
+          administrator && E2eBilling.consented?(store, 'opening_checkout', owner, stripe.session_id) &&
+            E2eBilling.records(account, 'opening_checkout').empty?
+        end
+
+        def refuse!(prefix, account, reason, store = nil)
+          E2eBilling.refuse!(OPENING, prefix, reason, account, store: store)
+        end
+      end
+
+      # Stripe の API の偽物(in-process、Ruby だけで、どこにも接続しない)。本番の client(Toybaco::Checkout::Client)と同じメソッド名・
+      # 引数で、1 つの run の Session と購読をメモリに持つ。合成 id は tag(E2eBilling.tag。prefix と経路の接尾辞)から作り、Price は販売中の
+      # 条件(terms)の金額・商品の名前と説明を持つ。retrieve は保存した Hash の複製を返す(何度読んでも同じ Hash。開通の照合は 2 回の
+      # 読み取りの一致を求める)。開通は Session を idempotency_key なしで作る(Checkout.start!)ので、キーワード引数は任意にする。
+      class FakeStripe
+        attr_reader :session_id
+
+        def initialize(tag, terms)
+          @tag = tag
+          @terms = terms
+          @sessions = {}
+          @subscriptions = {}
+          @subscription_metadata = {}
+        end
+
+        def customer_id
+          "cus_#{@tag}"
+        end
+
+        def subscription_id
+          "sub_#{@tag}"
+        end
+
+        def price_id
+          "price_#{@tag}"
+        end
+
+        # 販売中の条件の test mode の lookup_key だけに Price を返す(ほかの key は見つからない)。
+        def find_price_by_lookup_key(key)
+          price if key == @terms.dig('cycles', CYCLE, 'stripe', MODE, 'lookup_key')
+        end
+
+        # Price の環境変数の上書きがあるときの経路(Checkout::Resolver)。上書きの id に関わらず同じ合成の Price を返す。
+        def retrieve_price(_id)
+          price
+        end
+
+        def create_customer(_params)
+          { 'id' => customer_id, 'object' => 'customer', 'livemode' => false }
+        end
+
+        # 1 つの run の Session は 1 つだけ(作り直しの呼び出しには同じ Session を返す。idempotency_key と同じ働き)。
+        def create_checkout_session(params, **_options)
+          unless @session_id
+            @session_id = "cs_test_#{@tag}"
+            @sessions[@session_id] = open_session(@session_id, params)
+            @subscription_metadata = form(params, 'subscription_data[metadata][')
+          end
+          retrieve_checkout_session(@session_id)
+        end
+
+        def retrieve_checkout_session(id)
+          @sessions.fetch(id) { raise Toybaco::Checkout::Error, 'stripe 404' }.deep_dup
+        end
+
+        def retrieve_subscription(id)
+          @subscriptions.fetch(id) { raise Toybaco::Checkout::Error, 'stripe 404' }.deep_dup
+        end
+
+        def expire_checkout_session(id, **_options)
+          session = @sessions.fetch(id) { raise Toybaco::Checkout::Error, 'stripe 404' }
+          session['status'] = 'expired' if session['status'] == 'open'
+          retrieve_checkout_session(id)
+        end
+
+        def list_checkout_sessions(**_options)
+          { 'data' => @sessions.values.map(&:deep_dup), 'has_more' => false }
+        end
+
+        # 偽の支払い: Session を完了・支払い済みにし、購読(有効・今の期間・支払い済みの初回の請求書)を付ける。同意欄が必須の Session には
+        # Stripe と同じく同意欄の結果(accepted)を入れる。開通は購入者のメールと、会社名・業種の入力欄の値も入れる。
+        def pay!(email: nil, company: nil, industry: nil)
+          session = @sessions.fetch(@session_id)
+          @subscriptions[subscription_id] = subscription(Time.now.to_i - 60)
+          accepted = session.dig('consent_collection', 'terms_of_service') == 'required'
+          session.merge!('status' => 'complete', 'payment_status' => 'paid', 'customer' => customer_id, 'subscription' => subscription_id,
+                         'currency' => 'jpy', 'amount_subtotal' => amount, 'total_details' => { 'amount_discount' => 0, 'amount_shipping' => 0 },
+                         'consent' => accepted ? { 'terms_of_service' => 'accepted' } : nil)
+          session.merge!(contact(email, company, industry)) if email
+          session_id
+        end
+
+        # 開通の受付に渡す checkout.session.completed の event(過去の作成時刻・test mode・data.object は完了した Session)。
+        def completed_event(id)
+          { 'id' => id, 'object' => 'event', 'type' => 'checkout.session.completed', 'livemode' => false, 'created' => Time.now.to_i - 1,
+            'data' => { 'object' => retrieve_checkout_session(@session_id) } }
+        end
+
+        private
+
+        def open_session(id, params)
+          { 'id' => id, 'object' => 'checkout.session', 'mode' => 'subscription', 'livemode' => false, 'status' => 'open',
+            'payment_status' => 'unpaid', 'client_reference_id' => params['client_reference_id'], 'customer' => params['customer'],
+            'metadata' => form(params, 'metadata['), 'created' => Time.now.to_i, 'expires_at' => params['expires_at']&.to_i,
+            'consent_collection' => { 'terms_of_service' => params['consent_collection[terms_of_service]'] || 'none' },
+            'url' => "https://checkout.stripe.com/c/pay/#{id}" }
+        end
+
+        # form の key(<prefix><name>])の値を name ごとに取り出す(metadata[...] / subscription_data[metadata][...])。
+        def form(params, prefix)
+          params.each_with_object({}) do |(key, value), found|
+            found[key.delete_prefix(prefix).delete_suffix(']')] = value if key.start_with?(prefix) && key.end_with?(']')
+          end
+        end
+
+        def contact(email, company, industry)
+          { 'customer_details' => { 'email' => email },
+            'custom_fields' => [{ 'key' => 'company', 'type' => 'text', 'text' => { 'value' => company } },
+                                { 'key' => 'industry', 'type' => 'dropdown', 'dropdown' => { 'value' => industry } }] }
+        end
+
+        def amount
+          @terms.dig('cycles', CYCLE, 'amount')
+        end
+
+        def price
+          { 'id' => price_id, 'object' => 'price', 'active' => true, 'currency' => 'jpy', 'unit_amount' => amount, 'livemode' => false,
+            'tax_behavior' => 'exclusive', 'billing_scheme' => 'per_unit', 'transform_quantity' => nil,
+            'recurring' => { 'interval' => CYCLE, 'interval_count' => 1, 'usage_type' => 'licensed' },
+            'metadata' => { 'toybaco_plan' => @terms.fetch('plan_id'), 'toybaco_plan_version' => @terms.fetch('plan_version') },
+            'product' => { 'id' => "prod_#{@tag}", 'active' => true, 'name' => @terms.fetch('product_name'),
+                           'description' => @terms.fetch('description') } }
+        end
+
+        # 有効な購読。今の期間は started(今より前)から 1 か月で、請求の起点と初回の請求書の支払いの時刻も started。
+        def subscription(started)
+          ends = Time.at(started).utc.advance(months: 1).to_i
+          item = { 'id' => "si_#{@tag}", 'price' => price, 'quantity' => 1, 'current_period_start' => started, 'current_period_end' => ends }
+          { 'id' => subscription_id, 'object' => 'subscription', 'status' => 'active', 'livemode' => false, 'customer' => customer_id,
+            'metadata' => @subscription_metadata, 'billing_cycle_anchor' => started, 'cancel_at_period_end' => false, 'pause_collection' => nil,
+            'items' => { 'object' => 'list', 'has_more' => false, 'data' => [item] }, 'latest_invoice' => invoice(started, ends) }
+        end
+
+        def invoice(started, ends)
+          line = { 'quantity' => 1, 'amount' => amount, 'period' => { 'start' => started, 'end' => ends },
+                   'parent' => { 'subscription_item_details' => { 'subscription_item' => "si_#{@tag}" } },
+                   'pricing' => { 'price_details' => { 'price' => price_id } } }
+          { 'id' => "in_#{@tag}", 'object' => 'invoice', 'status' => 'paid', 'currency' => 'jpy', 'amount_remaining' => 0,
+            'billing_reason' => 'subscription_create', 'parent' => { 'subscription_details' => { 'subscription' => subscription_id } },
+            'status_transitions' => { 'paid_at' => started }, 'lines' => { 'object' => 'list', 'has_more' => false, 'data' => [line] } }
+        end
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc 'staging 専用: 体験の後の E2E の店舗(ちょうど 1 件)を、Stripe を呼ばない偽 client で本番の購入の処理を通して Standard(月払い)に' \
+       'する(rake "toybaco:e2e_growth_purchase[e2e-consent-<run>]")'
+  task :e2e_growth_purchase, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eBilling.growth_purchase(args)
+  end
+
+  desc 'staging 専用: E2E の店舗(ちょうど 1 件)の契約者のメールで、Stripe を呼ばない偽 client で本番の開通の処理を通し、同じ名前の店舗を' \
+       '作る(rake "toybaco:e2e_opening_checkout[e2e-consent-<run>]")'
+  task :e2e_opening_checkout, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eBilling.opening_checkout(args)
   end
 end
 
@@ -1115,5 +1928,187 @@ namespace :toybaco do
        '(rake "toybaco:postiz_identity_release[chatwoot_user_id]"。chatwoot_user_id は新しい担当者の 1 以上の整数)'
   task :postiz_identity_release, %i[chatwoot_user_id] => :environment do |_t, args|
     puts Toybaco::Ops::PostizIdentityRelease.run(args)
+  end
+end
+
+# staging の目視用の店舗(初回ツアーの前半とスポットライトの目視)。e2e_visual_store は、名前が e2e-visual- の形の無料店舗を 1 件作り、source の
+# 店舗の administrator(SuperAdmin でなく、メール確認済みの利用者)全員を新しい店舗の administrator として所属させる。利用者は作らず、
+# パスワード・メールアドレスは引数にも出力にも出さない(source の店舗に administrator でログイン済みのブラウザーが、新しい店舗のツアーを
+# そのまま開ける)。店舗の初期状態は無料登録で確認と有効化まで済んだ店舗と同じ(FreeRegistration#prepare_visual!)で、規約同意の記録は
+# 残さない(本人の同意ではないため)。ツアー(growth guide)の状態は利用者の側にあり、何も書かない(新しい店舗の既定のまま)。
+# 作った店舗には同じ transaction で作成票(internal_attributes の toybaco_e2e_visual。source の id と作成時刻)を書き、store と purge は
+# 作成票のある店舗だけを扱う(名前だけでは e2e_visual_store が作った店舗と、同じ名前を付けた実店舗を区別できない)。
+# e2e_visual_purge は、名前が完全に一致する作成票のある店舗(ちょうど 1 件)を消す。利用者は消さない(複製した利用者は実在の利用者で、
+# メールアドレスの形では区別しない)。店舗名の形は E2eConsent の prefix・run ごとの店舗名の形と別で、e2e_purge_accounts の一致には
+# 入らない。store と purge は前方一致でなく名前の完全一致で店舗を引く。環境の判定は E2eConsent と同じ(staging 以外は引数を読む前に
+# abort。ops-rake workflow も e2e_ で始まるタスクを staging 以外で拒否する二重の fail-closed)。進めないときは TOYBACO_E2E_VISUAL の
+# 1 行(result・店舗の id・reason)で abort する(非 0 で終わり、監査行は failed)。同じ名前の作成票のある店舗があれば、何も書かずに
+# skipped(already_exists)で正常に終わる。同じ名前の店舗に作成票が無ければ name_taken で abort する(実店舗の名前を目視用に使わない)。
+# 監査行(started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、モデルとサービスは実行時に参照する。
+module Toybaco # rubocop:disable Style/ClassAndModuleChildren
+  module Ops
+    module E2eVisual
+      # 目視用の店舗名の厳格な形。E2eConsent の PREFIX_FORMAT(e2e-consent-)・RUN_NAME_FORMAT とは重ならない。
+      NAME_FORMAT = /\Ae2e-visual-[a-z0-9-]{1,40}\z/
+      SOURCE_FORMAT = /\A[1-9]\d{0,9}\z/
+      NAME_ERROR = 'name は e2e-visual- に続けて英小文字・数字・- を 1〜40 字で指定してください。'
+      # source にしない店舗名(E2E の店舗。所属を複製すると E2E の利用者が E2E の店舗の外に所属し、E2E の後片付けが止まる)。
+      E2E_NAME_PREFIX = 'e2e-'
+      # 作成票の鍵(internal_attributes)。custom_attributes は管理者が API で書き換えられるため使わない。
+      MARKER_KEY = 'toybaco_e2e_visual'
+      # store と purge が transaction の中で最初に取る advisory lock(同じ文字列で、互いと同じ rake の同時実行を直列にする)。
+      LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext('toybaco_e2e_visual_store'))"
+      NONE = '-'
+
+      module_function
+
+      def staging!(task)
+        E2eConsent.staging!(task)
+      end
+
+      # toybaco:e2e_visual_store[name,source_account_id]。作成は 1 つの transaction(店舗・所属・契約・無料登録の段階)で行い、その間に
+      # 積まれる job は commit の後に送る(E2eConsent::WriteGuard.jobs_after_commit)。
+      def store(args)
+        staging!('e2e_visual_store')
+        name, source_id = store_arguments!(args)
+        E2eConsent::WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { create!(name, source_id) } }
+      end
+
+      # 検査と代入を同じ判定にする(通すのは形に合う文字列 2 つだけで、Symbol・Integer・余分な引数は通さない)。入力の値は出さない。
+      def store_arguments!(args)
+        name = args[:name]
+        source = args[:source_account_id]
+        abort NAME_ERROR unless name.is_a?(String) && name.match?(NAME_FORMAT)
+        abort 'source_account_id は 1 以上の整数で指定してください。' unless source.is_a?(String) && source.match?(SOURCE_FORMAT)
+        abort '引数は name と source_account_id の 2 つだけを指定してください。' unless args.extras.empty?
+
+        [name, Integer(source, 10)]
+      end
+
+      # transaction の中で呼ぶ。store と purge の同時実行を transaction の終わりまで直列にしてから(LOCK_SQL)、同じ名前の店舗を確かめる
+      # (同時に 2 件作らない)。同じ名前の店舗が 2 件以上なら abort する。1 件なら、作成票があれば何も書かずに skipped、無ければ name_taken で
+      # abort する。
+      def create!(name, source_id)
+        ActiveRecord::Base.connection.execute(LOCK_SQL)
+        existing = named(name)
+        refuse!(nil, 'multiple_accounts') if existing.size > 1
+        refuse!(existing.first.id, 'name_taken') if existing.any? && !marker?(existing.first)
+        return line('skipped', existing.first.id, 'already_exists') if existing.any?
+
+        build!(name, Account.find_by(id: source_id))
+      end
+
+      # 店舗を作り、複製する administrator を所属させてから、無料登録で確認と有効化まで済んだ店舗と同じ初期状態にし、作成票を書く。契約者
+      # (無料登録の owner)は、複製した administrator のうち id が最小の利用者。無料登録がカタログで使えない環境では作らない。
+      def build!(name, source)
+        administrators = administrators!(source)
+        refuse!(nil, 'free_unavailable') unless Toybaco::Growth::FreeRegistration.enabled?
+        account = Account.create!(name: name, locale: 'ja')
+        administrators.each { |user| AccountUser.create!(account: account, user: user, role: :administrator) }
+        Toybaco::Growth::FreeRegistration.new.prepare_visual!(account, owner: administrators.first)
+        mark!(account, source)
+        line('created', account.id, NONE, 'source' => source.id, 'administrators' => administrators.size)
+      end
+
+      # 作成票(source の id と、UTC の ISO 8601 の作成時刻)。契約・無料登録の段階と同じく internal_attributes 全体に merge して書く。
+      def mark!(account, source)
+        marker = { 'source_account_id' => source.id, 'created_at' => Time.now.utc.iso8601 }
+        account.update!(internal_attributes: Toybaco::Entitlements.attributes(account).merge(MARKER_KEY => marker))
+      end
+
+      # e2e_visual_store が作った店舗か(作成票が Hash で、source の id が Integer)。
+      def marker?(account)
+        marker = Toybaco::Entitlements.attributes(account)[MARKER_KEY]
+        marker.is_a?(Hash) && marker['source_account_id'].is_a?(Integer)
+      end
+
+      # source の店舗の administrator のうち、SuperAdmin(type あり)でなくメール確認済みの利用者(id の順)。source が無い・停止中・E2E の
+      # 店舗・対象の利用者が 0 人なら、理由を 1 行で出して abort する。
+      def administrators!(source)
+        refuse!(nil, 'source_missing') unless source
+        refuse!(source.id, 'source_inactive') unless source.active?
+        refuse!(source.id, 'source_is_e2e') if source.name.to_s.start_with?(E2E_NAME_PREFIX)
+        ids = AccountUser.where(account_id: source.id, role: :administrator).select(:user_id)
+        users = User.where(id: ids).order(:id).select { |user| user.type.blank? && user.confirmed? }
+        refuse!(source.id, 'source_no_administrator') if users.empty?
+
+        users
+      end
+
+      # toybaco:e2e_visual_purge[name]。名前が完全に一致する店舗が 2 件以上か、1 件で作成票が無ければ、transaction を開く前に何も消さずに
+      # abort する。0 件なら何も消さずに 0 件を出す。
+      def purge(args)
+        staging!('e2e_visual_purge')
+        name = E2eConsent.argument!(args, :name, NAME_FORMAT, NAME_ERROR)
+        stores = named(name)
+        abort "name=#{name} に一致する店舗が #{stores.size} 件あるため削除しません。" if stores.size > 1
+        abort "name=#{name} の店舗 account=#{stores.first.id} は e2e_visual_store が作った店舗でない(作成票なし)ため削除しません。" if stores.any? && !marker?(stores.first)
+
+        Removal.run(name, stores)
+      end
+
+      # 名前が name と完全に一致する店舗(id の順)。DB の一致に加えて Ruby でも == を確かめる(前方一致では引かない)。
+      def named(name)
+        Account.where(name: name).order(:id).select { |account| account.name == name }
+      end
+
+      def line(result, account_id, reason, fields = {})
+        ["TOYBACO_E2E_VISUAL result=#{result} account=#{account_id || NONE}", *fields.map { |key, value| "#{key}=#{value}" },
+         "reason=#{reason}"].join(' ')
+      end
+
+      # 進めないときの 1 行で abort する(transaction の中なら rollback する)。
+      def refuse!(account_id, reason)
+        abort line('refused', account_id, reason)
+      end
+
+      # 目視用の店舗の削除。E2eConsent::Purge の部品(店舗が残っているうちに消す子、DeleteObjectJob の処理、体験と自動応答の記録、読み直し)と
+      # WriteGuard(行ロックした店舗の名前の確かめ直し、job の commit 後送り)をそのまま使う。利用者は消さない(複製した利用者は実在の
+      # 利用者で、メールアドレスの形では区別しない。E2E 用の形のメールアドレスの利用者も消さない)。DeleteObjectJob に渡すのは店舗だけで、
+      # 所属は店舗と一緒に消える。Purge.delete! は使わない(利用者・契約者を消す手順を含むため)。出力の users は常に 0、skipped_users は
+      # 消す前の店舗の所属の利用者の数(同じ利用者は 1 回)。
+      module Removal
+        module_function
+
+        def run(name, stores)
+          deleted, members = E2eConsent::WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(name, stores) } }
+          "TOYBACO_E2E_VISUAL_PURGE name=#{name} accounts=#{deleted.size} users=0 skipped_users=#{members.size}"
+        end
+
+        # transaction の中で呼ぶ。最初に store と同じ advisory lock(LOCK_SQL)を取り、store や別の purge と重ならないようにする。ロックを
+        # 待つ間に先の purge が消し終えた店舗は外す(transaction の前に選んだ店舗のまま行ロックで読み直すと ActiveRecord::RecordNotFound に
+        # なり、正常の行で終わらない。外した店舗は accounts に数えない)。続けて店舗を行ロックして名前(完全一致と厳格な形)と作成票を
+        # 確かめ直し、所属の利用者を控えてから、子・店舗・体験と自動応答の記録の順に消す。読み直して残っていれば abort(SystemExit)で
+        # rollback して何も消さない。消した店舗と、消す前の所属の利用者の id を返す。
+        def delete!(name, stores)
+          purge = E2eConsent::Purge
+          ActiveRecord::Base.connection.execute(LOCK_SQL)
+          stores = stores.select { |store| Account.exists?(store.id) }
+          E2eConsent::WriteGuard.relock!(name, stores, '削除', name_format: NAME_FORMAT) { |store| store.name == name && E2eVisual.marker?(store) }
+          ids = stores.map(&:id)
+          members = AccountUser.where(account_id: ids).distinct.pluck(:user_id)
+          purge.children!(ids)
+          stores.each { |store| DeleteObjectJob.new.perform(store) }
+          E2eConsent::Purge::GrowthRecords.delete!(ids)
+          return [stores, members] unless purge.remaining?(ids, [])
+
+          abort "name=#{name} の削除を読み直すと店舗・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。"
+        end
+      end
+    end
+  end
+end
+
+namespace :toybaco do
+  desc 'staging 専用: 目視用の無料店舗(名前は e2e-visual-…)を 1 件作り、source の店舗の確認済み administrator を administrator として所属させる' \
+       '(rake "toybaco:e2e_visual_store[e2e-visual-<name>,source_account_id]")'
+  task :e2e_visual_store, %i[name source_account_id] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eVisual.store(args)
+  end
+
+  desc 'staging 専用: 名前が完全に一致する目視用の店舗(1 件)と所属を削除する。複製した利用者は消さない' \
+       '(rake "toybaco:e2e_visual_purge[e2e-visual-<name>]")'
+  task :e2e_visual_purge, %i[name] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eVisual.purge(args)
   end
 end

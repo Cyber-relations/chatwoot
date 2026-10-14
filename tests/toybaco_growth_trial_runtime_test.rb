@@ -1628,35 +1628,47 @@ class ToybacoGrowthImapVerificationLockRuntimeTest < ActiveSupport::TestCase
 
   # A check inside a transaction that rolls back is written again after the rollback onto the latest value: when another
   # session counts attempts while the rewrite waits for the row, the count goes on from that value and does not drop.
+  # The rewrite is held until the other session holds the row: a session that waited for the row does not always take it
+  # before the session that just let go asks for it again (the rollback and the rewrite run in one session without a
+  # wake-up in between, the waiter is woken first), and the test is about the value counted meanwhile, not that order.
   def test_the_rewrite_after_a_rollback_goes_on_from_the_attempts_counted_meanwhile
     signing_in = Queue.new
     release = Queue.new
+    locked = Queue.new
     opener = lambda do |_host, **_options|
       signing_in << true
       release.pop
       ToybacoGrowthTrialRuntimeTest::FakeImap.new(true)
     end
+    rewrite = Verification.method(:rewrite!)
+    held = lambda do |*args|
+      Timeout.timeout(10) { locked.pop }
+      rewrite.call(*args)
+    end
     sessions = []
     Net::IMAP.stub(:new, opener) do
-      sessions << in_session do
-        ActiveRecord::Base.transaction do
-          Verification.verified?(Channel::Email.find(@channel.id))
-          raise ActiveRecord::Rollback
+      Verification.stub(:rewrite!, held) do
+        sessions << in_session do
+          ActiveRecord::Base.transaction do
+            Verification.verified?(Channel::Email.find(@channel.id))
+            raise ActiveRecord::Rollback
+          end
         end
-      end
-      Timeout.timeout(10) { signing_in.pop }
-      sessions << in_session do
-        Channel::Email.transaction do
-          row = Channel::Email.lock.find(@channel.id)
-          sleep 1.1 # the records keep whole seconds: this window begins after the rolled-back check
-          attempts = { 'count' => 2, 'first_at' => Time.now.utc.iso8601 }
-          row.update_columns(provider_config: { Verification::KEY => { 'attempts' => attempts } }) # rubocop:disable Rails/SkipsModelValidations
+        Timeout.timeout(10) { signing_in.pop }
+        sessions << in_session do
+          Channel::Email.transaction do
+            row = Channel::Email.lock.find(@channel.id)
+            locked << true
+            sleep 1.1 # the records keep whole seconds: this window begins after the rolled-back check
+            attempts = { 'count' => 2, 'first_at' => Time.now.utc.iso8601 }
+            row.update_columns(provider_config: { Verification::KEY => { 'attempts' => attempts } }) # rubocop:disable Rails/SkipsModelValidations
+          end
         end
+        wait_for_lock_waiter
+      ensure
+        release << true
+        sessions.each { |thread| thread.join(15) || thread.kill }
       end
-      wait_for_lock_waiter
-    ensure
-      release << true
-      sessions.each { |thread| thread.join(15) || thread.kill }
     end
     record = @channel.reload.provider_config[Verification::KEY]
     assert_equal 3, record.dig('attempts', 'count')

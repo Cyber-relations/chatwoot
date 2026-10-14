@@ -11,7 +11,9 @@ Rails.application.load_tasks unless Rake::Task.task_defined?('toybaco:e2e_trial'
 # 置き換えて接続の試みを数え、0 回であることを確かめる)、staging 以外と prefix の形と対象の店舗の検査、断られたときの理由のキーと
 # 取り消し、2 回目の skipped、機能フラグが off の skipped を確かめる。おまかせ自動返信の設置は外側の transaction の中を拒むため
 # (ManagedAuto.locked)、設置まで進む例は transactional fixtures を使わずに実行し、作った行を後で消す。無料登録 → 確認 → 体験 →
-# おまかせ自動返信 → 同意の記録の確認 → 後片付けを続けて実行し、規約同意の記録が 3 経路になることも確かめる。
+# おまかせ自動返信 → 同意の記録の確認 → 後片付けを続けて実行し、規約同意の記録が 3 経路になることも確かめる。購読のある店舗は
+# toybaco:e2e_growth_purchase が Standard を購入した記録があるときだけ受け付けること(AutoSeam の緩和)と、その緩和が E2E の店舗名の
+# 厳格な形の外の店舗に掛からないこと(target! が先に断る)も確かめる。
 # Postiz の DB は外部の境界として PostizSync をスタブする(ops_e2e_consent_spec と同じ)。
 # 置き場所は他の overlay spec(spec/lib/toybaco/*_spec.rb)と揃え、rspec manifest の名簿で固定している。
 RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFormat
@@ -96,6 +98,16 @@ RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFo
 
   def auto_line(account, result, reason)
     "TOYBACO_E2E_MANAGED_AUTO result=#{result} account=#{account&.id || '-'} reason=#{reason}"
+  end
+
+  # 購読つきの契約(toybaco:e2e_growth_purchase が Standard を購入した後と同じ鍵)と、購入の記録(state・購読)を書く。
+  def billed!(account, plan, subscription, purchase: nil)
+    terms = Toybaco::PlanCatalog.default.definition(plan, '2026-09-25.1')
+    Toybaco::Entitlements.apply!(account.reload, Toybaco::Entitlements.snapshot_for(terms, cycle: 'month'), subscription_id: subscription)
+    return unless purchase
+
+    record = { 'state' => purchase.first, 'subscription_id' => purchase.last }
+    account.update!(internal_attributes: account.reload.internal_attributes.merge('toybaco_growth_purchase' => record))
   end
 
   # 体験の前提として rake が作る行の数(店舗情報・受信箱・bot・会話・メッセージ・体験・同意の記録)。
@@ -280,6 +292,31 @@ RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFo
       expect([AgentBot.where(account_id: account.id).count, routes(account)]).to eq([1, %w[free_registration trial]])
     end
 
+    it '購読のある店舗は、Standard の購入の記録(complete で店舗と同じ購読)があり契約が同じ版の Standard のときだけ契約の検査を通し、ほかは unexpected_contract で断る' do
+      _, account = active_store('r316-1')
+      run!('e2e_trial', 'e2e-consent-r316-1')
+      sub = 'sub_e2econsentr3161g'
+      cases = [['standard', nil], ['standard', ['open', sub]], ['standard', %w[complete sub_other3161]], ['light', ['complete', sub]]]
+      results = cases.map do |plan, purchase|
+        billed!(account, plan, sub, purchase: purchase)
+        refusal('e2e_managed_auto', 'e2e-consent-r316-1')
+      end
+      expect(results).to eq([auto_line(account, 'refused', 'unexpected_contract')] * 4)
+      # 購入の記録が合えば契約の検査を通って設置まで進む(transactional fixtures の transaction の中なので、設置は install_invalid で止まる)。
+      billed!(account, 'standard', sub, purchase: ['complete', sub])
+      expect(refusal('e2e_managed_auto', 'e2e-consent-r316-1')).to eq(auto_line(account, 'refused', 'install_invalid'))
+      expect(Toybaco::GrowthAutoInstallation.where(account_id: account.id).count).to eq(0)
+    end
+
+    it 'Standard の購入の記録がある店舗でも、E2E の店舗名の厳格な形でなければ target! が name_format で断り、緩めた契約の検査には届かない' do
+      _, account = active_store('r317-1')
+      run!('e2e_trial', 'e2e-consent-r317-1')
+      billed!(account, 'standard', 'sub_e2econsentr3171g', purchase: %w[complete sub_e2econsentr3171g])
+      account.update!(name: 'e2e-consent-r317-1-old')
+      expect(refusal('e2e_managed_auto', 'e2e-consent-r317-1')).to eq(auto_line(nil, 'refused', 'name_format'))
+      expect([AgentBot.where(account_id: account.id).count, Toybaco::GrowthAutoInstallation.where(account_id: account.id).count]).to eq([1, 0])
+    end
+
     describe '外側の transaction を持たない実行(rake と同じ)' do
       self.use_transactional_tests = false
 
@@ -362,7 +399,8 @@ RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFo
         trial_ids = Toybaco::GrowthTrial.where(account_id: account.id).pluck(:id)
         expect(run!('e2e_purge_accounts', prefix))
           .to eq(["TOYBACO_E2E_PURGE prefix=#{prefix} accounts=1 users=1 skipped_users=0 remaining=0",
-                  "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} trials=1 identities=1 installations=1"])
+                  "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} trials=1 identities=1 installations=1",
+                  "TOYBACO_E2E_PURGE_OPENING prefix=#{prefix} requests=0 events=0 notices=0"])
         expect([Account.exists?(account.id), User.exists?(user.id), Toybaco::GrowthTrialIdentity.where(trial_id: trial_ids).count])
           .to eq([false, false, 0])
         expect([Toybaco::GrowthTrial, Toybaco::GrowthAutoInstallation, Toybaco::GrowthAutoCommand, Toybaco::GrowthAutoRequest]

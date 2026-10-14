@@ -2,7 +2,13 @@ import { ref } from 'vue';
 
 export const growthGuideState = ref(null);
 export const growthGuideError = ref('');
+// 案内を開けなかったときの応答の status(401・403・404)。growthGuideError と一緒に変わり、ほかの失敗と読めたときは null。
+// 404 は、この店舗が案内の対象(無料プランから始めた店舗)でないことを表す。
+export const growthGuideErrorStatus = ref(null);
 export const growthGuideBusy = ref(false);
+// 選んでいる店舗(文字列の id か null)。growthGuideState はいつもこの店舗の状態(選び直すと消える)。
+// 書き換えは selectGrowthGuideAccount だけで行う。
+export const growthGuideAccount = ref(null);
 let accountId = null;
 let epoch = 0;
 let pendingRead = null;
@@ -10,12 +16,19 @@ let pendingRead = null;
 export function selectGrowthGuideAccount(id) {
   if (String(id || '') === String(accountId || '')) return;
   accountId = id ? String(id) : null;
+  growthGuideAccount.value = accountId;
   epoch += 1;
   pendingRead?.abort();
   pendingRead = null;
   growthGuideState.value = null;
   growthGuideError.value = '';
+  growthGuideErrorStatus.value = null;
   growthGuideBusy.value = false;
+}
+
+function showFailure(error) {
+  growthGuideError.value = error.message;
+  growthGuideErrorStatus.value = error.status || null;
 }
 
 async function request(path, method, body, signal) {
@@ -36,8 +49,14 @@ async function request(path, method, body, signal) {
   );
   if (selectedEpoch !== epoch) return null;
   if ([401, 403, 404].includes(response.status)) {
+    const error = Object.assign(new Error('この店舗の案内を開けません。'), {
+      status: response.status,
+    });
     growthGuideState.value = null;
-    throw new Error('この店舗の案内を開けません。');
+    // 店舗を確かめたこの場で出す。呼び出し元の catch に届くまでの隙間(microtask)で店舗が外されても、案内の対象で
+    // ないこと(404)を画面が見逃さない。catch でも同じ値をもう一度設定する(店舗が変わっていれば設定しない)。
+    showFailure(error);
+    throw error;
   }
   if (!response.ok || response.redirected)
     throw new Error('読み込めませんでした。もう一度お試しください。');
@@ -46,6 +65,7 @@ async function request(path, method, body, signal) {
     return null;
   growthGuideState.value = data;
   growthGuideError.value = '';
+  growthGuideErrorStatus.value = null;
   return data;
 }
 
@@ -63,7 +83,7 @@ export async function refreshGrowthGuide() {
     );
   } catch (error) {
     if (selectedEpoch === epoch && error.name !== 'AbortError')
-      growthGuideError.value = error.message;
+      showFailure(error);
   } finally {
     if (pendingRead === controller) pendingRead = null;
   }
@@ -79,7 +99,7 @@ async function update(path, body) {
   try {
     return await request(path, 'PUT', body);
   } catch (error) {
-    if (selectedEpoch === epoch) growthGuideError.value = error.message;
+    if (selectedEpoch === epoch) showFailure(error);
   } finally {
     if (selectedEpoch === epoch) growthGuideBusy.value = false;
   }
