@@ -53,7 +53,9 @@ class RoomChannel < ApplicationCable::Channel
         end
       end
     else
-      stream_from pubsub_token
+      stream_from pubsub_token, coder: ActiveSupport::JSON do |message|
+        transmit(message) if verify_toybaco_session
+      end
     end
   end
 
@@ -68,8 +70,12 @@ class RoomChannel < ApplicationCable::Channel
   end
 
   def current_user
+    return if pubsub_token.blank?
+
     @current_user ||= if params[:user_id].blank?
-                        ContactInbox.find_by!(pubsub_token: pubsub_token).contact
+                        contact_inbox = ContactInbox.find_by!(pubsub_token: pubsub_token)
+                        @toybaco_session = Toybaco::Security::WidgetSession.new(contact_inbox)
+                        contact_inbox.contact if @toybaco_session.current?
                       else
                         @toybaco_session = Toybaco::Security::CableSession.new(connection.request, params[:user_id], params[:account_id])
                         user = @toybaco_session.authenticate

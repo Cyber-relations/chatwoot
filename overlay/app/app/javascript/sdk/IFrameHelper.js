@@ -126,6 +126,7 @@ export const IFrameHelper = {
     }
   },
   sendMessage: (key, value) => {
+    if ((IFrameHelper.pendingReset || IFrameHelper.resetFailed) && key !== 'revoke-session') return;
     const element = IFrameHelper.getAppFrame();
     const origin = IFrameHelper.getFrameOrigin(element);
     if (!origin || !element.contentWindow) return;
@@ -134,6 +135,55 @@ export const IFrameHelper = {
       `chatwoot-widget:${JSON.stringify({ event: key, ...value })}`,
       origin
     );
+  },
+  resetSession: () => {
+    if (IFrameHelper.pendingReset) return IFrameHelper.pendingReset.promise;
+    const frame = IFrameHelper.getAppFrame();
+    if (!frame) return Promise.reject(new Error('Widget is not available'));
+    if (window.$chatwoot.isOpen) IFrameHelper.events.toggleBubble('close');
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    const requestId = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    let resolve;
+    let reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    // Legacy callers may ignore the returned Promise; the error event still
+    // reports a failed reset and this handler prevents an unhandled rejection.
+    promise.catch(() => {});
+    const state = { requestId, promise, resolve, reject, frame };
+    IFrameHelper.resetFailed = false;
+    IFrameHelper.pendingReset = state;
+    state.timer = setTimeout(() => IFrameHelper.finishSessionReset(false), 15000);
+    frame.style.visibility = 'hidden';
+    delete window.$chatwoot.user;
+    delete window.$chatwoot.identifier;
+    window.$chatwoot.resetTriggered = true;
+    if (window.$chatwoot.hasLoaded) IFrameHelper.sendMessage('revoke-session', { requestId });
+    return promise;
+  },
+  finishSessionReset: success => {
+    const state = IFrameHelper.pendingReset;
+    if (!state) return;
+    clearTimeout(state.timer);
+    IFrameHelper.pendingReset = null;
+    if (!success) {
+      IFrameHelper.resetFailed = true;
+      dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_reset_failed' } });
+      state.reject(new Error('Widget session could not be revoked. Retry reset before continuing.'));
+      return;
+    }
+    const domain = window.$chatwoot.baseDomain;
+    for (const name of ['cw_conversation', getUserCookieName()]) {
+      Cookies.remove(name, { path: '/', domain });
+      // Older SDKs sometimes wrote a host cookie even when baseDomain was set.
+      if (domain) Cookies.remove(name, { path: '/' });
+    }
+    window.$chatwoot.hasLoaded = false;
+    // A new browsing context rejects delayed loaded/auth-cookie messages from
+    // the revoked frame even though its origin is the same.
+    const replacement = state.frame.cloneNode(false);
+    replacement.src = IFrameHelper.getUrl({ baseUrl: window.$chatwoot.baseUrl, websiteToken: window.$chatwoot.websiteToken });
+    state.frame.replaceWith(replacement);
+    state.resolve();
   },
   initPostMessageCommunication: () => {
     // トイバコ: listener は window に 1 つだけ持つ。sdk.js を読み直した別の IFrameHelper が
@@ -171,6 +221,10 @@ export const IFrameHelper = {
       ) {
         return;
       }
+      if (
+        (IFrameHelper.pendingReset || IFrameHelper.resetFailed) &&
+        !['loaded', 'session-revoked'].includes(message.event)
+      ) return;
       if (typeof IFrameHelper.events[message.event] === 'function') {
         IFrameHelper.events[message.event](message);
       }
@@ -219,7 +273,17 @@ export const IFrameHelper = {
   },
 
   events: {
+    'session-revoked': message => {
+      if (message.requestId === IFrameHelper.pendingReset?.requestId) {
+        IFrameHelper.finishSessionReset(message.success === true);
+      }
+    },
     loaded: message => {
+      if (IFrameHelper.resetFailed) return;
+      if (IFrameHelper.pendingReset) {
+        IFrameHelper.sendMessage('revoke-session', { requestId: IFrameHelper.pendingReset.requestId });
+        return;
+      }
       updateAuthCookie(message.config.authToken, window.$chatwoot.baseDomain);
       window.$chatwoot.hasLoaded = true;
       const campaignsSnoozedTill = Cookies.get('cw_snooze_campaigns_till');
@@ -246,7 +310,10 @@ export const IFrameHelper = {
       IFrameHelper.toggleCloseButton();
 
       if (window.$chatwoot.user) {
-        IFrameHelper.sendMessage('set-user', window.$chatwoot.user);
+        IFrameHelper.sendMessage('set-user', {
+          identifier: window.$chatwoot.identifier,
+          user: window.$chatwoot.user,
+        });
       }
 
       window.playAudioAlert = () => {};
@@ -274,6 +341,7 @@ export const IFrameHelper = {
     },
 
     setAuthCookie({ data: { widgetAuthToken } }) {
+      if (IFrameHelper.pendingReset || IFrameHelper.resetFailed) return;
       updateAuthCookie(widgetAuthToken, window.$chatwoot.baseDomain);
     },
 
@@ -300,6 +368,7 @@ export const IFrameHelper = {
     },
 
     popoutChatWindow: ({ baseUrl, websiteToken, locale }) => {
+      if (IFrameHelper.pendingReset || IFrameHelper.resetFailed) return;
       const cwCookie = Cookies.get('cw_conversation');
       window.$chatwoot.toggle('close');
       popoutChatWindow(baseUrl, websiteToken, locale, cwCookie);
