@@ -159,7 +159,80 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     assert_credential_response_protected
   end
 
+  def test_explicit_reset_revokes_only_own_link_and_preserves_history
+    link = @links[0]
+    old_source = link.source_id
+    old_stream = link.pubsub_token
+    history = Conversation.create!(account: link.inbox.account, inbox: link.inbox, contact: link.contact, contact_inbox: link)
+    session = Toybaco::Security::WidgetSession.new(link)
+    foreign = @links.drop(1).map { |other| other.attributes.slice('source_id', 'pubsub_token') }
+
+    delete_session(@widgets[0], @tokens[0])
+    assert_response :success
+    assert_equal true, response.parsed_body.fetch('session_revoked')
+    assert_credential_response_protected
+    refute_equal old_source, link.reload.source_id
+    refute_equal old_stream, link.pubsub_token
+    assert_nil ContactInbox.find_by(pubsub_token: old_stream)
+    refute session.current?
+    assert Toybaco::Security::WidgetSession.new(link).current?
+    assert_equal link.id, history.reload.contact_inbox_id
+    assert_equal link.contact_id, history.contact_id
+    assert_equal foreign, @links.drop(1).map { |other| other.reload.attributes.slice('source_id', 'pubsub_token') }
+    get_contact(@widgets[0], @tokens[0])
+    assert_response :not_found
+
+    rotated = link.attributes.slice('source_id', 'pubsub_token')
+    delete_session(@widgets[0], @tokens[0])
+    assert_response :success
+    assert_equal true, response.parsed_body.fetch('session_revoked')
+    assert_equal rotated, link.reload.attributes.slice('source_id', 'pubsub_token'), 'Stale retry must not rotate another session'
+  end
+
+  def test_reset_rejects_another_inbox_or_account_even_with_colliding_source
+    before = @links.map { |link| link.attributes.slice('source_id', 'pubsub_token') }
+    [@widgets[1], @widgets[2]].each do |widget|
+      delete_session(widget, @tokens[0])
+      assert_response :not_found
+    end
+    assert_equal before, @links.map { |link| link.reload.attributes.slice('source_id', 'pubsub_token') }
+  end
+
+  def test_invalid_or_expired_reset_is_an_idempotent_noop
+    before = @links.map { |link| link.attributes.slice('source_id', 'pubsub_token') }
+    expired = JWT.encode({ inbox_id: @links[0].inbox_id, source_id: @links[0].source_id, exp: 1 }, Rails.application.secret_key_base, 'HS256')
+    [nil, 'synthetic-invalid-token', expired].each do |token|
+      delete_session(@widgets[0], token)
+      assert_response :success
+      assert_equal true, response.parsed_body.fetch('session_revoked')
+    end
+    assert_equal before, @links.map { |link| link.reload.attributes.slice('source_id', 'pubsub_token') }
+  end
+
+  def test_legitimate_contact_merge_keeps_stream_and_history_until_explicit_reset
+    link = @links[0]
+    target = Contact.create!(account: link.contact.account, name: 'Synthetic merged visitor')
+    history = Conversation.create!(account: link.inbox.account, inbox: link.inbox, contact: link.contact, contact_inbox: link)
+    session = Toybaco::Security::WidgetSession.new(link)
+    ContactMergeAction.new(account: link.inbox.account, base_contact: target, mergee_contact: link.contact).perform
+    assert_equal target.id, link.reload.contact_id
+    assert_equal link.id, history.reload.contact_inbox_id
+    assert session.current?, 'A preserved ContactInbox is the identity boundary across a legitimate merge'
+    get_contact(@widgets[0], @tokens[0])
+    assert_response :success
+    assert_equal target.id, response.parsed_body.fetch('id')
+    delete_session(@widgets[0], @tokens[0])
+    assert_response :success
+    refute session.current?
+    assert_equal target.id, history.reload.contact_id
+  end
+
   private
+
+  def delete_session(widget, token)
+    headers = token ? { 'X-Auth-Token' => token } : {}
+    delete '/api/v1/widget/session', params: { website_token: widget.website_token }, headers: headers, as: :json
+  end
 
   def assert_credential_response_protected
     assert_includes response.headers.fetch('Cache-Control').split(',').map(&:strip), 'no-store'

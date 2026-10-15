@@ -34,10 +34,16 @@ RSpec.describe RoomChannel, type: :channel do
   end
 
   it 'keeps the public contact widget on its separate contact-inbox boundary' do
-    contact_inbox = create(:contact_inbox)
+    widget = Channel::WebWidget.create!(account: account, website_url: 'https://customer.example.test')
+    inbox = Inbox.create!(account: account, channel: widget, name: 'Synthetic widget')
+    contact_inbox = create(:contact_inbox, inbox: inbox, contact: create(:contact, account: account))
     subscribe(pubsub_token: contact_inbox.pubsub_token)
     expect(subscription).to be_confirmed
     expect(subscription).to have_stream_from(contact_inbox.pubsub_token)
     expect(subscription.send(:verify_toybaco_session)).to be(true)
+    Toybaco::Security::WidgetSession.revoke(contact_inbox, source_id: contact_inbox.source_id)
+    expect(connection).to receive(:close).with(reconnect: false)
+    expect(subscription.send(:verify_toybaco_session)).to be(false)
+    expect(subscription.send(:streams)).to be_empty
   end
 end

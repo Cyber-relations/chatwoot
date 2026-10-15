@@ -307,6 +307,7 @@ integration_ruby_file_list() {
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/security -type f -name '*.rb' -print
+      printf '%s\n' overlay/app/app/controllers/api/v1/widget/sessions_controller.rb overlay/app/config/initializers/toybaco_widget_sessions.rb
       printf '%s\n' overlay/app/app/services/mfa/token_service.rb overlay/app/config/initializers/toybaco_application_mfa.rb
       printf '%s\n' overlay/app/app/controllers/concerns/auth_helper.rb overlay/app/config/initializers/toybaco_browser_authentication.rb overlay/app/app/channels/room_channel.rb
       printf '%s\n' overlay/app/app/controllers/super_admin/devise/sessions_controller.rb overlay/app/config/initializers/toybaco_admin_mfa.rb overlay/app/spec/support/toybaco_admin_mfa.rb
