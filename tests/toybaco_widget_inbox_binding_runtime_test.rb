@@ -83,6 +83,24 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: @tokens[0] }
     assert_response :success
     assert_equal @tokens[0], rendered_token
+    assert_credential_response_protected
+  end
+
+  def test_new_widget_visitor_response_is_not_cacheable_or_a_referrer
+    get '/widget', params: { website_token: @widgets[0].website_token }
+    assert_response :success
+    assert_credential_response_protected
+    claims = Widget::TokenService.new(token: rendered_token).decode_token
+    assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
+  end
+
+  def test_widget_frame_ancestor_policy_is_preserved
+    @widgets[0].update!(allowed_domains: 'https://customer.example.test')
+    get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: @tokens[0] }
+    assert_response :success
+    assert_credential_response_protected
+    assert_equal 'frame-ancestors https://customer.example.test', response.headers['Content-Security-Policy']
+    assert_equal @tokens[0], rendered_token
   end
 
   def test_widget_render_starts_separate_visitor_for_foreign_inbox_token
@@ -107,6 +125,7 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     claims = Widget::TokenService.new(token: config_token).decode_token
     assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
     assert_equal @links[0].source_id, claims.fetch(:source_id)
+    assert_credential_response_protected
   end
 
   def test_widget_config_foreign_inbox_token_starts_separate_visitor
@@ -137,9 +156,16 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     claims = Widget::TokenService.new(token: config_token).decode_token
     assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
     refute_equal @links[0].source_id, claims.fetch(:source_id)
+    assert_credential_response_protected
   end
 
   private
+
+  def assert_credential_response_protected
+    assert_includes response.headers.fetch('Cache-Control').split(',').map(&:strip), 'no-store'
+    assert_includes response.headers.fetch('Cache-Control').split(',').map(&:strip), 'private'
+    assert_equal 'no-referrer', response.headers['Referrer-Policy']
+  end
 
   def get_contact(widget, token)
     get '/api/v1/widget/contact', params: { website_token: widget.website_token },

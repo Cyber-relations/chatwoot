@@ -1,4 +1,6 @@
 class Api::V1::Widget::ConfigsController < Api::V1::Widget::BaseController
+  include Toybaco::WidgetPrivacyResponse
+
   before_action :set_global_config
 
   def create

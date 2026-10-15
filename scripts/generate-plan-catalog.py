@@ -461,7 +461,8 @@ def lp_knowledge(data, candidate, connected):
         url = urls[p['plan_id']]
         lines.append(plan_line(p['name'], p['amount'], p['annual'], p['limits'], p['automatic'], p['pack'],
                                url, None if p['free'] else annual_link(url), free=p['free']))
-    labels = '・'.join(plan_id.capitalize() for plan_id in buyers)  # The LP names them in English: "Standard・Pro".
+    names = {p['plan_id']: p['name'] for p in plans}
+    labels = '・'.join(names[plan_id] for plan_id in buyers)  # LP / 規約 / 特商法と同じカタカナのプラン名(#488 で統一)。
     lines.append(f"AI追加パック: {pack['generations']:,}回 {yen(pack['amount'])}(税別)。{labels}で購入でき、"
                  f"決済成功から{pack['expires_after_days']}日間有効です。自動購入はありません。")
     if trial_plans:
