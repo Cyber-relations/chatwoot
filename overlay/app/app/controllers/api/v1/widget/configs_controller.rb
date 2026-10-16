@@ -37,6 +37,10 @@ class Api::V1::Widget::ConfigsController < Api::V1::Widget::BaseController
   end
 
   def set_token
+    if @toybaco_http_authenticated
+      @token = request.headers['X-Auth-Token'].to_s.start_with?('tbwr1.') ? request.headers['X-Auth-Token'] : @toybaco_http_session.proof
+      return
+    end
     payload = { source_id: @contact_inbox.source_id, inbox_id: @web_widget.inbox.id }
     @token = ::Widget::TokenService.new(payload: payload).generate_token
   end

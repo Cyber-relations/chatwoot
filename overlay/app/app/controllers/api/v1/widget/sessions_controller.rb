@@ -4,7 +4,13 @@ class Api::V1::Widget::SessionsController < Api::V1::Widget::BaseController
   include Toybaco::WidgetPrivacyResponse
 
   def destroy
-    Toybaco::Security::WidgetSession.revoke(@contact_inbox, source_id: auth_token_params[:source_id]) if @contact_inbox
+    if @toybaco_http_session && request.headers['X-Auth-Token'].to_s.start_with?('tbwp1.', 'tbwr1.')
+      @toybaco_http_session.revoke!(request.headers['X-Auth-Token'], @web_widget)
+    elsif @contact_inbox
+      Toybaco::Security::WidgetSession.revoke(@contact_inbox, source_id: auth_token_params[:source_id])
+    end
+    cookies.delete(Toybaco::Security::WidgetHttpSession.cookie_name(@web_widget, secure: request.ssl?),
+                   path: '/', secure: request.ssl?, httponly: true, same_site: request.ssl? ? :none : :lax, partitioned: request.ssl?)
     render json: { session_revoked: true }
   end
 

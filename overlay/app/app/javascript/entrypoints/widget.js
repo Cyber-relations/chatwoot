@@ -1,4 +1,7 @@
 import { installSessionReset } from '../widget/helpers/sessionReset';
+import { bootstrapHttpSession, installHttpHandoffReceiver, notifyHttpSessionProblem } from '../widget/helpers/httpSession';
+import { installHttpProofRenewal } from '../widget/helpers/httpSession';
+import { setHeader } from '../widget/helpers/axios';
 import { createApp } from 'vue';
 import { createI18n } from 'vue-i18n';
 
@@ -48,10 +51,25 @@ app.use(
 
 installSessionReset();
 
-window.onload = () => {
+const mountWidget = async () => {
+  try {
+    await bootstrapHttpSession();
+  } catch {
+    document.getElementById('app').textContent = 'チャットの認証を確認できませんでした。履歴は削除していません。ページを再読み込みしてください。';
+    notifyHttpSessionProblem();
+    return;
+  }
+  installHttpHandoffReceiver();
   window.WOOT_WIDGET = app.mount('#app');
-  window.actionCable = new ActionCableConnector(
-    window.WOOT_WIDGET,
-    window.chatwootPubsubToken
-  );
+  const connect = () => {
+    window.actionCable?.disconnect();
+    const proof = window.toybacoHttpSession
+      ? `tbwhttp1.${window.chatwootWebChannel.websiteToken}.${window.authToken}` : window.chatwootPubsubToken;
+    window.actionCable = new ActionCableConnector(window.WOOT_WIDGET, proof);
+  };
+  connect();
+  window.addEventListener('toybaco-widget-proof-updated', connect);
+  if (window.toybacoHttpSession) installHttpProofRenewal(setHeader);
 };
+if (document.readyState === 'complete') mountWidget();
+else window.addEventListener('load', mountWidget, { once: true });

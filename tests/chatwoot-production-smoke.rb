@@ -8,6 +8,10 @@ middleware_present = Rails.application.middleware.middlewares.any? do |entry|
   entry.klass == Toybaco::DashboardFramePolicy
 end
 abort 'Toybaco::DashboardFramePolicy is not installed' unless middleware_present
+report_only_present = Rails.application.middleware.middlewares.any? do |entry|
+  entry.klass == Toybaco::ContentSecurityPolicyReportOnly
+end
+abort 'Toybaco::ContentSecurityPolicyReportOnly is not installed' unless report_only_present
 brand_injector_present = Rails.application.middleware.middlewares.any? do |entry|
   entry.klass == Toybaco::BrandInjector
 end

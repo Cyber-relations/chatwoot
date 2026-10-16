@@ -15,6 +15,13 @@ def request(base, path)
   Net::HTTP.start(uri.host, uri.port, open_timeout: 3, read_timeout: 10) { |http| http.request(request) }
 end
 
+# CSP 段階 1 の Report-Only(docs/csp-hardening.md)。応答ごとにちょうど 1 本で、強制の CSP とは別 header。
+def report_only_directives(response, label)
+  values = response.get_fields('content-security-policy-report-only').to_a
+  abort "#{label}: Content-Security-Policy-Report-Only must appear exactly once: #{values.length}" unless values.length == 1
+  values.first.split(';').map(&:strip)
+end
+
 def session_cookie_contract_errors(headers)
   return ['Set-Cookie header is missing'] if headers.empty?
 
@@ -68,6 +75,22 @@ abort 'automatic post entry config is missing' unless login_body.include?('data-
 abort 'automatic post entry asset cache-buster is missing' unless
   login_body.match?(%r{/brand-assets/toybaco-post-entry\.js\?v=[0-9a-f]{64}})
 abort 'post entry origin and CSP differ' unless login_body.include?(postiz_origin)
+report_only = report_only_directives(login, 'dashboard')
+required_report_only = [
+  "default-src 'self'", "object-src 'none'", "base-uri 'self'", "form-action 'self' https://checkout.stripe.com",
+  "frame-src 'self' #{postiz_origin} https://hcaptcha.com https://*.hcaptcha.com"
+]
+abort "Report-Only directives are missing: #{(required_report_only - report_only).inspect}" unless
+  (required_report_only - report_only).empty?
+abort 'Report-Only must not observe frame-ancestors (widget embedding stays enforced per inbox)' if
+  report_only.any? { |directive| directive.start_with?('frame-ancestors') }
+# ZAP が CSP 無しと報告した静的 404 にも、dashboard と同じ Report-Only が付く。
+%w[/vite/assets/toybaco-csp-smoke-missing.js /assets/toybaco-csp-smoke-missing.js].each do |path|
+  missing_asset = request(base, path)
+  abort "static 404 HTTP status for #{path}: #{missing_asset.code}" unless missing_asset.code == '404'
+  abort "static 404 Report-Only differs from dashboard: #{path}" unless
+    report_only_directives(missing_asset, path) == report_only
+end
 hsts = login['strict-transport-security'].to_s
 hsts_match = hsts.match(/(?:\A|;)\s*max-age=(\d+)/i)
 abort "Rails HSTS is missing/weak: #{hsts.inspect}" unless
@@ -97,4 +120,4 @@ ingress_body = ingress.body.to_s.dup.force_encoding(Encoding::UTF_8)
 abort 'SES ingress returned Chatwoot HTML 404' if
   ingress_body.include?('Page not found') || ingress_body.include?('ページが見つかりません')
 
-puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present ses-ingress=drawn agent-login=fail-closed'
+puts 'TOYBACO_CHATWOOT_HTTP_SMOKE=PASS puma=reachable cookies=secure-httponly-lax csp=exact csp-report-only=dashboard+static-404 post-entry=automatic xfo=SAMEORIGIN oidc=code hsts=present ses-ingress=drawn agent-login=fail-closed'
