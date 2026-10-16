@@ -23,8 +23,10 @@ FOUNDATION_SHA256='363c7da65da64bc661fc59695cee3848dd308f8d36eac4cee37bcdb07189f
 # 販売開始(2026-09-27)時点のスキーマ。運営監査ログ(20260928000000)の migrate 前の状態として受け付ける。
 LAUNCH_COUNT='215'
 LAUNCH_SHA256='5f68fee6cf541127ceaf24336dd241421ac9be8ab6b256d6e1cf1d4aeb2a3fa2'
-TARGET_COUNT='216'
-TARGET_SHA256='0bb284ead754502d9b4709332249e6ee46b3ff4166af3486aa8aa78f839287f2'
+PRE_HTTP_COUNT='216'
+PRE_HTTP_SHA256='0bb284ead754502d9b4709332249e6ee46b3ff4166af3486aa8aa78f839287f2'
+TARGET_COUNT='217'
+TARGET_SHA256='853557ccfa8cf811a2414703df6fc84de6876c6a83ac3c1e43110f42df81d18e'
 
 deny() {
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=NO-GO reason=%s\n' "$1" >&2
@@ -171,6 +173,9 @@ elif [ "$count" = "$LAUNCH_COUNT" ] && [ "$sha256" = "$LAUNCH_SHA256" ]; then
   [ "$require_target" = 'false' ] || deny 'target_schema_required'
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=launch count=%s sha256=%s\n' \
     "$count" "$sha256"
+elif [ "$count" = "$PRE_HTTP_COUNT" ] && [ "$sha256" = "$PRE_HTTP_SHA256" ]; then
+  [ "$require_target" = "false" ] || deny "target_schema_required"
+  printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=pre_http count=%s sha256=%s\n' "$count" "$sha256"
 elif [ "$count" = "$TARGET_COUNT" ] && [ "$sha256" = "$TARGET_SHA256" ]; then
   printf 'TOYBACO_CHATWOOT_SCHEMA_PREFLIGHT=PASS state=target count=%s sha256=%s\n' \
     "$count" "$sha256"

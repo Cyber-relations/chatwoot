@@ -1267,7 +1267,8 @@ end
 # result・店舗の id・reason)だけで、メールアドレス・Session・購読・顧客の id・鍵は出さない。reason は固定の語で、本番の例外の文は出さない。
 # 進めないとき(refused)は同じ形の 1 行で abort する(非 0 で終わり、監査行は failed)。同じ prefix の 2 回目は何も書かずに skipped
 # (already_done)で正常に終わる。監査行(started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、
-# モデルとサービスは実行時に参照する。
+# モデルとサービスは実行時に参照する。ただし GrowthLive の 2 本(e2e_growth_purchase_live / e2e_growth_cancel)だけは、偽 client を使わずに
+# Stripe test mode を実際に呼ぶ(下の GrowthLive の説明)。
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
     module E2eBilling
@@ -1312,6 +1313,26 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         GrowthSeam.purchase!(prefix, account, owner)
         line(GROWTH, prefix, 'purchased', account.id, NONE)
+      end
+
+      # toybaco:e2e_growth_purchase_live[prefix]。e2e_growth_purchase と同じ店舗・前提・行で、Stripe test mode の実経路を通す(GrowthLive)。
+      # 購入が済んでいれば、実経路の完了と Stripe の照合が通るときだけ skipped(GrowthLive::Completion)。
+      def growth_purchase_live(args)
+        staging!('e2e_growth_purchase_live')
+        require_billing!
+        prefix = E2eConsent.prefix!(args)
+        account, owner = target!(GROWTH, prefix)
+        return line(GROWTH, prefix, 'skipped', account.id, 'already_done') if GrowthLive::Completion.done!(prefix, account, owner)
+
+        GrowthLive.purchase!(prefix, account, owner)
+        line(GROWTH, prefix, 'purchased', account.id, NONE)
+      end
+
+      # toybaco:e2e_growth_cancel[prefix]。実経路で買った購読を解約して顧客を消す(GrowthLive::Cancel。店舗の選び方は Cancel が持つ)。
+      def growth_cancel(args)
+        staging!('e2e_growth_cancel')
+        require_billing!
+        GrowthLive::Cancel.call(E2eConsent.prefix!(args))
       end
 
       # toybaco:e2e_opening_checkout[prefix]。この prefix の Session の開通の受付が account_ready なら何も書かずに skipped(開通の後は
@@ -1745,6 +1766,548 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             'status_transitions' => { 'paid_at' => started }, 'lines' => { 'object' => 'list', 'has_more' => false, 'data' => [line] } }
         end
       end
+
+      # 無料店舗の有料化(route growth_purchase)を Stripe test mode の実経路で通す 2 本(e2e_growth_purchase_live / e2e_growth_cancel)。
+      # 対象の店舗・前提・出力の行は GrowthSeam と同じで、Stripe だけが本物(鍵は container の env の TOYBACO_STRIPE_KEY。sk_test / rk_test に限る)。
+      # 購入は本番の PurchaseSession#start! が実 client で購入の記録と Checkout Session を作り、決済は Checkout の決済画面が使う payment page の
+      # API(9/26 の購入通し確認と同じ。GET → tok_visa の PaymentMethod → confirm。カード番号は扱わない)で済ませる。fulfillment は rake から
+      # 呼ばず、実 webhook(Stripe → Lambda → Rails → BillingReceipt → BillingEventJob → PurchaseFulfillment)の結果を待ってから、契約・購読・
+      # 顧客・AI の枠・体験・同意の記録を Stripe の Session と照合する。決済を確定した後(確定の応答が失敗でも Stripe の Session が完了して
+      # いれば確定済み)は、待っても終わらない・合わない・途中の例外のどれでも、止める前に購読を解約する。後片付けは購読を解約して顧客を
+      # 消し、解約の event が Rails に届いて終端になるのを待ってから、この run の id の完了した event を消す(途中で止まっても再実行で
+      # 残りを続ける)。Session・購読・顧客・PaymentMethod の id・メールアドレス・金額・鍵は出力・abort の文・例外のどこにも出さない
+      # (例外は理由のキーに写し、元の例外を連鎖させない)。
+      module GrowthLive
+        KEY_FORMAT = /\A(?:sk|rk)_test_/
+        SESSION_FORMAT = /\Acs_test_[A-Za-z0-9]+\z/
+        SUBSCRIPTION_FORMAT = /\Asub_[A-Za-z0-9]+\z/
+        CUSTOMER_FORMAT = /\Acus_[A-Za-z0-9]+\z/
+        PAYMENT_METHOD_FORMAT = /\Apm_[A-Za-z0-9]+\z/
+        INTERVAL = 5
+        PURCHASE_WAIT = 180
+
+        module_function
+
+        def key
+          ENV.fetch('TOYBACO_STRIPE_KEY', '').to_s
+        end
+
+        # GrowthSeam と同じ前提(同じ理由のキー)に加えて、鍵が test mode で、webhook が Rails に届く構成(ingress)であることを確かめる。
+        def purchase!(prefix, account, owner)
+          GrowthSeam.ready!(prefix, account, owner)
+          refuse!(prefix, account, 'key_not_test') unless key.match?(KEY_FORMAT)
+          refuse!(prefix, account, 'ingress_off') unless ENV.fetch('TOYBACO_BILLING_INGRESS_ENABLED', nil) == 'true'
+          client, session_id = start!(prefix, account, owner)
+          Payment.pay!(prefix, account, owner, client, session_id)
+          settle!(prefix, account, owner, client, session_id)
+        end
+
+        # 画面の購入の開始と同じく、購入の記録と Checkout Session(開いた状態)を実 client で作る。Session の id は購入の記録から読む。
+        def start!(prefix, account, owner)
+          client = Toybaco::Checkout::Client.new(key)
+          selection = { 'plan_id' => PLAN, 'cycle' => CYCLE, 'plan_version' => E2eBilling.version }
+          state = Toybaco::Growth::PurchaseSession.new(account, owner, client: client).start!(selection)
+          session_id = Toybaco::Growth::PurchaseIntent.saved(account.reload)&.fetch('session_id', nil)
+          refuse!(prefix, account, 'purchase_unavailable') unless state['state'] == 'open' && session_id.to_s.match?(SESSION_FORMAT)
+          [client, session_id]
+        rescue Toybaco::Growth::PurchaseIntent::Unavailable, Toybaco::Checkout::Error, Toybaco::PlanCatalog::Invalid
+          refuse!(prefix, account, 'purchase_unavailable')
+        end
+
+        # 決済の確定の後の待機と照合。通らなければ(途中の例外を含む)購読を解約してから理由の 1 行で止める。
+        def settle!(prefix, account, owner, client, session_id)
+          reason = unsettled(account, owner, client, session_id)
+          abandon!(prefix, account, client, session_id, reason) if reason
+        end
+
+        # webhook の結果(購入の記録が complete で、この Session の growth_checkout の event が completed)を待ち、Stripe と照合する。通れば
+        # nil、通らなければ理由のキー(待っても終わらない webhook_timeout、合わない payment_mismatch、途中の例外 settle_error。SystemExit と
+        # signal は StandardError でないので捕まえない)。例外の文は持ち出さない。
+        def unsettled(account, owner, client, session_id)
+          return 'webhook_timeout' unless wait_until(PURCHASE_WAIT) { purchased?(account, session_id) }
+
+          'payment_mismatch' unless purchase_verified?(account, owner, session_id, client.retrieve_checkout_session(session_id))
+        rescue Toybaco::Checkout::Error
+          'payment_mismatch'
+        rescue StandardError
+          'settle_error'
+        end
+
+        def purchased?(account, session_id)
+          Toybaco::Growth::PurchaseIntent.saved(account.reload)&.fetch('state', nil) == 'complete' &&
+            Toybaco::BillingEvent.where(action: 'growth_checkout', reference_id: session_id, mode: MODE).pick(:state) == 'completed'
+        end
+
+        # 条件が満たされるまで INTERVAL 秒おきに確かめる(待つのは最長 seconds 秒)。満たされたかを返す。
+        def wait_until(seconds)
+          (seconds / INTERVAL).times do
+            return true if yield
+
+            pause(INTERVAL)
+          end
+          yield
+        end
+
+        def pause(seconds)
+          sleep(seconds)
+        end
+
+        # Stripe の Session(test mode)の購読・顧客が店舗の契約の購読・顧客と同じで、契約が Standard、有料期間の AI の枠が発行され無料の枠が
+        # 終わり、体験が upgraded で完了し、route growth_purchase の同意の記録が 1 件(この run の Session・契約者・accepted)。
+        def purchase_verified?(account, owner, session_id, session)
+          contract = Toybaco::Entitlements.contract_for(account.reload)
+          upgraded = Toybaco::GrowthTrial.where(account_id: account.id).pluck(:completion_reason) == ['upgraded']
+          billed?(account, session) && upgraded && E2eBilling.standard?(contract) && granted?(account, contract, session['subscription']) &&
+            E2eBilling.consented?(account, 'growth_purchase', owner, session_id)
+        end
+
+        # Session が test mode で完了・支払い済み、購読・顧客の id の形が合い、店舗の契約の購読・顧客と同じ。
+        def billed?(account, session)
+          ids = session.values_at('subscription', 'customer')
+          session.values_at('livemode', 'status', 'payment_status') == [false, 'complete', 'paid'] &&
+            ids.first.to_s.match?(SUBSCRIPTION_FORMAT) && ids.last.to_s.match?(CUSTOMER_FORMAT) &&
+            Toybaco::Entitlements.attributes(account).values_at('toybaco_subscription_id', 'toybaco_stripe_customer_id') == ids
+        end
+
+        # 有料期間の枠(paid:<購読>:<期間の始まり>:base、Standard の月の回数)が 1 件発行され、無料の枠(free:)が残っていない(GrowthSeam と同じ)。
+        def granted?(account, contract, subscription_id)
+          grants = Toybaco::GrowthAiGrant.where(account_id: account.id, source: 'included')
+          base = "paid:#{Toybaco::GrowthAiGrant.sanitize_sql_like(subscription_id)}:%:base"
+          free = grants.where(revoked_at: nil).where('left(source_key, 5) = ?', 'free:')
+          grants.where('source_key LIKE ?', base).pluck(:units) == [contract.dig('entitlements', 'limits', 'ai_generations')] && !free.exists?
+        end
+
+        # 止める前に、Session に購読があれば解約する(請求しない・日割りしない)。解約に失敗しても理由は変えない。
+        def abandon!(prefix, account, client, session_id, reason)
+          cancel_quietly(client, session_id)
+          refuse!(prefix, account, reason)
+        end
+
+        def cancel_quietly(client, session_id)
+          subscription = client.retrieve_checkout_session(session_id)['subscription']
+          client.cancel_unpaid_subscription(subscription) if subscription.to_s.match?(SUBSCRIPTION_FORMAT)
+        rescue StandardError
+          nil
+        end
+
+        def refuse!(prefix, account, reason)
+          stop!(E2eBilling.line(GROWTH, prefix, 'refused', account&.id, reason))
+        end
+
+        # 進めないときの 1 行を標準エラーに出して終了コード 1 で終わる(abort と同じ出力と終了コード)。rescue の中から呼ばれても、SystemExit の
+        # cause に元の例外(本物の client の例外は応答の断片を持ちうる)を残さない。
+        def stop!(line)
+          warn(line)
+          raise SystemExit.new(1, line), cause: nil
+        end
+
+        # e2e_growth_purchase_live の 2 回目の判定。購入の記録が complete でなければ偽(購入へ進む)。complete なら、実経路の完了(購入の記録の
+        # Session の growth_checkout の event が completed)が無ければ、event を作らない偽 client の e2e_growth_purchase で済ませた店舗なので
+        # seam_purchase_present で断る(fail-closed)。あれば実 client で Session と購読を読み直し、購読が有効(active / trialing)で照合
+        # (purchase_verified?)が通るときだけ真(skipped)。購読が有効でなければ subscription_inactive、照合が合わなければ payment_mismatch で
+        # 断る(解約は試みない。合わなかった実行の abandon! か、後段の e2e_growth_cancel が拾う)。
+        module Completion
+          ACTIVE = %w[active trialing].freeze
+
+          module_function
+
+          def done!(prefix, account, owner)
+            return false unless GrowthSeam.done?(account)
+
+            session_id = Toybaco::Growth::PurchaseIntent.saved(account)['session_id']
+            GrowthLive.refuse!(prefix, account, 'seam_purchase_present') unless live?(session_id)
+            GrowthLive.refuse!(prefix, account, 'key_not_test') unless GrowthLive.key.match?(KEY_FORMAT)
+            reason = mismatch(account, owner, session_id)
+            GrowthLive.refuse!(prefix, account, reason) if reason
+            true
+          end
+
+          def live?(session_id)
+            session_id.to_s.match?(SESSION_FORMAT) &&
+              Toybaco::BillingEvent.exists?(action: 'growth_checkout', reference_id: session_id, mode: MODE, state: 'completed')
+          end
+
+          # 通れば nil、通らなければ理由のキー(Stripe を読めないときも payment_mismatch)。
+          def mismatch(account, owner, session_id)
+            client = Toybaco::Checkout::Client.new(GrowthLive.key)
+            session = client.retrieve_checkout_session(session_id)
+            return 'subscription_inactive' unless ACTIVE.include?(client.retrieve_subscription(session['subscription'].to_s)['status'])
+
+            'payment_mismatch' unless GrowthLive.purchase_verified?(account, owner, session_id, session)
+          rescue Toybaco::Checkout::Error
+            'payment_mismatch'
+          end
+        end
+
+        # payment page で Session を読んで確かめ、tok_visa から PaymentMethod(請求先は契約者のメールと店舗名)を作り、税込の合計で確定する
+        # (Checkout の決済画面と同じ API。カード番号は扱わない)。同意欄は accepted で送り、入力欄(growth の Session には無い)は送らない。
+        module Payment
+          TOKEN = 'tok_visa'
+          # 自動の税の計算(JCT)に要る請求先の住所(9/26 の購入通し確認と同じ固定値)。
+          ADDRESS = { 'country' => 'JP', 'postal_code' => '810-0022', 'state' => '福岡県', 'city' => '福岡市中央区', 'line1' => '薬院1-1-1' }.freeze
+
+          module_function
+
+          def pay!(prefix, account, owner, client, session_id)
+            api = ApiHandler.new(GrowthLive.key)
+            total = page_total!(prefix, account, api, session_id)
+            method = payment_method!(prefix, account, owner, api)
+            reason = confirmation(api, session_id,
+                                  { 'payment_method' => method, 'expected_amount' => total.to_s, 'consent[terms_of_service]' => 'accepted' })
+            unconfirmed!(prefix, account, client, session_id, reason) if reason
+          end
+
+          def page_total!(prefix, account, api, session_id)
+            page = api.payment_page(session_id)
+            return page.dig('total_summary', 'total') if page_matches?(page, Toybaco::Growth::PurchaseIntent.saved(account)['amount'])
+
+            refuse!(prefix, account, 'payment_page_mismatch')
+          rescue ApiHandler::Failure
+            refuse!(prefix, account, 'payment_page_unavailable')
+          end
+
+          # test mode・開いた状態・購読・円・同意欄が必須・入力欄なしで、小計が購入の記録の金額(税抜の正の整数)と同じ、合計が小計以上の
+          # 正の整数(税込)。
+          def page_matches?(page, amount)
+            summary = page['total_summary'].is_a?(Hash) ? page['total_summary'] : {}
+            consent = page['consent_collection'].is_a?(Hash) ? page['consent_collection'] : {}
+            total = summary['total']
+            [page.values_at('livemode', 'status', 'mode', 'currency') == [false, 'open', 'subscription', 'jpy'],
+             consent['terms_of_service'] == 'required', page['custom_fields'] == [],
+             amount.is_a?(Integer) && amount.positive? && summary['subtotal'] == amount,
+             total.is_a?(Integer) && total.positive? && total >= amount].all?
+          end
+
+          def payment_method!(prefix, account, owner, api)
+            fields = { 'type' => 'card', 'card[token]' => TOKEN, 'billing_details[email]' => owner.email.to_s,
+                       'billing_details[name]' => account.name }
+            ADDRESS.each { |name, value| fields["billing_details[address][#{name}]"] = value }
+            id = api.create_card_payment_method(fields, idempotency_key: "toybaco-e2e-growth-live-#{prefix}-pm")['id']
+            return id if id.to_s.match?(PAYMENT_METHOD_FORMAT)
+
+            refuse!(prefix, account, 'payment_method_failed')
+          rescue ApiHandler::Failure
+            refuse!(prefix, account, 'payment_method_failed')
+          end
+
+          # 確定の応答が完了・支払い済みなら nil、そうでなければ理由のキー(HTTP の失敗は status code だけを足す。本文は出さない)。
+          def confirmation(api, session_id, fields)
+            result = api.confirm(session_id, fields)
+            'confirm_failed' unless result['status'] == 'complete' && result['payment_status'] == 'paid'
+          rescue ApiHandler::Failure => e
+            e.status ? "confirm_failed_#{e.status}" : 'confirm_failed'
+          end
+
+          # 確定の応答が完了でなければ、Stripe の Session を読み直し、完了していれば確定済みとして先へ進む(残りは webhook が進める)。完了して
+          # いなければ、購読があれば解約してから止める。
+          def unconfirmed!(prefix, account, client, session_id, reason)
+            GrowthLive.abandon!(prefix, account, client, session_id, reason) unless confirmed?(client, session_id)
+          end
+
+          # 確定の応答が完了でなくても(応答の消失・途中の失敗)、Stripe の Session が完了していれば確定済み。読めなければ確定済みとは
+          # 見なさない。
+          def confirmed?(client, session_id)
+            client.retrieve_checkout_session(session_id)['status'] == 'complete'
+          rescue StandardError
+            false
+          end
+
+          def refuse!(prefix, account, reason)
+            GrowthLive.refuse!(prefix, account, reason)
+          end
+        end
+
+        # Stripe の payment page(Checkout の決済画面が使う非公開 API)・PaymentMethod・顧客・購読の一覧の API を Net::HTTP で呼ぶ(staging の
+        # growth webhook probe と同じ作法: Bearer、open / read timeout 10 / 30 秒、応答 1 MiB 以下、JSON の object)。payment page は非公開
+        # API なので Stripe-Version を付けず、公開 API(PaymentMethod・顧客・購読)には probe と同じ版を付ける。id は形を確かめてから path に
+        # 入れる。失敗は全て Failure(HTTP の status code だけを持つ)に写し、鍵・id・応答の本文・元の例外の文は持たない(cause: nil で元の
+        # 例外の連鎖も切る)。
+        class ApiHandler
+          HOST = 'api.stripe.com'
+          VERSION = '2024-06-20'
+          LIMIT = 1_048_576
+
+          class Failure < StandardError
+            attr_reader :status
+
+            def initialize(status = nil)
+              @status = status.to_s.match?(/\A\d{3}\z/) ? status.to_s : nil
+              super('stripe request failed')
+            end
+          end
+
+          def initialize(key)
+            @key = key.to_s
+          end
+
+          def payment_page(session_id)
+            request(:get, "/v1/payment_pages/#{id!(session_id, SESSION_FORMAT)}")
+          end
+
+          def create_card_payment_method(fields, idempotency_key:)
+            request(:post, '/v1/payment_methods', fields, version: VERSION, idempotency_key: idempotency_key)
+          end
+
+          def confirm(session_id, fields)
+            request(:post, "/v1/payment_pages/#{id!(session_id, SESSION_FORMAT)}/confirm", fields)
+          end
+
+          def retrieve_customer(customer_id)
+            request(:get, "/v1/customers/#{id!(customer_id, CUSTOMER_FORMAT)}", version: VERSION)
+          end
+
+          # 顧客の購読(解約済みを含む全件。100 件まで)。
+          def list_subscriptions(customer_id)
+            query = URI.encode_www_form([['customer', id!(customer_id, CUSTOMER_FORMAT)], %w[status all], %w[limit 100]])
+            request(:get, "/v1/subscriptions?#{query}", version: VERSION)
+          end
+
+          def delete_customer(customer_id)
+            request(:delete, "/v1/customers/#{id!(customer_id, CUSTOMER_FORMAT)}", version: VERSION)
+          end
+
+          private
+
+          def id!(value, format)
+            raise Failure.new, cause: nil unless value.is_a?(String) && value.match?(format)
+
+            value
+          end
+
+          def request(method, path, fields = nil, version: nil, idempotency_key: nil)
+            require 'net/http'
+            uri = URI("https://#{HOST}#{path}")
+            message = { get: Net::HTTP::Get, post: Net::HTTP::Post, delete: Net::HTTP::Delete }.fetch(method).new(uri)
+            message['Authorization'] = "Bearer #{@key}"
+            message['Stripe-Version'] = version if version
+            message['Idempotency-Key'] = idempotency_key if idempotency_key
+            message.set_form_data(fields) if fields
+            parse(Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) { |http| http.request(message) })
+          rescue Failure
+            raise
+          rescue StandardError
+            raise Failure.new, cause: nil
+          end
+
+          def parse(response)
+            raise Failure.new(response.code), cause: nil unless response.is_a?(Net::HTTPSuccess)
+            raise Failure.new, cause: nil if response.body.to_s.bytesize > LIMIT
+
+            value = JSON.parse(response.body.to_s)
+            raise Failure.new, cause: nil unless value.is_a?(Hash)
+
+            value
+          end
+        end
+
+        # toybaco:e2e_growth_cancel の本体。prefix に一致する店舗(開通の後は A と同名の B の 2 件)のうち、購入の記録が complete の店舗か、
+        # Session のある未完了(open / payment_pending。決済の確定の後に webhook の結果を待たずに止まった購入)の店舗を選び、解約する購読を
+        # 決める(complete なら店舗の契約の購読、未完了なら Stripe の Session が完了していればその購読。完了していなければ何もせずに
+        # skipped)。購読がこの run の購入のもの(test mode・metadata の店舗 id)であることを確かめてから解約し(既に解約済みなら解約の
+        # 呼び出しだけを省く)、顧客を消し(既に消えていれば省く。消す前に、契約者のメール・この店舗の購入の Session の顧客・Stripe でこの
+        # 顧客の購読がこの購読だけ・DB でほかの店舗がこの顧客を持たないことを確かめる)、解約の event(customer.subscription.deleted)が
+        # Rails に届いて終端になるまで待ってから、この run の id(Session・購読)の終端の event を全て消す(解約の event も残さない)。この
+        # 購読の同期の依頼(toybaco_subscription_sync_requests)のうち、店舗に結ばれていないものとこの店舗の attention のものを、参照が
+        # 無ければ消す。途中で止まっても、再実行で残りの工程を続ける。この run の始めに購読が既に解約済みで顧客も既に消えていれば、前の
+        # run が待機まで済ませたものとして待機を省く(解約の event は前の run の後片付けで消えている)。購入が無ければ(purge と同じく
+        # always で呼ばれる)何もせずに skipped。
+        module Cancel
+          LABEL = 'GROWTH_CANCEL'
+          WAIT = 120
+          DELETED = 'customer.subscription.deleted'
+          UNSETTLED = %w[open payment_pending].freeze
+          TERMINAL = %w[completed attention].freeze
+
+          module_function
+
+          def call(prefix)
+            account = purchased!(prefix)
+            return line(prefix, 'skipped', nil, 0, 'no_purchase') unless account
+
+            refuse!(prefix, account, 'key_not_test') unless GrowthLive.key.match?(KEY_FORMAT)
+            client = Toybaco::Checkout::Client.new(GrowthLive.key)
+            id = subscription_id!(prefix, account, client)
+            return line(prefix, 'skipped', account.id, 0, 'no_purchase') unless id
+
+            settle!(prefix, account, client, subscription!(prefix, account, client, id))
+            line(prefix, 'canceled', account.id, cleanup!(account, id), NONE)
+          end
+
+          # 購読を解約し(既に解約済みなら省く)、顧客を消して(既に消えていれば省く)、解約の event が Rails で終端になるのを待つ。この run
+          # の始めに購読が解約済みで顧客も消えていれば、前の run が待機まで済ませたものとして待たない(解約の event は前の run の後片付けで
+          # 消えている)。それ以外(この run で解約したか顧客を消した)は待ち、終端にならなければ webhook_timeout で止める。
+          def settle!(prefix, account, client, subscription)
+            id = subscription.fetch('id')
+            canceled = subscription['status'] == 'canceled'
+            cancel!(prefix, account, client, id) unless canceled
+            settled = Customer.delete!(prefix, account, client, subscription) && canceled
+            refuse!(prefix, account, 'webhook_timeout') unless settled || GrowthLive.wait_until(WAIT) { deleted?(id) }
+          end
+
+          def purchased!(prefix)
+            stores = E2eConsent.accounts(prefix)
+            refuse!(prefix, nil, 'name_format') unless stores.all? { |store| store.name.match?(E2eConsent::RUN_NAME_FORMAT) }
+            purchased = stores.select { |store| purchase?(Toybaco::Growth::PurchaseIntent.saved(store)) }
+            refuse!(prefix, nil, 'multiple_purchases') if purchased.size > 1
+            purchased.first
+          end
+
+          # 購入の記録が complete か、Session のある未完了(open / payment_pending)。
+          def purchase?(saved)
+            return false unless saved.is_a?(Hash)
+
+            saved['state'] == 'complete' || (UNSETTLED.include?(saved['state']) && saved['session_id'].present?)
+          end
+
+          # 解約する購読の id。complete なら店舗の契約の購読(無ければ subscription_missing)、未完了なら Stripe の Session の購読(Session が
+          # 完了していなければ nil)。
+          def subscription_id!(prefix, account, client)
+            saved = Toybaco::Growth::PurchaseIntent.saved(account)
+            return session_subscription!(prefix, account, client, saved['session_id']) unless saved['state'] == 'complete'
+
+            id = Toybaco::Entitlements.attributes(account)['toybaco_subscription_id']
+            return id if id.to_s.match?(SUBSCRIPTION_FORMAT)
+
+            refuse!(prefix, account, 'subscription_missing')
+          end
+
+          def session_subscription!(prefix, account, client, session_id)
+            session = client.retrieve_checkout_session(session_id)
+            session['subscription'] if session['status'] == 'complete' && session['subscription'].to_s.match?(SUBSCRIPTION_FORMAT)
+          rescue Toybaco::Checkout::Error
+            refuse!(prefix, account, 'session_unavailable')
+          end
+
+          # 購読を Stripe から読み、test mode でこの店舗の購入の購読(metadata の店舗 id)であることを確かめる。
+          def subscription!(prefix, account, client, id)
+            subscription = client.retrieve_subscription(id)
+            return subscription if own?(account, id, subscription)
+
+            refuse!(prefix, account, 'subscription_mismatch')
+          rescue Toybaco::Checkout::Error => e
+            refuse!(prefix, account, e.message == 'stripe 404' ? 'subscription_missing' : 'subscription_unavailable')
+          end
+
+          # test mode の、この店舗の購入の購読(PurchaseForm が Session と購読の metadata に入れる店舗 id が一致する)。
+          def own?(account, id, subscription)
+            metadata = subscription['metadata'].is_a?(Hash) ? subscription['metadata'] : {}
+            subscription['id'] == id && subscription['livemode'] == false && metadata['toybaco_existing_account_id'] == account.id.to_s
+          end
+
+          # 解約の応答が、この購読(id)の test mode の解約済みでなければ止める。
+          def cancel!(prefix, account, client, id)
+            canceled = client.cancel_unpaid_subscription(id)
+            refuse!(prefix, account, 'cancel_failed') unless canceled.values_at('id', 'status', 'livemode') == [id, 'canceled', false]
+          rescue Toybaco::Checkout::Error
+            refuse!(prefix, account, 'cancel_failed')
+          end
+
+          # 購読の顧客を消す(既に消えていれば何もしない)。顧客の削除はその顧客の有効な購読を全て解約するため、この run の外の購読を巻き込まない
+          # ことを確かめられなければ、消さずに customer_mismatch で止める。
+          module Customer
+            KEY = "internal_attributes ->> 'toybaco_stripe_customer_id' = ?"
+
+            module_function
+
+            # この run の前に既に消えていれば何もせずに true、この run で消せば false を返す。
+            def delete!(prefix, account, client, subscription)
+              api = ApiHandler.new(GrowthLive.key)
+              customer = customer!(prefix, account, api, subscription['customer'].to_s)
+              return true if customer['deleted'] == true
+
+              refuse!(prefix, account, 'customer_mismatch') unless sole?(api, client, account, customer, subscription.fetch('id'))
+              refuse!(prefix, account, 'customer_delete_failed') unless api.delete_customer(customer['id'])['deleted'] == true
+              false
+            rescue ApiHandler::Failure
+              refuse!(prefix, account, 'customer_delete_failed')
+            end
+
+            def customer!(prefix, account, api, customer_id)
+              customer = api.retrieve_customer(customer_id)
+              return customer if customer['id'] == customer_id
+
+              refuse!(prefix, account, 'customer_mismatch')
+            rescue ApiHandler::Failure
+              refuse!(prefix, account, 'customer_mismatch')
+            end
+
+            # test mode で契約者(購入の記録の owner)のメールの顧客で、この店舗の購入の顧客(purchased_by?)で、DB でほかの店舗がこの顧客を契約に
+            # 持たず、Stripe でこの顧客の購読がこの購読だけ(解約済みを含む全件)。
+            def sole?(api, client, account, customer, subscription_id)
+              owned?(account, customer) && purchased_by?(client, account, customer['id']) &&
+                Account.where(KEY, customer['id']).where.not(id: account.id).none? && only_subscription?(api, customer['id'], subscription_id)
+            end
+
+            # この店舗の購入の記録の Session の顧客(同じメールのほかの店舗・ほかの run の顧客ではない直接の証拠)で、購入の記録が complete なら
+            # 店舗の契約の顧客とも同じ。Session を読めなければ確かめられないとする。
+            def purchased_by?(client, account, customer_id)
+              saved = Toybaco::Growth::PurchaseIntent.saved(account)
+              contract = saved['state'] != 'complete' || Toybaco::Entitlements.attributes(account)['toybaco_stripe_customer_id'] == customer_id
+              contract && client.retrieve_checkout_session(saved['session_id'].to_s)['customer'] == customer_id
+            rescue Toybaco::Checkout::Error
+              false
+            end
+
+            def owned?(account, customer)
+              owner = User.find_by(id: Toybaco::Growth::PurchaseIntent.saved(account)&.fetch('owner_id', nil))
+              email = owner ? owner.email.to_s.downcase : ''
+              email.present? && customer['livemode'] == false && customer['email'].to_s.downcase == email
+            end
+
+            def only_subscription?(api, customer_id, subscription_id)
+              listed = api.list_subscriptions(customer_id)
+              data = listed['data'].is_a?(Array) ? listed['data'] : []
+              listed['has_more'] == false && data.map { |item| item.is_a?(Hash) ? item['id'] : nil } == [subscription_id]
+            rescue ApiHandler::Failure
+              false
+            end
+
+            def refuse!(prefix, account, reason)
+              Cancel.refuse!(prefix, account, reason)
+            end
+          end
+
+          # 解約の event(customer.subscription.deleted)が Rails で終端(completed・attention)になった。店舗に結べない購読でも、結べた購読の
+          # 処理が止まっても、attention で終わりうるため、どちらの経路でも attention を終端と見なす(止まった依頼は後片付けが手放す)。
+          def deleted?(subscription_id)
+            Toybaco::BillingEvent.where(action: 'subscription_notice', reference_id: subscription_id, mode: MODE, state: TERMINAL)
+                                 .exists?(["snapshot ->> 'type' = ?", DELETED])
+          end
+
+          # この run の id(購入の記録の Session と購読。形の合う値だけ)を reference_id に持つ終端の event(completed・attention。解約の event
+          # も含む)を全て消して件数を返す(attention の行を残すと毎分の sweep が知らせ続ける)。処理中の event(pending・queued・processing)と
+          # 更新の請求書の記録が結ぶ event は残す。続けて、この購読の同期の依頼のうち、毎分の sweep が知らせ続ける止まった依頼を手放す
+          # (release_request!。消した event の結びが外れた後に確かめる)。
+          def cleanup!(account, subscription_id)
+            saved = Toybaco::Growth::PurchaseIntent.saved(account)
+            references = [[saved['session_id'], SESSION_FORMAT], [subscription_id, SUBSCRIPTION_FORMAT]]
+                         .filter_map { |value, format| value if value.to_s.match?(format) }
+            facts = Toybaco::RenewalInvoiceFact.where.not(billing_event_id: nil).select(:billing_event_id)
+            events = Toybaco::BillingEvent.where(mode: MODE, state: TERMINAL, reference_id: references).where.not(id: facts).delete_all
+            release_request!(account, subscription_id)
+            events
+          end
+
+          # 毎分の sweep が知らせ続ける止まった同期の依頼を手放す。対象は、店舗に結ばれていない(account_id が NULL の)依頼と、この店舗に
+          # 結ばれて attention で止まった依頼だけ(E2E の店舗は後で purge されるので、店舗の停止の処理は失われない)。この店舗の completed・
+          # pending・running の依頼とほかの店舗の依頼には触らない(遅れて店舗に結ばれた依頼の停止の処理を消さない)。ほかの event から FK で
+          # 参照されていなければ消し、消した件数を返す(参照が残れば消さない)。
+          def release_request!(account, subscription_id)
+            scope = Toybaco::SubscriptionSyncRequest.where(subscription_id: subscription_id, mode: MODE)
+            requests = scope.where(account_id: nil).or(scope.where(account_id: account.id, state: 'attention'))
+            bound = Toybaco::BillingEvent.where.not(subscription_sync_request_id: nil).select(:subscription_sync_request_id)
+            requests.where.not(id: bound).delete_all
+          end
+
+          def line(prefix, result, account_id, events, reason)
+            "TOYBACO_E2E_#{LABEL} prefix=#{prefix} result=#{result} account=#{account_id || NONE} events=#{events} reason=#{reason}"
+          end
+
+          def refuse!(prefix, account, reason)
+            GrowthLive.stop!(line(prefix, 'refused', account&.id, 0, reason))
+          end
+        end
+      end
     end
   end
 end
@@ -1760,6 +2323,18 @@ namespace :toybaco do
        '作る(rake "toybaco:e2e_opening_checkout[e2e-consent-<run>]")'
   task :e2e_opening_checkout, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eBilling.opening_checkout(args)
+  end
+
+  desc 'staging 専用: 体験の後の E2E の店舗(ちょうど 1 件)を、Stripe test mode の実経路(Checkout Session → 決済 → webhook → 本番の購入の' \
+       '処理)で Standard(月払い)にする(rake "toybaco:e2e_growth_purchase_live[e2e-consent-<run>]")'
+  task :e2e_growth_purchase_live, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eBilling.growth_purchase_live(args)
+  end
+
+  desc 'staging 専用: e2e_growth_purchase_live で買った E2E の店舗の購読を Stripe test mode で解約して顧客を消し、この run の完了した ' \
+       'event を消す(rake "toybaco:e2e_growth_cancel[e2e-consent-<run>]")'
+  task :e2e_growth_cancel, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eBilling.growth_cancel(args)
   end
 end
 

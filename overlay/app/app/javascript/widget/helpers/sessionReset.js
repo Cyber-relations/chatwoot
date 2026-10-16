@@ -1,4 +1,5 @@
 import { API } from './axios';
+import { runIdentityReset } from './identityOperations';
 
 // The parent never receives an API header. The existing widget performs the
 // same-origin request with its current header, including after setUser/merge.
@@ -9,6 +10,7 @@ export const installSessionReset = () => {
       window.parent === window ||
       event.source !== window.parent ||
       event.origin === 'null' ||
+      (window.toybacoHttpSession && event.origin !== window.toybacoWidgetParentOrigin) ||
       typeof event.data !== 'string' ||
       !event.data.startsWith('chatwoot-widget:')
     ) return;
@@ -29,9 +31,9 @@ export const installSessionReset = () => {
     if (!pending || pending.id !== message.requestId) {
       pending = {
         id: message.requestId,
-        result: API.delete('/api/v1/widget/session', {
+        result: runIdentityReset(() => API.delete('/api/v1/widget/session', {
           params: { website_token: new URL(window.location.href).searchParams.get('website_token') },
-        }).then(response => response.data?.session_revoked === true).catch(() => false),
+        }).then(response => response.data?.session_revoked === true)).catch(() => false),
       };
     }
     const success = await pending.result;

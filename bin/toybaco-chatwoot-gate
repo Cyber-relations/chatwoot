@@ -186,6 +186,8 @@ control_file_list() {
     'tests/toybaco_gmail_runtime_test.rb' \
     'tests/toybaco_fetch_error_logging_runtime_test.rb' \
     'tests/toybaco_widget_inbox_binding_runtime_test.rb' \
+    'tests/toybaco_widget_http_session_runtime_test.rb' \
+    'tests/chatwoot-widget-http-session.test.mjs' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
@@ -222,6 +224,8 @@ control_file_list() {
     'tests/toybaco_handoff_line_runtime_test.rb' \
     'tests/toybaco_handoff_mail_state_test.rb' \
     'tests/toybaco_handoff_mail_runtime_test.rb' \
+    'tests/toybaco_redis_ops_test.rb' \
+    'tests/toybaco_redis_ops_runtime_test.rb' \
     'tests/toybaco-connection-handoff-ui.test.mjs' \
     'bin/toybaco-chatwoot-gate' \
     'infra/terraform/ecs.tf' \
@@ -307,7 +311,7 @@ integration_ruby_file_list() {
     {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/security -type f -name '*.rb' -print
-      printf '%s\n' overlay/app/app/controllers/api/v1/widget/sessions_controller.rb overlay/app/config/initializers/toybaco_widget_sessions.rb
+      printf '%s\n' overlay/app/app/controllers/api/v1/widget/sessions_controller.rb overlay/app/config/initializers/toybaco_widget_sessions.rb overlay/app/app/controllers/api/v1/widget/http_sessions_controller.rb overlay/app/config/initializers/toybaco_widget_http_identity.rb overlay/app/db/migrate/20261015000000_create_toybaco_widget_http_sessions.rb
       printf '%s\n' overlay/app/app/services/mfa/token_service.rb overlay/app/config/initializers/toybaco_application_mfa.rb
       printf '%s\n' overlay/app/app/controllers/concerns/auth_helper.rb overlay/app/config/initializers/toybaco_browser_authentication.rb overlay/app/app/channels/room_channel.rb
       printf '%s\n' overlay/app/app/controllers/super_admin/devise/sessions_controller.rb overlay/app/config/initializers/toybaco_admin_mfa.rb overlay/app/spec/support/toybaco_admin_mfa.rb
@@ -324,6 +328,7 @@ integration_ruby_file_list() {
       printf '%s\n' overlay/app/config/initializers/toybaco_ops.rb
       printf '%s\n' overlay/app/db/migrate/20260928000000_create_toybaco_operator_actions.rb overlay/app/lib/tasks/toybaco_ops.rake
       printf '%s\n' overlay/app/lib/tasks/toybaco_renewal.rake
+      printf '%s\n' overlay/app/lib/tasks/toybaco_redis.rake
       printf '%s\n' overlay/app/app/controllers/super_admin/toybaco_stores_controller.rb overlay/app/config/initializers/toybaco_ops_console.rb
       find overlay/app/app/models/toybaco -type f -name '*.rb' -print
       printf '%s\n' overlay/app/lib/toybaco/growth_terms.rb overlay/app/db/migrate/20260918133000_create_toybaco_growth_ai_ledger.rb overlay/app/config/initializers/toybaco_growth.rb overlay/app/config/initializers/toybaco_growth_onboarding.rb
@@ -364,7 +369,7 @@ integration_ruby_file_list() {
         -name 'toybaco_inbound_email.rb' -o -name 'toybaco_agent_seat_limit.rb' -o \
         -name 'toybaco_agent_login.rb' -o -name 'toybaco_postgres_health.rb' -o -name 'toybaco_ai_usage.rb' \) -print
       find overlay/app/lib/toybaco -maxdepth 1 -type f \
-        \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o \
+        \( -name 'postiz*.rb' -o -name 'dashboard_frame_policy.rb' -o -name 'content_security_policy_report_only.rb' -o \
         -name 'inbound_email.rb' -o -name 'checkout.rb' -o -name 'ai_reply_mode.rb' -o \
         -name 'billing_cancel.rb' -o -name 'billing_subscription.rb' -o -name 'billing_access.rb' -o -name 'agent_seat_limit.rb' -o \
         -name 'agent_login.rb' -o -name 'postgres_health.rb' -o \
@@ -1257,6 +1262,7 @@ run_ruby_quality() {
   STAGE='全Toybaco RSpec'
   node "$CONTROL_ROOT/tests/chatwoot-widget-cookie.test.mjs" "$CONTROL_ROOT"
   node "$CONTROL_ROOT/tests/chatwoot-widget-message-origin.test.mjs" "$CONTROL_ROOT"
+  node "$CONTROL_ROOT/tests/chatwoot-widget-http-session.test.mjs" "$CONTROL_ROOT" "$PATCHED_SOURCE"
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/chatwoot_widget_parameter_logging_test.rb
@@ -1277,6 +1283,11 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_widget_inbox_binding_runtime_test.rb
+
+  STAGE='Widget HTTP session actual Rails'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_widget_http_session_runtime_test.rb
 
   STAGE='Gmail MIME・添付分離'
   run_test_container \
@@ -1485,11 +1496,21 @@ run_ruby_quality() {
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_handoff_mail_runtime_test.rb
 
+  STAGE='Redisの棚卸し・突合(読み取りだけ・key名と値を出さない)'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/toybaco_redis_ops_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_redis_ops_runtime_test.rb
+
 }
 
 build_and_smoke_production_image() {
   local actual_base_label
   local actual_revision_label
+  local production_env_names
+  local log_level_env_names
   local base_count
   local production_count
   local sidekiq_count
@@ -1523,6 +1544,16 @@ build_and_smoke_production_image() {
     "$CONTROL_MANIFEST_SHA" ]] || fail 'production imageのcontrol labelが不一致です'
   [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$PRODUCTION_IMAGE")" == 'linux/amd64' ]] || \
     fail 'production imageがlinux/amd64ではありません'
+  # ChatwootのSidekiqとRailsはLOG_LEVELでlog levelを決め、infoより上げるとsidekiq-dead alarmが数える
+  # 「Adding dead」の行(info)が消える。最終imageに残るENV(base imageの分を含む)にLOG_LEVEL/RAILS_LOG_LEVELを置かない。
+  # build中だけのARGはConfig.Envに残らないので対象外(tests/monitoring-alarms.test.mjsとdocs/operations-backoffice-plan-2026-09-27.md 9章)。
+  production_env_names="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$PRODUCTION_IMAGE" \
+    | sed -e '/^$/d' -e 's/=.*//')"
+  [[ -n "$production_env_names" ]] || fail 'production imageのConfig.Envを読めません'
+  log_level_env_names="$(grep -xE 'LOG_LEVEL|RAILS_LOG_LEVEL' <<< "$production_env_names" || true)"
+  if [[ -n "$log_level_env_names" ]]; then
+    fail "production imageのENVにlog levelを決める変数があります: ${log_level_env_names//$'\n'/ }"
+  fi
 
   docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$CHATWOOT_IMAGE" \
     | sed '/^$/d' > "$RUN_ROOT/base-layers"

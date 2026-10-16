@@ -9,7 +9,7 @@ const moduleBody = source.replace(/^import [\s\S]*? from '[^']+';\n/gm, '').repl
 const target = {};
 const sent = [];
 const listeners = new Set();
-let frame = { src: 'https://app.example.invalid/widget?website_token=public-fixture', contentWindow: target };
+let frame = { src: 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2', contentWindow: target };
 const hostHandler = () => {};
 const context = {
   URL,
@@ -75,11 +75,12 @@ assert.equal(sent[1][1], 'https://other-app.example.invalid');
 const createFrameFixture = ({ baseUrl, cookie }) => {
   const frameWindow = { postMessage: (...args) => frameSent.push(args) };
   const frameSent = [];
+  const removedCookies = [];
   const frameListeners = new Set();
   let appended = null;
   const ctx = {
     URL,
-    Cookies: { get: name => (name === 'cw_conversation' ? cookie : undefined) },
+    Cookies: { get: name => (name === 'cw_conversation' ? cookie : undefined), remove: (...args) => removedCookies.push(args) },
     loadCSS: () => {},
     addClasses: () => {},
     isFlatWidgetStyle: () => false,
@@ -102,10 +103,24 @@ const createFrameFixture = ({ baseUrl, cookie }) => {
   ctx.helper.createFrame({ baseUrl, websiteToken: 'public-fixture' });
   assert.ok(appended, `createFrame must append the iframe for ${baseUrl}`);
   assert.equal(frameListeners.size, 1);
-  return { helper: ctx.helper, iframe: appended, frameWindow, frameSent, frameReceived, frameListeners };
+  return { helper: ctx.helper, iframe: appended, frameWindow, frameSent, frameReceived, frameListeners, removedCookies };
 };
 const redirected = createFrameFixture({ baseUrl: 'http://app.example.invalid' });
-assert.equal(redirected.iframe.src, 'https://app.example.invalid/widget?website_token=public-fixture');
+redirected.helper.events['http-session-ready']({ persisted: true });
+assert.equal(redirected.removedCookies.length, 0, 'Verified cookie storage retains the existing bridge for cached legacy pages');
+redirected.helper.events['http-session-identity-changed']();
+assert.deepEqual(redirected.removedCookies.map(args => args[0]), ['cw_conversation'], 'Only a proved identity change removes its stale parent bridge');
+const problemAppearance = []; const problemOpen = [];
+const originalOnLoad = redirected.helper.onLoad;
+const originalToggle = redirected.helper.events.toggleBubble;
+redirected.helper.onLoad = appearance => problemAppearance.push(appearance);
+redirected.helper.events.toggleBubble = state => problemOpen.push(state);
+redirected.helper.showSessionProblem({ widgetColor: '#0055aa' });
+assert.equal(problemAppearance[0].widgetColor, '#0055aa');
+assert.deepEqual(problemOpen, ['open'], 'The inert conflict/retry UI is made reachable before auth-ready');
+redirected.helper.onLoad = originalOnLoad;
+redirected.helper.events.toggleBubble = originalToggle;
+assert.equal(redirected.iframe.src, 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2');
 const accepted = 'chatwoot-widget:{"event":"accepted","marker":"synthetic"}';
 const [frameListener] = redirected.frameListeners;
 frameListener({ source: redirected.frameWindow, origin: 'https://app.example.invalid', data: accepted });
@@ -116,21 +131,21 @@ assert.equal(redirected.frameReceived.length, 1, 'Origin and source stay strict 
 redirected.helper.sendMessage('set-user', { identifier: 'synthetic' });
 assert.deepEqual(redirected.frameSent.map(([, origin]) => origin), ['https://app.example.invalid']);
 assert.equal(createFrameFixture({ baseUrl: 'http://app.example.invalid', cookie: 'cookie-fixture' }).iframe.src,
-  'https://app.example.invalid/widget?website_token=public-fixture&cw_conversation=cookie-fixture');
+  'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2');
 const srcFor = baseUrl => createFrameFixture({ baseUrl }).iframe.src;
 for (const baseUrl of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000', 'http://chatwoot.localhost',
   'http://app.toybaco.test', 'https://app.example.invalid', 'https://localhost:3000',
   // DNS ルートの末尾の点、127.0.0.0/8 全体、IPv4 と IPv6 の表記ゆれも開発ホスト。
   'http://localhost.:3000', 'http://app.toybaco.test.', 'http://chatwoot.localhost.', 'http://127.0.0.2:3000',
   'http://127.255.255.254', 'http://127.0.0.2.', 'http://127.1', 'http://[0:0:0:0:0:0:0:1]:3000', 'http://[::0001]', 'http://LOCALHOST']) {
-  assert.equal(srcFor(baseUrl), `${baseUrl}/widget?website_token=public-fixture`, `${baseUrl} stays as given`);
+  assert.equal(srcFor(baseUrl), `${baseUrl}/widget?website_token=public-fixture&toybaco_sdk=2`, `${baseUrl} stays as given`);
 }
 const localFrame = createFrameFixture({ baseUrl: 'http://localhost:3000' });
 [...localFrame.frameListeners][0]({ source: localFrame.frameWindow, origin: 'http://localhost:3000', data: accepted });
 assert.equal(localFrame.frameReceived.length, 1, 'A development host keeps its http origin');
 // 開発ホストでの往復: http の src のまま、http の origin から受けて http の origin へ送る(https は拒否)。
 const testHostFrame = createFrameFixture({ baseUrl: 'http://app.toybaco.test:3000' });
-assert.equal(testHostFrame.iframe.src, 'http://app.toybaco.test:3000/widget?website_token=public-fixture');
+assert.equal(testHostFrame.iframe.src, 'http://app.toybaco.test:3000/widget?website_token=public-fixture&toybaco_sdk=2');
 const [testHostListener] = testHostFrame.frameListeners;
 testHostListener({ source: testHostFrame.frameWindow, origin: 'https://app.toybaco.test:3000', data: accepted });
 testHostListener({ source: testHostFrame.frameWindow, origin: 'http://app.toybaco.test:3000', data: accepted });
@@ -140,7 +155,7 @@ assert.deepEqual(testHostFrame.frameSent.map(([, origin]) => origin), ['http://a
 // 開発ホストに似た名前(接尾辞が点で区切られていないもの)は開発ホストではない。
 for (const host of ['localhost.example.invalid', 'notlocalhost', 'app.test.example.invalid', 'apptest', '127.0.0.1.example.invalid',
   '128.0.0.1', '126.0.0.1', 'localhost..', 'test']) {
-  assert.equal(srcFor(`http://${host}`), `https://${host}/widget?website_token=public-fixture`, host);
+  assert.equal(srcFor(`http://${host}`), `https://${host}/widget?website_token=public-fixture&toybaco_sdk=2`, host);
 }
 // 文字列の置換ではなく parse した URL を serialize する: http の既定の :80 は落ち(ALB は 80→443 へリダイレクトする)、
 // 明示の port は残り、scheme 内の制御文字や前後の空白は parser が正規化し、path は保つ。
@@ -157,23 +172,23 @@ for (const [baseUrl, expected] of [
   ['http://app.example.invalid/chat', 'https://app.example.invalid/chat'],
   ['http://app.example.invalid/chat/', 'https://app.example.invalid/chat'],
 ]) {
-  assert.equal(srcFor(baseUrl), `${expected}/widget?website_token=public-fixture`, JSON.stringify(baseUrl));
+  assert.equal(srcFor(baseUrl), `${expected}/widget?website_token=public-fixture&toybaco_sdk=2`, JSON.stringify(baseUrl));
 }
 const explicitPort = createFrameFixture({ baseUrl: 'http://app.example.invalid:80' });
 [...explicitPort.frameListeners][0]({ source: explicitPort.frameWindow, origin: 'https://app.example.invalid', data: accepted });
 assert.equal(explicitPort.frameReceived.length, 1, 'The https origin is accepted after an explicit :80');
 // sdk.js の reset() も IFrameHelper.getUrl で iframe.src を作り直すので、同じ正規化が効く。
-assert.equal(helper.getUrl({ baseUrl: 'http://app.example.invalid', websiteToken: 't' }), 'https://app.example.invalid/widget?website_token=t');
+assert.equal(helper.getUrl({ baseUrl: 'http://app.example.invalid', websiteToken: 't' }), 'https://app.example.invalid/widget?website_token=t&toybaco_sdk=2');
 // 解釈できない baseUrl は upstream と同じくそのまま。
-assert.equal(helper.getUrl({ baseUrl: '', websiteToken: 't' }), '/widget?website_token=t');
-assert.equal(helper.getUrl({ baseUrl: '/relative', websiteToken: 't' }), '/relative/widget?website_token=t');
+assert.equal(helper.getUrl({ baseUrl: '', websiteToken: 't' }), '/widget?website_token=t&toybaco_sdk=2');
+assert.equal(helper.getUrl({ baseUrl: '/relative', websiteToken: 't' }), '/relative/widget?website_token=t&toybaco_sdk=2');
 
 // (b) listener の所有は window に置く。sdk.js を読み直して別の IFrameHelper が init しても、loaded は 1 回だけ処理する。
 const sharedWindowListeners = new Set();
 const sharedSent = [];
 const ready = [];
 const sharedTarget = { postMessage: (...args) => sharedSent.push(args) };
-const sharedFrame = { src: 'https://app.example.invalid/widget?website_token=public-fixture', contentWindow: sharedTarget, style: {},
+const sharedFrame = { src: 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2', contentWindow: sharedTarget, style: {},
   setAttribute: () => {} };
 const sharedContext = {
   URL,
@@ -203,7 +218,7 @@ sharedContext.first.initPostMessageCommunication();
 sharedContext.second.initPostMessageCommunication();
 assert.equal(sharedWindowListeners.size, 1, 'The second SDK instance must replace the first listener');
 assert.equal(sharedContext.window.__toybacoChatwootSdkMessageListener, sharedContext.second.messageListener);
-const loaded = `chatwoot-widget:${JSON.stringify({ event: 'loaded', config: { authToken: 'token-fixture', channelConfig: { widgetColor: '#1f93ff' } } })}`;
+const loaded = `chatwoot-widget:${JSON.stringify({ event: 'loaded', config: { httpSession: true, channelConfig: { widgetColor: '#1f93ff' } } })}`;
 for (const listener of [...sharedWindowListeners]) listener({ source: sharedTarget, origin: 'https://app.example.invalid', data: loaded });
 assert.equal(sharedSent.filter(([data]) => data.startsWith('chatwoot-widget:{"event":"config-set"')).length, 1, 'config-set once');
 assert.deepEqual(ready, ['chatwoot:ready'], 'chatwoot:ready once');
@@ -225,6 +240,8 @@ console.log('Widget SDK actual receiver: origin/source/format/event boundary, ex
 // Every value is synthetic; API mutations are exercised separately by Rails.
 const resetSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/sessionReset.js'), 'utf8')
   .replace(/^import [^\n]+\n/gm, '').replace('export const installSessionReset', 'const installSessionReset');
+const identityOperationSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/identityOperations.js'), 'utf8')
+  .replaceAll('export const ', 'const ');
 const resetFixture = ({ loaded = true, accepted = true } = {}) => {
   const calls = []; const cookies = []; const errors = []; const timers = new Map();
   let nextTimer = 0; let nativeListener; let currentFrame;
@@ -233,13 +250,13 @@ const resetFixture = ({ loaded = true, accepted = true } = {}) => {
   const nativeContext = {
     URL,
     API: { delete: async (...args) => { calls.push(args); return { data: accepted ? { session_revoked: true } : {} }; } },
-    window: { parent, location: { href: 'https://app.example.invalid/widget?website_token=public-fixture' },
+    window: { parent, location: { href: 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2' },
       addEventListener: (event, listener) => { assert.equal(event, 'message'); nativeListener = listener; } },
   };
-  vm.runInNewContext(`${resetSource}\ninstallSessionReset();`, nativeContext);
+  vm.runInNewContext(`${identityOperationSource}\n${resetSource}\ninstallSessionReset();`, nativeContext);
   oldTarget.postMessage = data => nativeListener({ source: parent, origin: 'https://shop.example.invalid', data });
   const replacement = { contentWindow: {}, style: {}, setAttribute: () => {} };
-  const oldFrame = { src: 'https://app.example.invalid/widget?website_token=public-fixture', contentWindow: oldTarget,
+  const oldFrame = { src: 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2', contentWindow: oldTarget,
     style: {}, cloneNode: deep => { assert.equal(deep, false); return replacement; }, replaceWith: frame => { currentFrame = frame; } };
   currentFrame = oldFrame;
   const context = {
@@ -270,7 +287,7 @@ assert.equal(reset.calls.length, 1);
 assert.equal(reset.calls[0][0], '/api/v1/widget/session');
 assert.equal(reset.calls[0][1].params.website_token, 'public-fixture');
 assert.equal(reset.current(), reset.replacement, 'Reset creates a different browsing context');
-assert.equal(reset.replacement.src, 'https://app.example.invalid/widget?website_token=public-fixture');
+assert.equal(reset.replacement.src, 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2');
 assert.equal(reset.cookies.length, 4, 'Remove only this widget auth and identity cookies, including legacy host scope');
 assert.ok(reset.cookies.every(([name]) => name === 'cw_conversation' || name === 'cw_user_fixture'));
 assert.equal(reset.timers.size, 0);
@@ -285,7 +302,7 @@ reset.helper.toggleCloseButton = () => {};
 reset.context.window.$chatwoot.identifier = 'new-synthetic';
 reset.context.window.$chatwoot.user = { name: 'New synthetic visitor' };
 reset.helper.messageListener({ source: reset.replacement.contentWindow, origin: 'https://app.example.invalid',
-  data: 'chatwoot-widget:{"event":"loaded","config":{"authToken":"new-fixture","channelConfig":{"widgetColor":"#fff"}}}' });
+  data: 'chatwoot-widget:{"event":"loaded","config":{"httpSession":true,"channelConfig":{"widgetColor":"#fff"}}}' });
 assert.equal(reset.context.window.$chatwoot.hasLoaded, true);
 assert.equal(newFrameSent.find(message => message.event === 'set-user').identifier, 'new-synthetic');
 assert.equal(newFrameSent.find(message => message.event === 'set-user').user.name, 'New synthetic visitor');
@@ -336,6 +353,13 @@ await blockedResult;
 assert.equal(blocked.calls.length, 1);
 console.log('Widget explicit reset: authenticated same-origin revoke/ack, old-frame rejection, pre-load/timeout/failure and exact origin/window/request boundaries PASS');
 
+const oldBackend = resetFixture();
+oldBackend.helper.events.loaded({ config: { authToken: 'anonymous-old-server-fixture' } });
+assert.equal(oldBackend.oldFrame.style.visibility, 'hidden');
+assert.equal(oldBackend.context.window.$chatwoot.hasLoaded, false, 'An unknown old server is not accepted as a new anonymous identity');
+assert.equal(oldBackend.errors.at(-1).data.errorType, 'session_backend_incompatible');
+assert.equal(oldBackend.cookies.length, 0, 'Unknown old server cannot overwrite the new HttpOnly visitor state');
+
 // Actual shared URL builder used by Widget API endpoints: preserve public
 // identity/locale while removing every occurrence of the bootstrap bearer.
 const paramsSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/urlParamsHelper.js'), 'utf8')
@@ -357,8 +381,8 @@ console.log('Widget API URL builder: bootstrap bearer stripped; public widget, l
 const axiosBody = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/axios.js'), 'utf8')
   .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
 let interceptor;
-const transportContext = { URL, URLSearchParams, APP_BASE_URL: '',
-  axios: { create: () => ({ defaults: { headers: { common: {} } }, interceptors: { request: { use: fn => { interceptor = fn; } } } }) } };
+const transportContext = { URL, URLSearchParams, APP_BASE_URL: '', window: {},
+  axios: { create: () => ({ defaults: { headers: { common: {} } }, interceptors: { request: { use: fn => { interceptor = fn; } }, response: { use: () => {} } } }) } };
 vm.runInNewContext(`${paramsSource}\n${axiosBody}\nthis.api = API; this.makeConfig = json => JSON.parse(json);`, transportContext);
 assert.equal(typeof interceptor, 'function');
 // Construct inputs in the same VM realm as Axios, as the real app does.
@@ -380,7 +404,7 @@ for (const path of ['/api/v1/widget/contact', '/api/v1/widget/contact/set_user',
 const serialized = interceptor({ url: '/api/v1/widget/contact', params: new URLSearchParams('website_token=public-fixture&cw_conversation=private-fixture') });
 assert.equal(serialized.params.has('cw_conversation'), false);
 assert.equal(serialized.params.get('website_token'), 'public-fixture');
-for (const url of ['/widget?website_token=public-fixture', '/widget?layout=a%20b#section', '/widget#?cw_conversation=fragment-fixture']) {
+for (const url of ['/widget?website_token=public-fixture&toybaco_sdk=2', '/widget?layout=a%20b#section', '/widget#?cw_conversation=fragment-fixture']) {
   assert.equal(interceptor({ url }).url, url, 'Unrelated URLs retain exact bytes');
 }
 console.log('Widget actual Axios transport: direct upstream query copies and structured params stripped, headers/body preserved PASS');

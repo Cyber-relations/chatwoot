@@ -138,16 +138,23 @@ locals {
     # libpq verifies both the RDS root chain and the actual endpoint hostname.
     { name = "PGSSLMODE", value = "verify-full" },
     { name = "PGSSLROOTCERT", value = "/app/config/rds-ca/ap-northeast-1-bundle.pem" },
-    { name = "REDIS_URL", value = "redis://${aws_elasticache_cluster.main.cache_nodes[0].address}:6379" },
+    # 平文か TLS かは data.tf の redis_tls_enabled(既定 off)。TLS の検証を弱める REDIS_OPENSSL_VERIFY_MODE は置かない。
+    { name = "REDIS_URL", value = local.redis_url },
     { name = "ACTIVE_STORAGE_SERVICE", value = "amazon" },
     { name = "S3_BUCKET_NAME", value = aws_s3_bucket.storage.bucket },
     { name = "AWS_REGION", value = "ap-northeast-1" },
-    # システムメール送信(SES SMTP)。招待・パスワードリセット等のトランザクショナルのみ
+    # システムメール送信(SES SMTP)。招待・パスワードリセット等のトランザクショナルのみ。
+    # 465 の implicit TLS(SES の TLS Wrapper)で接続直後から TLS にし、平文の SMTP を一切話さない。587 の
+    # STARTTLS は固定 upstream の config/initializers/mailer.rb では auto(未提示なら平文で AUTH)しか選べない。
+    # mail 2.9.1 は :tls と STARTTLS の同時指定を ArgumentError で拒むため STARTTLS_AUTO は "false" を明示する。
+    # 値は deploy の SMTP TLS probe(overlay/app/bin/toybaco-smtp-tls-probe.rb)の期待値と exact 一致させる。
     { name = "SMTP_ADDRESS", value = "email-smtp.ap-northeast-1.amazonaws.com" },
-    { name = "SMTP_PORT", value = "587" },
+    { name = "SMTP_PORT", value = "465" },
     { name = "SMTP_DOMAIN", value = local.domain },
     { name = "SMTP_AUTHENTICATION", value = "login" },
-    { name = "SMTP_ENABLE_STARTTLS_AUTO", value = "true" },
+    { name = "SMTP_TLS", value = "true" },
+    { name = "SMTP_ENABLE_STARTTLS_AUTO", value = "false" },
+    { name = "SMTP_OPENSSL_VERIFY_MODE", value = "peer" },
     { name = "MAILER_SENDER_EMAIL", value = "トイバコ <no-reply@${local.domain}>" },
     # 受信メール(Chatwoot Channel::Email + ActionMailbox SES ingress)。
     # MX/ルールセットが未整備ならアプリ側が受信箱を作らず fail-closed する。

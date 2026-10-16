@@ -49,12 +49,12 @@ class RoomChannel < ApplicationCable::Channel
     if @current_user.is_a?(User)
       [pubsub_token, "account_#{@current_account.id}"].each do |stream|
         stream_from stream, coder: ActiveSupport::JSON do |message|
-          transmit(message) if verify_toybaco_session
+          transmit(widget_safe_message(message)) if verify_toybaco_session
         end
       end
     else
       stream_from pubsub_token, coder: ActiveSupport::JSON do |message|
-        transmit(message) if verify_toybaco_session
+        transmit(widget_safe_message(message)) if verify_toybaco_session
       end
     end
   end
@@ -65,6 +65,14 @@ class RoomChannel < ApplicationCable::Channel
     ::OnlineStatusTracker.update_presence(@current_account.id, @current_user.class.name, @current_user.id)
   end
 
+  def widget_safe_message(message)
+    return message unless @toybaco_http_stream && message['event'] == 'contact.merged'
+
+    copy = message.deep_dup
+    copy['data']&.delete('pubsub_token')
+    copy
+  end
+
   def pubsub_token
     @pubsub_token ||= params[:pubsub_token]
   end
@@ -73,14 +81,34 @@ class RoomChannel < ApplicationCable::Channel
     return if pubsub_token.blank?
 
     @current_user ||= if params[:user_id].blank?
-                        contact_inbox = ContactInbox.find_by!(pubsub_token: pubsub_token)
-                        @toybaco_session = Toybaco::Security::WidgetSession.new(contact_inbox)
-                        contact_inbox.contact if @toybaco_session.current?
+                        widget_contact
                       else
                         @toybaco_session = Toybaco::Security::CableSession.new(connection.request, params[:user_id], params[:account_id])
                         user = @toybaco_session.authenticate
                         user if user&.pubsub_token == pubsub_token
                       end
+  end
+
+  def widget_contact
+    contact_inbox = if pubsub_token.start_with?('tbwhttp1.')
+                      http_widget_contact
+                    else
+                      link = ContactInbox.find_by!(pubsub_token: pubsub_token)
+                      @toybaco_session = Toybaco::Security::WidgetSession.new(link)
+                      link
+                    end
+    contact_inbox.contact if @toybaco_session.current?
+  end
+
+  def http_widget_contact
+    _version, website_token, proof = pubsub_token.split('.', 3)
+    widget = Channel::WebWidget.find_by!(website_token: website_token)
+    http_session = Toybaco::Security::WidgetHttpSession.socket(connection.request, widget, proof)
+    @toybaco_http_stream = true
+    contact_inbox = http_session.record.contact_inbox
+    @pubsub_token = contact_inbox.pubsub_token
+    @toybaco_session = Toybaco::Security::WidgetSession.new(contact_inbox, http_session: http_session, proof: proof)
+    contact_inbox
   end
 
   def current_account

@@ -35,6 +35,7 @@ import {
 } from 'shared/helpers/AudioNotificationHelper';
 import { isFlatWidgetStyle } from './settingsHelper';
 import { popoutChatWindow } from '../widget/helpers/popoutHelper';
+import { openHttpPopout } from '../widget/helpers/httpPopout';
 
 const updateAuthCookie = (cookieContent, baseDomain = '') =>
   setCookieWithDomain('cw_conversation', cookieContent, {
@@ -52,7 +53,7 @@ const updateCampaignReadStatus = baseDomain => {
 export const IFrameHelper = {
   getUrl({ baseUrl, websiteToken }) {
     const frameBaseUrl = IFrameHelper.getFrameBaseUrl(baseUrl);
-    return `${frameBaseUrl}/widget?website_token=${websiteToken}`;
+    return `${frameBaseUrl}/widget?website_token=${websiteToken}&toybaco_sdk=2`;
   },
   // トイバコ: http→https のリダイレクト後も iframe.src は書き換わらず、src 由来の origin と
   // event.origin が食い違って loaded が捨てられる。開発ホスト以外の http は https にしてから
@@ -85,11 +86,7 @@ export const IFrameHelper = {
 
     loadCSS();
     const iframe = document.createElement('iframe');
-    const cwCookie = Cookies.get('cw_conversation');
-    let widgetUrl = IFrameHelper.getUrl({ baseUrl, websiteToken });
-    if (cwCookie) {
-      widgetUrl = `${widgetUrl}&cw_conversation=${cwCookie}`;
-    }
+    const widgetUrl = IFrameHelper.getUrl({ baseUrl, websiteToken });
     iframe.src = widgetUrl;
     iframe.allow =
       'camera;microphone;fullscreen;display-capture;picture-in-picture;clipboard-write;';
@@ -126,7 +123,8 @@ export const IFrameHelper = {
     }
   },
   sendMessage: (key, value) => {
-    if ((IFrameHelper.pendingReset || IFrameHelper.resetFailed) && key !== 'revoke-session') return;
+    if (IFrameHelper.backendIncompatible && key !== 'http-session-input') return;
+    if ((IFrameHelper.pendingReset || IFrameHelper.resetFailed) && !['revoke-session', 'http-session-input'].includes(key)) return;
     const element = IFrameHelper.getAppFrame();
     const origin = IFrameHelper.getFrameOrigin(element);
     if (!origin || !element.contentWindow) return;
@@ -223,7 +221,7 @@ export const IFrameHelper = {
       }
       if (
         (IFrameHelper.pendingReset || IFrameHelper.resetFailed) &&
-        !['loaded', 'session-revoked'].includes(message.event)
+        !['loaded', 'session-revoked', 'http-session-inert'].includes(message.event)
       ) return;
       if (typeof IFrameHelper.events[message.event] === 'function') {
         IFrameHelper.events[message.event](message);
@@ -273,6 +271,51 @@ export const IFrameHelper = {
   },
 
   events: {
+    'http-session-inert': message => {
+      if (!/^[a-f0-9]{64}$/.test(message.requestId || '') || message.popout === true) return;
+      IFrameHelper.httpSessionSupported = true;
+      IFrameHelper.backendIncompatible = false;
+      IFrameHelper.sendMessage('http-session-input', {
+        requestId: message.requestId, token: Cookies.get('cw_conversation') || null,
+      });
+    },
+    'http-session-ready': message => {
+      // Keep the pre-existing bridge while cached legacy SDKs can still run.
+      // New proofs are never written here. Retire it only on an explicit reset
+      // or after a proved identity change makes this old bridge stale.
+      if (message.persisted !== true) {
+        dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_not_persisted' } });
+      }
+    },
+    'http-session-identity-changed': () => {
+      const domain = window.$chatwoot.baseDomain;
+      Cookies.remove('cw_conversation', { path: '/', domain });
+      if (domain) Cookies.remove('cw_conversation', { path: '/' });
+    },
+    'http-session-conflict': message => {
+      IFrameHelper.showSessionProblem(message);
+      dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_conflict' } });
+    },
+    'http-session-problem': message => {
+      IFrameHelper.showSessionProblem(message);
+      dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_unavailable' } });
+    },
+    'http-popout-grant-ready': message => {
+      const pending = IFrameHelper.pendingPopout;
+      if (pending?.id === message.requestId && /^[a-f0-9]{64}$/.test(message.code || '')) {
+        IFrameHelper.pendingPopout = null;
+        clearTimeout(pending.timer);
+        pending.resolve({ code: message.code });
+      }
+    },
+    'http-popout-grant-failed': message => {
+      if (IFrameHelper.pendingPopout?.id === message.requestId) {
+        const pending = IFrameHelper.pendingPopout;
+        IFrameHelper.pendingPopout = null;
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Widget handoff failed'));
+      }
+    },
     'session-revoked': message => {
       if (message.requestId === IFrameHelper.pendingReset?.requestId) {
         IFrameHelper.finishSessionReset(message.success === true);
@@ -284,7 +327,34 @@ export const IFrameHelper = {
         IFrameHelper.sendMessage('revoke-session', { requestId: IFrameHelper.pendingReset.requestId });
         return;
       }
-      updateAuthCookie(message.config.authToken, window.$chatwoot.baseDomain);
+      if (!message.config.httpSession) {
+        // One rollback-only fallback preserves the old visitor when a new SDK
+        // meets an older server. No third attempt or silent anonymous history.
+        const legacy = Cookies.get('cw_conversation');
+        if (legacy && !IFrameHelper.httpSessionSupported && !IFrameHelper.legacyFallbackUsed) {
+          IFrameHelper.legacyFallbackUsed = true;
+          const frame = IFrameHelper.getAppFrame();
+          const url = new URL(frame.src);
+          url.searchParams.delete('toybaco_sdk');
+          url.searchParams.set('cw_conversation', legacy);
+          frame.src = url.toString();
+          return;
+        }
+        if (!legacy || IFrameHelper.httpSessionSupported) {
+          // An older server cannot see the new HttpOnly identity. Do not show
+          // its anonymous replacement as a returning visitor's empty history.
+          const frame = IFrameHelper.getAppFrame();
+          frame.style.visibility = 'hidden';
+          IFrameHelper.backendIncompatible = true;
+          window.$chatwoot.hasLoaded = false;
+          dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_backend_incompatible' } });
+          return;
+        }
+        updateAuthCookie(message.config.authToken, window.$chatwoot.baseDomain);
+      } else {
+        IFrameHelper.httpSessionSupported = true;
+        IFrameHelper.backendIncompatible = false;
+      }
       window.$chatwoot.hasLoaded = true;
       const campaignsSnoozedTill = Cookies.get('cw_snooze_campaigns_till');
       IFrameHelper.sendMessage('config-set', {
@@ -342,6 +412,7 @@ export const IFrameHelper = {
 
     setAuthCookie({ data: { widgetAuthToken } }) {
       if (IFrameHelper.pendingReset || IFrameHelper.resetFailed) return;
+      if (IFrameHelper.httpSessionSupported || /^tbw[pr]1\./.test(widgetAuthToken || '')) return;
       updateAuthCookie(widgetAuthToken, window.$chatwoot.baseDomain);
     },
 
@@ -369,6 +440,20 @@ export const IFrameHelper = {
 
     popoutChatWindow: ({ baseUrl, websiteToken, locale }) => {
       if (IFrameHelper.pendingReset || IFrameHelper.resetFailed) return;
+      if (IFrameHelper.httpSessionSupported) {
+        return openHttpPopout(IFrameHelper.getFrameBaseUrl(baseUrl), websiteToken, locale, requestId => {
+          if (IFrameHelper.pendingPopout) return Promise.reject(new Error('Widget popout is already pending'));
+          return new Promise((resolve, reject) => {
+            const state = { id: requestId, resolve, reject };
+            IFrameHelper.pendingPopout = state;
+            state.timer = setTimeout(() => {
+              if (IFrameHelper.pendingPopout === state) IFrameHelper.pendingPopout = null;
+              reject(new Error('Widget popout timed out'));
+            }, 60000);
+            IFrameHelper.sendMessage('http-popout-grant', { requestId });
+          });
+        });
+      }
       const cwCookie = Cookies.get('cw_conversation');
       window.$chatwoot.toggle('close');
       popoutChatWindow(baseUrl, websiteToken, locale, cwCookie);
@@ -431,6 +516,12 @@ export const IFrameHelper = {
     IFrameHelper.sendMessage('push-event', { eventName });
   },
 
+  showSessionProblem: ({ widgetColor } = {}) => {
+    // The inert error/explicit-switch UI must be reachable while hasLoaded
+    // remains false. Only public appearance is used; no auth-ready is forged.
+    IFrameHelper.onLoad({ widgetColor: /^#[a-f0-9]{6}$/i.test(widgetColor || '') ? widgetColor : '#1f93ff' });
+    IFrameHelper.events.toggleBubble('open');
+  },
   onLoad: ({ widgetColor }) => {
     const iframe = IFrameHelper.getAppFrame();
     iframe.style.visibility = '';

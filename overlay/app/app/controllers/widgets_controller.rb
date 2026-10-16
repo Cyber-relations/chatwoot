@@ -2,6 +2,7 @@
 class WidgetsController < ActionController::Base
   include WidgetHelper
   include Toybaco::WidgetPrivacyResponse
+  helper_method :http_session_requested?
 
   before_action :set_global_config
   before_action :set_web_widget
@@ -33,12 +34,28 @@ class WidgetsController < ActionController::Base
   end
 
   def set_token
+    if http_session_requested?
+      # The new document is inert until the typed body handshake selects a
+      # visitor and confirms cookie storage. Never create one during this GET.
+      @token = ''
+      @auth_token_params = {}
+      return
+    end
+
     @token = permitted_params[:cw_conversation]
+    restore_legacy_cookie_identity if @token.blank?
     @auth_token_params = if @token.present?
                            ::Widget::TokenService.new(token: @token).decode_token
                          else
                            {}
                          end
+  end
+
+  def restore_legacy_cookie_identity
+    session = Toybaco::Security::WidgetHttpSession.read(request, @web_widget)
+    return unless session
+
+    @token = ::Widget::TokenService.new(payload: session.claims).generate_token
   end
 
   def set_contact
@@ -54,6 +71,7 @@ class WidgetsController < ActionController::Base
   end
 
   def build_contact
+    return if http_session_requested?
     return if @contact.present?
 
     @contact_inbox, @token = build_contact_inbox_with_token(@web_widget, additional_attributes)
@@ -61,7 +79,7 @@ class WidgetsController < ActionController::Base
   end
 
   def ensure_account_is_active
-    render json: { error: 'Account is suspended' }, status: :unauthorized unless @web_widget.inbox.account.active?
+    raise ActiveRecord::RecordNotFound unless @web_widget.inbox.account.active?
   end
 
   def ensure_location_is_supported; end
@@ -75,7 +93,11 @@ class WidgetsController < ActionController::Base
   end
 
   def permitted_params
-    params.permit(:website_token, :cw_conversation)
+    params.permit(:website_token, :cw_conversation, :toybaco_sdk, :toybaco_popout)
+  end
+
+  def http_session_requested?
+    permitted_params[:toybaco_sdk] == '2' || permitted_params[:toybaco_popout] == '2'
   end
 
   def allow_iframe_requests
