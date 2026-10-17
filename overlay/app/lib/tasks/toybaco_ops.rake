@@ -1941,10 +1941,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
         # payment page で Session を読んで確かめ、tok_visa から PaymentMethod(請求先は契約者のメールと店舗名)を作り、税込の合計で確定する
         # (Checkout の決済画面と同じ API。カード番号は扱わない)。同意欄は accepted で送り、入力欄(growth の Session には無い)は送らない。
+        # growth の Session は顧客を結ばず住所が未確定なので、page の合計は税抜(小計と同じ)のことがある。Stripe は確定のときに
+        # PaymentMethod の住所(ADDRESS)から税(JCT)を計算した税込の合計と expected_amount を比べるため(違えば 400
+        # checkout_amount_mismatch)、expected_amount は page の合計ではなく、製品の表示の税率(display_tax_rate)から計算した税込の合計を送る。
         module Payment
           TOKEN = 'tok_visa'
           # 自動の税の計算(JCT)に要る請求先の住所(9/26 の購入通し確認と同じ固定値)。
           ADDRESS = { 'country' => 'JP', 'postal_code' => '810-0022', 'state' => '福岡県', 'city' => '福岡市中央区', 'line1' => '薬院1-1-1' }.freeze
+          # 理由の長さの上限(one-shot の終端行の形: GROWTH_PURCHASE の reason は英小文字・数字・_ の 40 字まで)。
+          REASON_LIMIT = 40
 
           module_function
 
@@ -1957,25 +1962,32 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             unconfirmed!(prefix, account, client, session_id, reason) if reason
           end
 
+          # page が購入の記録と合えば、確定に送る税込の合計(page の合計が税抜でも税込でも同じ値)を返す。
           def page_total!(prefix, account, api, session_id)
             page = api.payment_page(session_id)
-            return page.dig('total_summary', 'total') if page_matches?(page, Toybaco::Growth::PurchaseIntent.saved(account)['amount'])
+            amount = Toybaco::Growth::PurchaseIntent.saved(account)['amount']
+            return taxed(amount) if page_matches?(page, amount)
 
             refuse!(prefix, account, 'payment_page_mismatch')
           rescue ApiHandler::Failure
             refuse!(prefix, account, 'payment_page_unavailable')
           end
 
-          # test mode・開いた状態・購読・円・同意欄が必須・入力欄なしで、小計が購入の記録の金額(税抜の正の整数)と同じ、合計が小計以上の
-          # 正の整数(税込)。
+          # 税抜の金額に製品の表示の税率(Checkout::Catalog の MONTHLY_AMOUNTS と同じ式)を掛けた税込の合計。
+          def taxed(amount)
+            (amount * (1 + Toybaco::Checkout::Catalog::DATA.data.fetch('display_tax_rate'))).round
+          end
+
+          # test mode・開いた状態・購読・円・同意欄が必須・入力欄なしで、小計が購入の記録の金額(税抜の正の整数)と同じ、合計が整数で、
+          # 税抜(住所が未確定)か税込(taxed)のどちらか。それ以外の合計は通さない。
           def page_matches?(page, amount)
             summary = page['total_summary'].is_a?(Hash) ? page['total_summary'] : {}
             consent = page['consent_collection'].is_a?(Hash) ? page['consent_collection'] : {}
             total = summary['total']
             [page.values_at('livemode', 'status', 'mode', 'currency') == [false, 'open', 'subscription', 'jpy'],
              consent['terms_of_service'] == 'required', page['custom_fields'] == [],
-             amount.is_a?(Integer) && amount.positive? && summary['subtotal'] == amount,
-             total.is_a?(Integer) && total.positive? && total >= amount].all?
+             amount.is_a?(Integer) && amount.positive? && summary['subtotal'] == amount &&
+               total.is_a?(Integer) && [amount, taxed(amount)].include?(total)].all?
           end
 
           def payment_method!(prefix, account, owner, api)
@@ -1990,12 +2002,20 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             refuse!(prefix, account, 'payment_method_failed')
           end
 
-          # 確定の応答が完了・支払い済みなら nil、そうでなければ理由のキー(HTTP の失敗は status code だけを足す。本文は出さない)。
+          # 確定の応答が完了・支払い済みなら nil、そうでなければ理由のキー(HTTP の失敗は status code と Stripe の error の code だけを足す。
+          # 本文は出さない)。
           def confirmation(api, session_id, fields)
             result = api.confirm(session_id, fields)
             'confirm_failed' unless result['status'] == 'complete' && result['payment_status'] == 'paid'
           rescue ApiHandler::Failure => e
-            e.status ? "confirm_failed_#{e.status}" : 'confirm_failed'
+            failure_reason(e)
+          end
+
+          # code が無ければ confirm_failed(status があれば confirm_failed_<status>)、あれば confirm_<status>_<code>(status が無ければ
+          # confirm_failed_<code>)。REASON_LIMIT の字数に切り詰める。
+          def failure_reason(error)
+            reason = error.code ? "confirm_#{error.status || 'failed'}_#{error.code}" : ['confirm_failed', error.status].compact.join('_')
+            reason[0, REASON_LIMIT]
           end
 
           # 確定の応答が完了でなければ、Stripe の Session を読み直し、完了していれば確定済みとして先へ進む(残りは webhook が進める)。完了して
@@ -2020,18 +2040,23 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # Stripe の payment page(Checkout の決済画面が使う非公開 API)・PaymentMethod・顧客・購読の一覧の API を Net::HTTP で呼ぶ(staging の
         # growth webhook probe と同じ作法: Bearer、open / read timeout 10 / 30 秒、応答 1 MiB 以下、JSON の object)。payment page は非公開
         # API なので Stripe-Version を付けず、公開 API(PaymentMethod・顧客・購読)には probe と同じ版を付ける。id は形を確かめてから path に
-        # 入れる。失敗は全て Failure(HTTP の status code だけを持つ)に写し、鍵・id・応答の本文・元の例外の文は持たない(cause: nil で元の
-        # 例外の連鎖も切る)。
+        # 入れる。失敗は全て Failure(HTTP の status code と、非 2xx の応答の Stripe の error の code だけを持つ)に写し、鍵・id・応答の本文・
+        # error の message・param・元の例外の文は持たない(cause: nil で元の例外の連鎖も切る)。
         class ApiHandler
           HOST = 'api.stripe.com'
           VERSION = '2024-06-20'
           LIMIT = 1_048_576
 
           class Failure < StandardError
-            attr_reader :status
+            # Stripe の error の code(checkout_amount_mismatch など)として持つ形。小文字にしてから確かめ、合わなければ持たない(長さは
+            # 理由を作るときに全体で切り詰める)。
+            CODE = /\A[a-z0-9_]+\z/
 
-            def initialize(status = nil)
+            attr_reader :status, :code
+
+            def initialize(status = nil, code: nil)
               @status = status.to_s.match?(/\A\d{3}\z/) ? status.to_s : nil
+              @code = code.is_a?(String) && code.valid_encoding? && code.downcase.match?(CODE) ? code.downcase : nil
               super('stripe request failed')
             end
           end
@@ -2090,13 +2115,25 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           end
 
           def parse(response)
-            raise Failure.new(response.code), cause: nil unless response.is_a?(Net::HTTPSuccess)
+            raise Failure.new(response.code, code: error_code(response)), cause: nil unless response.is_a?(Net::HTTPSuccess)
             raise Failure.new, cause: nil if response.body.to_s.bytesize > LIMIT
 
             value = JSON.parse(response.body.to_s)
             raise Failure.new, cause: nil unless value.is_a?(Hash)
 
             value
+          end
+
+          # 非 2xx の応答の本文(LIMIT 以下の JSON の object)から error の code だけを読む(形は Failure が確かめる)。本文が大きすぎる・JSON で
+          # ない・error が object でなければ nil。
+          def error_code(response)
+            body = response.body.to_s
+            return if body.bytesize > LIMIT
+
+            value = JSON.parse(body)
+            value['error']['code'] if value.is_a?(Hash) && value['error'].is_a?(Hash)
+          rescue StandardError
+            nil
           end
         end
 

@@ -30,7 +30,8 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
   let!(:baseline) { Toybaco::OperatorAction.maximum(:id).to_i }
   let(:staging_only) { 'は staging 専用です。production と環境が不明なときは実行しません。' }
   let(:prefix_error) { 'prefix は e2e-consent- に続けて英小文字・数字・- を 1〜40 字で指定してください。' }
-  # 呼び出しを calls に控える偽の決済の API。payment page は FakeStripe の Session と販売中の金額(合計は税込)から作り、page を重ねる。
+  # 呼び出しを calls に控える偽の決済の API。payment page は FakeStripe の Session と販売中の金額から作り(合計は税抜: growth の Session は
+  # 顧客を結ばず住所が未確定なので、staging の実 page の初期の合計は小計と同じ)、page を重ねる。
   # 確定は confirmation があればその応答(か例外)を返し、無ければ FakeStripe の支払いを済ませてから checkout.session.completed の webhook の
   # 到着を模し(checkout_webhook が真のとき)、after_webhook を呼ぶ。顧客の読み取りは email のメールの顧客(削除の後は deleted)を返し、
   # 購読の一覧は subscriptions があればそれを、無ければこの run の購読 1 件だけを返す。削除では customer.subscription.deleted の webhook の
@@ -55,7 +56,7 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         session = @stripe.retrieve_checkout_session(id)
         { 'object' => 'checkout.session', 'session_id' => id, 'livemode' => false, 'status' => session['status'], 'mode' => session['mode'],
           'currency' => 'jpy', 'consent_collection' => { 'terms_of_service' => session.dig('consent_collection', 'terms_of_service') },
-          'custom_fields' => [], 'total_summary' => { 'subtotal' => @amount, 'total' => @amount * 11 / 10 } }.deep_merge(page)
+          'custom_fields' => [], 'total_summary' => { 'subtotal' => @amount, 'total' => @amount } }.deep_merge(page)
       end
 
       def create_card_payment_method(fields, idempotency_key:)
@@ -258,6 +259,11 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
   # 販売中の Standard(月払い)の税抜の金額。
   def standard_amount
     Toybaco::PlanCatalog.default.sale('standard', 'month').dig('cycles', 'month', 'amount')
+  end
+
+  # 税抜の金額の税込の合計(製品の表示の税率 display_tax_rate から。Checkout::Catalog の MONTHLY_AMOUNTS と同じ式)。
+  def taxed_amount(amount)
+    (amount * (1 + Toybaco::PlanCatalog.default.data.fetch('display_tax_rate'))).round
   end
 
   # 実経路の 2 本の Stripe の client(Toybaco::Checkout::Client.new の戻り値)。run の FakeStripe に、本番の client と同じ名前の解約
@@ -691,7 +697,8 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         lines = run!('e2e_growth_purchase_live', prefix)
         expect(lines).to eq([growth_line(prefix, 'purchased', account, '-')])
         session = 'cs_test_e2exconsentxr601x1g'
-        total = standard_amount * 11 / 10
+        # 偽 page の合計は既定で税抜(住所が未確定)。確定に送るのは display_tax_rate から計算した税込の合計。
+        total = taxed_amount(standard_amount)
         address = { 'country' => 'JP', 'postal_code' => '810-0022', 'state' => '福岡県', 'city' => '福岡市中央区', 'line1' => '薬院1-1-1' }
         method = { 'type' => 'card', 'card[token]' => 'tok_visa', 'billing_details[email]' => user.email, 'billing_details[name]' => account.name }
                  .merge(address.transform_keys { |name| "billing_details[address][#{name}]" })
@@ -708,6 +715,19 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
           .to eq([[['trial', user.id, nil, nil], ['growth_purchase', user.id, session, 'accepted']], [:webhook], [%w[growth_checkout completed]], []])
         expect(lines.join("\n")).not_to include('@', 'cs_test_', 'sub_', 'cus_', 'pm_', 'sk_test', standard_amount.to_s, total.to_s, user.name)
         expect(run!('e2e_growth_purchase_live', prefix)).to eq([growth_line(prefix, 'skipped', account, 'already_done')])
+        expect_no_http!
+      end
+
+      it 'payment page の合計が税込(住所の確定した page)でも、確定に送る expected_amount は税抜の page と同じ display_tax_rate からの税込の合計' do
+        _, account = trialed_store('r604-1')
+        prefix = 'e2e-consent-r604-1'
+        api = live_api(live_stripe(prefix, []))
+        api.page = { 'total_summary' => { 'total' => taxed_amount(standard_amount) } }
+        expect(run!('e2e_growth_purchase_live', prefix)).to eq([growth_line(prefix, 'purchased', account, '-')])
+        expect([api.calls.map(&:first), api.calls.last.last['expected_amount']])
+          .to eq([%i[payment_page payment_method confirm], taxed_amount(standard_amount).to_s])
+        # Stripe の JCT 10% と同じ(9/26 の実 page: 小計 19,800 / 合計 21,780)。
+        expect([described_class::GrowthLive::Payment.taxed(19_800), taxed_amount(19_800)]).to eq([21_780, 21_780])
         expect_no_http!
       end
 
@@ -730,9 +750,11 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         expect(described_class::GrowthLive::ApiHandler).not_to have_received(:new)
       end
 
-      it 'payment page が test mode・開いた状態・同意欄が必須・入力欄なし・小計の一致・合計が小計以上でなければ payment_page_mismatch、読めなければ payment_page_unavailable で abort し、決済しない' do
+      it 'payment page が test mode・開いた状態・同意欄が必須・入力欄なし・小計の一致・合計が税抜か税込でなければ payment_page_mismatch、読めなければ payment_page_unavailable で abort し、決済しない' do
         amount = standard_amount
         patches = { 'r621-1' => { 'total_summary' => { 'total' => amount - 1 } }, 'r622-1' => { 'status' => 'expired' },
+                    'r621-2' => { 'total_summary' => { 'total' => taxed_amount(amount) + 1 } },
+                    'r621-3' => { 'total_summary' => { 'total' => amount + 1 } },
                     'r623-1' => { 'livemode' => true }, 'r624-1' => { 'custom_fields' => [{ 'key' => 'company', 'type' => 'text' }] },
                     'r625-1' => { 'consent_collection' => { 'terms_of_service' => 'none' } }, 'r626-1' => { 'consent_collection' => nil },
                     'r627-1' => { 'total_summary' => { 'subtotal' => amount + 1 } }, 'r628-1' => :unavailable }
@@ -748,25 +770,72 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
           [refusal('e2e_growth_purchase_live', "e2e-consent-#{run}") == growth_line("e2e-consent-#{run}", 'refused', account, reason),
            api.calls.map(&:first) - [:payment_page], routes(account)]
         end
-        expect(results).to eq([[true, [], %w[free_registration trial]]] * 8)
+        expect(results).to eq([[true, [], %w[free_registration trial]]] * 10)
         expect([fulfillments[:callers], paused]).to eq([[], []])
         expect_no_http!
       end
 
-      it '確定の応答が完了・支払い済みでなければ confirm_failed、HTTP で失敗すれば status code だけを足した理由で abort し、購入の処理も同意の記録も増やさない' do
+      it '確定の応答が完了・支払い済みでなければ confirm_failed、HTTP で失敗すれば status code と Stripe の error の code だけを足した理由で abort し、購入の処理も同意の記録も増やさない' do
+        mismatch = described_class::GrowthLive::ApiHandler::Failure.new('400', code: 'checkout_amount_mismatch')
         responses = { 'r631-1' => [-> { { 'status' => 'open', 'payment_status' => 'unpaid' } }, 'confirm_failed'],
                       'r632-1' => [-> { { 'status' => 'complete', 'payment_status' => 'unpaid' } }, 'confirm_failed'],
                       'r633-1' => [-> { raise described_class::GrowthLive::ApiHandler::Failure, '402' }, 'confirm_failed_402'],
-                      'r634-1' => [-> { raise described_class::GrowthLive::ApiHandler::Failure }, 'confirm_failed'] }
+                      'r634-1' => [-> { raise described_class::GrowthLive::ApiHandler::Failure }, 'confirm_failed'],
+                      'r635-1' => [-> { raise mismatch }, 'confirm_400_checkout_amount_mismatch'] }
         results = responses.map do |run, (confirmation, reason)|
           _, account = trialed_store(run)
           live_api(live_stripe("e2e-consent-#{run}", [])).confirmation = confirmation
           [refusal('e2e_growth_purchase_live', "e2e-consent-#{run}") == growth_line("e2e-consent-#{run}", 'refused', account, reason),
            routes(account), Toybaco::Entitlements.contract_for(account.reload)['plan_id']]
         end
-        expect(results).to eq([[true, %w[free_registration trial], 'free']] * 4)
+        expect(results).to eq([[true, %w[free_registration trial], 'free']] * 5)
         expect([fulfillments[:callers], paused]).to eq([[], []])
         expect_no_http!
+      end
+
+      it '確定の HTTP の失敗の理由は、error の code があれば confirm_<status>_<code>(status が無ければ confirm_failed_<code>)、無いか形に合わなければ従来の形で、40 字に切り詰める' do
+        failure = described_class::GrowthLive::ApiHandler::Failure
+        errors = [failure.new('400', code: 'checkout_amount_mismatch'), failure.new('402'), failure.new, failure.new(nil, code: 'card_declined'),
+                  failure.new('400', code: 'a' * 61), failure.new('400', code: 'amount-mismatch'), failure.new('400', code: 'amount.mismatch'),
+                  failure.new('400', code: 'Amount Mismatch!'), failure.new('400', code: :card_declined), failure.new('400', code: ''),
+                  failure.new('400', code: 'CARD_DECLINED'), failure.new(nil, code: 'b' * 100)]
+        reasons = errors.map do |error|
+          api = instance_double(described_class::GrowthLive::ApiHandler)
+          allow(api).to receive(:confirm).and_raise(error)
+          described_class::GrowthLive::Payment.confirmation(api, 'cs_test_e2eunit', {})
+        end
+        expect(reasons).to eq(['confirm_400_checkout_amount_mismatch', 'confirm_failed_402', 'confirm_failed', 'confirm_failed_card_declined',
+                               "confirm_400_#{'a' * 28}", 'confirm_failed_400', 'confirm_failed_400', 'confirm_failed_400', 'confirm_failed_400',
+                               'confirm_failed_400', 'confirm_400_card_declined', "confirm_failed_#{'b' * 25}"])
+        # one-shot(scripts/staging-consent-one-shot.sh)の終端行と許可する行の reason の形。
+        expect(reasons).to all(match(/\A[a-z_0-9]{1,40}\z/))
+        expect(errors.map { |error| [error.instance_variables.sort, error.cause, error.message] }.uniq)
+          .to eq([[%i[@code @status], nil, 'stripe request failed']])
+      end
+
+      it '確定の失敗の理由は、応答がどんな形でも(長い code・大文字・ハイフン・ピリオド・空・非 JSON の本文・status 無し)英小文字・数字・_ の 1〜40 字' do
+        long = 'checkout_amount_mismatch_' * 4
+        errors = [{ code: long }, { code: 'CHECKOUT_AMOUNT_MISMATCH' }, { code: 'checkout-amount-mismatch' }, { code: 'checkout.amount_mismatch' },
+                  { code: '' }, { type: 'invalid_request_error', param: 'expected_amount' }]
+        bodies = errors.map { |error| [Net::HTTPBadRequest, '400', { error: error }.to_json] } +
+                 [[Net::HTTPBadGateway, '502', '<html>cs_test_e2eapi</html>'],
+                  [Net::HTTPPaymentRequired, '402', { error: { code: 'card_declined' } }.to_json]]
+        attempts = bodies.map do |type, code, body|
+          http = Object.new
+          http.define_singleton_method(:request) do |_message|
+            type.new('1.1', code, '').tap { |response| response.define_singleton_method(:body) { body } }
+          end
+          ->(block) { block.call(http) }
+        end
+        attempts << ->(_block) { raise SocketError, 'cs_test_e2eapi' }
+        allow(Net::HTTP).to receive(:start) { |*_arguments, &block| attempts.shift.call(block) }
+        allow(described_class::GrowthLive::ApiHandler).to receive(:new).and_call_original
+        api = described_class::GrowthLive::ApiHandler.new('sk_test_e2eapi')
+        reasons = Array.new(9) { described_class::GrowthLive::Payment.confirmation(api, 'cs_test_e2eapi', { 'expected_amount' => '1' }) }
+        expect(reasons).to eq(["confirm_400_#{long[0, 28]}", 'confirm_400_checkout_amount_mismatch', 'confirm_failed_400', 'confirm_failed_400',
+                               'confirm_failed_400', 'confirm_failed_400', 'confirm_failed_502', 'confirm_402_card_declined', 'confirm_failed'])
+        # one-shot(scripts/staging-consent-one-shot.sh)の終端行と許可する行の reason の形。
+        expect([reasons.all? { |reason| reason.match?(/\A[a-z0-9_]{1,40}\z/) }, attempts]).to eq([true, []])
       end
 
       it 'webhook の結果が 180 秒(5 秒おき)待っても届かなければ、Session の購読を解約してから webhook_timeout で abort し、契約も同意の記録も増やさない' do
@@ -795,7 +864,7 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         expect_no_http!
       end
 
-      it 'GrowthLive::ApiHandler は Bearer で呼び、payment page に Stripe-Version を付けず、PaymentMethod と顧客に 2024-06-20 を付け、失敗を status code だけの Failure にする' do
+      it 'GrowthLive::ApiHandler は Bearer で呼び、payment page に Stripe-Version を付けず、公開 API に 2024-06-20 を付け、失敗を status と error の code だけの Failure にする' do
         sent = []
         opened = []
         replies = [[Net::HTTPOK, '200', '{"status":"open"}'], [Net::HTTPOK, '200', '{"id":"pm_e2eapi"}'],
@@ -823,9 +892,9 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         failures = calls.map do |call|
           call.call
         rescue described_class::GrowthLive::ApiHandler::Failure => e
-          [e.status, e.message]
+          [e.status, e.code, e.message]
         end
-        expect(failures).to eq([['402', 'stripe request failed']] + ([[nil, 'stripe request failed']] * 5))
+        expect(failures).to eq([['402', nil, 'stripe request failed']] + ([[nil, nil, 'stripe request failed']] * 5))
         expect(sent).to eq([['GET', '/v1/payment_pages/cs_test_e2eapi', 'Bearer sk_test_e2eapi', nil, nil, nil],
                             ['POST', '/v1/payment_methods', 'Bearer sk_test_e2eapi', '2024-06-20', 'k1', 'type=card'],
                             ['GET', '/v1/subscriptions?customer=cus_e2eapi&status=all&limit=100', 'Bearer sk_test_e2eapi', '2024-06-20', nil, nil],
@@ -833,6 +902,37 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
                             ['GET', '/v1/customers/cus_e2eapi', 'Bearer sk_test_e2eapi', '2024-06-20', nil, nil],
                             ['DELETE', '/v1/customers/cus_e2eapi', 'Bearer sk_test_e2eapi', '2024-06-20', nil, nil]])
         expect(opened).to eq([['api.stripe.com', 443, { use_ssl: true, open_timeout: 10, read_timeout: 30 }]] * 6)
+      end
+
+      it 'GrowthLive::ApiHandler は非 2xx の応答の本文(JSON の object、1 MiB 以下)から error の code だけを拾い、本文・message・param を持たない' do
+        sent = []
+        leak = 'cs_test_e2eapi qa+e2e-leak@example.com 21780'
+        replies = [[Net::HTTPBadRequest, '400',
+                    { error: { code: 'checkout_amount_mismatch', message: leak, param: 'expected_amount', type: 'invalid_request_error' } }.to_json],
+                   [Net::HTTPBadGateway, '502', "<html>#{leak}</html>"], [Net::HTTPBadRequest, '400', '{"error":{"code":"Amount-Mismatch!"}}'],
+                   [Net::HTTPBadRequest, '400', '{"error":"checkout_amount_mismatch"}'], [Net::HTTPBadRequest, '400', '{"error":{"code":123}}'],
+                   [Net::HTTPBadRequest, '400', { error: { code: 'checkout_amount_mismatch', message: 'x' * 1_048_576 } }.to_json],
+                   [Net::HTTPNotFound, '404', '{"error":{"code":"RESOURCE_MISSING"}}']]
+        http = Object.new
+        http.define_singleton_method(:request) do |message|
+          sent << [message.method, message.path, message['Stripe-Version'], message.body]
+          type, code, body = replies.shift
+          type.new('1.1', code, '').tap { |response| response.define_singleton_method(:body) { body } }
+        end
+        allow(Net::HTTP).to receive(:start) { |*_arguments, &block| block.call(http) }
+        allow(described_class::GrowthLive::ApiHandler).to receive(:new).and_call_original
+        api = described_class::GrowthLive::ApiHandler.new('sk_test_e2eapi')
+        failures = Array.new(7) do
+          api.confirm('cs_test_e2eapi', { 'expected_amount' => '1' })
+        rescue described_class::GrowthLive::ApiHandler::Failure => e
+          text = e.full_message(highlight: false)
+          [e.status, e.code, e.message, e.cause, e.instance_variables.sort,
+           %w[e2eleak @ 21780 expected_amount invalid_request_error].none? { |fragment| text.include?(fragment) }]
+        end
+        expect(failures.map { |failure| failure.first(2) })
+          .to eq([%w[400 checkout_amount_mismatch], ['502', nil], ['400', nil], ['400', nil], ['400', nil], ['400', nil], %w[404 resource_missing]])
+        expect(failures.map { |failure| failure.drop(2) }.uniq).to eq([['stripe request failed', nil, %i[@code @status], true]])
+        expect([sent.uniq, replies]).to eq([[['POST', '/v1/payment_pages/cs_test_e2eapi/confirm', nil, 'expected_amount=1']], []])
       end
 
       it '2 回目は Stripe の Session と購読を読み直し、購読が有効(active / trialing)でない・照合が合わない・鍵が test でなければ、解約を試みずに abort する' do
@@ -930,13 +1030,14 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
         expect_no_http!
       end
 
-      it 'payment page の照合は、購入の記録の金額が正の整数でなければ(小計と合計がそれに合っていても)通さない' do
+      it 'payment page の照合は、購入の記録の金額が正の整数でなければ(小計と合計がそれに合っていても)通さず、合計は税抜か税込の整数だけを通す' do
         page = { 'livemode' => false, 'status' => 'open', 'mode' => 'subscription', 'currency' => 'jpy',
                  'consent_collection' => { 'terms_of_service' => 'required' }, 'custom_fields' => [] }
-        checks = [[1000, 1000, 1100], [0, 0, 1], [-1, -1, 1], [1000.0, 1000.0, 1100]].map do |amount, subtotal, total|
+        checks = [[1000, 1000, 1100], [1000, 1000, 1000], [1000, 1000, 1099], [1000, 1000, 1101], [1000, 1000, 1001], [1000, 1000, 999],
+                  [1000, 1000, 1100.0], [1000, 1000, nil], [0, 0, 1], [-1, -1, 1], [1000.0, 1000.0, 1100]].map do |amount, subtotal, total|
           described_class::GrowthLive::Payment.page_matches?(page.merge('total_summary' => { 'subtotal' => subtotal, 'total' => total }), amount)
         end
-        expect(checks).to eq([true, false, false, false])
+        expect(checks).to eq([true, true] + ([false] * 9))
       end
 
       it '偽 client(e2e_growth_purchase)で購入を済ませた店舗は、実経路の完了(growth_checkout の event)が無いので seam_purchase_present で abort し、Stripe を呼ばない' do
