@@ -83,7 +83,7 @@ class RoomChannel < ApplicationCable::Channel
     @current_user ||= if params[:user_id].blank?
                         widget_contact
                       else
-                        @toybaco_session = Toybaco::Security::CableSession.new(connection.request, params[:user_id], params[:account_id])
+                        @toybaco_session = Toybaco::Security::CableSession.new(toybaco_cable_request, params[:user_id], params[:account_id])
                         user = @toybaco_session.authenticate
                         user if user&.pubsub_token == pubsub_token
                       end
@@ -103,12 +103,21 @@ class RoomChannel < ApplicationCable::Channel
   def http_widget_contact
     _version, website_token, proof = pubsub_token.split('.', 3)
     widget = Channel::WebWidget.find_by!(website_token: website_token)
-    http_session = Toybaco::Security::WidgetHttpSession.socket(connection.request, widget, proof)
+    http_session = Toybaco::Security::WidgetHttpSession.socket(toybaco_cable_request, widget, proof)
     @toybaco_http_stream = true
     contact_inbox = http_session.record.contact_inbox
     @pubsub_token = contact_inbox.pubsub_token
     @toybaco_session = Toybaco::Security::WidgetSession.new(contact_inbox, http_session: http_session, proof: proof)
     contact_inbox
+  end
+
+  # ActionCable::Connection::Base#request は private(Rails 7.2.3.2 connection/base.rb 178 行)。
+  # channel からは public な env で framework と同じ Request を作る。
+  def toybaco_cable_request
+    @toybaco_cable_request ||= begin
+      environment = Rails.application.env_config.merge(connection.env) if defined?(Rails.application) && Rails.application
+      ActionDispatch::Request.new(environment || connection.env)
+    end
   end
 
   def current_account
