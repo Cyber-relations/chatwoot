@@ -8,7 +8,12 @@ import test from 'node:test';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const overlay = process.argv[2] ? path.resolve(process.argv[2]) : path.join(root, 'overlay/app');
 const source = fs.readFileSync(path.join(overlay, 'public/brand-assets/toybaco-plan-change.js'), 'utf8');
-const view = fs.readFileSync(path.join(overlay, 'app/views/toybaco/billing/show.html.erb'), 'utf8');
+const rawView = fs.readFileSync(path.join(overlay, 'app/views/toybaco/billing/show.html.erb'), 'utf8');
+// The fixture reads template source, while browsers receive rendered attributes.
+// Resolve only this exact public Rails helper before the fixture's tag parser;
+// arbitrary ERB, scripts and billing content are not normalized or evaluated.
+assert.ok(rawView.includes('<%= content_security_policy_nonce %>'));
+const view = rawView.replaceAll('<%= content_security_policy_nonce %>', 'synthetic-template-nonce');
 const selection = { plan_id: 'pro', plan_version: 'version-fixture', cycle: 'month' };
 const available = { status: 'available', choices: [{ ...selection, name: 'テストプラン', amount: 44800, policy: { kind: 'upgrade' } }] };
 const periodEnd = Date.UTC(2026, 9, 4, 12, 0) / 1000;
@@ -62,7 +67,7 @@ function fixture(initial = available, { absent = false, inline = false, both = f
     calls.push({ url, options });
     return new Promise((resolve, reject) => requests.push({ resolve, reject }));
   };
-  const scripts = [...view.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  const scripts = [...view.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)];
   const context = { document, window: { location, open() {} }, fetch, Intl, URL, Date };
   vm.runInNewContext(inline || both ? scripts.at(-1)[1] : source, context);
   if (both) vm.runInNewContext(source, context);

@@ -39,6 +39,6 @@
     <p id="retention-status" role="status" aria-live="polite"></p>
     <button id="retention-save" type="submit">選択を保存</button>
   </form>
-  <script id="retention-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
-  <script type="module" src="/toybaco-growth-retention.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-retention.mjs')).hexdigest %>"></script>
+  <script id="retention-state" type="application/json" nonce="<%= content_security_policy_nonce %>"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
+  <script type="module" src="/toybaco-growth-retention.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-retention.mjs')).hexdigest %>" nonce="<%= content_security_policy_nonce %>"></script>
 </main></body></html>

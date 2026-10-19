@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta name="csp-nonce" content="<%= content_security_policy_nonce %>">
     <meta name="robots" content="noindex">
     <title>管理コンソール | トイバコ</title>
     <%# 元: Chatwoot v4.16.2 app/views/super_admin/devise/sessions/new.html.erb(トイバコ差し替え・日本語化)%>
-    <%= vite_client_tag %>
-    <%= vite_javascript_tag 'superadmin' %>
+    <%= vite_client_tag nonce: content_security_policy_nonce %>
+    <%= vite_javascript_tag 'superadmin', nonce: content_security_policy_nonce %>
   </head>
   <body>
     <div class="h-full w-full antialiased">

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="csp-nonce" content="<%= content_security_policy_nonce %>">
+    <title><%= @global_config['INSTALLATION_NAME'] %></title>
+    <%= csrf_meta_tags %>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <script nonce="<%= content_security_policy_nonce %>">
+      window.globalConfig = <%= raw @global_config.to_json %>
+    </script>
+    <%= vite_client_tag nonce: content_security_policy_nonce %>
+    <%= vite_javascript_tag 'survey', nonce: content_security_policy_nonce %>
+  </head>
+  <body>
+    <div id="app"></div>
+    <%= yield %>
+  </body>
+</html>

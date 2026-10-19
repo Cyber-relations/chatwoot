@@ -106,8 +106,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       tags << TAG if missing?(body, 'toybaco-brand.css')
       tags << SUPERADMIN_TAG if env['PATH_INFO'].to_s.start_with?('/super_admin') && missing?(body, 'toybaco-superadmin.css')
       if dashboard_path?(env['PATH_INFO'])
-        tags << post_entry_tags if missing?(body, 'data-toybaco-post-config')
-        tags << AGENT_SEAT_ASSET if missing?(body, 'toybaco-agent-seat.js')
+        tags << post_entry_tags(env) if missing?(body, 'data-toybaco-post-config')
+        tags << nonced_owned_asset(AGENT_SEAT_ASSET, env) if missing?(body, 'toybaco-agent-seat.js')
       end
       tags
     end
@@ -116,18 +116,29 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       body.index(marker).nil?
     end
 
-    def post_entry_tags
+    def nonced_owned_asset(tag, env)
+      nonce = env['action_dispatch.content_security_policy_nonce'].to_s
+      return tag unless /\A[A-Za-z0-9+\/]{24}\z/.match?(nonce)
+
+      tag.sub('<script ', %(<script nonce="#{nonce}" ))
+    end
+
+    def post_entry_tags(env)
+      # Rails memoizes this value while rendering trusted templates. Only this
+      # injector-owned script is nonced; never rewrite scripts in response HTML.
+      nonce = env['action_dispatch.content_security_policy_nonce'].to_s
+      nonce_attribute = nonce.match?(/\A[A-Za-z0-9+\/]{24}\z/) ? %( nonce="#{nonce}") : ''
       config = { postUrl: @postiz_origin }
       config[:billingUrl] = @billing_url if @billing_url
       json = JSON.generate(config).gsub('<', '\\u003c')
       (<<~HTML).gsub(/\s+/, ' ').strip
-        <script data-toybaco-post-config>
+        <script data-toybaco-post-config#{nonce_attribute}>
           (function(c){
             Object.defineProperty(window,'TOYBACO_POST_URL',{value:c.postUrl,writable:false,configurable:false});
             if(c.billingUrl){Object.defineProperty(window,'TOYBACO_BILLING_URL',{value:c.billingUrl,writable:false,configurable:false});}
           })(#{json});
         </script>
-        #{POST_ENTRY_ASSET}
+        #{nonced_owned_asset(POST_ENTRY_ASSET, env)}
       HTML
     end
 

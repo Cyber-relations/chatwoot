@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
   <head>
+    <meta name="csp-nonce" content="<%= content_security_policy_nonce %>">
     <meta name="robots" content="noindex">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,8 +10,8 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png?v=ivory-20260914">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=ivory-20260914">
     <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
-    <%= vite_client_tag %>
-    <%= vite_javascript_tag 'superadmin' %>
+    <%= vite_client_tag nonce: content_security_policy_nonce %>
+    <%= vite_javascript_tag 'superadmin', nonce: content_security_policy_nonce %>
   </head>
   <body>
     <div class="h-full w-full antialiased">

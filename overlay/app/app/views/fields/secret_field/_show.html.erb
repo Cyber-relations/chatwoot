@@ -1,0 +1,18 @@
+<%#
+# SecretField Show Partial
+%>
+<%= javascript_include_tag "secretField", nonce: content_security_policy_nonce %>
+
+<div data-secret-text="<%= field.data %>" class="cell-data__secret-field">
+  <span data-secret-masked="true"></span>
+  <button type="button" aria-label="表示を切り替える" data-secret-toggler>
+    <svg width="20" height="20">
+      <use xlink:href="#eye-show" />
+    </svg>
+  </button>
+  <button type="button" aria-label="コピーする" data-secret-copier>
+    <svg width="20" height="20">
+      <use xlink:href="#icon-copy" />
+    </svg>
+  </button>
+</div>

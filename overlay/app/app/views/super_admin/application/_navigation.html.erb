@@ -6,8 +6,8 @@
 リソース名(アカウント/ユーザー等)は activerecord.models の ja 訳で出る。
 %>
 
-<%= vite_client_tag %>
-<%= vite_javascript_tag 'superadmin_pages' %>
+<%= vite_client_tag nonce: content_security_policy_nonce %>
+<%= vite_javascript_tag 'superadmin_pages', nonce: content_security_policy_nonce %>
 
 <%
   sidebar_icons = {

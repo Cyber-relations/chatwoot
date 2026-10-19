@@ -35,6 +35,6 @@
     <button id="inbox-release-submit" type="submit">選んだ受信箱を再開</button>
     <p><a id="inbox-release-refresh" href="/toybaco/growth/inbox-release?account_id=<%= @account.id %><%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>" hidden>最新の状態に更新</a></p>
   </form>
-  <script id="inbox-release-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
-  <script type="module" src="/toybaco-growth-inbox-release.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-inbox-release.mjs')).hexdigest %>"></script>
+  <script id="inbox-release-state" type="application/json" nonce="<%= content_security_policy_nonce %>"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
+  <script type="module" src="/toybaco-growth-inbox-release.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-inbox-release.mjs')).hexdigest %>" nonce="<%= content_security_policy_nonce %>"></script>
 </main></body></html>

@@ -27,19 +27,26 @@ RUN BUNDLE_FROZEN=true bundle install --jobs 4 --retry 3 \
 
 FROM bundled-gems AS localized-assets
 COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
+COPY tests/verify_chatwoot_sprockets_artifacts.mjs /opt/toybaco/tests/
 ENV HUSKY=0 \
     PNPM_HOME=/usr/local/share/pnpm \
     PATH=/usr/local/share/pnpm:/usr/local/bin:${PATH}
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
+COPY --from=overlay-normalizer /toybaco-overlay/app/assets/javascripts/ /app/app/assets/javascripts/
+COPY --from=overlay-normalizer /toybaco-overlay/vite.config.ts /app/vite.config.ts
+COPY tests/chatwoot-csp-build.test.mjs /opt/toybaco/tests/csp-build.test.mjs
 COPY tests/chatwoot-cache-upgrade.test.mjs /opt/toybaco/tests/cache-upgrade.test.mjs
 COPY tests/chatwoot-logout-cleanup.test.mjs /opt/toybaco/tests/logout-cleanup.test.mjs
 COPY tests/chatwoot-browser-session.test.mjs /opt/toybaco/tests/browser-session.test.mjs
+# The capture step discards generated assets but preserves all 54 pinned upstream static images.
+RUN node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --capture-legacy /app/public/assets /opt/toybaco/legacy-admin-asset.js
 RUN node --version \
     && test "$(node --version)" = 'v24.21.0' \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && npm install --global --ignore-scripts 'pnpm@10.2.0' \
     && test "$(pnpm --version)" = '10.2.0' \
     && pnpm install --frozen-lockfile \
+    && node /opt/toybaco/tests/csp-build.test.mjs /app \
     && node /opt/toybaco/tests/cache-upgrade.test.mjs /app /app /app \
     && node /opt/toybaco/tests/logout-cleanup.test.mjs /app /app /app \
     && node /opt/toybaco/tests/browser-session.test.mjs /app \
@@ -47,6 +54,7 @@ RUN node --version \
     && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \
       bundle exec rake assets:precompile \
+    && node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-build /app/public/assets /opt/toybaco/legacy-admin-asset.js \
     && node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js \
     && test -s /app/public/vite/.vite/manifest.json \
     && test -s /app/public/vite/.vite/manifest-assets.json \
@@ -65,9 +73,11 @@ RUN node --version \
     && rm -rf /app/node_modules /root/.cache /root/.local/share/pnpm/store
 
 FROM localized-assets AS runtime-hardening
-# Expat 2.8.4 fixes CVE-2026-66046 and CVE-2026-76641; Alpine v3.21 ships 2.8.4-r0.
-# https://github.com/libexpat/libexpat/blob/R_2_8_4/expat/Changes
-RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpat=2.8.4-r0' \
+# Expat 2.8.4 fixes CVE-2026-66046 and CVE-2026-76641; Alpine v3.21 secdb lists CVE-2026-93990 as fixed in
+# 2.8.5-r0 and CVE-2026-102633 / CVE-2026-77214 in 2.9.0-r0 (the publisher's ECR scan gate, 2026-10-19).
+# Alpine v3.21 ships 2.9.0-r0 (so:libexpat.so.1=1.13.0, same SONAME).
+# https://github.com/libexpat/libexpat/blob/R_2_9_0/expat/Changes
+RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \
     # Same-ABI official signed stable APK; v3.21/x86_64 has no fixed build.
     # Do not switch repositories or permit untrusted APKs.
     && ruby -ropen-uri -e 'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r0.apk") { |input| File.open("/tmp/toybaco-openjpeg.apk", "wb") { |output| IO.copy_stream(input, output) } }' \
@@ -78,7 +88,7 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpa
     && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
     && test "$(apk info -v | grep '^musl-utils-')" = 'musl-utils-1.2.5-r11' \
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
-    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
+    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.9.0-r0' \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
       -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
       | wc -l | tr -d ' ')" = '0' \
@@ -92,18 +102,21 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpa
     done \
     && mkdir -p /toybaco-runtime-root/usr/lib \
     && cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/ \
-    && cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.12.4 /toybaco-runtime-root/usr/lib/ \
+    && cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.13.0 /toybaco-runtime-root/usr/lib/ \
     && cp -a /usr/lib/libopenjp2.so.7 /usr/lib/libopenjp2.so.2.5.4 /toybaco-runtime-root/usr/lib/ \
     && mkdir -p /toybaco-runtime-root/app/public \
     && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \
+    && cp -a /app/public/assets /toybaco-runtime-root/app/public/assets \
     && mkdir -p /toybaco-runtime-root/app/public/packs/js \
     && cp -a /app/public/packs/js/sdk.js /app/public/packs/js/sdk.js.gz /app/public/packs/js/sdk.js.br /toybaco-runtime-root/app/public/packs/js/ \
     && find /toybaco-runtime-root -exec touch -t 200001010000.00 {} +
 
 FROM bundled-gems
 RUN rm -rf /app/public/vite
+RUN rm -rf /app/public/assets
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
 COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
+COPY tests/verify_chatwoot_sprockets_artifacts.mjs /opt/toybaco/tests/
 # Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1 and CVE-2026-75804 /
 # CVE-2026-84782 in 3.3.7-r2 (the publisher's ECR scan gate, 2026-10-02). Upgrade the final
 # filesystem and APK inventory together, including both linked libraries.
@@ -117,7 +130,7 @@ RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libss
     && test "$(apk info -v | grep '^tiff-')" = 'tiff-4.7.2-r0' \
     && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}'
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
-    && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libopenjp2.so.2.5.2 \
+    && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libexpat.so.1.12.4 /usr/lib/libopenjp2.so.2.5.2 \
     && test ! -e /usr/local/lib/node_modules/npm \
     && test ! -e /app/tests/playwright \
     && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
@@ -129,11 +142,12 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
     && test "$(readlink /usr/lib/libz.so.1)" = 'libz.so.1.3.2' \
     && test -f /usr/lib/libz.so.1.3.2 \
     && test ! -e /usr/lib/libz.so.1.3.1 \
-    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.8.4-r0' \
-    && test "$(readlink /usr/lib/libexpat.so.1)" = 'libexpat.so.1.12.4' \
-    && test -f /usr/lib/libexpat.so.1.12.4 \
+    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.9.0-r0' \
+    && test "$(readlink /usr/lib/libexpat.so.1)" = 'libexpat.so.1.13.0' \
+    && test -f /usr/lib/libexpat.so.1.13.0 \
     && test ! -e /usr/lib/libexpat.so.1.12.3 \
-    && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
+    && test ! -e /usr/lib/libexpat.so.1.12.4 \
+    && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}"
 ARG TOYBACO_CONTROL_SHA256
 LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de" \
       org.opencontainers.image.source="https://github.com/Cyber-relations/chatwoot" \
@@ -151,6 +165,7 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
     && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
 RUN node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js
+RUN node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-final /app/public/assets
 # Inspect the public trust artifact after every final filesystem write.
 # Enabling each client's certificate verification is a separate change.
 RUN ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'

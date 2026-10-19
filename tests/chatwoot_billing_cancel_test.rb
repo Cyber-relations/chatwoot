@@ -77,6 +77,7 @@ class ChatwootBillingCancelTest < Minitest::Test
       :@billing => { status: 'active', status_label: '利用中', cancel_at_period_end: false, items: [], invoice: nil } }
       .each { |name, value| context.instance_variable_set(name, value) }
     context.define_singleton_method(:number_with_delimiter) { |amount| amount.to_s }
+    context.define_singleton_method(:content_security_policy_nonce) { 'synthetic-template-nonce' }
     ERB.new(view).result(context.instance_eval { binding })
   end
 
@@ -86,6 +87,7 @@ class ChatwootBillingCancelTest < Minitest::Test
                                    'features' => { 'ai_reply' => true, 'ai_auto_reply' => true },
                                    'limits' => { 'ai_generations' => 500 } } }
     rendered = render_with_cancel_box(growth)
+    assert_includes rendered, 'nonce="synthetic-template-nonce"'
     assert_includes rendered, FREE_PLAN_CONFIRM_BODY
     assert_includes rendered, "id=\"cancel-done-message\" hidden>#{FREE_PLAN_DONE}</p>"
     refute_includes rendered, CONFIRM_BODY
@@ -159,6 +161,7 @@ class ChatwootBillingCancelTest < Minitest::Test
       context.instance_variable_set(:@contract, { 'entitlements' => { 'features' => { 'ai_reply' => feature },
                                                                     'limits' => { 'ai_replies' => limit } } })
       context.define_singleton_method(:number_with_delimiter) { |amount| amount.to_s }
+      context.define_singleton_method(:content_security_policy_nonce) { 'synthetic-template-nonce' }
       rendered = ERB.new(view).result(context.instance_eval { binding })
       assert_includes rendered, label
       assert_includes rendered, 'AI の表示はご契約上の利用枠です。応答の設定・稼働状況は受信箱でご確認ください。'
