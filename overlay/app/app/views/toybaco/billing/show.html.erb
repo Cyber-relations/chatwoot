@@ -178,7 +178,7 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </div>
     <p class="note" id="plan-change-support" hidden>個別の契約条件やオプションを含む変更は <a href="mailto:support@toybaco.jp">support@toybaco.jp</a> へお問い合わせください。</p>
     <noscript><p class="note">プラン変更にはJavaScriptを有効にしてください。サポートでも受け付けています。</p></noscript>
-    <script id="plan-change-state" type="application/json"><%= raw(json_escape(@plan_changes.to_json)) %></script>
+    <script nonce="<%= content_security_policy_nonce %>" id="plan-change-state" type="application/json"><%= raw(json_escape(@plan_changes.to_json)) %></script>
   </section>
   <% end %>
 
@@ -267,10 +267,10 @@ h1{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:4px}
     </div>
   </div>
 </div>
-<script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-plan-change.js') %>" defer></script>
+<script nonce="<%= content_security_policy_nonce %>" src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-plan-change.js') %>" defer></script>
 <% end %>
 
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
 (function () {
   var btn = document.getElementById('portal');
   if (!btn) return;

@@ -99,7 +99,10 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: @tokens[0] }
     assert_response :success
     assert_credential_response_protected
-    assert_equal 'frame-ancestors https://customer.example.test', response.headers['Content-Security-Policy']
+    policies = response.headers.fetch('Content-Security-Policy').split(', ')
+    assert_equal 2, policies.length
+    assert_equal 'frame-ancestors https://customer.example.test', policies.first
+    assert_match(/\Ascript-src 'nonce-[A-Za-z0-9+\/]{24}' 'strict-dynamic' 'self' https:\/\/hcaptcha\.com https:\/\/\*\.hcaptcha\.com; script-src-attr 'none'; object-src 'none'; base-uri 'self'\z/, policies.last)
     assert_equal @tokens[0], rendered_token
   end
 

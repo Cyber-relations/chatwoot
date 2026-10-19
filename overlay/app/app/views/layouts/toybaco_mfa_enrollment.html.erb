@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="ja" data-toybaco-theme="system">
   <head>
+    <meta name="csp-nonce" content="<%= content_security_policy_nonce %>">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <%= csrf_meta_tags %>
     <meta name="referrer" content="same-origin">
     <title>2段階認証の設定 | トイバコ</title>
-    <%= vite_javascript_tag 'toybaco_mfa_setup' %>
+    <%= vite_javascript_tag 'toybaco_mfa_setup', nonce: content_security_policy_nonce %>
     <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
     <style>
       body { margin: 0; background: var(--toybaco-offwhite); color: var(--toybaco-ink); font: 16px/1.7 system-ui, sans-serif; }

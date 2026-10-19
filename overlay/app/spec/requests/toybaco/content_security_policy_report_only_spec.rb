@@ -34,7 +34,9 @@ RSpec.describe 'Toybaco CSP 段階 1 の Report-Only', type: :request do
     inner.each { |klass| expect(classes.index(klass)).to be > position, klass.name }
     # 外側に残るのは、常に内側へ渡す SES 受信の token 記録だけ(toybaco_inbound_email.rb の unshift)。vite_ruby が
     # test・development だけで先頭に入れる dev server の proxy は production の stack に無いので除いて比べる。
-    expect(classes.take(position) - [ViteRuby::DevServerProxy]).to eq([Toybaco::InboundEmail::SesInboundRouteMiddleware])
+    expect(classes.take(position) - [ViteRuby::DevServerProxy]).to eq(
+      [Toybaco::InboundEmail::SesInboundRouteMiddleware, Toybaco::ScriptPolicy]
+    )
   end
 
   it 'dashboard のログイン画面に付き、強制中の frame-ancestors / frame-src と X-Frame-Options は変えない' do
@@ -42,7 +44,7 @@ RSpec.describe 'Toybaco CSP 段階 1 の Report-Only', type: :request do
 
     expect(response).to have_http_status(:ok)
     expect(report_only).to eq(expected_policy)
-    expect(response.headers['Content-Security-Policy']).to eq(
+    expect(response.headers['Content-Security-Policy'].split(', ').first).to eq(
       "frame-ancestors 'self'; frame-src 'self' #{Toybaco::PostizOrigin.fetch!} https://hcaptcha.com https://*.hcaptcha.com"
     )
     expect(response.headers['X-Frame-Options']).to eq('SAMEORIGIN')
@@ -65,7 +67,7 @@ RSpec.describe 'Toybaco CSP 段階 1 の Report-Only', type: :request do
     get '/widget', params: { website_token: widget.website_token }
 
     expect(response).to have_http_status(:ok)
-    expect(response.headers['Content-Security-Policy']).to eq('frame-ancestors https://shop.example.test')
+    expect(response.headers['Content-Security-Policy'].split(', ').first).to eq('frame-ancestors https://shop.example.test')
     expect(report_only).to eq(expected_policy)
     expect(report_only).not_to include('frame-ancestors')
   end
@@ -80,7 +82,8 @@ RSpec.describe 'Toybaco CSP 段階 1 の Report-Only', type: :request do
 
       names = response.headers.to_h.keys
       expect(names.grep(/\Acontent-security-policy\z/i).length).to eq(1), path
-      expect(response.headers['Content-Security-Policy']).to eq(enforced), path
+      expect(response.headers['Content-Security-Policy'].split(', ').first).to eq(enforced), path
+      expect(response.headers['Content-Security-Policy']).to include("script-src-attr 'none'"), path
       expect(names.grep(/\Acontent-security-policy-report-only\z/i)).to eq([report_only_header]), path
       expect(report_only).to eq(expected_policy), path
     end

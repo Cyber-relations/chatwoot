@@ -187,6 +187,7 @@ control_file_list() {
     'tests/toybaco_fetch_error_logging_runtime_test.rb' \
     'tests/toybaco_widget_inbox_binding_runtime_test.rb' \
     'tests/toybaco_widget_http_session_runtime_test.rb' \
+    'tests/toybaco_smtp_delivery_runtime_test.rb' \
     'tests/chatwoot-widget-http-session.test.mjs' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
@@ -246,6 +247,7 @@ control_file_list() {
     'tests/chatwoot-widget-cookie.test.mjs' \
     'tests/chatwoot-widget-message-origin.test.mjs' \
     'tests/verify_chatwoot_sdk_artifacts.mjs' \
+    'tests/verify_chatwoot_sprockets_artifacts.mjs' \
     'tests/chatwoot-sdk-artifacts.test.mjs' \
     'tests/chatwoot_rds_trust_test.rb' \
     'tests/verify_chatwoot_quality_secret_paths.rb' \
@@ -269,6 +271,8 @@ control_file_list() {
     'tests/chatwoot-confirmation-rspec-manifest.json' \
     'tests/chatwoot-test.Dockerfile' \
     'tests/chatwoot_frame_policy_test.rb' \
+    'tests/chatwoot-csp-build.test.mjs' \
+    'tests/chatwoot_script_nonce_runtime_test.rb' \
     'tests/chatwoot_brand_injector_test.rb' \
     'tests/toybaco_inbound_email_test.rb' \
     'tests/chatwoot_ses_ingress_identity_test.rb' \
@@ -364,7 +368,7 @@ integration_ruby_file_list() {
       find overlay/app/app/mailers/toybaco -type f -name '*.rb' -print
       find overlay/app/app/mailers/agent_notifications -type f -name '*.rb' -print
       find overlay/app/config/initializers -maxdepth 1 -type f \
-        \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o \
+        \( -name 'toybaco_oidc.rb' -o -name 'toybaco_frame_policy.rb' -o -name 'toybaco_script_nonce.rb' -o \
         -name 'toybaco_postiz_lifecycle.rb' -o -name 'toybaco_checkout.rb' -o -name 'toybaco_billing.rb' -o \
         -name 'toybaco_inbound_email.rb' -o -name 'toybaco_agent_seat_limit.rb' -o \
         -name 'toybaco_agent_login.rb' -o -name 'toybaco_postgres_health.rb' -o -name 'toybaco_ai_usage.rb' \) -print
@@ -485,12 +489,14 @@ assert_control_contract() {
     "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版zlib実体をfinal stageへコピーしません'
   grep -Fq 'test ! -e /usr/lib/libz.so.1.3.1' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileが旧zlib実体を拒否しません'
-  grep -Fq "libexpat=2.8.4-r0" "$CONTROL_ROOT/Dockerfile" || fail \
+  grep -Fq "libexpat=2.9.0-r0" "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileのlibexpat修正版が固定されていません'
-  grep -Fq 'cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.12.4 /toybaco-runtime-root/usr/lib/' \
+  grep -Fq 'cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.13.0 /toybaco-runtime-root/usr/lib/' \
     "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版libexpat実体をfinal stageへコピーしません'
   grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.3' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileが旧libexpat実体を拒否しません'
+  grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.4' "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileがbase imageの旧libexpat 2.8.4実体を拒否しません'
   grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileがlibexpatの実ロードを検証しません'
   grep -Fq "'tiff=4.7.2-r0'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -1279,6 +1285,11 @@ run_ruby_quality() {
     "$TEST_IMAGE" ruby /contract/tests/verify_chatwoot_rspec_result.rb \
     /results/rspec.json /contract/tests/chatwoot-rspec-manifest.json
 
+  STAGE='CSP request nonce actual Rails'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/chatwoot_script_nonce_runtime_test.rb
+
   STAGE='公開widgetの署名inbox・訪問者継続境界'
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -1288,6 +1299,14 @@ run_ruby_quality() {
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_widget_http_session_runtime_test.rb
+
+  STAGE='明示承認SMTP一通・実Mail transport・再試行抑止'
+  printf '%s\n' 'TOYBACO_SMTP_DELIVERY_SUITE_BEGIN'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/toybaco_smtp_delivery_runtime_test.rb
+  printf '%s\n' 'TOYBACO_SMTP_DELIVERY_CONTRACT=PASS actual_mail=true live_delivery=false'
+  printf '%s\n' 'TOYBACO_SMTP_DELIVERY_SUITE_END'
 
   STAGE='Gmail MIME・添付分離'
   run_test_container \
@@ -1601,11 +1620,12 @@ build_and_smoke_production_image() {
       test "$(readlink /usr/lib/libz.so.1)" = "libz.so.1.3.2"
       test -f /usr/lib/libz.so.1.3.2
       test ! -e /usr/lib/libz.so.1.3.1
-      test "$(apk info -v | grep "^libexpat-")" = "libexpat-2.8.4-r0"
-      test "$(readlink /usr/lib/libexpat.so.1)" = "libexpat.so.1.12.4"
-      test -f /usr/lib/libexpat.so.1.12.4
+      test "$(apk info -v | grep "^libexpat-")" = "libexpat-2.9.0-r0"
+      test "$(readlink /usr/lib/libexpat.so.1)" = "libexpat.so.1.13.0"
+      test -f /usr/lib/libexpat.so.1.13.0
       test ! -e /usr/lib/libexpat.so.1.12.3
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}"
+      test ! -e /usr/lib/libexpat.so.1.12.4
+      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}"
       test "$(apk info -v | grep "^tiff-")" = "tiff-4.7.2-r0"
       ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}"
       for package in openssl libcrypto3 libssl3; do
@@ -1677,7 +1697,7 @@ build_and_smoke_production_image() {
   wait_for_rails_port
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
-    "$TEST_IMAGE" ruby /contract/tests/chatwoot-http-smoke.rb http://chatwoot:3000/
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/chatwoot-http-smoke.rb http://chatwoot:3000/
   # Pumaの実boot/HTTP検証は完了した。arm64 host上のamd64 emulationでも
   # Sidekiq+検証runnerがOOMにならないよう、次のservice smoke前に停止する。
   docker rm --force "$RAILS_NAME" >/dev/null

@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-growth-purchase.css') %>">
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-growth-trial.css') %>">
-  <script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-growth-packs.js') %>" defer></script>
+  <script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-growth-packs.js') %>" defer nonce="<%= content_security_policy_nonce %>"></script>
 </head>
 <body>
 <main id="packs" data-account-id="<%= @account.id %>" data-request-key="<%= @state['request_key'] %>" data-state="<%= @state['state'] %>">

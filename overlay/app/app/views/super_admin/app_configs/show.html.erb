@@ -78,7 +78,7 @@
 </section>
 
 <% content_for :javascript do %>
-  <script>
+  <script nonce="<%= content_security_policy_nonce %>">
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.toggle-password').forEach(button => {
       button.addEventListener('click', () => {

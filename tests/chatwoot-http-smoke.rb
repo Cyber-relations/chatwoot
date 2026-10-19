@@ -3,6 +3,7 @@
 require 'json'
 require 'net/http'
 require 'uri'
+require 'nokogiri'
 
 base = URI(ARGV.fetch(0))
 postiz_origin = ENV.fetch('TOYBACO_POST_URL', 'https://post.toybaco.jp').delete_suffix('/')
@@ -63,8 +64,18 @@ abort 'dashboard English noscript copy remains' if login_body.include?('This app
 cookie_errors = session_cookie_contract_errors(login.get_fields('set-cookie').to_a)
 abort "production Set-Cookie contract mismatch: #{cookie_errors.inspect}" unless cookie_errors.empty?
 csp = login.fetch('content-security-policy')
-frame_src = csp.split(';').map(&:strip).grep(/\Aframe-src\b/)
-frame_ancestors = csp.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
+policies = csp.split(',').map(&:strip)
+abort 'independent enforced script policy is missing/duplicated' unless policies.length == 2
+frame_src = policies.first.split(';').map(&:strip).grep(/\Aframe-src\b/)
+frame_ancestors = policies.first.split(';').map(&:strip).grep(/\Aframe-ancestors\b/)
+nonce = login_body[/<meta name="csp-nonce" content="([A-Za-z0-9+\/]{24})">/, 1]
+abort 'document nonce does not match exact enforced script policy' unless nonce &&
+  policies.last == "script-src 'nonce-#{nonce}' 'strict-dynamic' 'self' https://hcaptcha.com https://*.hcaptcha.com; script-src-attr 'none'; object-src 'none'; base-uri 'self'"
+document = Nokogiri::HTML(login_body)
+abort 'trusted login or injected script lacks the document nonce' unless
+  document.css('script').all? { |script| script['nonce'] == nonce }
+abort 'document cache could reuse another response nonce' unless
+  login['cache-control'].to_s.split(',').map(&:strip).include?('no-store')
 abort "frame-src is not exact: #{frame_src.inspect}" unless
   frame_src == ["frame-src 'self' #{postiz_origin} https://hcaptcha.com https://*.hcaptcha.com"]
 abort "frame-ancestors is not exact: #{frame_ancestors.inspect}" unless

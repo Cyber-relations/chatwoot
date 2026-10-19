@@ -35,7 +35,7 @@ RSpec.describe 'Toybaco 無料登録の hCaptcha', type: :request do
   after { GlobalConfig.clear_cache }
 
   def frame_src
-    response.headers['Content-Security-Policy'].to_s.split(';').map(&:strip).grep(/\Aframe-src\b/)
+    response.headers['Content-Security-Policy'].to_s.split(',').first.split(';').map(&:strip).grep(/\Aframe-src\b/)
   end
 
   describe 'hCaptcha の鍵を設定したとき' do

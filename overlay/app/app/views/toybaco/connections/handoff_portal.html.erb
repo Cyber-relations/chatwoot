@@ -7,7 +7,7 @@
   <title>接続設定 | トイバコ</title>
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-connection-handoff.css') %>">
-  <script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-connection-handoff.js') %>" defer></script>
+  <script src="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-connection-handoff.js') %>" defer nonce="<%= content_security_policy_nonce %>"></script>
 </head>
 <body>
 <main id="handoff" data-mode="portal" data-request-id="<%= params[:id] %>">

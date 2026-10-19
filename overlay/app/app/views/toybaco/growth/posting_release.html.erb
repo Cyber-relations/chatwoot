@@ -38,6 +38,6 @@
     <button id="posting-release-submit" type="submit">選んだ投稿先の再開を確認</button>
     <p><a id="posting-release-refresh" href="/toybaco/growth/posting-release?account_id=<%= @account.id %><%= Toybaco::BrandInjector.theme_query(@toybaco_theme) %>" hidden>最新の状態に更新</a></p>
   </form>
-  <script id="posting-release-state" type="application/json"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
-  <script type="module" src="/toybaco-growth-posting-release.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-posting-release.mjs')).hexdigest %>"></script>
+  <script id="posting-release-state" type="application/json" nonce="<%= content_security_policy_nonce %>"><%= raw(json_escape(@state.merge('account_id' => @account.id).to_json)) %></script>
+  <script type="module" src="/toybaco-growth-posting-release.mjs?v=<%= Digest::SHA256.file(Rails.public_path.join('toybaco-growth-posting-release.mjs')).hexdigest %>" nonce="<%= content_security_policy_nonce %>"></script>
 </main></body></html>

@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('toybaco-brand.css') %>">
   <link rel="stylesheet" href="<%= Toybaco::BrandInjector.asset_path('brand-assets/toybaco-free-signup.css') %>">
   <% if @captcha_site_key.present? %>
-    <script src="https://js.hcaptcha.com/1/api.js?hl=ja" async defer></script>
+    <script nonce="<%= content_security_policy_nonce %>" src="https://js.hcaptcha.com/1/api.js?hl=ja" async defer></script>
   <% end %>
 </head>
 <body>
@@ -38,7 +38,7 @@
     <%# 部品の準備 = hCaptcha の API があり、ウィジェットの iframe が現れていること。
         token の無い送信は止める。準備ができていなければ読み込み失敗の案内のまま止め、準備済みのときだけチェックを促す。
         読み込み失敗の案内は 6 秒たっても準備できないときに出し、最大 30 秒まで 500ms ごとに準備を確かめて、準備できたら消す。 %>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       (function () {
         var form = document.querySelector('form[action="/toybaco/free/signup"]');
         var widget = document.querySelector('.h-captcha');
