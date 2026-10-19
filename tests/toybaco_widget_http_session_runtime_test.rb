@@ -882,7 +882,7 @@ class ToybacoWidgetHttpChannelRuntimeTest < ActionCable::Channel::TestCase
     name = Toybaco::Security::WidgetHttpSession.cookie_name(@widget)
     env = Rack::MockRequest.env_for('https://www.example.com/cable', 'HTTP_ORIGIN' => origin)
     env['HTTP_COOKIE'] = "#{name}=#{@row.id}.#{@secret}" if cookie
-    stub_connection(request: ActionDispatch::Request.new(env))
+    stub_connection(env: env)
     connection.define_singleton_method(:close) { |**_options| @toybaco_test_closed = true }
     subscribe(pubsub_token: "tbwhttp1.#{@widget.website_token}.#{@proof}")
   end
@@ -891,6 +891,40 @@ class ToybacoWidgetHttpChannelRuntimeTest < ActionCable::Channel::TestCase
     connect_cookie
     assert subscription.confirmed?
     assert_has_stream @link.pubsub_token
+    Toybaco::Security::WidgetSession.revoke(@link, source_id: @link.source_id)
+    refute subscription.send(:verify_toybaco_session)
+    assert_no_streams
+    assert connection.instance_variable_get(:@toybaco_test_closed)
+  end
+
+  # connect_cookie の stub_connection(ConnectionStub、Rails 7.2.3.2 channel/test_case.rb 50-61 行)は渡した識別子を public な
+  # singleton method にするだけで、実 Connection の可視性を再現しない(以前は public な request を渡していたため、channel の
+  # connection.request の欠陥を見逃した)。本番の ApplicationCable::Connection では
+  # ActionCable::Connection::Base#request が private(channel から呼ぶと NoMethodError)なので、実 Connection で同じ
+  # cookie + proof の購読を通す。
+  def test_real_application_cable_connection_with_private_request_confirms_cookie_proof_stream
+    name = Toybaco::Security::WidgetHttpSession.cookie_name(@widget)
+    env = Rack::MockRequest.env_for('https://www.example.com/cable', 'HTTP_ORIGIN' => 'https://www.example.com')
+    env['HTTP_COOKIE'] = "#{name}=#{@row.id}.#{@secret}"
+    @connection = ApplicationCable::Connection.new(ActionCable.server, env)
+    refute connection.respond_to?(:request)
+    assert connection.respond_to?(:request, true)
+    assert connection.respond_to?(:env)
+    connection.define_singleton_method(:close) { |**_options| @toybaco_test_closed = true }
+    subscribe(pubsub_token: "tbwhttp1.#{@widget.website_token}.#{@proof}")
+    assert subscription.confirmed?
+    assert_has_stream @link.pubsub_token
+    assert_equal @link.contact, subscription.send(:current_user)
+    # helper の Request は framework の private request と同じ式で同じ env から作った Request と一致する。
+    built = subscription.send(:toybaco_cable_request)
+    oracle = ActionDispatch::Request.new(Rails.application.env_config.merge(connection.env))
+    config_keys = Rails.application.env_config.keys
+    assert_includes built.cookies.keys, name
+    assert_equal oracle.cookies, built.cookies
+    assert_equal oracle.headers['Origin'], built.headers['Origin']
+    assert_equal oracle.base_url, built.base_url
+    refute_empty config_keys
+    assert_equal oracle.env.slice(*config_keys), built.env.slice(*config_keys)
     Toybaco::Security::WidgetSession.revoke(@link, source_id: @link.source_id)
     refute subscription.send(:verify_toybaco_session)
     assert_no_streams
