@@ -1618,6 +1618,7 @@ build_and_smoke_production_image() {
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
       test "$(cat /app/.git_sha)" = "$1"
+      test "$(apk info -v | grep \"^ca-certificates-bundle-\")" = "ca-certificates-bundle-20241121-r1"
       test "$(apk info -v | grep "^curl-")" = "curl-8.14.1-r3"
       test "$(apk info -v | grep "^libcurl-")" = "libcurl-8.14.1-r3"
       test "$(apk info -v | grep "^pcre2-")" = "pcre2-10.43-r1"

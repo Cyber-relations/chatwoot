@@ -726,6 +726,10 @@ const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerign
   readFileSync(join(root, path), 'utf8'));
 function validateFinalCurlPcre(dockerfile, gateSource) {
   const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
+  assert.ok(final.includes("apk add --no-cache 'curl=8.14.1-r3'"), 'CA-preserving package install missing');
+  assert.ok(final.includes("ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\""), 'CA-preserving package install missing');
+  assert.ok(final.includes("test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\""), 'CA-preserving package install missing');
+  assert.ok(gateSource.includes("= \"ca-certificates-bundle-20241121-r1\""), 'runtime CA bundle changed');
   for (const [name, version] of [['curl', '8.14.1-r3'], ['libcurl', '8.14.1-r3'], ['pcre2', '10.43-r1']]) {
     assert.ok(final.includes(`'${name}=${version}'`), `final security upgrade missing: ${name}`);
     assert.ok(final.includes(`= '${name}-${version}'`), `final package verification missing: ${name}`);
@@ -746,6 +750,9 @@ function validateFinalCurlPcre(dockerfile, gateSource) {
 validateFinalCurlPcre(buildInputs[0], gate);
 let curlPcreNegatives = 0;
 for (const text of [
+  "apk add --no-cache 'curl=8.14.1-r3'",
+  "ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\"",
+  "test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\"",
   "'curl=8.14.1-r3'", "'libcurl=8.14.1-r3'", "'pcre2=10.43-r1'",
   "= 'curl-8.14.1-r3'", "= 'libcurl-8.14.1-r3'", "= 'pcre2-10.43-r1'",
   'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
@@ -755,6 +762,7 @@ for (const text of [
   curlPcreNegatives++;
 }
 for (const text of [
+  "= \"ca-certificates-bundle-20241121-r1\"",
   'curl=8.14.1-r3', 'libcurl=8.14.1-r3', 'pcre2=10.43-r1',
   '= "curl-8.14.1-r3"', '= "libcurl-8.14.1-r3"', '= "pcre2-10.43-r1"',
   'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
