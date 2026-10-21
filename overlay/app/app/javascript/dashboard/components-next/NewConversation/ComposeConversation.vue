@@ -44,6 +44,8 @@ const targetInbox = ref(null);
 const isCreatingContact = ref(false);
 const isFetchingInboxes = ref(false);
 const isSearching = ref(false);
+let inboxRequestId = 0;
+let isSubmitting = false;
 
 const formState = reactive({
   message: '',
@@ -122,17 +124,32 @@ const handleSelectedContact = async ({ value, action, ...rest }) => {
   contacts.value = [];
   if (contact?.id) {
     isFetchingInboxes.value = true;
+    inboxRequestId += 1;
+    const requestId = inboxRequestId;
+    const previousInbox = targetInbox.value;
+    targetInbox.value = null;
+    selectedContact.value.contactInboxes = [];
     try {
       const contactableInboxes = await fetchContactableInboxes(contact.id);
+      if (requestId !== inboxRequestId) return;
       // Merge the processed contactableInboxes with the inboxesList
       selectedContact.value.contactInboxes = mergeInboxDetails(
         contactableInboxes,
         inboxesList.value
       );
 
-      isFetchingInboxes.value = false;
+      targetInbox.value =
+        selectedContact.value.contactInboxes.find(
+          inbox => inbox.id === previousInbox?.id
+        ) || null;
     } catch (error) {
-      isFetchingInboxes.value = false;
+      if (requestId === inboxRequestId) {
+        useAlert(t('COMPOSE_NEW_CONVERSATION.FORM.ERROR_MESSAGE'));
+      }
+    } finally {
+      if (requestId === inboxRequestId) {
+        isFetchingInboxes.value = false;
+      }
     }
   }
 };
@@ -144,6 +161,8 @@ const handleTargetInbox = inbox => {
 };
 
 const clearSelectedContact = () => {
+  inboxRequestId += 1;
+  isFetchingInboxes.value = false;
   selectedContact.value = null;
   targetInbox.value = null;
   clearFormState();
@@ -167,6 +186,8 @@ const discardCompose = () => {
 };
 
 const createConversation = async ({ payload, isFromWhatsApp }) => {
+  if (isSubmitting) return false;
+  isSubmitting = true;
   try {
     const data = await store.dispatch('contactConversations/create', {
       params: payload,
@@ -181,8 +202,12 @@ const createConversation = async ({ payload, isFromWhatsApp }) => {
     useAlert(t('COMPOSE_NEW_CONVERSATION.FORM.SUCCESS_MESSAGE'), action);
     return true; // Return success
   } catch {
-    useAlert(t('COMPOSE_NEW_CONVERSATION.FORM.ERROR_MESSAGE'));
+    useAlert(
+      '作成結果を確認できませんでした。入力内容は保持されています。会話一覧で送信状況を確認してください。'
+    );
     return false; // Return failure
+  } finally {
+    isSubmitting = false;
   }
 };
 
@@ -193,9 +218,15 @@ const onPopoverShow = () => {
   // Cache-aware refetch, so newly synced WhatsApp templates show up here
   // even if the account-cache-invalidated websocket event was missed.
   store.dispatch('inboxes/get');
+  // Contact updates (including avatar changes) replace the cached inbox list.
+  // Resolve sendable inboxes again when composing from an existing contact.
+  const contact = props.contactId ? activeContact.value : selectedContact.value;
+  if (contact?.id) handleSelectedContact(contact);
 };
 
 const onPopoverHide = () => {
+  inboxRequestId += 1;
+  isFetchingInboxes.value = false;
   emitter.emit(BUS_EVENTS.NEW_CONVERSATION_MODAL, false);
   emit('close');
 };

@@ -6,6 +6,9 @@ import yaml from '@rollup/plugin-yaml';
 
 export default defineConfig({
   plugins: [ruby(), vue(vueOptions), yaml()],
+  // The gzip-size table compresses every chunk concurrently. Skip this
+  // reporting-only work; assets, source maps and checks stay unchanged.
+  build: { reportCompressedSize: false },
   // Vue I18n 9.14.5: interpret message ASTs instead of new Function(). Keep
   // the message parser so API-delivered and tenant-local messages still work.
   define: {
@@ -26,5 +29,7 @@ export default defineConfig({
   },
   // All production roots have render functions / precompiled SFCs. The portal
   // roots are explicit h() render functions too; no DOM-template compiler.
-  resolve: { alias: { ...aliases, vue: 'vue/dist/vue.runtime.esm-bundler.js' } },
+  resolve: {
+    alias: { ...aliases, vue: 'vue/dist/vue.runtime.esm-bundler.js' },
+  },
 });
