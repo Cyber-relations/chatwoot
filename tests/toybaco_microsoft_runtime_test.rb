@@ -419,4 +419,40 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
       assert_nil Toybaco::Growth::TrialConnection.identity(widget)
     end
   end
+
+  def test_new_email_api_dispatches_the_first_outgoing_without_an_incoming_message
+    with_microsoft do
+      inbox = connect
+      contact = create(:contact, account: @account, email: 'recipient@example.test')
+      headers = sign_in_user_with_mfa(@user)
+      ActiveJob::Base.queue_adapter.enqueued_jobs.clear
+      post "/api/v1/accounts/#{@account.id}/conversations", headers: headers, as: :json,
+           params: { inbox_id: inbox.id, contact_id: contact.id, source_id: contact.email, assignee_id: @user.id,
+                     additional_attributes: { mail_subject: 'Synthetic first email' },
+                     message: { content: 'Synthetic initial outgoing', cc_emails: 'cc@example.test', bcc_emails: 'bcc@example.test' } }
+      assert_response :success
+      conversation = @account.conversations.last
+      assert_empty conversation.messages.incoming
+      message = conversation.messages.outgoing.last
+      assert message
+      refute message.private?
+      jobs = ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == SendReplyJob && job[:args].first == message.id }
+      assert_equal 1, jobs.length
+      assert_equal 'high', jobs.first[:queue]
+      2.times { ActiveJob::Base.execute(jobs.first) }
+      assert_equal 'accepted', message.reload.content_attributes.dig('toybaco_microsoft_send', 'state')
+      assert_equal 'sent', message.status
+      assert_equal 1, @api.send_calls.length
+      assert_equal 1, @api.create_calls.length
+      refute @api.create_calls.first.key?(:message_id), 'a first email must create a draft, not reply to a received message'
+      mail = @api.create_calls.first.fetch(:message)
+      assert_equal [{ 'emailAddress' => { 'address' => contact.email } }], mail['toRecipients']
+      assert_equal [{ 'emailAddress' => { 'address' => 'cc@example.test' } }], mail['ccRecipients']
+      assert_equal [{ 'emailAddress' => { 'address' => 'bcc@example.test' } }], mail['bccRecipients']
+      assert_equal 'Synthetic first email', mail['subject']
+      assert_includes mail.dig('body', 'content'), 'Synthetic initial outgoing'
+      assert message.source_id.present?
+    end
+  end
+
 end

@@ -414,4 +414,39 @@ class ToybacoGmailRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal '101', Gmail.config(inbox.channel.reload).dig('sync', 'history_id')
   end
 
+
+  def test_new_email_api_dispatches_the_first_outgoing_without_an_incoming_message
+    with_google do
+      inbox = connect
+      contact = create(:contact, account: @account, email: 'recipient@example.test')
+      headers = sign_in_user_with_mfa(@user)
+      ActiveJob::Base.queue_adapter.enqueued_jobs.clear
+      post "/api/v1/accounts/#{@account.id}/conversations", headers: headers, as: :json,
+           params: { inbox_id: inbox.id, contact_id: contact.id, source_id: contact.email, assignee_id: @user.id,
+                     additional_attributes: { mail_subject: 'Synthetic first email' },
+                     message: { content: 'Synthetic initial outgoing', cc_emails: 'cc@example.test', bcc_emails: 'bcc@example.test' } }
+      assert_response :success
+      conversation = @account.conversations.last
+      assert_empty conversation.messages.incoming
+      message = conversation.messages.outgoing.last
+      assert message
+      refute message.private?
+      jobs = ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == SendReplyJob && job[:args].first == message.id }
+      assert_equal 1, jobs.length
+      assert_equal 'high', jobs.first[:queue]
+      2.times { ActiveJob::Base.execute(jobs.first) }
+      assert_equal 'accepted', message.reload.content_attributes.dig('toybaco_gmail_send', 'state')
+      assert_equal 'sent', message.status
+      assert_equal 1, @google.send_calls.length
+      mail = Mail.read_from_string(@google.send_calls.first.fetch(:raw))
+      assert_equal [contact.email], mail.to
+      assert_equal ['cc@example.test'], mail.cc
+      # Mail#encoded omits BCC headers; this checks persistence, not BCC delivery.
+      assert_equal ['bcc@example.test'], message.content_attributes['bcc_emails']
+      assert_equal 'Synthetic first email', mail.subject
+      assert_includes mail.body.encoded, 'Synthetic initial outgoing'
+      assert_equal mail.message_id, message.source_id
+    end
+  end
+
 end
