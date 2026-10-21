@@ -724,6 +724,47 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
 }
 const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerignore'].map(path =>
   readFileSync(join(root, path), 'utf8'));
+function validateFinalCurlPcre(dockerfile, gateSource) {
+  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
+  for (const [name, version] of [['curl', '8.14.1-r3'], ['libcurl', '8.14.1-r3'], ['pcre2', '10.43-r1']]) {
+    assert.ok(final.includes(`'${name}=${version}'`), `final security upgrade missing: ${name}`);
+    assert.ok(final.includes(`= '${name}-${version}'`), `final package verification missing: ${name}`);
+    assert.match(gateSource, new RegExp(`\\b${name}=${version.replaceAll('.', '\\.')}\\b`),
+      `gate security pin missing: ${name}`);
+    assert.ok(gateSource.includes(`= "${name}-${version}"`), `runtime package verification missing: ${name}`);
+  }
+  for (const required of [
+    'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+    'call.to_s.start_with?(%q{libcurl/8.14.1 })',
+    'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+    'config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })',
+  ]) {
+    assert.ok(final.includes(required), `final library verification missing: ${required}`);
+    assert.ok(gateSource.includes(required), `runtime library verification missing: ${required}`);
+  }
+}
+validateFinalCurlPcre(buildInputs[0], gate);
+let curlPcreNegatives = 0;
+for (const text of [
+  "'curl=8.14.1-r3'", "'libcurl=8.14.1-r3'", "'pcre2=10.43-r1'",
+  "= 'curl-8.14.1-r3'", "= 'libcurl-8.14.1-r3'", "= 'pcre2-10.43-r1'",
+  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+]) {
+  assert.throws(() => validateFinalCurlPcre(buildInputs[0].replace(text, 'omitted'), gate));
+  curlPcreNegatives++;
+}
+for (const text of [
+  'curl=8.14.1-r3', 'libcurl=8.14.1-r3', 'pcre2=10.43-r1',
+  '= "curl-8.14.1-r3"', '= "libcurl-8.14.1-r3"', '= "pcre2-10.43-r1"',
+  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+]) {
+  assert.throws(() => validateFinalCurlPcre(buildInputs[0], gate.replace(text, 'omitted')),
+    `omitted gate proof must fail: ${text}`);
+  curlPcreNegatives++;
+}
+console.log(`Chatwoot final curl/pcre2 security contract: PASS (${curlPcreNegatives} omission controls)`);
 function validateFinalTiff(dockerfile) {
   const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
   for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",

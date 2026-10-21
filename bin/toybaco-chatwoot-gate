@@ -503,6 +503,10 @@ assert_control_contract() {
     'production DockerfileのTIFF修正版が固定されていません'
   grep -Fq 'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
     'production DockerfileがTIFFの実ロードを検証しません'
+  for package in curl=8.14.1-r3 libcurl=8.14.1-r3 pcre2=10.43-r1; do
+    grep -Fq "'$package'" "$CONTROL_ROOT/Dockerfile" || fail \
+      "production Dockerfileの修正版が固定されていません: $package"
+  done
   for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
     scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
     ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
@@ -1614,6 +1618,12 @@ build_and_smoke_production_image() {
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
       test "$(cat /app/.git_sha)" = "$1"
+      test "$(apk info -v | grep "^curl-")" = "curl-8.14.1-r3"
+      test "$(apk info -v | grep "^libcurl-")" = "libcurl-8.14.1-r3"
+      test "$(apk info -v | grep "^pcre2-")" = "pcre2-10.43-r1"
+      curl --version | head -n 1 | grep -F "libcurl/8.14.1"
+      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}], [], Fiddle::TYPE_VOIDP).call.to_s.start_with?(%q{libcurl/8.14.1 })"
+      ruby -rfiddle -e "config = Fiddle::Function.new(Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}], [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT); version = Fiddle::Pointer.malloc(128); abort unless config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })"
       test "$(apk info -v | grep "^musl-[0-9]")" = "musl-1.2.5-r11"
       test "$(apk info -v | grep "^musl-utils-")" = "musl-utils-1.2.5-r11"
       test "$(apk info -v | grep "^zlib-")" = "zlib-1.3.2-r1"

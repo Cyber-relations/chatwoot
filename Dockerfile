@@ -122,7 +122,17 @@ COPY tests/verify_chatwoot_sprockets_artifacts.mjs /opt/toybaco/tests/
 # filesystem and APK inventory together, including both linked libraries.
 # Alpine v3.21 tiff 4.7.2-r0 fixes CVE-2026-4775. Upgrade the final
 # runtime library and its APK inventory, then verify the actually loaded ABI.
+# Alpine 3.21 backports the publisher's 2026-10-21 curl/pcre2 findings without an OS or ABI change.
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/curl/APKBUILD
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/pcre2/APKBUILD
 RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' 'tiff=4.7.2-r0' \
+      'curl=8.14.1-r3' 'libcurl=8.14.1-r3' 'pcre2=10.43-r1' \
+    && test "$(apk info -v | grep '^curl-')" = 'curl-8.14.1-r3' \
+    && test "$(apk info -v | grep '^libcurl-')" = 'libcurl-8.14.1-r3' \
+    && test "$(apk info -v | grep '^pcre2-')" = 'pcre2-10.43-r1' \
+    && curl --version | head -n 1 | grep -F 'libcurl/8.14.1' \
+    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}], [], Fiddle::TYPE_VOIDP).call.to_s.start_with?(%q{libcurl/8.14.1 })' \
+    && ruby -rfiddle -e 'config = Fiddle::Function.new(Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}], [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT); version = Fiddle::Pointer.malloc(128); abort unless config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })' \
     && for package in openssl libcrypto3 libssl3; do \
       test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"; \
     done \
