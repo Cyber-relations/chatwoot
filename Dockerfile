@@ -77,16 +77,15 @@ FROM localized-assets AS runtime-hardening
 # 2.8.5-r0 and CVE-2026-102633 / CVE-2026-77214 in 2.9.0-r0 (the publisher's ECR scan gate, 2026-10-19).
 # Alpine v3.21 ships 2.9.0-r0 (so:libexpat.so.1=1.13.0, same SONAME).
 # https://github.com/libexpat/libexpat/blob/R_2_9_0/expat/Changes
-RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \
-    # Same-ABI official signed stable APK; v3.21/x86_64 has no fixed build.
-    # Do not switch repositories or permit untrusted APKs.
-    && ruby -ropen-uri -e 'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r0.apk") { |input| File.open("/tmp/toybaco-openjpeg.apk", "wb") { |output| IO.copy_stream(input, output) } }' \
-    && echo '4d9729d92515f36cbafe8b5e008685065ccb84cf21025ba2e472c3fce8653d2c  /tmp/toybaco-openjpeg.apk' | sha256sum -c - \
-    && apk --no-network verify /tmp/toybaco-openjpeg.apk \
-    && apk add --no-network --upgrade /tmp/toybaco-openjpeg.apk \
-    && rm /tmp/toybaco-openjpeg.apk \
-    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
-    && test "$(apk info -v | grep '^musl-utils-')" = 'musl-utils-1.2.5-r11' \
+# This stage's apk DB reaches the final stage without /lib/ld-musl-x86_64.so.1, so musl must stay as bundled-gems
+# installed it; exact requests (no --upgrade) leave dependencies alone, and the final stage upgrades musl.
+RUN musl_before="$(apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]')" \
+    && apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \
+    # Alpine v3.21 openjpeg 2.5.4-r1 fixes CVE-2026-6192 and OSV-2025-219 (same libopenjp2.so.2.5.4 / SONAME).
+    # Use the regular v3.21 repository; do not fetch APKs from other releases.
+    && apk add --no-cache 'openjpeg=2.5.4-r1' \
+    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r1' \
+    && test "$(apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]')" = "$musl_before" \
     && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
     && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.9.0-r0' \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
@@ -94,9 +93,7 @@ RUN apk add --no-cache --upgrade 'musl-utils=1.2.5-r11' 'zlib=1.3.2-r1' 'libexpa
       | wc -l | tr -d ' ')" = '0' \
     && for path in \
       etc/apk/world \
-      lib/apk/db/installed lib/apk/db/scripts.tar lib/apk/db/triggers \
-      sbin/ldconfig \
-      usr/bin/getconf usr/bin/getent usr/bin/iconv usr/bin/ldd; do \
+      lib/apk/db/installed lib/apk/db/scripts.tar lib/apk/db/triggers; do \
       mkdir -p "/toybaco-runtime-root/$(dirname "$path")"; \
       cp -p "/$path" "/toybaco-runtime-root/$path"; \
     done \
@@ -129,11 +126,43 @@ RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libss
     && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)' \
     && test "$(apk info -v | grep '^tiff-')" = 'tiff-4.7.2-r0' \
     && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}'
+# Alpine 3.21 backports the publisher's 2026-10-21 curl/pcre2 findings without an OS or ABI change.
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/curl/APKBUILD
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/pcre2/APKBUILD
+# Exact requests keep already-satisfied dependencies, including the existing CA trust bundle.
+RUN ca_bundle_before="$(apk info -v | grep '^ca-certificates-bundle-')" \
+    && apk add --no-cache 'curl=8.14.1-r3' 'libcurl=8.14.1-r3' 'pcre2=10.43-r1' \
+    && test "$(apk info -v | grep '^ca-certificates-bundle-')" = "$ca_bundle_before" \
+    && test "$(apk info -v | grep '^curl-')" = 'curl-8.14.1-r3' \
+    && test "$(apk info -v | grep '^libcurl-')" = 'libcurl-8.14.1-r3' \
+    && test "$(apk info -v | grep '^pcre2-')" = 'pcre2-10.43-r1' \
+    && curl --version | head -n 1 | grep -F 'libcurl/8.14.1' \
+    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}], [], Fiddle::TYPE_VOIDP).call.to_s.start_with?(%q{libcurl/8.14.1 })' \
+    && ruby -rfiddle -e 'config = Fiddle::Function.new(Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}], [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT); version = Fiddle::Pointer.malloc(128); abort unless config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })'
+# Alpine 3.21 backports musl CVE-2026-107891 in 1.2.5-r12 and ships the c-ares 1.34.9 security release (libcurl's
+# resolver) with the same SONAMEs. musl moves only here, where apk rewrites the loader itself; its version string
+# cannot tell r11 from r12, so the files are checked against the new apk records. No other package may change.
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/musl/APKBUILD
+# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/c-ares/APKBUILD
+RUN ca_trust_before="$(apk info -v | grep '^ca-certificates-bundle-')" \
+    && others_before="$(apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares)-[0-9]' | sort)" \
+    && apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0' \
+    && test "$(apk info -v | grep '^ca-certificates-bundle-')" = "$ca_trust_before" \
+    && test "$(apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares)-[0-9]' | sort)" = "$others_before" \
+    && test "$(apk info -v | grep '^musl-[0-9]')" = 'musl-1.2.5-r12' \
+    && test "$(apk info -v | grep '^musl-utils-[0-9]')" = 'musl-utils-1.2.5-r12' \
+    && test "$(apk info -v | grep '^musl-dev-[0-9]')" = 'musl-dev-1.2.5-r12' \
+    && test "$(apk info -v | grep '^c-ares-[0-9]')" = 'c-ares-1.34.9-r0' \
+    && test "$(readlink /lib/libc.musl-x86_64.so.1)" = 'ld-musl-x86_64.so.1' \
+    && test ! -e /usr/lib/libcares.so.2.19.7 \
+    && ruby -rdigest -e 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8] - verified).empty?' \
+    && curl --version | head -n 1 | grep -F ' c-ares/1.34.9 ' \
+    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}'
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
     && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libexpat.so.1.12.4 /usr/lib/libopenjp2.so.2.5.2 \
     && test ! -e /usr/local/lib/node_modules/npm \
     && test ! -e /app/tests/playwright \
-    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r0' \
+    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r1' \
     && test "$(readlink /usr/lib/libopenjp2.so.7)" = 'libopenjp2.so.2.5.4' \
     && test ! -e /usr/lib/libopenjp2.so.2.5.2 \
     && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}" \
