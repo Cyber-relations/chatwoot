@@ -724,6 +724,175 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
 }
 const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerignore'].map(path =>
   readFileSync(join(root, path), 'utf8'));
+function validateFinalCurlPcre(dockerfile, gateSource) {
+  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
+  assert.ok(final.includes("apk add --no-cache 'curl=8.14.1-r3'"), 'CA-preserving package install missing');
+  assert.ok(final.includes("ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\""), 'CA-preserving package install missing');
+  assert.ok(final.includes("test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\""), 'CA-preserving package install missing');
+  assert.ok(gateSource.includes("= \"ca-certificates-bundle-20241121-r1\""), 'runtime CA bundle changed');
+  for (const [name, version] of [['curl', '8.14.1-r3'], ['libcurl', '8.14.1-r3'], ['pcre2', '10.43-r1']]) {
+    assert.ok(final.includes(`'${name}=${version}'`), `final security upgrade missing: ${name}`);
+    assert.ok(final.includes(`= '${name}-${version}'`), `final package verification missing: ${name}`);
+    assert.match(gateSource, new RegExp(`\\b${name}=${version.replaceAll('.', '\\.')}\\b`),
+      `gate security pin missing: ${name}`);
+    assert.ok(gateSource.includes(`= "${name}-${version}"`), `runtime package verification missing: ${name}`);
+  }
+  for (const required of [
+    'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+    'call.to_s.start_with?(%q{libcurl/8.14.1 })',
+    'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+    'config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })',
+  ]) {
+    assert.ok(final.includes(required), `final library verification missing: ${required}`);
+    assert.ok(gateSource.includes(required), `runtime library verification missing: ${required}`);
+  }
+}
+validateFinalCurlPcre(buildInputs[0], gate);
+let curlPcreNegatives = 0;
+for (const text of [
+  "apk add --no-cache 'curl=8.14.1-r3'",
+  "ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\"",
+  "test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\"",
+  "'curl=8.14.1-r3'", "'libcurl=8.14.1-r3'", "'pcre2=10.43-r1'",
+  "= 'curl-8.14.1-r3'", "= 'libcurl-8.14.1-r3'", "= 'pcre2-10.43-r1'",
+  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+]) {
+  assert.throws(() => validateFinalCurlPcre(buildInputs[0].replace(text, 'omitted'), gate));
+  curlPcreNegatives++;
+}
+for (const text of [
+  "= \"ca-certificates-bundle-20241121-r1\"",
+  'curl=8.14.1-r3', 'libcurl=8.14.1-r3', 'pcre2=10.43-r1',
+  '= "curl-8.14.1-r3"', '= "libcurl-8.14.1-r3"', '= "pcre2-10.43-r1"',
+  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
+  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
+]) {
+  assert.throws(() => validateFinalCurlPcre(buildInputs[0], gate.replace(text, 'omitted')),
+    `omitted gate proof must fail: ${text}`);
+  curlPcreNegatives++;
+}
+console.log(`Chatwoot final curl/pcre2 security contract: PASS (${curlPcreNegatives} omission controls)`);
+// Alpine 3.21 musl 1.2.5-r12 (CVE-2026-107891) and c-ares 1.34.9-r0. runtime-hardening hands its apk DB to the final
+// stage without /lib/ld-musl-x86_64.so.1 (or libcares), so neither may move there: a DB claiming the new build over
+// the old loader would also make the final stage's request a no-op. The final stage upgrades them, and the build and
+// the runtime probe check the installed files against the new apk records, because musl's version cannot tell r11
+// from r12.
+const MUSL_CARES = [['musl', '1.2.5-r12'], ['musl-utils', '1.2.5-r12'], ['musl-dev', '1.2.5-r12'], ['c-ares', '1.34.9-r0']];
+const MUSL_CARES_INSTALL = "apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0'";
+const MUSL_FAMILY = "apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]'";
+const OTHER_PACKAGES = "apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares)-[0-9]' | sort";
+const APK_RECORD_PROOF = 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8] - verified).empty?';
+const CARES_LOAD_PROOF = 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}';
+const HARDENING_MUSL_GUARD = [
+  `RUN musl_before="$(${MUSL_FAMILY})" \\\n    && apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \\\n`,
+  `test "$(${MUSL_FAMILY})" = "$musl_before"`,
+];
+const MUSL_CARES_DOCKER_PROOFS = [
+  "ca_trust_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\"",
+  "test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_trust_before\"",
+  `others_before="$(${OTHER_PACKAGES})"`,
+  `test "$(${OTHER_PACKAGES})" = "$others_before"`,
+  ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep '^${name}-[0-9]')" = '${name}-${version}'`),
+  "test \"$(readlink /lib/libc.musl-x86_64.so.1)\" = 'ld-musl-x86_64.so.1'",
+  'test ! -e /usr/lib/libcares.so.2.19.7',
+  `ruby -rdigest -e '${APK_RECORD_PROOF}'`,
+  "curl --version | head -n 1 | grep -F ' c-ares/1.34.9 '",
+  `ruby -rfiddle -e '${CARES_LOAD_PROOF}'`,
+];
+const MUSL_CARES_GATE_PROOFS = [
+  "grep -Fq '= \"$musl_before\"' \"$CONTROL_ROOT/Dockerfile\"",
+  `grep -Fq '${APK_RECORD_PROOF}' \\\n    "$CONTROL_ROOT/Dockerfile"`,
+  "grep -Fq 'Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}]' \"$CONTROL_ROOT/Dockerfile\"",
+  ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep "^${name}-[0-9]")" = "${name}-${version}"`),
+  'test "$(readlink /lib/libc.musl-x86_64.so.1)" = "ld-musl-x86_64.so.1"',
+  'test ! -e /usr/lib/libcares.so.2.19.7',
+  `ruby -rdigest -e "${APK_RECORD_PROOF}"`,
+  'curl --version | head -n 1 | grep -F " c-ares/1.34.9 "',
+  `ruby -rfiddle -e "${CARES_LOAD_PROOF}"`,
+];
+const SBOM_PROOFS = [
+  "{ 'musl' => '1.2.5-r12', 'musl-utils' => '1.2.5-r12', 'musl-dev' => '1.2.5-r12', 'c-ares' => '1.34.9-r0' }.each do |name, version|",
+  "package['name'] == name && package['versionInfo'] == version",
+];
+const sbomVerifiers = ['tests/verify_chatwoot_oci_archive.rb', 'tests/verify_chatwoot_release_artifact.rb'].map(path =>
+  readFileSync(join(root, path), 'utf8'));
+function validateFinalMuslCares(dockerfile, gateSource, verifiers) {
+  const hardeningStart = dockerfile.indexOf('\nFROM localized-assets AS runtime-hardening\n');
+  const finalStart = dockerfile.lastIndexOf('\nFROM bundled-gems\n');
+  assert.ok(hardeningStart >= 0 && finalStart > hardeningStart, 'runtime-hardening stage missing');
+  const hardening = dockerfile.slice(hardeningStart, finalStart);
+  for (const required of HARDENING_MUSL_GUARD) {
+    assert.ok(hardening.includes(required), `runtime-hardening musl guard missing: ${required}`);
+  }
+  assert.doesNotMatch(hardening, /'(musl|musl-utils|musl-dev|c-ares)=|apk add --no-cache --upgrade/,
+    'runtime-hardening must not move musl or c-ares');
+  const final = dockerfile.slice(finalStart);
+  const install = final.indexOf(MUSL_CARES_INSTALL);
+  const curlPcre = final.indexOf("apk add --no-cache 'curl=8.14.1-r3'");
+  assert.ok(install >= 0 && curlPcre >= 0 && final.lastIndexOf('\nRUN ', install) > curlPcre,
+    'musl/c-ares upgrade must be its own final-stage RUN after curl/pcre2');
+  const end = final.indexOf('\nRUN ', install);
+  const run = final.slice(final.lastIndexOf('\nRUN ', install), end < 0 ? undefined : end);
+  for (const required of MUSL_CARES_DOCKER_PROOFS) {
+    assert.ok(run.includes(required), `final musl/c-ares proof missing: ${required}`);
+  }
+  for (const [name, version] of MUSL_CARES) {
+    assert.match(gateSource, new RegExp(`\\b${name}=${version.replaceAll('.', '\\.')}\\b`),
+      `gate musl/c-ares pin missing: ${name}`);
+  }
+  for (const required of MUSL_CARES_GATE_PROOFS) {
+    assert.ok(gateSource.includes(required), `gate musl/c-ares proof missing: ${required}`);
+  }
+  for (const verifier of verifiers) {
+    for (const required of SBOM_PROOFS) {
+      assert.ok(verifier.includes(required), `SBOM musl/c-ares proof missing: ${required}`);
+    }
+  }
+  for (const source of [dockerfile, gateSource, ...verifiers]) {
+    assert.ok(!source.includes('1.2.5-r11'), 'superseded musl 1.2.5-r11 remains');
+  }
+}
+validateFinalMuslCares(buildInputs[0], gate, sbomVerifiers);
+let muslCaresNegatives = 0;
+for (const text of [
+  ...HARDENING_MUSL_GUARD, MUSL_CARES_INSTALL,
+  ...MUSL_CARES.map(([name, version]) => `'${name}=${version}'`),
+  ...MUSL_CARES_DOCKER_PROOFS,
+]) {
+  assert.throws(() => validateFinalMuslCares(swapOnce(buildInputs[0], text, 'omitted', text), gate, sbomVerifiers),
+    `omitted Dockerfile musl/c-ares proof must fail: ${text}`);
+  muslCaresNegatives++;
+}
+// Re-creating the trap: musl, musl-utils or c-ares moved in runtime-hardening, or its request upgrading dependencies.
+for (const [from, to] of [
+  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl-utils=1.2.5-r12' 'zlib=1.3.2-r1'"],
+  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl=1.2.5-r12' 'zlib=1.3.2-r1'"],
+  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'c-ares=1.34.9-r0' 'zlib=1.3.2-r1'"],
+  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache --upgrade 'zlib=1.3.2-r1'"],
+]) {
+  assert.throws(() => validateFinalMuslCares(swapOnce(buildInputs[0], from, to, from), gate, sbomVerifiers),
+    `runtime-hardening musl trap must fail: ${to}`);
+  muslCaresNegatives++;
+}
+for (const text of [
+  ...MUSL_CARES.map(([name, version]) => `${name}=${version}`),
+  ...MUSL_CARES_GATE_PROOFS,
+]) {
+  assert.throws(() => validateFinalMuslCares(buildInputs[0], swapOnce(gate, text, 'omitted', text), sbomVerifiers),
+    `omitted gate musl/c-ares proof must fail: ${text}`);
+  muslCaresNegatives++;
+}
+for (const [index, verifier] of sbomVerifiers.entries()) {
+  for (const text of [...MUSL_CARES.map(([name, version]) => `'${name}' => '${version}'`), SBOM_PROOFS[1]]) {
+    const mutated = [...sbomVerifiers];
+    mutated[index] = swapOnce(verifier, text, 'omitted', text);
+    assert.throws(() => validateFinalMuslCares(buildInputs[0], gate, mutated),
+      `omitted SBOM musl/c-ares proof must fail: ${text}`);
+    muslCaresNegatives++;
+  }
+}
+console.log(`Chatwoot final musl/c-ares security contract: PASS (${muslCaresNegatives} omission controls)`);
 function validateFinalTiff(dockerfile) {
   const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
   for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",

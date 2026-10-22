@@ -9,6 +9,9 @@ require_relative 'redis_key_family'
 #   unnamed: 名前の無いそれ以外の DB / other: 名前のあるそれ以外
 # 接続元の address・port・user は出さず、census 以外の接続元の異なる host の数だけを出す。fence(writer の停止)の後に、census 自身
 # 以外の client が残っていないことを確かめるために使う。CLIENT が使えない Redis では unavailable の 1 行だけを出す(class 名だけ)。
+# 自分の行は、名前が toybaco-redis-census で、実行中の command が CLIENT LIST(client|list)の行がちょうど 1 つの時だけ、その 1 行を
+# 除く(others)。同じ名前の別の接続(並行の census など)は others に数え、自分の行を 1 つに決められなければ何も除かない。
+# CLIENT ID は census の profile の allowlist に無い(RedisCommandGuard)ので使わない。
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
     module RedisClientList
@@ -30,7 +33,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       def summary(prefix, rows)
-        others = rows.reject { |row| kind(row) == 'census' }
+        own = rows.select { |row| own?(row) }
+        others = own.length == 1 ? rows.reject { |row| row.equal?(own.first) } : rows
         hosts = others.map { |row| host(row['addr']) }.uniq.length
         "#{prefix} clients total=#{rows.length} others=#{others.length} distinct-hosts=#{hosts}"
       end
@@ -43,6 +47,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def group(row)
         [kind(row), RedisKeyFamily.token(row['db']), RedisKeyFamily.token(row['cmd'].to_s.tr('|', '.')), RedisKeyFamily.token(row['flags'])]
+      end
+
+      # CLIENT LIST を送っている census 自身の行か(Redis 7 は cmd=client|list、6 は cmd=client)。
+      def own?(row)
+        kind(row) == 'census' && %w[client|list client].include?(row['cmd'].to_s)
       end
 
       # 名前と DB から KINDS のどれか。名前の生値は返さない。
