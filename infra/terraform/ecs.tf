@@ -236,6 +236,25 @@ resource "aws_ecs_task_definition" "rails" {
   tags = local.tags
 }
 
+# Instagram の token 更新の定期 job(Toybaco::InstagramTokenRefreshJob)の停止の設定。秘密でない値で、sidekiq の task だけへ渡す。
+# off の Sidekiq は、起動時にこの cron だけを消し、自分が取った同じ class の job(cron が消える前に積まれた分や retry)は
+# API を呼ばずに終える。off が効くのは deploy が成功して全 task が off の revision に替わった後だけで、deploy の失敗で
+# 直前の revision(on)へ戻ると、その worker が cron を登録し直す(docs/managed-deploy.md の Instagram の節)。
+# off の間も job class を含む image を保つ(class の無い旧 image へ戻すと、残った job が終われない)。
+# 値は deploy-managed.yml の plan と apply の両 job へ、同じ Environment の変数から渡す(未設定は on)。
+# 宣言をこのファイルに置くのは、bin/toybaco-postiz-gate の Terraform の名簿(TERRAFORM_FILES)を変えないため。
+# IAM・network・secret・provider の権限は変えない。
+variable "instagram_token_refresh" {
+  description = "Sidekiq-only Instagram scheduled refresh control; off stops cron and makes queued jobs no-op."
+  type        = string
+  default     = "on"
+
+  validation {
+    condition     = contains(["on", "off"], var.instagram_token_refresh)
+    error_message = "instagram_token_refresh must be on or off."
+  }
+}
+
 resource "aws_ecs_task_definition" "sidekiq" {
   family                   = "${local.project}-sidekiq"
   requires_compatibilities = ["FARGATE"]
@@ -251,7 +270,7 @@ resource "aws_ecs_task_definition" "sidekiq" {
     image            = local.chatwoot_image
     essential        = true
     command          = ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
-    environment      = concat(local.app_environment, local.app_staging_environment)
+    environment      = concat(local.app_environment, local.app_staging_environment, [{ name = "TOYBACO_INSTAGRAM_TOKEN_REFRESH", value = var.instagram_token_refresh }])
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])

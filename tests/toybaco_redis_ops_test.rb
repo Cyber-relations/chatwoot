@@ -126,10 +126,10 @@ class FakeRedis
         alive = keys.keys.count { |key| live_in(db, key) }
         "db#{db}:keys=#{alive},expires=#{keys.count { |_, entry| entry[:expire] }},avg_ttl=0\r\n" if alive.positive?
       end.join
-    when 'server' then "# Server\r\nredis_version:7.1.0\r\n"
+    when 'server' then "# Server\r\nredis_version:7.1.0\r\nrun_id:fedcba9876543210fedcba9876543210fedcba98\r\n"
     when 'replication' then "# Replication\r\nrole:master\r\n"
     when 'memory' then "# Memory\r\nused_memory:1048576\r\nmaxmemory:0\r\nmaxmemory_policy:volatile-lru\r\n"
-    when 'persistence' then "# Persistence\r\nrdb_changes_since_last_save:42\r\n"
+    when 'persistence' then "# Persistence\r\nrdb_changes_since_last_save:42\r\nrdb_last_save_time:1759990001\r\n"
     when 'stats' then "# Stats\r\nexpired_keys:7\r\nevicted_keys:0\r\n"
     else "# Clients\r\nconnected_clients:3\r\nblocked_clients:1\r\n"
     end
@@ -389,7 +389,7 @@ class ToybacoRedisOpsTest < Minitest::Test
     assert_match(/\A#{Census::PREFIX} start at=\S+ tls=on verify=peer target=toybaco-redis-enc\z/, lines.first)
     assert_includes lines, "#{Census::PREFIX} server version=7.1.0 role=master used-memory=1048576 maxmemory=0 " \
                            'maxmemory-policy=volatile-lru connected-clients=3 blocked-clients=1 changes-since-save=42 expired-keys=7 ' \
-                           'evicted-keys=0'
+                           'evicted-keys=0 run-id=fedcba9876543210fedcba9876543210fedcba98 last-save-time=1759990001'
     state = field(lines, 'family', 'alfred.TOYBACO-CONNECTION-STATE')
     assert_equal({ 'keys' => '2', 'string' => '2', 'ttl-le-1m' => '1', 'ttl-le-1h' => '1', 'ttl-none' => '0' },
                  state.slice('keys', 'string', 'ttl-le-1m', 'ttl-le-1h', 'ttl-none'))
@@ -445,6 +445,18 @@ class ToybacoRedisOpsTest < Minitest::Test
     refute_match(/10\.0\.2\.|6000|1234|deadbeef|Sidekiq-server|ActionCable-PID|mail@example|secret-client/, lines.join("\n"),
                  'client names, addresses and ports are never printed')
     lines.select { |line| line.include?(' client ') }.each { |line| refute_includes line, 'name=' }
+  end
+
+  # 自分の行(名前が census で CLIENT LIST を実行中)を 1 つだけ除く。同じ名前の別の接続は others に数え、自分を決められなければ除かない。
+  def test_census_excludes_only_its_own_client_list_row
+    own = "id=7 addr=10.0.0.9:5000 laddr=10.0.0.1:6379 fd=8 name=toybaco-redis-census age=0 idle=0 flags=N db=0 cmd=client|list\n"
+    other_census = "id=8 addr=10.0.2.3:6000 laddr=10.0.0.1:6379 fd=9 name=toybaco-redis-census age=9 idle=1 flags=N db=0 cmd=scan\n"
+    assert_includes census(client_list: own + other_census), "#{Census::PREFIX} clients total=2 others=1 distinct-hosts=1"
+    twins = own + own.sub('id=7', 'id=9').sub('5000', '5001')
+    assert_includes census(client_list: twins), "#{Census::PREFIX} clients total=2 others=2 distinct-hosts=1",
+                    'two rows that both look like the caller are not excluded'
+    assert_includes census(client_list: other_census), "#{Census::PREFIX} clients total=1 others=1 distinct-hosts=1",
+                    'a census-named connection that is not running CLIENT LIST is another client'
   end
 
   def test_census_reports_unavailable_client_list

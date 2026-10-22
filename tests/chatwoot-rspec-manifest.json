@@ -24,10 +24,11 @@
     "run_time",
     "status"
   ],
-  "example_count": 1088,
-  "examples_sha256": "bc618c9d385568be9886f195c92c336de3edbe32b4d72132abff1c9d66bfeee2",
+  "example_count": 1114,
+  "examples_sha256": "7168e0006f52103942d552caf6e184668056d0e19242884bb8438860979448a8",
   "spec_inventory": "complete",
   "spec_files": [
+    "spec/jobs/toybaco/instagram_token_refresh_job_spec.rb",
     "spec/lib/toybaco/ai_inbox_status_spec.rb",
     "spec/lib/toybaco/ai_usage_database_spec.rb",
     "spec/lib/toybaco/checkout/plan_change_lock_spec.rb",
@@ -37,6 +38,7 @@
     "spec/lib/toybaco/dashboard_frame_policy_spec.rb",
     "spec/lib/toybaco/growth/automated_mail_spec.rb",
     "spec/lib/toybaco/inbound_email_route_log_spec.rb",
+    "spec/lib/toybaco/instagram_token_refresh_cron_spec.rb",
     "spec/lib/toybaco/installation_config_logging_spec.rb",
     "spec/lib/toybaco/mail_presenter_headers_spec.rb",
     "spec/lib/toybaco/oidc/session_reader_spec.rb",

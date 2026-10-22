@@ -32,13 +32,15 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       TTL_COLUMNS = (['ttl-none'] + TTL_BUCKETS.map(&:last) + ['ttl-gt-30d']).freeze
       COLUMNS = (['keys'] + TYPES + %w[other-type vanished items] + TTL_COLUMNS).freeze
       # persistence の rdb_changes_since_last_save は最後の保存以降の書き込み(期限切れの削除を含む)の数。fence の後に 2 回 census を
-      # 取り、その増分が expired_keys の増分を超えなければ、書く client は残っていない(計画書の fence の確認)。
+      # 取り、その増分が expired_keys の増分を超えなければ、書く client は残っていない(計画書の fence の確認)。server の run_id
+      # (process の起動ごとに変わる)と persistence の rdb_last_save_time(最後の保存の時刻)も出し、2 回の間に再起動や保存が挟まった
+      # 比較を census-diff が unknown にする(counter が 0 に戻るため)。
       INFO_SECTIONS = %w[server replication memory clients persistence stats].freeze
       # server 行の列と INFO の項目名(出力の順)。
       SERVER_FIELDS = { version: 'redis_version', role: 'role', used_memory: 'used_memory', maxmemory: 'maxmemory',
                         maxmemory_policy: 'maxmemory_policy', connected_clients: 'connected_clients', blocked_clients: 'blocked_clients',
                         changes_since_save: 'rdb_changes_since_last_save', expired_keys: 'expired_keys',
-                        evicted_keys: 'evicted_keys' }.freeze
+                        evicted_keys: 'evicted_keys', run_id: 'run_id', last_save_time: 'rdb_last_save_time' }.freeze
 
       module_function
 
