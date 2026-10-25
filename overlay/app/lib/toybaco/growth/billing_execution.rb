@@ -29,6 +29,7 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
       if @event.deadline_at <= @now || @event.attempts >= @event.attempt_limit
         @event.update!(state: 'attention', result: 'retry_limit', lease_token: nil, lease_expires_at: nil)
         Rails.logger.error('TOYBACO_BILLING_ATTENTION retry_limit=true')
+        Rails.logger.error("TOYBACO_BILLING_ATTENTION_NEW receipt=#{@event.id} result=retry_limit")
         expired = true
         next
       end
@@ -49,7 +50,22 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
     tell_operations(result) if @event.state == 'attention'
   end
 
-  # 開通の受付だけ、店舗を作れなかったことを運営へメールでも知らせる(アラームは状態が続く間ずっと赤のため)。
+  # attention に決まる時は、TOYBACO_BILLING_ATTENTION_NEW を commit の前(行 lock の中、update! の直後)に出す。commit の後に出すと、
+  # その間に worker が止まった時に行もメールも出ず、行は再び claim されず、毎分の sweep の行は alarm に当たらないため、日次ダイジェストまで
+  # 気付かない。commit が失敗した時は alarm が偽陽性になるが、取りこぼしよりよい。行を書かなかった時(lease を失った時)は出さない。
+  def finish!(state, result)
+    return super unless state == 'attention'
+
+    Toybaco::BillingEvent.transaction do
+      written = super
+      Rails.logger.error("TOYBACO_BILLING_ATTENTION_NEW receipt=#{@event.id} result=#{result}") if written && @event.state == 'attention'
+      written
+    end
+  end
+
+  # 受付が attention になる 2 か所(claim の期限切れと fail!)だけが TOYBACO_BILLING_ATTENTION_NEW を 1 回出し、billing-attention の
+  # alarm はこの行を数える(毎分の BillingReceipt.sweep が残る間ずっと出す pending_receipts=true の行は数えない)。
+  # 開通の受付だけ、店舗を作れなかったことを運営へメールでも知らせる(alarm の通知には受付の中身が載らないため)。
   def tell_operations(result)
     Toybaco::Growth::OpeningOperations.failed!(@event, result) if @event.action == 'opening_checkout'
   end

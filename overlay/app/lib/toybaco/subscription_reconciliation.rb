@@ -90,6 +90,24 @@ module Toybaco::SubscriptionReconciliation
     STATES.include?(record.state) && record.next_attempt_at <= now
   end
 
+  # The expiry shared by Execution's claim! and pre-claim barrier: attention with the expiry
+  # result. Called under the request lock.
+  def expire!(record, result, now)
+    record.update!(state: 'attention', result: result, next_enqueue_at: now)
+    log_transition(record)
+  end
+
+  # One line for each request that newly turns attention (Execution's pre-claim barrier, claim!'s
+  # expiry and finish!), which the subscription-sync-attention alarm counts. The sweep's bare
+  # TOYBACO_SUBSCRIPTION_SYNC_ATTENTION repeats every minute while any attention stays and is not
+  # the alarm's basis, so an attention left open no longer hides the next one. Callers run it right
+  # after the transition, under the request lock. Every unresolved store waits into attention, also
+  # another product's subscription on the shared Stripe account: no local fact proves a subscription
+  # foreign, so an operator closes that one (toybaco:sync_attention_close[id,foreign]).
+  def log_transition(record)
+    Rails.logger.error("TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{record.id} result=#{record.result}") if record.state == 'attention'
+  end
+
   # An attention request whose store still skips the suspension for a Free return that
   # never finished: the bound store is active and still holds this subscription, with its
   # unfinished cancel journal or, before any journal, the Sync's mark of the skipped

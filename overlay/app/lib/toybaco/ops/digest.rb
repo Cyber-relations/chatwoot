@@ -74,7 +74,9 @@ class Toybaco::Ops::Digest
       return false
     end
 
-    if Toybaco::Growth::OpeningOperations.recipient.blank?
+    # 宛先は主宛先か 2 本目(OpeningOperations::SECONDARY_ENV)のどちらかがあればよい。どちらへ送るかは配送時に OperationsMailer が決める。
+    operations = Toybaco::Growth::OpeningOperations
+    if operations.recipient.blank? && operations.recipient(ENV, operations::SECONDARY_ENV).blank?
       Rails.logger.warn('TOYBACO_OPS_DIGEST_SKIPPED reason=recipient')
       return false
     end

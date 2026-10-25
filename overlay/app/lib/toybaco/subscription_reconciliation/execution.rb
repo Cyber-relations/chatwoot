@@ -11,6 +11,7 @@ class Toybaco::SubscriptionReconciliation::Execution
   include Toybaco::SubscriptionReconciliation::Processing
   # The Sync's own rule for a suspension (SubscriptionSyncStatus#suspended_status?), used as is.
   STATUS_RULES = Object.new.extend(Toybaco::SubscriptionSyncStatus).freeze
+  RULES = Toybaco::SubscriptionReconciliation
 
   def initialize(record, client: nil, now: nil, environment: ENV)
     @record = record
@@ -61,14 +62,14 @@ class Toybaco::SubscriptionReconciliation::Execution
 
   # Only the retry slot moves, so the sweep does not re-enqueue the request every tick.
   # Attempts stay. A pending request at its deadline ends in attention with the same
-  # expiry rule as claim!; a running one (a crash inside a claim) is left to claim!.
+  # expiry rule as claim! (SubscriptionReconciliation.expire!); a running one (a crash
+  # inside a claim) is left to claim!.
   def defer_behind_barrier!
     @record.with_lock do
       next unless Toybaco::SubscriptionReconciliation::STATES.include?(@record.state)
 
       if @record.state == 'pending' && @record.deadline_at <= now
-        @record.update!(state: 'attention', result: expired_result, next_enqueue_at: now)
-        Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION')
+        RULES.expire!(@record, expired_result, now)
       else
         @record.update!(next_attempt_at: deferred_slot, next_enqueue_at: now + 60)
       end
@@ -155,7 +156,7 @@ class Toybaco::SubscriptionReconciliation::Execution
         next reclaim_orphan! if orphan_rearmable?
 
         @expired_return = @record.result == 'free_return_pending'
-        @record.update!(state: 'attention', result: expired_result, next_enqueue_at: now)
+        RULES.expire!(@record, expired_result, now)
         next false
       end
 
@@ -212,9 +213,8 @@ class Toybaco::SubscriptionReconciliation::Execution
     @record.with_lock do
       raise Toybaco::SubscriptionReconciliation::Invalid unless current_claim?
 
-      values = completion_values(state, result)
-      @record.update!(values)
-      Rails.logger.error('TOYBACO_SUBSCRIPTION_SYNC_ATTENTION') if values[:state] == 'attention'
+      @record.update!(completion_values(state, result))
+      RULES.log_transition(@record)
       @record.state
     end
   end

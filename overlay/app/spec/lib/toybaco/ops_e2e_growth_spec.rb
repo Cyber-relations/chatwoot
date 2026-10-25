@@ -400,6 +400,7 @@ RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFo
         expect(run!('e2e_purge_accounts', prefix))
           .to eq(["TOYBACO_E2E_PURGE prefix=#{prefix} accounts=1 users=1 skipped_users=0 remaining=0",
                   "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} trials=1 identities=1 installations=1",
+                  "TOYBACO_E2E_PURGE_BILLING prefix=#{prefix} events=0 requests=0 inflight=0",
                   "TOYBACO_E2E_PURGE_OPENING prefix=#{prefix} requests=0 events=0 notices=0"])
         expect([Account.exists?(account.id), User.exists?(user.id), Toybaco::GrowthTrialIdentity.where(trial_id: trial_ids).count])
           .to eq([false, false, 0])

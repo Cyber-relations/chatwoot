@@ -54,19 +54,21 @@ module ToybacoOpeningFixture
   end
 
   # Runs the block with an operations address and returns the operations mails it queued, rendered by the real mailer.
+  # OperationsMailer queues them on its own delivery job (Toybaco::OperationsMailDeliveryJob, which keeps job arguments out of the logs
+  # and seals them in the job payload), so each job is restored through the job's own deserialize before it runs.
   def operations_mail(address: 'ops@example.invalid', environment: {})
-    keys = %w[TOYBACO_OPERATIONS_EMAIL TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_DEPLOYMENT_ENVIRONMENT]
+    keys = %w[TOYBACO_OPERATIONS_EMAIL TOYBACO_OPERATIONS_ALERT_EMAIL TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_DEPLOYMENT_ENVIRONMENT]
     saved = ENV.to_h.slice(*keys)
     mailer = [ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries]
-    ENV.delete('TOYBACO_STAGING_FIXTURE_EMAILS') unless environment.key?('TOYBACO_STAGING_FIXTURE_EMAILS')
+    %w[TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_OPERATIONS_ALERT_EMAIL].each { |key| ENV.delete(key) unless environment.key?(key) }
     ENV.update({ 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production' }.merge(environment).merge('TOYBACO_OPERATIONS_EMAIL' => address))
     ActionMailer::Base.delivery_method = :test
     ActionMailer::Base.perform_deliveries = true
     ActionMailer::Base.deliveries.clear
     ActiveJob::Base.queue_adapter.enqueued_jobs.clear
     yield
-    ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == ActionMailer::MailDeliveryJob }.each do |job|
-      job[:job].new(*ActiveJob::Arguments.deserialize(job[:args])).perform_now
+    ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == Toybaco::OperationsMailDeliveryJob }.each do |job|
+      job[:job].deserialize(job).perform_now
     end
     ActionMailer::Base.deliveries.dup
   ensure

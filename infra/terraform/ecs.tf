@@ -193,6 +193,9 @@ locals {
     { name = "TOYBACO_STRIPE_KEY", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_KEY::" },
     { name = "TOYBACO_STRIPE_BILLING_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_BILLING_WEBHOOK_SECRET::" },
     { name = "TOYBACO_STRIPE_PACK_WEBHOOK_SECRET", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_STRIPE_PACK_WEBHOOK_SECRET::" },
+    # 運営通知の 2 本目の宛先(alerts の主宛先 alert_email。個人宛なので平文の env にしない)。会社ドメインの受信箱が届かなくなっても
+    # 通知が残るように、Rails が配送時に Bcc で足す(Growth::OpeningOperations::SECONDARY_ENV)。staging は空(fixture 名簿の外へ送らない)。
+    { name = "TOYBACO_OPERATIONS_ALERT_EMAIL", valueFrom = "${aws_secretsmanager_secret.app.arn}:TOYBACO_OPERATIONS_ALERT_EMAIL::" },
 
     # トイバコID の合言葉と、投稿画面側へ会社・利用者を作るための接続情報
     { name = "TOYBACO_OIDC_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.postiz.arn}:OIDC_CLIENT_SECRET::" },

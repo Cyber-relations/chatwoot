@@ -93,10 +93,11 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
     account.reload.internal_attributes.dig('toybaco_growth_registration', 'phase')
   end
 
-  # 削除の出力の 3 行(店舗・利用者の件数の行と、消した体験と自動応答の記録の件数の行と、消した開通の受付の記録の件数の行)。
-  def purged(prefix, counts, growth = 'trials=0 identities=0 installations=0', opening = 'requests=0 events=0 notices=0')
+  # 削除の出力の 4 行(店舗・利用者の件数の行と、消した体験と自動応答の記録の件数の行と、消した課金の記録の件数の行と、消した開通の受付の記録の件数の行)。
+  def purged(prefix, counts, growth = 'trials=0 identities=0 installations=0', opening = 'requests=0 events=0 notices=0',
+             billing = 'events=0 requests=0 inflight=0')
     ["TOYBACO_E2E_PURGE prefix=#{prefix} #{counts}", "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} #{growth}",
-     "TOYBACO_E2E_PURGE_OPENING prefix=#{prefix} #{opening}"]
+     "TOYBACO_E2E_PURGE_BILLING prefix=#{prefix} #{billing}", "TOYBACO_E2E_PURGE_OPENING prefix=#{prefix} #{opening}"]
   end
 
   # 開通の受付(toybaco_opening_requests)と、それに結んだ event(toybaco_billing_events)を作る。店舗に結ぶときは account_ready の形にする。

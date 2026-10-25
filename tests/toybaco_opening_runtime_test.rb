@@ -241,7 +241,38 @@ class ToybacoOpeningRuntimeTest < Minitest::Test
     end
   end
 
-  # アラーム(monitoring.tf の billing_attention)は、確認待ちの受付が残る間は毎分の sweep の出力で保たれる。
+  # 2 本目の宛先(TOYBACO_OPERATIONS_ALERT_EMAIL)は配送時に Bcc で足し、job の引数に載せない。主宛先が無くても 2 本目へ届く。
+  def test_operations_notices_bcc_the_second_address_resolved_at_delivery
+    second = { 'TOYBACO_OPERATIONS_ALERT_EMAIL' => ' Owner@Example.invalid ' }
+    mails = operations_mail(environment: second) do
+      assert_equal 'opening_account_ready', fulfill(accept)
+      # 配送 job は payload の arguments を封印するので、unseal で戻して読む(選んだ job が空だと refute が空振りで通る)。
+      jobs = ActiveJob::Base.queue_adapter.enqueued_jobs.select { |job| job[:job] == Toybaco::OperationsMailDeliveryJob }
+      refute_empty jobs
+      refute_includes jobs.map { |job| Toybaco::OperationsMailDeliveryJob.unseal(job) }.inspect.downcase, 'owner@example.invalid'
+    end
+    assert_equal [['ops@example.invalid'], ['owner@example.invalid']], [mails.first.to, mails.first.bcc]
+    message = { subject: '【トイバコ】fixture', lines: ['fixture'] }
+    mails = operations_mail(address: 'not-an-address', environment: second) { assert Growth::OpeningOperations.deliver(message) }
+    assert_equal [['owner@example.invalid'], nil], [mails.first.to, mails.first.bcc]
+    mails = operations_mail(environment: { 'TOYBACO_OPERATIONS_ALERT_EMAIL' => 'OPS@example.invalid' }) { Growth::OpeningOperations.deliver(message) }
+    assert_equal [['ops@example.invalid'], nil], [mails.first.to, mails.first.bcc]
+    # 運営日次ダイジェストも同じ宛先の規則(配送時に決める)。
+    mails = operations_mail(environment: second) { Toybaco::OperationsMailer.with(subject: 'digest', body: 'fixture').digest.deliver_later }
+    assert_equal [['ops@example.invalid'], ['owner@example.invalid']], [mails.first.to, mails.first.bcc]
+    # staging では 2 本目も名簿にある宛先だけ。
+    staging = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_STAGING_FIXTURE_EMAILS' => 'ops@example.invalid' }.merge(second)
+    mails = operations_mail(environment: staging) { Growth::OpeningOperations.deliver(message) }
+    assert_equal [['ops@example.invalid'], nil], [mails.first.to, mails.first.bcc]
+    ops = Growth::OpeningOperations
+    assert_nil ops.recipient(staging, ops::SECONDARY_ENV)
+    roster = staging.merge('TOYBACO_STAGING_FIXTURE_EMAILS' => 'ops@example.invalid, owner@example.invalid')
+    assert_equal 'owner@example.invalid', ops.recipient(roster, ops::SECONDARY_ENV)
+    assert_empty(operations_mail(address: '') { refute Growth::OpeningOperations.deliver(message) })
+  end
+
+  # 確認待ちの受付が残る間、毎分の sweep は残りの目印(pending_receipts=true)を出し続ける。alarm(monitoring.tf の billing_attention)
+  # はこの行ではなく、受付が確認待ちになった時に 1 回だけ出る TOYBACO_BILLING_ATTENTION_NEW を数える。
   def test_billing_sweep_repeats_the_attention_line_while_an_opening_receipt_needs_attention
     logged = lambda do
       io = StringIO.new
@@ -253,9 +284,15 @@ class ToybacoOpeningRuntimeTest < Minitest::Test
     others ? assert_includes(logged.call, marker) : refute_includes(logged.call, marker)
     @client.sessions[@session_id]['total_details'] = { 'amount_discount' => 1 }
     row = accept
-    Growth::BillingExecution.new(row, client: @client).call
+    io = StringIO.new
+    Rails.stub(:logger, ActiveSupport::Logger.new(io)) { Growth::BillingExecution.new(row, client: @client).call }
     assert_equal 'attention', row.reload.state
-    2.times { assert_includes logged.call, marker }
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{row.id} result=payment_mismatch"], io.string.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
+    2.times do
+      swept = logged.call
+      assert_includes swept, marker
+      refute_includes swept, 'TOYBACO_BILLING_ATTENTION_NEW'
+    end
   end
 
   def test_opening_without_an_operations_address_still_creates_the_store

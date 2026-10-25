@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -773,17 +774,29 @@ for (const text of [
   curlPcreNegatives++;
 }
 console.log(`Chatwoot final curl/pcre2 security contract: PASS (${curlPcreNegatives} omission controls)`);
-// Alpine 3.21 musl 1.2.5-r12 (CVE-2026-107891) and c-ares 1.34.9-r0. runtime-hardening hands its apk DB to the final
-// stage without /lib/ld-musl-x86_64.so.1 (or libcares), so neither may move there: a DB claiming the new build over
-// the old loader would also make the final stage's request a no-op. The final stage upgrades them, and the build and
-// the runtime probe check the installed files against the new apk records, because musl's version cannot tell r11
-// from r12.
-const MUSL_CARES = [['musl', '1.2.5-r12'], ['musl-utils', '1.2.5-r12'], ['musl-dev', '1.2.5-r12'], ['c-ares', '1.34.9-r0']];
-const MUSL_CARES_INSTALL = "apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0'";
+// Alpine 3.21 musl 1.2.5-r12 (CVE-2026-107891), c-ares 1.34.9-r0 and brotli-libs 1.1.1-r0 (CVE-2026-111497).
+// runtime-hardening hands its apk DB to the final stage without /lib/ld-musl-x86_64.so.1 (or libcares, libbrotli*),
+// so none may move there: a DB claiming the new build over the old loader would also make the final stage's request a
+// no-op. The final stage upgrades them, and the build and the runtime probe check the installed files against the apk
+// records, because musl's version cannot tell r11 from r12. The same check binds openjpeg, which runtime-hardening
+// installs and copies: its version string is 2.5.4 for r0 and r1 alike.
+const MUSL_CARES = [['musl', '1.2.5-r12'], ['musl-utils', '1.2.5-r12'], ['musl-dev', '1.2.5-r12'], ['c-ares', '1.34.9-r0'],
+  ['brotli-libs', '1.1.1-r0']];
+const MUSL_CARES_INSTALL = "apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0' 'brotli-libs=1.1.1-r0'";
 const MUSL_FAMILY = "apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]'";
-const OTHER_PACKAGES = "apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares)-[0-9]' | sort";
-const APK_RECORD_PROOF = 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8] - verified).empty?';
+const OTHER_PACKAGES = "apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares|brotli-libs)-[0-9]' | sort";
+const APK_RECORD_PROOF = 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0}, %q{brotli-libs} => %q{1.1.1-r0}, %q{openjpeg} => %q{2.5.4-r1} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8 usr/lib/libbrotlicommon.so.1 usr/lib/libbrotlicommon.so.1.1.1 usr/lib/libbrotlidec.so.1 usr/lib/libbrotlidec.so.1.1.1 usr/lib/libbrotlienc.so.1 usr/lib/libbrotlienc.so.1.1.1 usr/lib/libopenjp2.so.7 usr/lib/libopenjp2.so.2.5.4] - verified).empty?';
 const CARES_LOAD_PROOF = 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}';
+// BrotliDecoderVersion returns (major << 24) | (minor << 12) | patch.
+const BROTLI_LOAD_PROOF = 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}], [], Fiddle::TYPE_INT).call == 0x1001001';
+const OLD_BROTLI_FILES = ['libbrotlicommon', 'libbrotlidec', 'libbrotlienc'].map(name => `test ! -e /usr/lib/${name}.so.1.1.0`);
+// The record check must keep binding these packages and files.
+const RECORD_PROOF_TARGETS = [...MUSL_CARES, ['openjpeg', '2.5.4-r1']].map(([name, version]) => `%q{${name}} => %q{${version}}`);
+const RECORD_PROOF_FILES = ['lib/ld-musl-x86_64.so.1', 'lib/libc.musl-x86_64.so.1', 'usr/lib/libcares.so.2',
+  'usr/lib/libcares.so.2.19.8', ...['libbrotlicommon', 'libbrotlidec', 'libbrotlienc'].flatMap(name =>
+    [`usr/lib/${name}.so.1`, `usr/lib/${name}.so.1.1.1`]), 'usr/lib/libopenjp2.so.7', 'usr/lib/libopenjp2.so.2.5.4'];
+for (const required of RECORD_PROOF_TARGETS) assert.ok(APK_RECORD_PROOF.includes(required), `record proof target: ${required}`);
+assert.ok(APK_RECORD_PROOF.includes(`(%w[${RECORD_PROOF_FILES.join(' ')}] - verified).empty?`), 'record proof files');
 const HARDENING_MUSL_GUARD = [
   `RUN musl_before="$(${MUSL_FAMILY})" \\\n    && apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \\\n`,
   `test "$(${MUSL_FAMILY})" = "$musl_before"`,
@@ -796,23 +809,31 @@ const MUSL_CARES_DOCKER_PROOFS = [
   ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep '^${name}-[0-9]')" = '${name}-${version}'`),
   "test \"$(readlink /lib/libc.musl-x86_64.so.1)\" = 'ld-musl-x86_64.so.1'",
   'test ! -e /usr/lib/libcares.so.2.19.7',
+  ...OLD_BROTLI_FILES,
   `ruby -rdigest -e '${APK_RECORD_PROOF}'`,
   "curl --version | head -n 1 | grep -F ' c-ares/1.34.9 '",
+  "curl --version | head -n 1 | grep -F ' brotli/1.1.1 '",
   `ruby -rfiddle -e '${CARES_LOAD_PROOF}'`,
+  `ruby -rfiddle -e '${BROTLI_LOAD_PROOF}'`,
 ];
 const MUSL_CARES_GATE_PROOFS = [
   "grep -Fq '= \"$musl_before\"' \"$CONTROL_ROOT/Dockerfile\"",
   `grep -Fq '${APK_RECORD_PROOF}' \\\n    "$CONTROL_ROOT/Dockerfile"`,
   "grep -Fq 'Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}]' \"$CONTROL_ROOT/Dockerfile\"",
+  "grep -Fq 'Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}]' \"$CONTROL_ROOT/Dockerfile\"",
   ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep "^${name}-[0-9]")" = "${name}-${version}"`),
   'test "$(readlink /lib/libc.musl-x86_64.so.1)" = "ld-musl-x86_64.so.1"',
   'test ! -e /usr/lib/libcares.so.2.19.7',
+  ...OLD_BROTLI_FILES,
   `ruby -rdigest -e "${APK_RECORD_PROOF}"`,
   'curl --version | head -n 1 | grep -F " c-ares/1.34.9 "',
+  'curl --version | head -n 1 | grep -F " brotli/1.1.1 "',
   `ruby -rfiddle -e "${CARES_LOAD_PROOF}"`,
+  `ruby -rfiddle -e "${BROTLI_LOAD_PROOF}"`,
 ];
 const SBOM_PROOFS = [
-  "{ 'musl' => '1.2.5-r12', 'musl-utils' => '1.2.5-r12', 'musl-dev' => '1.2.5-r12', 'c-ares' => '1.34.9-r0' }.each do |name, version|",
+  "{ 'musl' => '1.2.5-r12', 'musl-utils' => '1.2.5-r12', 'musl-dev' => '1.2.5-r12', 'c-ares' => '1.34.9-r0',\n" +
+    "  'brotli-libs' => '1.1.1-r0' }.each do |name, version|",
   "package['name'] == name && package['versionInfo'] == version",
 ];
 // The SBOM verifiers are parked release inputs of the private repository only (kept out of the quality hash and
@@ -830,13 +851,13 @@ function validateFinalMuslCares(dockerfile, gateSource, verifiers) {
   for (const required of HARDENING_MUSL_GUARD) {
     assert.ok(hardening.includes(required), `runtime-hardening musl guard missing: ${required}`);
   }
-  assert.doesNotMatch(hardening, /'(musl|musl-utils|musl-dev|c-ares)=|apk add --no-cache --upgrade/,
-    'runtime-hardening must not move musl or c-ares');
+  assert.doesNotMatch(hardening, /'(musl|musl-utils|musl-dev|c-ares|brotli-libs)=|apk add --no-cache --upgrade/,
+    'runtime-hardening must not move musl, c-ares or brotli-libs');
   const final = dockerfile.slice(finalStart);
   const install = final.indexOf(MUSL_CARES_INSTALL);
   const curlPcre = final.indexOf("apk add --no-cache 'curl=8.14.1-r3'");
   assert.ok(install >= 0 && curlPcre >= 0 && final.lastIndexOf('\nRUN ', install) > curlPcre,
-    'musl/c-ares upgrade must be its own final-stage RUN after curl/pcre2');
+    'musl/c-ares/brotli upgrade must be its own final-stage RUN after curl/pcre2');
   const end = final.indexOf('\nRUN ', install);
   const run = final.slice(final.lastIndexOf('\nRUN ', install), end < 0 ? undefined : end);
   for (const required of MUSL_CARES_DOCKER_PROOFS) {
@@ -869,12 +890,17 @@ for (const text of [
     `omitted Dockerfile musl/c-ares proof must fail: ${text}`);
   muslCaresNegatives++;
 }
-// Re-creating the trap: musl, musl-utils or c-ares moved in runtime-hardening, or its request upgrading dependencies.
+// Re-creating the trap: musl, musl-utils, c-ares or brotli-libs moved in runtime-hardening, or its request upgrading
+// dependencies; and openjpeg or a pinned file dropped from the record check.
 for (const [from, to] of [
   ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl-utils=1.2.5-r12' 'zlib=1.3.2-r1'"],
   ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl=1.2.5-r12' 'zlib=1.3.2-r1'"],
   ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'c-ares=1.34.9-r0' 'zlib=1.3.2-r1'"],
+  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'brotli-libs=1.1.1-r0' 'zlib=1.3.2-r1'"],
   ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache --upgrade 'zlib=1.3.2-r1'"],
+  [", %q{openjpeg} => %q{2.5.4-r1}", ''],
+  [' usr/lib/libopenjp2.so.7', ''],
+  [' usr/lib/libbrotlidec.so.1.1.1', ''],
 ]) {
   assert.throws(() => validateFinalMuslCares(swapOnce(buildInputs[0], from, to, from), gate, sbomVerifiers),
     `runtime-hardening musl trap must fail: ${to}`);
@@ -897,7 +923,16 @@ for (const [index, verifier] of sbomVerifiers.entries()) {
     muslCaresNegatives++;
   }
 }
-console.log(`Chatwoot final musl/c-ares security contract: PASS (${muslCaresNegatives} omission controls)`);
+// The record check without openjpeg in either copy of the gate (control contract and runtime probe).
+for (const at of ['first', 'last']) {
+  const target = ', %q{openjpeg} => %q{2.5.4-r1}';
+  const index = at === 'first' ? gate.indexOf(target) : gate.lastIndexOf(target);
+  assert.ok(index >= 0 && gate.indexOf(target) !== gate.lastIndexOf(target));
+  assert.throws(() => validateFinalMuslCares(buildInputs[0], gate.slice(0, index) + gate.slice(index + target.length),
+    sbomVerifiers), `gate record check without openjpeg must fail (${at})`);
+  muslCaresNegatives++;
+}
+console.log(`Chatwoot final musl/c-ares/brotli security contract: PASS (${muslCaresNegatives} omission controls)`);
 // Alpine v3.21 openjpeg 2.5.4-r1 (CVE-2026-6192, OSV-2025-219) from the regular repository, in runtime-hardening and
 // copied to the final stage under the same file names. The earlier v3.22 2.5.4-r0 APK fetch failed with 404 once r1
 // replaced it. No other release's APK, and no --upgrade (it would move dependencies such as musl); the musl guard
@@ -972,6 +1007,243 @@ for (const [from, to] of [
   openjpegNegatives++;
 }
 console.log(`Chatwoot OpenJPEG v3.21 contract: PASS (${openjpegNegatives} omission/regression controls)`);
+// The Dockerfile is bound byte for byte: the sha256 of its exact bytes (newlines, blanks and continuations included)
+// is pinned below, and ONBUILD anywhere or a parser directive fails by name. Imitating Docker's parser and normalizing
+// RUN text left gaps (#582: a LABEL ending in `\\` hiding the next RUN, a COPY heredoc read through ARG RUBYOPT, a
+// COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline), so the pin is what binds. The Dockerfile is
+// a control file: the private CW gate, the PZ gate's control snapshot and the public repository read the same bytes.
+// Changing the Dockerfile means reviewing the whole diff and then updating DOCKERFILE_SHA256.
+const DOCKERFILE_SHA256 = '49ec95ce8706223c0b7b5a67fdf722cef7d0a27dadf938fa867e00362f4c7f95';
+const dockerfileBytes = readFileSync(join(root, 'Dockerfile'));
+assert.ok(Buffer.from(buildInputs[0], 'utf8').equals(dockerfileBytes), 'Dockerfile must be UTF-8 text');
+function validateDockerfileBytes(bytes) {
+  const text = bytes.toString('utf8');
+  assert.equal(/^[ \t]*onbuild(?:[ \t]|$)/im.exec(text), null, 'Dockerfile: ONBUILD is not allowed in any stage');
+  for (const line of text.split('\n')) {
+    if (/^\s*$/.test(line)) continue;
+    if (!/^\s*#/.test(line)) break;
+    assert.doesNotMatch(line, /^\s*#\s*(?:escape|syntax|check)\s*=/i, 'Dockerfile: parser directives are not allowed');
+  }
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  assert.equal(actual, DOCKERFILE_SHA256, `Dockerfile bytes changed (sha256 ${actual}). Review the whole Dockerfile ` +
+    'diff, then update DOCKERFILE_SHA256 in tests/chatwoot-managed-publisher.test.mjs.');
+}
+validateDockerfileBytes(dockerfileBytes);
+// Readable reasons for common mistakes, not the boundary: the stage list, the instruction kinds, the COPY sources and
+// the RUN forms of runtime-hardening and the final stage, read roughly the way Docker reads them (keywords in any case
+// after optional indentation, `\` continuations joined, comment lines dropped, lines that do not parse failing).
+const DOCKERFILE_FROMS = ['${CHATWOOT_IMAGE} AS overlay-normalizer', '${CHATWOOT_IMAGE} AS bundled-gems',
+  'bundled-gems AS localized-assets', 'localized-assets AS runtime-hardening', 'bundled-gems'];
+const STAGE_INSTRUCTIONS = { hardening: ['RUN'], final: ['RUN', 'COPY', 'ARG', 'LABEL'] };
+const STAGE_COPY_SOURCES = ['runtime-hardening', 'overlay-normalizer'];
+function dockerInstructions(dockerfile) {
+  const instructions = [];
+  let current = null;
+  let seenInstruction = false;
+  for (const [index, raw] of dockerfile.split('\n').entries()) {
+    const line = raw.replace(/\r$/, '');
+    if (current === null) {
+      if (/^\s*$/.test(line)) continue;
+      if (/^\s*#/.test(line)) {
+        assert.ok(seenInstruction || !/^\s*#\s*(?:escape|syntax|check)\s*=/i.test(line),
+          `Dockerfile line ${index + 1}: parser directives are not supported`);
+        continue;
+      }
+      const match = /^\s*([A-Za-z]+)(?:[ \t]+|$)(.*)$/.exec(line);
+      assert.ok(match, `Dockerfile line ${index + 1} does not parse`);
+      seenInstruction = true;
+      current = { keyword: match[1].toUpperCase(), line: index + 1, parts: [match[2]] };
+    } else {
+      assert.ok(!/^\s*$/.test(line), `Dockerfile line ${index + 1}: empty continuation line`);
+      if (/^\s*#/.test(line)) continue;
+      current.parts.push(line);
+    }
+    const last = current.parts.length - 1;
+    if (/\\[ \t]*$/.test(current.parts[last])) {
+      current.parts[last] = current.parts[last].replace(/\\[ \t]*$/, '');
+    } else {
+      instructions.push({ keyword: current.keyword, line: current.line,
+        text: current.parts.map(part => part.trim()).filter(Boolean).join(' ') });
+      current = null;
+    }
+  }
+  assert.equal(current, null, 'Dockerfile ends inside a continuation');
+  return instructions;
+}
+function dockerStages(dockerfile) {
+  const instructions = dockerInstructions(dockerfile);
+  const froms = instructions.flatMap((instruction, index) => instruction.keyword === 'FROM'
+    ? [{ index, text: instruction.text.replace(/\s+as\s+/i, ' AS ') }] : []);
+  assert.deepEqual(froms.map(from => from.text), DOCKERFILE_FROMS, 'Dockerfile stages differ from the reviewed list');
+  return {
+    hardening: instructions.slice(froms[3].index + 1, froms[4].index),
+    final: instructions.slice(froms[4].index + 1),
+  };
+}
+function validateStageClosure(dockerfile) {
+  const stages = dockerStages(dockerfile);
+  for (const stage of ['hardening', 'final']) {
+    for (const { keyword, line, text } of stages[stage]) {
+      const where = `${stage} (Dockerfile line ${line})`;
+      assert.notEqual(keyword, 'ONBUILD', `${where}: ONBUILD is not allowed`);
+      assert.notEqual(keyword, 'SHELL', `${where}: SHELL is not allowed`);
+      assert.ok(STAGE_INSTRUCTIONS[stage].includes(keyword), `${where}: ${keyword} is not allowed`);
+      if (keyword === 'COPY') {
+        for (const flag of text.match(/^(?:--\S+\s+)*/)[0].split(/\s+/).filter(Boolean)) {
+          const source = /^--from=(\S+)$/.exec(flag);
+          assert.ok(source && STAGE_COPY_SOURCES.includes(source[1]), `${where}: COPY ${flag} is not allowed`);
+        }
+      }
+      if (keyword === 'RUN') {
+        assert.doesNotMatch(text, /^(?:\[|--)/, `${where}: RUN exec form or RUN flags are not allowed`);
+        assert.doesNotMatch(text, /<<-?["']?[A-Za-z_]/, `${where}: RUN heredocs are not allowed`);
+      }
+    }
+  }
+}
+validateStageClosure(buildInputs[0]);
+const APK_ALLOWED = {
+  hardening: [
+    "apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0'",
+    "apk add --no-cache 'openjpeg=2.5.4-r1'",
+  ],
+  final: [
+    "apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' 'tiff=4.7.2-r0'",
+    "apk add --no-cache 'curl=8.14.1-r3' 'libcurl=8.14.1-r3' 'pcre2=10.43-r1'",
+    MUSL_CARES_INSTALL,
+  ],
+};
+const COMMAND_START = String.raw`(?<=(?:^|\bRUN|&&|\|\||;|\$\(|\||!|\bthen|\bdo)[ \t]*)`;
+const COMMAND_END = String.raw`(?=[ \t]*(?:\\\n|&&|\|\||;|\)|\||$))`;
+function commandPattern(command) {
+  return new RegExp(COMMAND_START + command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + COMMAND_END, 'gm');
+}
+function stageRuns(dockerfile, stage) {
+  return dockerStages(dockerfile)[stage].filter(({ keyword }) => keyword === 'RUN').map(({ text }) => `RUN ${text}`)
+    .join('\n');
+}
+function validateApkAndFetch(dockerfile) {
+  for (const stage of ['hardening', 'final']) {
+    let rest = stageRuns(dockerfile, stage);
+    for (const command of APK_ALLOWED[stage]) {
+      assert.equal((rest.match(commandPattern(command)) || []).length, 1, `${stage}: allowed apk request once: ${command}`);
+      rest = rest.replace(commandPattern(command), 'ALLOWED_APK_REQUEST');
+    }
+    rest = rest.replace(commandPattern('apk info -v'), 'ALLOWED_APK_READ').split(APK_RECORD_PROOF).join('RECORD_PROOF')
+      .replace(/(?<![\w/.-])\/?(?:lib\/apk\/db\/(?:installed|scripts\.tar|triggers)|etc\/apk\/world)(?![\w/.-])/g, 'APK_DB_PATH');
+    assert.doesNotMatch(rest, /\bapk\b/, `${stage}: apk used outside the allowed operations`);
+    assert.doesNotMatch(rest, /\.apk\b|--no-network|--allow-untrusted|--repositor|--keys-dir|--upgrade|(?:^|\s)-[uX]\b/m,
+      `${stage}: APK file, repository, untrusted or upgrade option`);
+    assert.doesNotMatch(rest, /https?:|ftp:/i, `${stage}: URL`);
+    assert.doesNotMatch(rest, /\bURI\b|open-?uri|OpenURI|Net::HTTP|net\/http|\bwget\b|\w*Socket\b|\bfetch\(/,
+      `${stage}: network fetch`);
+    for (const match of rest.matchAll(new RegExp(COMMAND_START + String.raw`(?:[\w./-]*\/)?curl\b`, 'gm'))) {
+      assert.ok(rest.startsWith('curl --version | head -n 1 | grep -F ', match.index), `${stage}: curl beyond --version`);
+    }
+  }
+}
+validateApkAndFetch(buildInputs[0]);
+let apkFetchNegatives = 0;
+const OPENJPEG_REQUEST = "    && apk add --no-cache 'openjpeg=2.5.4-r1' \\\n";
+const MUSL_REQUEST = `    && ${MUSL_CARES_INSTALL} \\\n`;
+for (const [from, to] of [
+  // Astra's #581 counterexample: a concatenated v3.22 URL fetched, then installed by an apk call with the option first.
+  [OPENJPEG_REQUEST, '    && ruby -ropen-uri -e \'URI.open("https://dl-cdn.alpinelinux.org/alpine/" + "v3.22/main/x86_64/openjpeg-2.5.4-r1.apk") { |input| File.binwrite("/tmp/x.apk", input.read) }\' \\\n    && apk --no-network add /tmp/x.apk \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && apk --no-network add /tmp/x.apk \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && ruby -e \'require %q{open-uri}; IO.copy_stream(URI.open(%q{dl-cdn.alpinelinux.org}), %q{/tmp/o})\' \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && ruby -rnet/http -e \'Net::HTTP.get(%q{dl-cdn.alpinelinux.org}, %q{/x})\' \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && wget -qO /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && ruby -e \'Kernel.open(%q{https://dl-cdn.alpinelinux.org/x}) { |input| input.read }\' \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, '    && curl -fsSo /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + OPENJPEG_REQUEST],
+  // A differently named APK file, an unverified install, and apk under another path or a built-up name, each next
+  // to the allowed request.
+  [OPENJPEG_REQUEST, '    && apk add /tmp/renamed.apk \\\n' + OPENJPEG_REQUEST],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache 'openjpeg=2.5.4-r1' --allow-untrusted \\\n"],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --allow-untrusted --no-cache 'openjpeg=2.5.4-r1' \\\n"],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && /sbin/apk add --no-cache 'openjpeg=2.5.4-r1' \\\n"],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add --allow-untrusted /tmp/x \\\n'],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add --no-network /tmp/x \\\n'],
+  // Another repository, an upgrade, a second request, and an extra apk operation in the final stage.
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main 'openjpeg=2.5.4-r1' \\\n"],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" --repository=/tmp/repo add openjpeg \\\n'],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add -X /tmp/repo openjpeg \\\n'],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add -u openjpeg \\\n'],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache 'openjpeg=2.5.4-r1' -u \\\n"],
+  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + OPENJPEG_REQUEST],
+  [MUSL_REQUEST, MUSL_REQUEST.replace('apk add --no-cache ', 'apk add --no-cache --upgrade ')],
+  [MUSL_REQUEST, MUSL_REQUEST + '    && apk fix \\\n'],
+  [MUSL_REQUEST, MUSL_REQUEST + '    && sh -c "apk add brotli" \\\n'],
+]) {
+  assert.throws(() => validateApkAndFetch(swapOnce(buildInputs[0], from, to, from)), `apk/fetch mutant must fail: ${to}`);
+  apkFetchNegatives++;
+}
+console.log(`Chatwoot runtime-hardening/final apk and fetch allowlist: PASS (${apkFetchNegatives} bypass controls)`);
+// Every counterexample from the #582 reviews must fail the byte pin: names and options assembled at run time, RUN
+// written in other forms Docker accepts, instructions around the RUNs, and changes that only parser-imitating
+// normalization would ignore.
+const FOREIGN = '/tmp/foreign-package';
+const LAST_RUN = "RUN ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'";
+const appendFinal = text => `${buildInputs[0].trimEnd()}\n${text}\n`;
+const beforeFinalFrom = text => {
+  const at = buildInputs[0].lastIndexOf('\nFROM bundled-gems\n');
+  return `${buildInputs[0].slice(0, at)}\n${text}${buildInputs[0].slice(at)}`;
+};
+let bytePinNegatives = 0;
+for (const mutated of [
+  // #582 first review (Astra): dynamic names and options, RUN in other forms, other instructions.
+  appendFinal(`RUN tool=ap; "\${tool}k" --allow-""untrusted add ${FOREIGN}`),
+  appendFinal(`RUN eval "a""pk --allow-un""trusted add ${FOREIGN}"`),
+  appendFinal(`RUN "$(printf '%s' ap)k" --allow-untrusted add ${FOREIGN}`),
+  appendFinal('RUN c""url -fsSo /tmp/x dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r1.apk'),
+  swapOnce(buildInputs[0], MUSL_REQUEST, `${MUSL_REQUEST}    && tool=ap && "\${tool}k" --allow-""untrusted add ${FOREIGN} \\\n`,
+    MUSL_REQUEST),
+  swapOnce(buildInputs[0], OPENJPEG_REQUEST, `${OPENJPEG_REQUEST}    && eval "a""pk add --allow-un""trusted ${FOREIGN}" \\\n`,
+    OPENJPEG_REQUEST),
+  appendFinal(`run apk --allow-untrusted add ${FOREIGN}`),
+  appendFinal(`  RUN apk --allow-untrusted add ${FOREIGN}`),
+  appendFinal(`RUN\tapk --allow-untrusted add ${FOREIGN}`),
+  beforeFinalFrom(`run apk --allow-untrusted add ${FOREIGN}`),
+  beforeFinalFrom(`\tRun\tapk --allow-untrusted add ${FOREIGN}`),
+  appendFinal(`ONBUILD RUN apk --allow-untrusted add ${FOREIGN}`),
+  appendFinal('SHELL ["/bin/bash", "-c"]'),
+  appendFinal('ADD https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r1.apk /tmp/'),
+  appendFinal('ENV LD_PRELOAD=/tmp/foreign.so'),
+  appendFinal('COPY --from=alpine:3.22 /sbin/apk /tmp/apk'),
+  appendFinal(`RUN ["/sbin/apk", "--allow-untrusted", "add", "${FOREIGN}"]`),
+  appendFinal('RUN --network=host apk add brotli'),
+  appendFinal(`RUN <<EOF\napk --allow-untrusted add ${FOREIGN}\nEOF`),
+  beforeFinalFrom(`FROM bundled-gems AS hidden\nRUN apk --allow-untrusted add ${FOREIGN}`),
+  `# escape=\`\n${buildInputs[0]}`,
+  appendFinal('%% not an instruction'),
+  appendFinal('RUN true \\'),
+  swapOnce(buildInputs[0], MUSL_REQUEST, `${MUSL_REQUEST}\n`, MUSL_REQUEST),
+  // #582 second review (Astra, Grok): a LABEL ending in `\\` hiding the next RUN, a COPY heredoc read through
+  // ARG RUBYOPT by an existing RUN, a COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline, a COPY
+  // without flags, `\` + blank, `cat<<EOF`, continuation spacing, a proxy ARG, CRLF, and parser directives.
+  appendFinal('LABEL review=ok \\\\\nRUN echo UNREVIEWED_EXECUTION'),
+  swapOnce(buildInputs[0], LAST_RUN,
+    `COPY <<LABEL /tmp/x.rb\nARG = system(%q{echo UNREVIEWED})\nLABEL\nARG RUBYOPT=-r/tmp/x.rb\n${LAST_RUN}`, LAST_RUN),
+  appendFinal('COPY --from=overlay-normalizer /usr/lib/libopenjp2.so.2.5.2 /usr/lib/libopenjp2.so.2.5.4'),
+  swapOnce(buildInputs[0], '\nFROM localized-assets AS runtime-hardening\n',
+    '\nONBUILD RUN echo UNREVIEWED_EXECUTION\nFROM localized-assets AS runtime-hardening\n', 'runtime-hardening FROM'),
+  appendFinal('  onbuild run echo UNREVIEWED_EXECUTION'),
+  swapOnce(buildInputs[0], '    && test -f /usr/lib/libz.so.1.3.2 \\\n', '    && test -f\\\n/usr/lib/libz.so.1.3.2 \\\n',
+    'test -f libz'),
+  appendFinal(`COPY foreign.apk ${FOREIGN}`),
+  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/\\\n$/, '\\ \n'), MUSL_REQUEST),
+  appendFinal('RUN cat<<EOF > /tmp/x.rb\nsystem(%q{echo UNREVIEWED})\nEOF'),
+  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/^ {4}/, '  '), MUSL_REQUEST),
+  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/ \\\n$/, '\\\n'), MUSL_REQUEST),
+  appendFinal('ARG HTTP_PROXY=http://127.0.0.1:3128'),
+  buildInputs[0].replace('\n', '\r\n'),
+  `# syntax=docker/dockerfile:1\n${buildInputs[0]}`,
+  `# check=skip=all\n${buildInputs[0]}`,
+]) {
+  assert.notEqual(mutated, buildInputs[0]);
+  assert.throws(() => validateDockerfileBytes(Buffer.from(mutated, 'utf8')), 'the Dockerfile byte pin must reject the mutant');
+  bytePinNegatives++;
+}
+console.log(`Chatwoot Dockerfile byte pin: PASS (${bytePinNegatives} bypass/form controls)`);
 function validateFinalTiff(dockerfile) {
   const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
   for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",
@@ -1239,6 +1511,7 @@ assert.equal(repositoryMode(nonGhShortFlags, process.env.GITHUB_REPOSITORY), mod
 // a repository: an unset name stays unset in the container and fails this contract there.
 const POSTIZ_GATE_LAUNCH = '  if docker run --rm --init --pull=missing \\\n';
 const POSTIZ_GATE_FORWARD = '    --env GITHUB_REPOSITORY \\\n';
+const POSTIZ_GATE_NODEDIR = '    --env npm_config_nodedir=/usr/local \\\n';
 function validatePostizGateForwarding(postizGateSource) {
   const start = postizGateSource.indexOf(POSTIZ_GATE_LAUNCH);
   assert.ok(start >= 0 && postizGateSource.indexOf(POSTIZ_GATE_LAUNCH, start + 1) < 0,
@@ -1250,6 +1523,11 @@ function validatePostizGateForwarding(postizGateSource) {
     'the container bootstrap must run the Postiz gate in its container');
   assert.equal(bootstrap.split(POSTIZ_GATE_FORWARD).length - 1, 1,
     'the Postiz gate container bootstrap must forward GITHUB_REPOSITORY as is');
+  // node-gyp fallback builds use the fixed image headers; a header download cannot be extracted under --cap-drop=ALL.
+  // Count on the bootstrap without comment lines, so a commented-out forward does not satisfy the contract.
+  const bootstrapCode = bootstrap.split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
+  assert.equal(bootstrapCode.split(POSTIZ_GATE_NODEDIR).length - 1, 1,
+    'the Postiz gate container bootstrap must point native fallback builds at the fixed image headers');
   const code = postizGateSource.split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
   assert.equal(count(code, /GITHUB_REPOSITORY/g), 1, 'the Postiz gate must not set or default GITHUB_REPOSITORY');
 }
@@ -1259,6 +1537,8 @@ if (mode === 'private') {
   validatePostizGateForwarding(postizGate);
   postizGateNegatives.push(
     postizGate.replace(POSTIZ_GATE_FORWARD, ''),
+    postizGate.replace(POSTIZ_GATE_NODEDIR, ''),
+    postizGate.replace(POSTIZ_GATE_NODEDIR, '#' + POSTIZ_GATE_NODEDIR),
     postizGate.replace(POSTIZ_GATE_FORWARD, '    --env GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-Cyber-relations/toybaco}" \\\n'),
     postizGate.replace("  STAGE='container bootstrap'\n",
       "  STAGE='container bootstrap'\n  export GITHUB_REPOSITORY=\"${GITHUB_REPOSITORY:-Cyber-relations/toybaco}\"\n"),

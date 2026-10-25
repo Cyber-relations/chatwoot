@@ -16,6 +16,10 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
     if Toybaco::SubscriptionReconciliation.enabled?
       request = Toybaco::SubscriptionReconciliation.request!(id)
       puts "契約照合: receipt=#{request.id} state=#{request.state}"
+      # 確認待ち(attention)の要求は、この再実行でも新しい通知でも再開しない(更新の処理を待っただけの renewal_pending は除く)。
+      # 監査付きで始め直す rake を案内する(toybaco_ops.rake の AttentionOps)。
+      retry_hint = "契約照合: 確認待ちのため再開しません。rake \"toybaco:sync_attention_retry[#{request.id},fixed|transient]\" で始め直してください。"
+      puts retry_hint if request.state == 'attention'
       next
     end
 

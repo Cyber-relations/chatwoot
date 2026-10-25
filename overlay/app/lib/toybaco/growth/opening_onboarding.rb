@@ -14,7 +14,8 @@ class Toybaco::Growth::OpeningOnboarding
     rescue StandardError => e
       Rails.logger.warn("TOYBACO_OPENING_SETUP_PENDING id=#{request.id} class=#{e.class}")
     end
-    # 決済・契約の受付(TOYBACO_BILLING_ATTENTION)と同じく、確認待ちが残る間は毎分ログに出してアラームを保つ。
+    # 確認待ちが残る間は毎分ログに出してアラームを保つ(決済・契約の受付の alarm は、残りの行ではなく新しい確認待ちの
+    # TOYBACO_BILLING_ATTENTION_NEW を数える。初期設定の確認待ちは従来どおりこの行で数える)。
     Rails.logger.error('TOYBACO_OPENING_ONBOARDING_ATTENTION pending_requests=true') if Toybaco::OpeningRequest.exists?(onboarding_state: 'attention')
     Toybaco::Growth::OpeningNotices.sweep
   end
