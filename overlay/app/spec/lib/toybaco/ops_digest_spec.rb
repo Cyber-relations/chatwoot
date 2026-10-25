@@ -45,7 +45,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
   end
 
   def stub_operations_env(values)
-    keys = %w[TOYBACO_OPERATIONS_EMAIL TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_DEPLOYMENT_ENVIRONMENT]
+    keys = %w[TOYBACO_OPERATIONS_EMAIL TOYBACO_OPERATIONS_ALERT_EMAIL TOYBACO_STAGING_FIXTURE_EMAILS TOYBACO_DEPLOYMENT_ENVIRONMENT]
     stub_const('ENV', ENV.to_h.except(*keys).merge(values))
   end
 
@@ -62,13 +62,18 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     log.rewind
   end
 
-  # enqueue された運営日次ダイジェスト(Toybaco::OperationsMailer#digest)の params(subject / body)。宛先は含まない。
+  # enqueue された運営メールの job の引数([mailer, method, delivery, options])。配送 job は payload の arguments を暗号化するので
+  # (have_enqueued_mail は payload の arguments を読むため使えない)、Toybaco::OperationsMailDeliveryJob.unseal で復号して読む。
   # perform_enqueued_jobs は配送した job を enqueued_jobs から外すので、配送の前に読む。
-  def digest_mails
+  def operations_jobs
     enqueued_jobs.filter_map do |job|
-      next unless job[:job] == ActionMailer::MailDeliveryJob
+      ActiveJob::Arguments.deserialize(Toybaco::OperationsMailDeliveryJob.unseal(job)) if job[:job] == Toybaco::OperationsMailDeliveryJob
+    end
+  end
 
-      mailer, method, _delivery, options = ActiveJob::Arguments.deserialize(job[:args])
+  # enqueue された運営日次ダイジェスト(Toybaco::OperationsMailer#digest)の params(subject / body)。宛先は含まない。
+  def digest_mails
+    operations_jobs.filter_map do |mailer, method, _delivery, options|
       options[:params] if mailer == 'Toybaco::OperationsMailer' && method == 'digest'
     end
   end
@@ -79,7 +84,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     original = [ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries]
     ActionMailer::Base.delivery_method = :test
     ActionMailer::Base.perform_deliveries = true
-    perform_enqueued_jobs(only: ActionMailer::MailDeliveryJob)
+    perform_enqueued_jobs(only: Toybaco::OperationsMailDeliveryJob)
     ActionMailer::Base.deliveries
   ensure
     ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries = original
@@ -233,9 +238,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     [nil, false, 'true'].each do |value|
       it "メールを送らず、TOYBACO_OPS_DIGEST 行と reason=disabled を出す(DB flag: #{value.inspect})" do
         write_flag(value)
-        result = nil
-
-        expect { result = digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+        result = digest.run!
         expect(result).to be(false)
         expect(digest_mails).to be_empty
         expect(digest_line).to match(log_format)
@@ -246,9 +249,8 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
 
     it 'GlobalConfig の cache に古い true が残っていても、DB に行が無ければ送らない(フラグは DB を直接読む)' do
       Redis::Alfred.set("#{GlobalConfig::VERSION}:#{GlobalConfig::KEY_PREFIX}:TOYBACO_OPS_DIGEST_ENABLED", { value: true }.to_json)
-      result = nil
-
-      expect { result = digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+      result = digest.run!
+      expect(digest_mails).to be_empty
       expect(result).to be(false)
       expect(log.string).to include("INFO TOYBACO_OPS_DIGEST_SKIPPED reason=disabled\n")
     ensure
@@ -264,11 +266,10 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
       callback = ->(*, payload) { statements << payload[:sql] unless %w[SCHEMA TRANSACTION].include?(payload[:name]) }
       result = nil
 
-      expect do
-        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') { result = digest.run! }
-      end.to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
-        .with(params: { subject: '【トイバコ】運営ダイジェスト 2026-09-29',
-                        body: a_string_starting_with("【トイバコ】運営ダイジェスト 2026-09-29 予定時刻 08:00 JST の集計(確認待ち・契約の状態・Sidekiq は実行時刻の値)\n") }, args: [])
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') { result = digest.run! }
+      heading = "【トイバコ】運営ダイジェスト 2026-09-29 予定時刻 08:00 JST の集計(確認待ち・契約の状態・Sidekiq は実行時刻の値)\n"
+      expect(operations_jobs).to match([['Toybaco::OperationsMailer', 'digest', 'deliver_now',
+                                         { params: { subject: '【トイバコ】運営ダイジェスト 2026-09-29', body: a_string_starting_with(heading) }, args: [] }]])
       expect(result).to be(true)
       expect(statements).to be_present.and(all(match(/\A\s*SELECT\b/i)))
       mail = deliver_digests.sole
@@ -316,9 +317,8 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     it 'staging 相当で名簿に運営の宛先が無ければ送らず reason=recipient を出す' do
       stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_OPERATIONS_EMAIL' => 'ops@example.invalid',
                           'TOYBACO_STAGING_FIXTURE_EMAILS' => 'fixture@example.invalid')
-      result = nil
-
-      expect { result = digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+      result = digest.run!
+      expect(digest_mails).to be_empty
       expect(result).to be(false)
       expect(digest_line).to match(log_format)
       expect(log.string).to include("WARN TOYBACO_OPS_DIGEST_SKIPPED reason=recipient\n")
@@ -327,7 +327,8 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     it 'production 相当でも通知先が未設定なら送らない' do
       stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production')
 
-      expect { digest.run! }.not_to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+      digest.run!
+      expect(digest_mails).to be_empty
       expect(log.string).to include("WARN TOYBACO_OPS_DIGEST_SKIPPED reason=recipient\n")
     end
 
@@ -335,9 +336,21 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
       stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'staging', 'TOYBACO_OPERATIONS_EMAIL' => 'Ops@Example.invalid',
                           'TOYBACO_STAGING_FIXTURE_EMAILS' => 'fixture@example.invalid, ops@example.invalid')
 
-      expect { digest.run! }.to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
-        .with(params: { subject: '【トイバコ】運営ダイジェスト 2026-09-29', body: anything }, args: [])
+      digest.run!
+      expect(operations_jobs).to match([['Toybaco::OperationsMailer', 'digest', 'deliver_now',
+                                         { params: { subject: '【トイバコ】運営ダイジェスト 2026-09-29', body: anything }, args: [] }]])
       expect(deliver_digests.sole.to).to eq(['ops@example.invalid'])
+    end
+
+    it 'production で主宛先が無くても、2 本目の宛先(TOYBACO_OPERATIONS_ALERT_EMAIL)だけで作って送る' do
+      stub_operations_env('TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production', 'TOYBACO_OPERATIONS_ALERT_EMAIL' => 'Owner@Example.invalid')
+      result = digest.run!
+      # 配送 job は payload の arguments を暗号化するので、have_enqueued_mail の既定と同じ条件(mailer・method・deliver_now・ちょうど 1 件)を復号して数える。
+      expect(operations_jobs.count { |job| job.first(3) == ['Toybaco::OperationsMailer', 'digest', 'deliver_now'] }).to eq(1)
+      expect(result).to be(true)
+      mail = deliver_digests.sole
+      expect([mail.to, mail.bcc]).to eq([['owner@example.invalid'], nil])
+      expect(log.string).not_to include('TOYBACO_OPS_DIGEST_SKIPPED')
     end
 
     it '配送時に宛先が決まらなくなっていれば何も送らず、reason=recipient を出す' do
@@ -364,7 +377,7 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     digest.run!
     params = digest_mails.sole
     expect(deliver_digests.sole.to).to eq(['ops@example.invalid'])
-    expect(log.string).to include('Enqueued ActionMailer::MailDeliveryJob', 'Performing ActionMailer::MailDeliveryJob')
+    expect([log.string.scan(/(Enqueued|Performing) Toybaco::OperationsMailDeliveryJob/).size, log.string['with arguments']]).to eq([2, nil])
     # ActionMailer::LogSubscriber は配送(deliver)を debug で購読するので、info では配送の記録そのものを書かない。
     expect(log.string).not_to include('Delivered mail')
     forbidden = ['@', 'sk_', 'rk_', 'whsec_', 'sub_', 'cs_', 'cus_', 'evt_', 'pi_', shop.name, '秘密の花屋テスト二号店', owner.email, owner.name]
@@ -444,7 +457,8 @@ RSpec.describe Toybaco::Ops::Digest do # rubocop:disable RSpec/SpecFilePathForma
     write_flag(true)
     allow(Toybaco::GrowthPackOrder).to receive(:where).and_raise(RuntimeError, 'secret detail')
 
-    expect { digest.run! }.to have_enqueued_mail(Toybaco::OperationsMailer, :digest)
+    digest.run!
+    expect(digest_mails.size).to eq(1)
     expect(digest.summary.transform_values(&:class))
       .to eq(attention: Hash, renewal: Hash, activity_24h: NilClass, states: Hash, sidekiq: Hash, stores_total: Integer)
     expect(log.string).to include("ERROR TOYBACO_OPS_DIGEST_SECTION_FAILED section=activity_24h class=RuntimeError\n")

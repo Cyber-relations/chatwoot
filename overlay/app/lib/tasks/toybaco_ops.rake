@@ -242,6 +242,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       EMAIL_FORMAT = /\A(?:[a-z0-9][a-z0-9._-]{0,63}\+)?e2e-consent-[a-z0-9-]{1,40}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\z/
       PURGE_LIMIT = 5
       PHASE_FORMAT = /\A[a-z_]{1,32}\z/
+      # E2E の rake の出力行の契約の版(toybaco:e2e_preflight が出す)。E2E の rake の出力行の形を変える PR で上げ、staging の同意 E2E の
+      # one-shot が image の rake と自分の照合の版の食い違いを、後段の rake_failed / output_missing を待たずに先に止められるようにする。
+      RAKE_CONTRACT = 1
 
       module_function
 
@@ -547,6 +550,42 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
       end
 
+      # toybaco:e2e_preflight[names]。staging の同意 E2E の one-shot が後段で呼ぶ rake が image にあるかと、出力行の契約の版を、読み取り
+      # だけで先に確かめる。DB へは書かない(監査行は RakeAudit が書く)。名前は . で区切った 1〜20 個(各 toybaco: の下の task の名前の形。
+      # E2E の task は e2e_ で数字を含む)。各名前を Rake::Task.task_defined? で順に調べ、出力行の契約の版(RAKE_CONTRACT)と、全てあれば
+      # ready、欠けていれば missing と最初に欠けた名前を 1 行で出す(どちらも正常に終わる)。名前の形が違えば(数が 0 か 21 以上も)refused の
+      # 1 行で abort する。入力の値は出さない。
+      module Preflight
+        NAME_FORMAT = /\A[a-z][a-z0-9_]{0,39}\z/
+        LIMIT = 20
+        LABEL = 'TOYBACO_E2E_PREFLIGHT'
+
+        module_function
+
+        def call(args)
+          staging!('e2e_preflight')
+          names = names!(args)
+          missing = names.find { |name| !Rake::Task.task_defined?("toybaco:#{name}") }
+          "#{LABEL} contract=#{RAKE_CONTRACT} result=#{missing ? 'missing' : 'ready'} missing=#{missing || LegalConsentsReport::NONE}"
+        end
+
+        # 検査と代入を同じ判定にする(通すのは . 区切りの名前の文字列 1 つだけで、Symbol・空の名前・余分な引数は通さない)。
+        def names!(args)
+          raw = args[:names]
+          names = raw.is_a?(String) ? raw.split('.', -1) : []
+          unless names.size.between?(1, LIMIT) && names.all? { |name| name.match?(NAME_FORMAT) }
+            abort "#{LABEL} contract=#{RAKE_CONTRACT} result=refused missing=#{LegalConsentsReport::NONE} reason=name_format"
+          end
+          abort '引数は names の 1 つだけを指定してください。' unless args.extras.empty?
+
+          names
+        end
+
+        def staging!(task)
+          E2eConsent.staging!(task)
+        end
+      end
+
       # 無料登録の段階。記録が無ければ -、形に合わない値は中身を出さずに invalid と出す。
       def phase(account)
         state = Toybaco::Entitlements.attributes(account)[Toybaco::Growth::FreeRegistration::KEY]
@@ -564,8 +603,10 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # 厳格な形であること(1 件でも違えば何も消さない。transaction の中でも全ての一致を行ロックして確かめ直す)と、利用者・契約者の検査で
       # 守る。削除の手順は Purge にある。店舗を消した後に、店舗に FK を持たない体験と自動応答の記録(Purge::GrowthRecords)のうち、
       # 消した店舗の id のものも同じ transaction で消し、件数を TOYBACO_E2E_PURGE の次の 1 行(TOYBACO_E2E_PURGE_GROWTH)に出す
-      # (TOYBACO_E2E_PURGE の行の形は変えない)。続けて、e2e_opening_checkout が作った開通の受付の記録のうち、合成 id が prefix の英数字で
-      # 始まる厳格な形のもの(Purge::OpeningRecords)も同じ transaction で消し、件数をその次の 1 行(TOYBACO_E2E_PURGE_OPENING。最後の行)に出す。
+      # (TOYBACO_E2E_PURGE の行の形は変えない)。店舗を消す前に、バッチの店舗の購入と契約の id に結ばれた課金の記録の残り(終端の event と、
+      # 止まった同期の依頼。Purge::BillingRecords)も同じ transaction で消し、件数を GROWTH の次の 1 行(TOYBACO_E2E_PURGE_BILLING)に出す。
+      # 続けて、e2e_opening_checkout が作った開通の受付の記録のうち、合成 id が prefix の英数字で始まる厳格な形のもの(Purge::OpeningRecords)も
+      # 同じ transaction で消し、件数をその次の 1 行(TOYBACO_E2E_PURGE_OPENING。最後の行)に出す。
       def purge(args)
         staging!('e2e_purge_accounts')
         prefix = prefix!(args)
@@ -637,40 +678,45 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # matched は一致集合の店舗(run_names! を通った全ての店舗、id の順)、stores はバッチ(その先頭 5 件)。remaining は一致集合のうち
         # バッチの外の件数。候補の下見は transaction の前の id で選び、消すかどうかは transaction の中でロックした店舗で決める。
         # skipped_users は候補(所属からの候補と契約者)のうち消さなかった利用者の数(同じ利用者は 1 回)。返すのは TOYBACO_E2E_PURGE の行と、
-        # 消した体験と自動応答の記録の件数の行(TOYBACO_E2E_PURGE_GROWTH)と、消した開通の受付の記録の件数の行(TOYBACO_E2E_PURGE_OPENING)の
-        # 3 行。
+        # 消した体験と自動応答の記録の件数の行(TOYBACO_E2E_PURGE_GROWTH)と、消した課金の記録の件数の行(TOYBACO_E2E_PURGE_BILLING)と、
+        # 消した開通の受付の記録の件数の行(TOYBACO_E2E_PURGE_OPENING。staging の同意 E2E の one-shot が終端に読むので最後に置く)の 4 行。
         def run(prefix, matched)
           stores = matched.first(PURGE_LIMIT)
           found = candidates(stores.map(&:id), matched.map(&:id))
-          users, kept, growth, opening = WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
+          users, kept, growth, billing, opening =
+            WriteGuard.jobs_after_commit { ActiveRecord::Base.transaction { delete!(prefix, matched, stores, found) } }
           skipped = ((found + kept).map(&:id) - users.map(&:id)).uniq.size
           remaining = matched.size - stores.size
           ["TOYBACO_E2E_PURGE prefix=#{prefix} accounts=#{stores.size} users=#{users.size} skipped_users=#{skipped} remaining=#{remaining}",
-           GrowthRecords.line(prefix, growth), OpeningRecords.line(prefix, opening)]
+           GrowthRecords.line(prefix, growth), BillingRecords.line(prefix, billing), OpeningRecords.line(prefix, opening)]
         end
 
         # transaction の中で呼ぶ。最初に一致集合の全店舗を行ロックして確かめ直し(バッチの店舗も同じ object が読み直される)、以後の判定と
-        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者と、消した体験と自動応答の記録の件数と、消した開通の受付の
-        # 記録の件数を返す。契約者は所属から選んだ候補とは別に、確かめた上で消す集合に入れる(所属が既に無い契約者も残さない)。体験と
-        # 自動応答の記録は、店舗を消す前に控えたバッチの id(全ての一致が E2E の店舗名の厳格な形で、ロックして確かめ直した店舗)のものだけを、
-        # 店舗を消した後に消す。開通の受付の記録は prefix の英数字で始まる合成 id の形で選び、店舗に結んだ行はバッチの店舗のものだけを消す
+        # 削除はロックした店舗の id で行う。消した利用者と、消さずに残す契約者と、消した体験と自動応答の記録の件数と、消した課金の記録と、
+        # 消した開通の受付の記録の件数を返す。契約者は所属から選んだ候補とは別に、確かめた上で消す集合に入れる(所属が既に無い契約者も残さない)。
+        # 課金の記録は、契約者を確かめた後・店舗を消す前に、ロックした店舗の購入と契約の id で選んで消す(BillingRecords)。体験と自動応答の
+        # 記録は、店舗を消す前に控えたバッチの id(全ての一致が E2E の店舗名の厳格な形で、ロックして確かめ直した店舗)のものだけを、店舗を
+        # 消した後に消す。開通の受付の記録は prefix の英数字で始まる合成 id の形で選び、店舗に結んだ行はバッチの店舗のものだけを消す
         # (OpeningRecords)。
         def delete!(prefix, matched, stores, found)
           WriteGuard.relock!(prefix, matched, '削除')
           ids = stores.map(&:id)
           removable, kept = owners!(stores, ids, matched.map(&:id))
           eligible = (removable + found.select { |user| locked_eligible?(user, ids) }).uniq(&:id)
+          billing = BillingRecords.delete!(prefix, stores)
           children!(ids)
           (eligible + stores).each { |record| DeleteObjectJob.new.perform(record) }
           growth = GrowthRecords.delete!(ids)
           opening = OpeningRecords.delete!(prefix, ids)
-          verify_deleted!(prefix, ids, eligible)
-          [eligible, kept, growth, opening]
+          verify_deleted!(prefix, ids, eligible, billing)
+          [eligible, kept, growth, billing, opening]
         end
 
-        # 削除を読み直し、店舗・利用者・所属・bot・体験と自動応答の記録か、開通の受付の記録が残っていれば abort(SystemExit)で rollback する。
-        def verify_deleted!(prefix, account_ids, users)
+        # 削除を読み直し、店舗・利用者・所属・bot・体験と自動応答の記録か、消した課金の記録(消した id で読み直す。処理中の行を並行の worker が
+        # 終端にしても偽の取り消しにならない)か、開通の受付の記録が残っていれば abort(SystemExit)で rollback する。
+        def verify_deleted!(prefix, account_ids, users, billing)
           abort "prefix=#{prefix} の削除を読み直すと店舗・利用者・所属・bot・体験と自動応答の記録が残っているため、削除を取り消します。" if remaining?(account_ids, users)
+          abort "prefix=#{prefix} の削除を読み直すと課金の記録(終端の event・同期の依頼)が残っているため、削除を取り消します。" if BillingRecords.remaining?(billing)
           return unless OpeningRecords.remaining?(prefix, account_ids)
 
           abort "prefix=#{prefix} の削除を読み直すと開通の受付の記録が残っているため、削除を取り消します。"
@@ -754,6 +800,87 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           def line(prefix, counts)
             "TOYBACO_E2E_PURGE_GROWTH prefix=#{prefix} trials=#{counts.fetch('trials')} identities=#{counts.fetch('identities')} " \
               "installations=#{counts.fetch('installations')}"
+          end
+        end
+
+        # 店舗に FK を持たない課金の記録(toybaco_billing_events と toybaco_subscription_sync_requests)のうち、E2E の購読の残り。残すと毎分の
+        # sweep が TOYBACO_BILLING_ATTENTION / TOYBACO_SUBSCRIPTION_SYNC_ATTENTION を出し続ける。対象の id はロックしたバッチの店舗(全ての一致が
+        # E2E の店舗名の厳格な形)の購入の記録の Session と、契約の購読と、その店舗に結ばれた同期の依頼の購読(形の合う値だけ。
+        # GrowthLive::Cancel の後片付けと同じ検査)。消すのは test mode で終端(completed・attention)の event のうち、更新の請求書の記録と開通の
+        # 受付に結ばれていないもの、続けてその購読の依頼のうち店舗に結ばれていない(account_id が NULL の)ものと、バッチの店舗に結ばれた
+        # attention のもの(event から FK で参照されていれば残す)。処理中の event(pending・queued・processing)と依頼(pending・running)、
+        # 店舗に結ばれた completed・superseded の依頼(遅れた通知の墓標。消すと次の通知が NULL の依頼を作り直し、24 時間後に attention になる)、
+        # live mode の行、ほかの店舗に結ばれた依頼には触れない。処理中の行は消さずに数える(inflight)。行ロックしてから id を控えて消し、
+        # 消した id を返す(読み直しは消した id で行う)。DB の失敗は例外の文を出さずに固定の文で止める(rollback。billing_failed)。
+        module BillingRecords
+          TERMINAL = %w[completed attention].freeze
+          INFLIGHT = %w[pending queued processing].freeze
+          RUNNING = %w[pending running].freeze
+
+          module_function
+
+          # transaction の中で、店舗を消す前に呼ぶ。消した event と依頼の id と、消さずに数えた処理中の行の数を返す。
+          def delete!(prefix, stores)
+            references = references(stores)
+            subscriptions = references.grep(E2eBilling::GrowthLive::SUBSCRIPTION_FORMAT)
+            events = remove!(removable_events(references))
+            requests = remove!(removable_requests(subscriptions, stores.map(&:id)))
+            { 'events' => events, 'requests' => requests, 'inflight' => inflight(references, subscriptions) }
+          rescue ActiveRecord::ActiveRecordError
+            E2eBilling::GrowthLive.stop!("prefix=#{prefix} の課金の記録(終端の event・同期の依頼)を DB の失敗で消せないため、削除を取り消します。")
+          end
+
+          # 店舗の購入の記録の Session・契約の購読と、店舗に結ばれた同期の依頼の購読(形の合う値だけ、重複なし)。
+          def references(stores)
+            require Rails.root.join('lib/toybaco/growth/purchase_intent').to_s
+            values = stores.flat_map do |store|
+              session = Toybaco::Growth::PurchaseIntent.saved(store)&.fetch('session_id', nil)
+              [session, Toybaco::Entitlements.attributes(store)['toybaco_subscription_id']]
+            end
+            values += Toybaco::SubscriptionSyncRequest.where(mode: E2eBilling::MODE, account_id: stores.map(&:id)).pluck(:subscription_id)
+            live = E2eBilling::GrowthLive
+            values.select { |value| value.to_s.match?(live::SESSION_FORMAT) || value.to_s.match?(live::SUBSCRIPTION_FORMAT) }.uniq
+          end
+
+          def removable_events(references)
+            Toybaco::BillingEvent.where(mode: E2eBilling::MODE, state: TERMINAL, reference_id: references, opening_request_id: nil)
+                                 .where.not(id: facts)
+          end
+
+          def removable_requests(subscriptions, account_ids)
+            scope = Toybaco::SubscriptionSyncRequest.where(mode: E2eBilling::MODE, subscription_id: subscriptions).where.not(state: RUNNING)
+            scope.where(account_id: nil).or(scope.where(account_id: account_ids, state: 'attention')).where.not(id: bound)
+          end
+
+          # 更新の請求書の記録(取り消せない証跡)が結ぶ event。
+          def facts
+            Toybaco::RenewalInvoiceFact.where.not(billing_event_id: nil).select(:billing_event_id)
+          end
+
+          # event から FK で参照されている同期の依頼。
+          def bound
+            Toybaco::BillingEvent.where.not(subscription_sync_request_id: nil).select(:subscription_sync_request_id)
+          end
+
+          # 行ロックしてから id を控えて消し、消した id を返す。
+          def remove!(scope)
+            ids = scope.lock.pluck(:id)
+            scope.klass.where(id: ids).delete_all
+            ids
+          end
+
+          def inflight(references, subscriptions)
+            Toybaco::BillingEvent.where(mode: E2eBilling::MODE, state: INFLIGHT, reference_id: references).count +
+              Toybaco::SubscriptionSyncRequest.where(mode: E2eBilling::MODE, state: RUNNING, subscription_id: subscriptions).count
+          end
+
+          def remaining?(deleted)
+            Toybaco::BillingEvent.exists?(id: deleted.fetch('events')) || Toybaco::SubscriptionSyncRequest.exists?(id: deleted.fetch('requests'))
+          end
+
+          def line(prefix, deleted)
+            "TOYBACO_E2E_PURGE_BILLING prefix=#{prefix} events=#{deleted.fetch('events').size} requests=#{deleted.fetch('requests').size} " \
+              "inflight=#{deleted.fetch('inflight')}"
           end
         end
 
@@ -848,6 +975,14 @@ namespace :toybaco do
        'その店舗の体験・自動応答の記録を削除する(rake "toybaco:e2e_purge_accounts[e2e-consent-<run>]")'
   task :e2e_purge_accounts, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eConsent.purge(args)
+  end
+end
+
+namespace :toybaco do
+  desc 'staging 専用: E2E の rake が image にあるかを読み取りだけで調べ、出力行の契約の版と最初に欠けた名前を表示する' \
+       '(rake "toybaco:e2e_preflight[e2e_purge_accounts.e2e_growth_cancel]"。名前は . で区切って 1〜20 個)'
+  task :e2e_preflight, %i[names] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eConsent::Preflight.call(args)
   end
 end
 
@@ -1267,8 +1402,8 @@ end
 # result・店舗の id・reason)だけで、メールアドレス・Session・購読・顧客の id・鍵は出さない。reason は固定の語で、本番の例外の文は出さない。
 # 進めないとき(refused)は同じ形の 1 行で abort する(非 0 で終わり、監査行は failed)。同じ prefix の 2 回目は何も書かずに skipped
 # (already_done)で正常に終わる。監査行(started / ok|failed)は上の RakeAudit が書く。rake は Rails の初期化前にこのファイルを読むため、
-# モデルとサービスは実行時に参照する。ただし GrowthLive の 2 本(e2e_growth_purchase_live / e2e_growth_cancel)だけは、偽 client を使わずに
-# Stripe test mode を実際に呼ぶ(下の GrowthLive の説明)。
+# モデルとサービスは実行時に参照する。ただし GrowthLive の 2 本(e2e_growth_purchase_live / e2e_growth_cancel)と、課金の記録の孤児の
+# 後片付け(e2e_purge_billing。下の Orphans の説明)は、偽 client を使わずに Stripe test mode を実際に呼ぶ(下の GrowthLive の説明)。
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module Ops
     module E2eBilling
@@ -1793,6 +1928,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         end
 
         # GrowthSeam と同じ前提(同じ理由のキー)に加えて、鍵が test mode で、webhook が Rails に届く構成(ingress)であることを確かめる。
+        # 理由のキーに写していない例外(DB の失敗など。SystemExit と signal は StandardError でないので捕まえない)は、例外の文を出さずに
+        # purchase_error で止める(決済の確定の後の例外は settle! が解約してから settle_error に写す)。
         def purchase!(prefix, account, owner)
           GrowthSeam.ready!(prefix, account, owner)
           refuse!(prefix, account, 'key_not_test') unless key.match?(KEY_FORMAT)
@@ -1800,6 +1937,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           client, session_id = start!(prefix, account, owner)
           Payment.pay!(prefix, account, owner, client, session_id)
           settle!(prefix, account, owner, client, session_id)
+        rescue StandardError
+          refuse!(prefix, account, 'purchase_error')
         end
 
         # 画面の購入の開始と同じく、購入の記録と Checkout Session(開いた状態)を実 client で作る。Session の id は購入の記録から読む。
@@ -1905,7 +2044,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # Session の growth_checkout の event が completed)が無ければ、event を作らない偽 client の e2e_growth_purchase で済ませた店舗なので
         # seam_purchase_present で断る(fail-closed)。あれば実 client で Session と購読を読み直し、購読が有効(active / trialing)で照合
         # (purchase_verified?)が通るときだけ真(skipped)。購読が有効でなければ subscription_inactive、照合が合わなければ payment_mismatch で
-        # 断る(解約は試みない。合わなかった実行の abandon! か、後段の e2e_growth_cancel が拾う)。
+        # 断る(解約は試みない。合わなかった実行の abandon! か、後段の e2e_growth_cancel が拾う)。理由のキーに写していない例外は purchase!
+        # と同じく purchase_error で止める。
         module Completion
           ACTIVE = %w[active trialing].freeze
 
@@ -1920,6 +2060,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             reason = mismatch(account, owner, session_id)
             GrowthLive.refuse!(prefix, account, reason) if reason
             true
+          rescue StandardError
+            GrowthLive.refuse!(prefix, account, 'purchase_error')
           end
 
           def live?(session_id)
@@ -2037,8 +2179,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           end
         end
 
-        # Stripe の payment page(Checkout の決済画面が使う非公開 API)・PaymentMethod・顧客・購読の一覧の API を Net::HTTP で呼ぶ(staging の
-        # growth webhook probe と同じ作法: Bearer、open / read timeout 10 / 30 秒、応答 1 MiB 以下、JSON の object)。payment page は非公開
+        # Stripe の payment page(Checkout の決済画面が使う非公開 API)・PaymentMethod・顧客・購読の一覧・Checkout Session(retrieve と購読の Session の
+        # 一覧)の API を Net::HTTP で呼ぶ(staging の growth webhook probe と同じ作法: Bearer、open / read timeout 10 / 30 秒、応答 1 MiB 以下、
+        # JSON の object)。payment page は非公開
         # API なので Stripe-Version を付けず、公開 API(PaymentMethod・顧客・購読)には probe と同じ版を付ける。id は形を確かめてから path に
         # 入れる。失敗は全て Failure(HTTP の status code と、非 2xx の応答の Stripe の error の code だけを持つ)に写し、鍵・id・応答の本文・
         # error の message・param・元の例外の文は持たない(cause: nil で元の例外の連鎖も切る)。
@@ -2089,6 +2232,20 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
           def delete_customer(customer_id)
             request(:delete, "/v1/customers/#{id!(customer_id, CUSTOMER_FORMAT)}", version: VERSION)
+          end
+
+          # Checkout Session(e2e_purge_billing の照合。購読と、その既定の PaymentMethod を展開して請求先の名前を読む)。本番の
+          # Checkout::Client は変えず、照合はこの helper で読む。
+          def checkout_session(session_id)
+            query = URI.encode_www_form([['expand[]', 'subscription.default_payment_method']])
+            request(:get, "/v1/checkout/sessions/#{id!(session_id, SESSION_FORMAT)}?#{query}", version: VERSION)
+          end
+
+          # 購読を作った Checkout Session(1 件まで。e2e_purge_billing の照合。購読と、その既定の PaymentMethod を展開する)。
+          def subscription_sessions(subscription_id)
+            query = URI.encode_www_form([['subscription', id!(subscription_id, SUBSCRIPTION_FORMAT)], %w[limit 1],
+                                         ['expand[]', 'data.subscription.default_payment_method']])
+            request(:get, "/v1/checkout/sessions?#{query}", version: VERSION)
           end
 
           private
@@ -2143,92 +2300,125 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         # skipped)。購読がこの run の購入のもの(test mode・metadata の店舗 id)であることを確かめてから解約し(既に解約済みなら解約の
         # 呼び出しだけを省く)、顧客を消し(既に消えていれば省く。消す前に、契約者のメール・この店舗の購入の Session の顧客・Stripe でこの
         # 顧客の購読がこの購読だけ・DB でほかの店舗がこの顧客を持たないことを確かめる)、解約の event(customer.subscription.deleted)が
-        # Rails に届いて終端になるまで待ってから、この run の id(Session・購読)の終端の event を全て消す(解約の event も残さない)。この
-        # 購読の同期の依頼(toybaco_subscription_sync_requests)のうち、店舗に結ばれていないものとこの店舗の attention のものを、参照が
-        # 無ければ消す。途中で止まっても、再実行で残りの工程を続ける。この run の始めに購読が既に解約済みで顧客も既に消えていれば、前の
-        # run が待機まで済ませたものとして待機を省く(解約の event は前の run の後片付けで消えている)。購入が無ければ(purge と同じく
-        # always で呼ばれる)何もせずに skipped。
+        # Rails に届いて終端になり、この run の id(Session・購読)の event に処理中(pending・queued・processing)が無くなるまで待ってから、
+        # この run の id の終端の event を全て消す(解約の event も残さない)。この購読の同期の依頼(toybaco_subscription_sync_requests)のうち、
+        # 店舗に結ばれていないものとこの店舗の attention のものを、参照が無ければ event と同じ transaction で消す。途中で止まっても、再実行で
+        # 残りの工程を続ける。この run の始めに購読が既に解約済みで顧客も既に消えていれば、前の run が待機まで済ませたものとして待機を省く
+        # (解約の event は前の run の後片付けで消えている)。購入が無ければ(purge と同じく always で呼ばれる)何もせずに skipped。DB の例外は
+        # 工程の語(店舗と購読の読み取り lookup_failed、顧客の削除の前の確かめ release_failed、待機 wait_failed、後片付け cleanup_failed)に、
+        # 残りの例外(Checkout::Client が包まない接続の切断など。SystemExit と signal は StandardError でないので捕まえない)は cancel_error に
+        # 写し、例外の文を出さずに断りの 1 行で止める。
         module Cancel
           LABEL = 'GROWTH_CANCEL'
           WAIT = 120
           DELETED = 'customer.subscription.deleted'
           UNSETTLED = %w[open payment_pending].freeze
           TERMINAL = %w[completed attention].freeze
+          INFLIGHT = %w[pending queued processing].freeze
 
           module_function
 
           def call(prefix)
-            account = purchased!(prefix)
+            account = Target.purchased!(prefix)
             return line(prefix, 'skipped', nil, 0, 'no_purchase') unless account
 
             refuse!(prefix, account, 'key_not_test') unless GrowthLive.key.match?(KEY_FORMAT)
             client = Toybaco::Checkout::Client.new(GrowthLive.key)
-            id = subscription_id!(prefix, account, client)
+            id = Target.subscription_id!(prefix, account, client)
             return line(prefix, 'skipped', account.id, 0, 'no_purchase') unless id
 
-            settle!(prefix, account, client, subscription!(prefix, account, client, id))
-            line(prefix, 'canceled', account.id, cleanup!(account, id), NONE)
+            settle!(prefix, account, client, Target.subscription!(prefix, account, client, id))
+            line(prefix, 'canceled', account.id, cleanup!(prefix, account, id), NONE)
+          rescue StandardError
+            refuse!(prefix, account, 'cancel_error')
           end
 
-          # 購読を解約し(既に解約済みなら省く)、顧客を消して(既に消えていれば省く)、解約の event が Rails で終端になるのを待つ。この run
-          # の始めに購読が解約済みで顧客も消えていれば、前の run が待機まで済ませたものとして待たない(解約の event は前の run の後片付けで
-          # 消えている)。それ以外(この run で解約したか顧客を消した)は待ち、終端にならなければ webhook_timeout で止める。
+          # 購読を解約し(既に解約済みなら省く)、顧客を消して(既に消えていれば省く)、解約の event の終端と処理中の event が無くなるのを待つ。
+          # この run の始めに購読が解約済みで顧客も消えていれば、前の run が待機まで済ませたものとして待たない(解約の event は前の run の
+          # 後片付けで消えている)。それ以外(この run で解約したか顧客を消した)は待つ(wait!)。
           def settle!(prefix, account, client, subscription)
             id = subscription.fetch('id')
             canceled = subscription['status'] == 'canceled'
             cancel!(prefix, account, client, id) unless canceled
-            settled = Customer.delete!(prefix, account, client, subscription) && canceled
-            refuse!(prefix, account, 'webhook_timeout') unless settled || GrowthLive.wait_until(WAIT) { deleted?(id) }
+            wait!(prefix, account, id) unless Customer.delete!(prefix, account, client, subscription) && canceled
           end
 
-          def purchased!(prefix)
-            stores = E2eConsent.accounts(prefix)
-            refuse!(prefix, nil, 'name_format') unless stores.all? { |store| store.name.match?(E2eConsent::RUN_NAME_FORMAT) }
-            purchased = stores.select { |store| purchase?(Toybaco::Growth::PurchaseIntent.saved(store)) }
-            refuse!(prefix, nil, 'multiple_purchases') if purchased.size > 1
-            purchased.first
+          # 解約の event が終端になり(deleted?)、この run の id を reference_id に持つ処理中の event が無くなるまで、同じ予算(WAIT 秒)で待つ。
+          # 処理中の event を残して後片付けすると、後で終端になった event が残り、毎分の sweep が知らせ続ける。待っても終わらなければ
+          # webhook_timeout で止める。
+          def wait!(prefix, account, subscription_id)
+            references = references(account, subscription_id)
+            settled = GrowthLive.wait_until(WAIT) { deleted?(subscription_id) && !inflight?(references) }
+            refuse!(prefix, account, 'webhook_timeout') unless settled
+          rescue ActiveRecord::ActiveRecordError
+            refuse!(prefix, account, 'wait_failed')
           end
 
-          # 購入の記録が complete か、Session のある未完了(open / payment_pending)。
-          def purchase?(saved)
-            return false unless saved.is_a?(Hash)
-
-            saved['state'] == 'complete' || (UNSETTLED.include?(saved['state']) && saved['session_id'].present?)
+          def inflight?(references)
+            Toybaco::BillingEvent.exists?(mode: MODE, state: INFLIGHT, reference_id: references)
           end
 
-          # 解約する購読の id。complete なら店舗の契約の購読(無ければ subscription_missing)、未完了なら Stripe の Session の購読(Session が
-          # 完了していなければ nil)。
-          def subscription_id!(prefix, account, client)
-            saved = Toybaco::Growth::PurchaseIntent.saved(account)
-            return session_subscription!(prefix, account, client, saved['session_id']) unless saved['state'] == 'complete'
+          # 解約する店舗と購読を選ぶ。店舗と購入の記録の読み取りの DB の例外は lookup_failed に写す。
+          module Target
+            module_function
 
-            id = Toybaco::Entitlements.attributes(account)['toybaco_subscription_id']
-            return id if id.to_s.match?(SUBSCRIPTION_FORMAT)
+            def purchased!(prefix)
+              stores = E2eConsent.accounts(prefix)
+              refuse!(prefix, nil, 'name_format') unless stores.all? { |store| store.name.match?(E2eConsent::RUN_NAME_FORMAT) }
+              purchased = stores.select { |store| purchase?(Toybaco::Growth::PurchaseIntent.saved(store)) }
+              refuse!(prefix, nil, 'multiple_purchases') if purchased.size > 1
+              purchased.first
+            rescue ActiveRecord::ActiveRecordError
+              refuse!(prefix, nil, 'lookup_failed')
+            end
 
-            refuse!(prefix, account, 'subscription_missing')
-          end
+            # 購入の記録が complete か、Session のある未完了(open / payment_pending)。
+            def purchase?(saved)
+              return false unless saved.is_a?(Hash)
 
-          def session_subscription!(prefix, account, client, session_id)
-            session = client.retrieve_checkout_session(session_id)
-            session['subscription'] if session['status'] == 'complete' && session['subscription'].to_s.match?(SUBSCRIPTION_FORMAT)
-          rescue Toybaco::Checkout::Error
-            refuse!(prefix, account, 'session_unavailable')
-          end
+              saved['state'] == 'complete' || (UNSETTLED.include?(saved['state']) && saved['session_id'].present?)
+            end
 
-          # 購読を Stripe から読み、test mode でこの店舗の購入の購読(metadata の店舗 id)であることを確かめる。
-          def subscription!(prefix, account, client, id)
-            subscription = client.retrieve_subscription(id)
-            return subscription if own?(account, id, subscription)
+            # 解約する購読の id。complete なら店舗の契約の購読(無ければ subscription_missing)、未完了なら Stripe の Session の購読(Session が
+            # 完了していなければ nil)。
+            def subscription_id!(prefix, account, client)
+              saved = Toybaco::Growth::PurchaseIntent.saved(account)
+              return session_subscription!(prefix, account, client, saved['session_id']) unless saved['state'] == 'complete'
 
-            refuse!(prefix, account, 'subscription_mismatch')
-          rescue Toybaco::Checkout::Error => e
-            refuse!(prefix, account, e.message == 'stripe 404' ? 'subscription_missing' : 'subscription_unavailable')
-          end
+              id = Toybaco::Entitlements.attributes(account)['toybaco_subscription_id']
+              return id if id.to_s.match?(SUBSCRIPTION_FORMAT)
 
-          # test mode の、この店舗の購入の購読(PurchaseForm が Session と購読の metadata に入れる店舗 id が一致する)。
-          def own?(account, id, subscription)
-            metadata = subscription['metadata'].is_a?(Hash) ? subscription['metadata'] : {}
-            subscription['id'] == id && subscription['livemode'] == false && metadata['toybaco_existing_account_id'] == account.id.to_s
+              refuse!(prefix, account, 'subscription_missing')
+            rescue ActiveRecord::ActiveRecordError
+              refuse!(prefix, account, 'lookup_failed')
+            end
+
+            def session_subscription!(prefix, account, client, session_id)
+              session = client.retrieve_checkout_session(session_id)
+              session['subscription'] if session['status'] == 'complete' && session['subscription'].to_s.match?(SUBSCRIPTION_FORMAT)
+            rescue Toybaco::Checkout::Error
+              refuse!(prefix, account, 'session_unavailable')
+            end
+
+            # 購読を Stripe から読み、test mode でこの店舗の購入の購読(metadata の店舗 id)であることを確かめる。
+            def subscription!(prefix, account, client, id)
+              subscription = client.retrieve_subscription(id)
+              return subscription if own?(account, id, subscription)
+
+              refuse!(prefix, account, 'subscription_mismatch')
+            rescue Toybaco::Checkout::Error => e
+              refuse!(prefix, account, e.message == 'stripe 404' ? 'subscription_missing' : 'subscription_unavailable')
+            end
+
+            # test mode の、この店舗の購入の購読(PurchaseForm が Session と購読の metadata に入れる店舗 id が一致する)。
+            def own?(account, id, subscription)
+              metadata = subscription['metadata'].is_a?(Hash) ? subscription['metadata'] : {}
+              subscription['id'] == id && subscription['livemode'] == false && metadata['toybaco_existing_account_id'] == account.id.to_s
+            end
+
+            def refuse!(prefix, account, reason)
+              Cancel.refuse!(prefix, account, reason)
+            end
           end
 
           # 解約の応答が、この購読(id)の test mode の解約済みでなければ止める。
@@ -2257,6 +2447,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
               false
             rescue ApiHandler::Failure
               refuse!(prefix, account, 'customer_delete_failed')
+            rescue ActiveRecord::ActiveRecordError
+              refuse!(prefix, account, 'release_failed')
             end
 
             def customer!(prefix, account, api, customer_id)
@@ -2314,15 +2506,25 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           # この run の id(購入の記録の Session と購読。形の合う値だけ)を reference_id に持つ終端の event(completed・attention。解約の event
           # も含む)を全て消して件数を返す(attention の行を残すと毎分の sweep が知らせ続ける)。処理中の event(pending・queued・processing)と
           # 更新の請求書の記録が結ぶ event は残す。続けて、この購読の同期の依頼のうち、毎分の sweep が知らせ続ける止まった依頼を手放す
-          # (release_request!。消した event の結びが外れた後に確かめる)。
-          def cleanup!(account, subscription_id)
-            saved = Toybaco::Growth::PurchaseIntent.saved(account)
-            references = [[saved['session_id'], SESSION_FORMAT], [subscription_id, SUBSCRIPTION_FORMAT]]
-                         .filter_map { |value, format| value if value.to_s.match?(format) }
+          # (release_request!。消した event の結びが外れた後に確かめる)。2 つの削除は 1 つの transaction で行い、FK の競合などで後ろが
+          # 失敗すれば両方を戻す(再実行がやり直す)。
+          def cleanup!(prefix, account, subscription_id)
+            references = references(account, subscription_id)
             facts = Toybaco::RenewalInvoiceFact.where.not(billing_event_id: nil).select(:billing_event_id)
-            events = Toybaco::BillingEvent.where(mode: MODE, state: TERMINAL, reference_id: references).where.not(id: facts).delete_all
-            release_request!(account, subscription_id)
-            events
+            Toybaco::BillingEvent.transaction do
+              events = Toybaco::BillingEvent.where(mode: MODE, state: TERMINAL, reference_id: references).where.not(id: facts).delete_all
+              release_request!(account, subscription_id)
+              events
+            end
+          rescue ActiveRecord::ActiveRecordError
+            refuse!(prefix, account, 'cleanup_failed')
+          end
+
+          # この run の id(購入の記録の Session と購読。形の合う値だけ)。
+          def references(account, subscription_id)
+            saved = Toybaco::Growth::PurchaseIntent.saved(account) || {}
+            [[saved['session_id'], SESSION_FORMAT], [subscription_id, SUBSCRIPTION_FORMAT]]
+              .filter_map { |value, format| value if value.to_s.match?(format) }
           end
 
           # 毎分の sweep が知らせ続ける止まった同期の依頼を手放す。対象は、店舗に結ばれていない(account_id が NULL の)依頼と、この店舗に
@@ -2343,6 +2545,254 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
           def refuse!(prefix, account, reason)
             GrowthLive.stop!(line(prefix, 'refused', account&.id, 0, reason))
           end
+        end
+      end
+
+      # toybaco:e2e_purge_billing の本体。店舗が消えた後に残った E2E の課金の記録(e2e_purge_accounts が店舗の購入と契約から辿れなくなった
+      # 孤児。毎分の sweep が TOYBACO_BILLING_ATTENTION / TOYBACO_SUBSCRIPTION_SYNC_ATTENTION を出し続ける)を、Stripe test mode で E2E の購入と
+      # 確かめてから消す。候補は test mode の行だけで、(i) どの店舗の購入の記録の Session でも規約同意の記録の Session でもない(同意の記録は
+      # 追記だけなので、購入をやり直した店舗の前の Session も外れる)終端(completed・attention。result は問わない。
+      # purge が残した処理中の購入は、店舗が消えた後に record_missing のほか期限・試行の上限の result で attention になる)の growth_checkout の
+      # event、(ii) どの店舗の契約にも無い購読の終端の通知の event、(iii) 店舗に結ばれていないか、消えた店舗に結ばれた attention の同期の依頼で、
+      # 購読がどの店舗の契約にも無いもの(処理中の行・更新の請求書の記録と開通の受付に結ばれた event は候補にしない)。候補の行数に上限は
+      # 置かず、event と依頼をまとめて新しい順(作成時刻の降順、同じ時刻は id の降順)に並べた照合する一意の id(Session・購読)が
+      # MAX_LOOKUPS 件以下なら全てを照合する。超えるときは、件数を SHARD_SIZE で割って切り上げた数の shard に分け(所属は id の SHA-256 の
+      # 先頭 8 桁で決まり、id が増減しても shard の数が変わらない限り動かない)、同じ prefix のこの task の過去の実行回数(監査行のうち
+      # 終わりの行 ok / failed で、params_digest が今の prefix のもの)を shard の数で割った余りの shard だけを、新しい順に MAX_LOOKUPS 件まで
+      # 照合する(呼び出しごとに shard が回るので、照合できない id が溜まっても古い孤児に届く)。選ばなかった shard の行と予算で届かなかった
+      # 行の数を remaining に出す。候補ごとに Stripe の Session を GrowthLive::ApiHandler で読み(Session は retrieve、購読はそれを作った Session の
+      # 一覧。どちらも購読と、その既定の PaymentMethod を展開する。同じ id は 1 回)、応答が照合する id に結び付き(読んだ Session の id が照合する
+      # Session の id、購読の一覧は続きの無い 1 件で、その Session の購読が照合する購読)、Session が test mode の完了した Checkout Session で、
+      # 購入者のメール(customer_email と customer_details.email の空でないもの。両方あれば同じ)が全て E2E の固定メールの形、metadata の店舗
+      # (toybaco_existing_account_id)が DB に無く、購入者の名前(customer_details.name と、購読の既定の PaymentMethod の請求先の名前。E2E の
+      # rake は請求先の名前に店舗名 = run 名を入れる)の空でないものが 1 つ以上あって全て同じで、E2E の run 名の形(RUN_NAME_FORMAT)に合い
+      # prefix で始まるときだけ、その範囲の E2E の購入と見なす(E2E の購入者のメールは全 run で同じなので、run への結び付けは名前で行う)。
+      # 照合に失敗した候補と、Stripe が 404 かほかの 4xx を返した候補は消さずに unverified に数える(fail-closed)。401 / 403 は
+      # stripe_unauthorized、429・5xx と応答の無い失敗(接続・timeout・本文の破損)は stripe_unavailable で、その時点で Stripe を呼ぶのをやめ、
+      # 何も消さずに止める。照合を全て済ませてから、1 つの transaction で候補の条件と照合した id を読み直して(行ロック)消す。順は event、依頼
+      # (event から FK で参照されている依頼は残す)。候補が 0 件なら Stripe を呼ばない。
+      # 鍵の検査は GrowthLive と同じ(KEY_FORMAT。sk_test_ / rk_test_)。出力は 1 行(消した件数・unverified・remaining)で、id・メール・
+      # 金額・鍵・例外の文は出さない。
+      module Orphans
+        LABEL = 'TOYBACO_E2E_PURGE_BILLING_ORPHANS'
+        # 1 回の呼び出しで Stripe で照合する一意の id(Session・購読)の上限。
+        MAX_LOOKUPS = 100
+        # 照合する id が MAX_LOOKUPS を超えるときの、1 つの shard の id の数の目安(shard の数 = 件数 / SHARD_SIZE の切り上げ)。
+        SHARD_SIZE = 50
+        # この task の監査行の action(RakeAudit が書く。過去の実行回数はこの action の終わりの行 ok / failed の数)。
+        AUDIT_ACTION = 'rake.toybaco:e2e_purge_billing'
+        # 鍵の権限の不足を表す HTTP の status code(stripe_unauthorized で止める)。
+        UNAUTHORIZED = %w[401 403].freeze
+        STORE_ID = /\A[1-9]\d{0,19}\z/
+        # Account の id(PostgreSQL の bigint)の範囲。外れる値は exists? が RangeError を投げるので、照合できないとして扱う。
+        STORE_ID_RANGE = (1..9_223_372_036_854_775_807)
+        CONTRACT = "internal_attributes ->> 'toybaco_subscription_id'"
+        # 照合する id の形(Session と購読。GrowthLive::Cancel の後片付けと同じ検査)。
+        REFERENCE = Regexp.union(GrowthLive::SESSION_FORMAT, GrowthLive::SUBSCRIPTION_FORMAT)
+
+        module_function
+
+        # toybaco:e2e_purge_billing[prefix]。
+        def run(args)
+          staging!('e2e_purge_billing')
+          E2eBilling.require_billing!
+          call(E2eConsent.prefix!(args))
+        end
+
+        def staging!(task)
+          E2eConsent.staging!(task)
+        end
+
+        def call(prefix)
+          refuse!(prefix, 'key_not_test') unless GrowthLive.key.match?(GrowthLive::KEY_FORMAT)
+          found = candidates
+          references = window(found.pluck(2).uniq, prefix)
+          picked = found.select { |row| references.include?(row[2]) }
+          events, requests = picked.empty? ? [0, 0] : delete!(Lookup.verified(prefix, references, picked))
+          "#{LABEL} prefix=#{prefix} events=#{events} requests=#{requests} unverified=#{picked.size - events - requests} " \
+            "remaining=#{found.size - picked.size}"
+        rescue ActiveRecord::ActiveRecordError
+          refuse!(prefix, 'billing_failed')
+        rescue StandardError
+          refuse!(prefix, 'purge_error')
+        end
+
+        # [種類, 行の id, 照合する id, 作成時刻] の配列。event と依頼をまとめて新しい順(作成時刻の降順、同じ時刻は id の降順)。照合する id の
+        # 形が合わない行は候補にしない。
+        def candidates
+          events = orphan_events.pluck(:id, :reference_id, :created_at).map { |id, reference, at| [:event, id, reference, at] }
+          requests = orphan_requests.pluck(:id, :subscription_id, :created_at).map { |id, reference, at| [:request, id, reference, at] }
+          rows = (events + requests).select { |_, _, reference, _| reference.match?(REFERENCE) }
+          rows.sort_by { |kind, id, _, at| [at, id, kind.to_s] }.reverse
+        end
+
+        # 照合する id(新しい順)。MAX_LOOKUPS 件以下なら全て。超えるときは、同じ prefix の実行回数で選んだ shard の id を新しい順に
+        # MAX_LOOKUPS 件まで。
+        def window(references, prefix)
+          return references if references.size <= MAX_LOOKUPS
+
+          shards = (references.size / SHARD_SIZE.to_f).ceil
+          selected = runs(prefix) % shards
+          references.select { |reference| shard(reference, shards) == selected }.first(MAX_LOOKUPS)
+        end
+
+        # id の所属する shard(id の SHA-256 の先頭 8 桁を整数にして shard の数で割った余り)。Toybaco::Ops::Digest に隠れないよう ::Digest。
+        def shard(reference, shards)
+          ::Digest::SHA256.hexdigest(reference)[0, 8].to_i(16) % shards
+        end
+
+        # 同じ prefix のこの task の過去の実行回数(監査行のうち終わりの行の数。今の実行の started は数えない)。params_digest は RakeAudit が
+        # 引数(余分な引数が無いときは args.to_h の { prefix: }) から Ops::Audit.params_digest で組むものと同じ。
+        def runs(prefix)
+          digest = Toybaco::Ops::Audit.params_digest({ prefix: prefix })
+          Toybaco::OperatorAction.where(action: AUDIT_ACTION, result: %w[ok failed], params_digest: digest).count
+        end
+
+        def orphan_events
+          records = E2eConsent::Purge::BillingRecords
+          scope = Toybaco::BillingEvent.where(mode: MODE, opening_request_id: nil, state: records::TERMINAL).where.not(id: records.facts)
+          checkout = scope.where(action: 'growth_checkout').where.not(reference_id: purchased).where.not(reference_id: consented)
+          checkout.or(scope.where(action: 'subscription_notice').where.not(reference_id: contracted))
+        end
+
+        def orphan_requests
+          scope = Toybaco::SubscriptionSyncRequest.where(mode: MODE).where.not(state: E2eConsent::Purge::BillingRecords::RUNNING)
+          scope = scope.where.not(subscription_id: contracted)
+          scope.where(account_id: nil).or(scope.where(state: 'attention').where.not(account_id: Account.select(:id)))
+        end
+
+        # どれかの店舗の契約(internal_attributes の toybaco_subscription_id)にある購読の id。
+        def contracted
+          Account.where("#{CONTRACT} IS NOT NULL").select(Arel.sql(CONTRACT))
+        end
+
+        # どれかの店舗の規約同意の記録(internal_attributes の LegalTerms::KEY。追記だけの配列)にある Session の id(NULL は含めない)。
+        def consented
+          consents = "accounts.internal_attributes -> #{Account.connection.quote(Toybaco::LegalTerms::KEY)}"
+          entries = "CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(#{consents}) = 'array' THEN #{consents} " \
+                    "ELSE '[]'::jsonb END) AS consent"
+          Account.joins(entries).where("consent ->> 'session_id' IS NOT NULL").select(Arel.sql("consent ->> 'session_id'"))
+        end
+
+        # どれかの店舗の購入の記録(internal_attributes の PurchaseIntent::KEY)にある Session の id。
+        def purchased
+          column = "internal_attributes -> #{Account.connection.quote(Toybaco::Growth::PurchaseIntent::KEY)} ->> 'session_id'"
+          Account.where("#{column} IS NOT NULL").select(Arel.sql(column))
+        end
+
+        # Stripe での照合(照合する id ごとに Session を読み、E2E の購入の Session か確かめる)。止める失敗は Orphans.refuse!。
+        module Lookup
+          module_function
+
+          # 照合する id を走査の順に Stripe で読み、E2E の購入の Session と確かめられた候補を返す。
+          def verified(prefix, references, picked)
+            api = GrowthLive::ApiHandler.new(GrowthLive.key)
+            results = references.index_with { |reference| e2e_session?(prefix, session(prefix, api, reference)) }
+            picked.select { |row| results.fetch(row[2]) }
+          end
+
+          # 照合する id に結び付いた Stripe の Session。結び付かない応答と、404・ほかの 4xx は nil(照合できない)。止める失敗は http_failure。
+          def session(prefix, api, reference)
+            return own_session(reference, api.checkout_session(reference)) if reference.match?(GrowthLive::SESSION_FORMAT)
+
+            listed_session(reference, api.subscription_sessions(reference))
+          rescue GrowthLive::ApiHandler::Failure => e
+            http_failure(prefix, e.status)
+          rescue SystemCallError, IOError, SocketError, Timeout::Error, OpenSSL::SSL::SSLError
+            refuse!(prefix, 'stripe_unavailable')
+          end
+
+          # retrieve で読んだ Session が、照合する Session の id のもの。
+          def own_session(reference, session)
+            session if session.is_a?(Hash) && session['id'] == reference
+          end
+
+          # 購読の Session の一覧が続きの無いちょうど 1 件で、その Session の購読(文字列か、展開された object の id)が照合する購読。
+          def listed_session(reference, listed)
+            data = listed.is_a?(Hash) && listed['has_more'] == false ? Array(listed['data']) : []
+            session = data.first if data.size == 1
+            return unless session.is_a?(Hash)
+
+            subscription = session['subscription']
+            session if (subscription.is_a?(Hash) ? subscription['id'] : subscription) == reference
+          end
+
+          # HTTP の失敗の区分。404 とほかの 4xx は照合できない(nil)。401 / 403 は stripe_unauthorized、429・5xx・ほかの status と、status の
+          # 無い失敗(応答の無い失敗)は stripe_unavailable で、何も消さずに止める(再試行すべき状態の候補を unverified に落とさない)。
+          def http_failure(prefix, code)
+            return refuse!(prefix, 'stripe_unauthorized') if UNAUTHORIZED.include?(code)
+            return if code.to_s.match?(/\A4\d\d\z/) && code != '429'
+
+            refuse!(prefix, 'stripe_unavailable')
+          end
+
+          # test mode の完了した Checkout Session で、購入者のメールが E2E の固定メールの形、metadata の店舗が DB に無く、購入者の名前が
+          # prefix の範囲の E2E の run 名。
+          def e2e_session?(prefix, session)
+            return false unless session.is_a?(Hash) && session['livemode'] == false
+            return false unless session.values_at('object', 'status') == %w[checkout.session complete]
+
+            details = session['customer_details'].is_a?(Hash) ? session['customer_details'] : {}
+            e2e_email?(session['customer_email'], details['email']) && gone?(session['metadata']) &&
+              run_named?(prefix, details['name'], billing_name(session['subscription']))
+          end
+
+          # 購入者のメール(customer_email と customer_details.email のうち空でないもの)が 1 つ以上あり、全て E2E の固定メールの形で、互いに同じ。
+          def e2e_email?(*values)
+            emails = values.reject { |value| value.nil? || value == '' }
+            emails.any? && emails.uniq.size == 1 && emails.all? { |email| email.is_a?(String) && email.match?(E2eConsent::EMAIL_FORMAT) }
+          end
+
+          # metadata の店舗 id(PurchaseForm が入れる toybaco_existing_account_id)が bigint の範囲の正の整数で、その店舗が DB に無い。
+          def gone?(metadata)
+            store = metadata.is_a?(Hash) ? metadata['toybaco_existing_account_id'].to_s : ''
+            id = store.match?(STORE_ID) ? Integer(store, 10) : 0
+            STORE_ID_RANGE.cover?(id) && !Account.exists?(id: id)
+          end
+
+          # 購入者の名前(customer_details.name と購読の既定の PaymentMethod の請求先の名前のうち空でないもの)が 1 つ以上あり、全て同じで、
+          # E2E の run 名の形(RUN_NAME_FORMAT)に合い、prefix で始まる。名前が取れない・食い違う・形違い・prefix の外は照合できない。
+          def run_named?(prefix, *values)
+            names = values.reject { |value| value.nil? || value == '' }
+            names.any? && names.uniq.size == 1 && run_name?(prefix, names.first)
+          end
+
+          # E2E の run 名の形(RUN_NAME_FORMAT)に合い、prefix で始まる文字列。
+          def run_name?(prefix, name)
+            name.is_a?(String) && name.match?(E2eConsent::RUN_NAME_FORMAT) && name.start_with?(prefix)
+          end
+
+          # 展開された購読の既定の PaymentMethod の請求先の名前(展開されていない・無いときは nil)。
+          def billing_name(subscription)
+            method = subscription['default_payment_method'] if subscription.is_a?(Hash)
+            details = method['billing_details'] if method.is_a?(Hash)
+            details['name'] if details.is_a?(Hash)
+          end
+
+          def refuse!(prefix, reason)
+            Orphans.refuse!(prefix, reason)
+          end
+        end
+
+        # 照合できた候補を、1 つの transaction で候補の条件と照合した id を読み直して(行ロック)から消す。event、依頼の順(依頼は event の参照が
+        # 外れた後に確かめ、参照が残れば消さない)。消した event と依頼の件数を返す。
+        def delete!(verified)
+          records = E2eConsent::Purge::BillingRecords
+          ActiveRecord::Base.transaction do
+            events = records.remove!(bound_rows(orphan_events, verified, :event, :reference_id))
+            requests = records.remove!(bound_rows(orphan_requests, verified, :request, :subscription_id).where.not(id: records.bound))
+            [events.size, requests.size]
+          end
+        end
+
+        # 照合した候補の行のうち、照合した id が今も同じもの(照合した id ごとに where(id:, 列: 照合した id))。候補が無ければ空。
+        def bound_rows(scope, verified, kind, column)
+          groups = verified.select { |row| row[0] == kind }.group_by { |row| row[2] }
+          groups.map { |reference, rows| scope.where(id: rows.pluck(1)).where(column => reference) }.reduce(:or) || scope.none
+        end
+
+        def refuse!(prefix, reason)
+          GrowthLive.stop!("#{LABEL} prefix=#{prefix} result=refused account=#{NONE} reason=#{reason}")
         end
       end
     end
@@ -2372,6 +2822,12 @@ namespace :toybaco do
        'event を消す(rake "toybaco:e2e_growth_cancel[e2e-consent-<run>]")'
   task :e2e_growth_cancel, %i[prefix] => :environment do |_t, args|
     puts Toybaco::Ops::E2eBilling.growth_cancel(args)
+  end
+
+  desc 'staging 専用: 店舗が消えた後に残った E2E の課金の記録(終端の event・止まった同期の依頼。1 回 50 件まで)を、Stripe test mode で E2E の' \
+       '購入と確かめてから消す(rake "toybaco:e2e_purge_billing[e2e-consent-r]")'
+  task :e2e_purge_billing, %i[prefix] => :environment do |_t, args|
+    puts Toybaco::Ops::E2eBilling::Orphans.run(args)
   end
 end
 
@@ -2722,5 +3178,193 @@ namespace :toybaco do
        '(rake "toybaco:e2e_visual_purge[e2e-visual-<name>]")'
   task :e2e_visual_purge, %i[name] => :environment do |_t, args|
     puts Toybaco::Ops::E2eVisual.purge(args)
+  end
+end
+
+# 確認待ち(attention)の行を、運営が理由を付けて閉じる・購読照合を始め直す(2026-10-20、時間経過で固着する課金の確認待ち)。
+# - toybaco:billing_attention_close[id,理由] は課金通知の受付(BillingEvent)、toybaco:sync_attention_close[id,理由] は購読照合の要求
+#   (SubscriptionSyncRequest)、toybaco:opening_attention_close[id,理由] は開通後の初期設定(OpeningRequest の onboarding_state)、
+#   toybaco:renewal_attention_close[id,理由] は更新請求の処理(GrowthRenewalDispatch)の確認待ちを閉じる。
+#   toybaco:sync_attention_retry[id,理由] は購読照合の要求を確認待ちから始め直す(新しい通知が届いた時と同じ re-arm で revision を
+#   1 つ進め、照合の job を積む。積めなければ毎分の sweep が積み直す)。要求に保存した店舗が、今その購読を持つ唯一の店舗でなければ
+#   止め(account-moved)、理由 rebind の時だけ要求の店舗を外して結び付け直す(今の店舗が 2 件以上なら rebind も止める)。
+# - 引数は行の ID(1 以上の整数)と理由語(CLOSE_REASONS / RETRY_REASONS の 1 つ)だけ。メールアドレスや自由文は取らない。
+# - 行の書き換えと監査行(toybaco_operator_actions。実行者は TOYBACO_OPS_ACTOR、action は attention.<種類>.<close|retry>.<理由>、
+#   対象はその行、params は id・理由・前の状態と結果の digest)を同じ transaction で確定させる。監査行を書けなければ行も変えない。
+#   開始と終了(started / ok|failed)の監査行は先頭の RakeAudit が別の DB セッションで書く。
+# - 閉じた後の状態: 受付と購読照合は completed(result operator_closed。受付は recovery_log にも理由と実行者を残す)。初期設定は
+#   onboarding_state ready(CHECK が許す値は pending / ready / attention だけ)。更新請求の処理は idle(phase はそのまま、result
+#   operator_closed)。どれも sweep は拾わず、毎分の確認待ちのログと日次ダイジェストの件数から外れる。閉じても Stripe や店舗の契約は
+#   変えない(対応は先に運営が済ませる)。
+# - 書かずに止める(abort。監査行は failed): 行が無い・確認待ちでない・購読照合で Free 復帰の停止を sweep が再試行している
+#   (SubscriptionReconciliation.suspension_due?。閉じると停止の再試行が止まる。始め直しは止めない)・更新請求の処理の phase が
+#   grace_ready(idle にすると猶予の期日に sweep が再実行する)か、店舗が今も持つ購読の未完の phase(received / due_waiting /
+#   provider_closed。idle にすると RenewalDispatchSyncGuard#pending? が受け入れる phase にならず、同じ請求の更新を再開できない)か、
+#   同じ operation に未完の coordinator(N2)がある。
+# - 出力は TOYBACO_ATTENTION_OPS の 1 行(kind・id・操作・理由・前後の状態・前の結果)。値は toybaco:renewal_attention と同じ整形
+#   (RenewalFormat.token)にし、ops-rake の Step Summary のマスクに当たらないようにする。止める理由の語も - でつなぐ。
+# rake は Rails の初期化前にこのファイルを読むため、モデル・Audit・SubscriptionReconciliation・RenewalFormat は実行時に参照する。
+module Toybaco::Ops::AttentionOps
+  ID_FORMAT = /\A[1-9]\d{0,9}\z/
+  PREFIX = 'TOYBACO_ATTENTION_OPS'
+  # 閉じる理由。foreign: 他製品(Stripe 共用)の通知、handled: 運営が手作業で対応した、refunded: 返金で対応した、
+  # duplicate: 同じ事象の重複、test: 試験のデータ。
+  CLOSE_REASONS = %w[foreign handled refunded duplicate test].freeze
+  # 購読照合を始め直す理由。fixed: 原因(契約・店舗の設定)を直した、transient: 一時的な障害だった、rebind: 購読を持つ店舗を
+  # 直した(重複の結び付けを 1 店舗に直したなど)ので、要求の店舗を外して今の唯一の店舗に結び付け直す。
+  RETRY_REASONS = %w[fixed transient rebind].freeze
+  CLOSED = 'operator_closed'
+  # 更新請求の処理が終わっていない phase(終わると idle で grace_ready / paid_ready / free_completed になる)。
+  UNFINISHED_PHASES = %w[received due_waiting provider_closed].freeze
+
+  module_function
+
+  def close_billing(args)
+    perform({ kind: 'billing-event', verb: 'close', model: Toybaco::BillingEvent }, args) do |row, context|
+      now = context.fetch(:now)
+      entry = { 'action' => 'operator_close', 'reason' => context.fetch(:reason), 'actor' => context.fetch(:actor),
+                'closed_at' => now.iso8601, 'previous_result' => row.result, 'previous_attempts' => row.attempts }
+      { state: 'completed', result: CLOSED, completed_at: now, lease_token: nil, lease_expires_at: nil, recovery_log: row.recovery_log + [entry] }
+    end.last
+  end
+
+  def close_sync(args)
+    perform({ kind: 'sync-request', verb: 'close', model: Toybaco::SubscriptionSyncRequest }, args) do |row, context|
+      refuse!('sync-request', row.id, 'suspension-due') if Toybaco::SubscriptionReconciliation.suspension_due?(row)
+
+      { state: 'completed', result: CLOSED, completed_at: context.fetch(:now) }
+    end.last
+  end
+
+  def close_opening(args)
+    target = { kind: 'opening-request', verb: 'close', model: Toybaco::OpeningRequest, state: :onboarding_state }
+    perform(target, args) { { onboarding_state: 'ready' } }.last
+  end
+
+  def close_renewal(args)
+    perform({ kind: 'renewal-dispatch', verb: 'close', model: Toybaco::GrowthRenewalDispatch }, args) do |row|
+      refuse!('renewal-dispatch', row.id, 'grace-ready') if row.phase == 'grace_ready'
+      refuse!('renewal-dispatch', row.id, 'current-unfinished') if current_unfinished?(row)
+      coordinators = Toybaco::GrowthRenewalCoordinator.where(renewal_operation_id: row.renewal_operation_id).where.not(phase: 'free_completed')
+      refuse!('renewal-dispatch', row.id, 'coordinator-pending') if coordinators.exists?
+
+      { state: 'idle', result: CLOSED, lease_token: nil, lease_expires_at: nil }
+    end.last
+  end
+
+  # 店舗が今も持つ購読(購読 ID の完全一致)の、終わっていない更新請求の処理。
+  def current_unfinished?(row)
+    subscription = Toybaco::RenewalOperation.find(row.renewal_operation_id).subscription_id
+    UNFINISHED_PHASES.include?(row.phase) && Toybaco::SubscriptionReconciliation.accounts_for(subscription).exists?
+  end
+
+  # 購読照合を始め直す。commit の後に積む(Dispatch.enqueue は自分の行ロックで予約し、積めなければ毎分の sweep が積み直す)。
+  def retry_sync(args)
+    target = { kind: 'sync-request', verb: 'retry', model: Toybaco::SubscriptionSyncRequest, reasons: RETRY_REASONS }
+    row, line = perform(target, args) do |request, context|
+      Toybaco::SubscriptionReconciliation.rearm_values(context.fetch(:now)).merge(requested_revision: request.requested_revision + 1)
+                                         .merge(rebind_values(request, context))
+    end
+    queued = Toybaco::SubscriptionReconciliation::Dispatch.enqueue(row, now: Time.now.utc)
+    "#{line} revision=#{row.requested_revision} enqueued=#{!queued.nil?}"
+  end
+
+  # 要求に保存した店舗と、今その購読を持つ店舗(購読 ID の完全一致)を行ロックの中で照合する。保存した店舗が今の唯一の店舗でなければ
+  # (店舗が移った・0 件・2 件以上)、そのまま始め直すと照合は superseded で終わり、今の店舗を照合しないまま確認待ちの一覧からも
+  # 消えるので止める(account-moved)。rebind の時だけ要求の店舗を外し、照合の bind_account の一意検査に任せる。今の店舗が 2 件以上なら
+  # rebind も止める(bind_account が決められない。先に重複を直す)。前の店舗と照合の時点の店舗は、監査行の params と出力に残す。
+  def rebind_values(request, context)
+    owners = Toybaco::SubscriptionReconciliation.accounts_for(request.subscription_id).limit(2).pluck(:id)
+    seen = [request.account_id || 'none', { 0 => 'none', 1 => owners.first }.fetch(owners.size, 'multiple')]
+    context[:audit] = { 'previous_account_id' => seen.first, 'owner' => seen.last }
+    context[:suffix] = " previous_account=#{seen.first} owner=#{seen.last}"
+    if context.fetch(:reason) == 'rebind'
+      refuse!('sync-request', request.id, 'multiple-owners') if owners.size > 1
+      return { account_id: nil }
+    end
+    refuse!('sync-request', request.id, 'account-moved') if request.account_id && owners != [request.account_id]
+    {}
+  end
+
+  # 行を行ロックで読み直し、確認待ちであることを確かめてから、ブロックが返す値で書き換え、同じ transaction で監査行を書く。
+  # target は種類(kind)・操作(verb)・モデル・状態の列(state。既定は state)・理由語の名簿(reasons。既定は CLOSE_REASONS)。
+  # 書き換えた行と出力の 1 行を返す。進めないときは理由の 1 行で abort する(transaction の中なので何も書かれない)。
+  def perform(target, args)
+    kind = target.fetch(:kind)
+    state = target.fetch(:state, :state)
+    id, reason = arguments!(args, target.fetch(:reasons, CLOSE_REASONS))
+    context = { kind: kind, verb: target.fetch(:verb), reason: reason, now: Time.now.utc,
+                actor: audit_env('TOYBACO_OPS_ACTOR', Toybaco::Ops::RakeAudit::ACTOR_FORMAT, 'unknown') }
+    ActiveRecord::Base.transaction do
+      row = target.fetch(:model).lock.find_by(id: id)
+      refuse!(kind, id, 'not-found') unless row
+      before = { 'state' => row[state], 'result' => row.has_attribute?(:result) ? row.result : nil }
+      refuse!(kind, id, 'not-attention') unless before.fetch('state') == 'attention'
+
+      row.update!(yield(row, context))
+      audit!(row, context, before)
+      [row, line(context, row.id, row[state], before)]
+    end
+  end
+
+  # 検査と代入を同じ判定にする(通すのは 1 以上の整数の文字列と、名簿の理由語の 2 つだけ。Integer や余分な引数は通さない)。
+  def arguments!(args, reasons)
+    raw = args[:id]
+    reason = args[:reason]
+    abort "#{PREFIX}_ABORT reason=id-invalid" unless raw.is_a?(String) && raw.match?(ID_FORMAT)
+    abort "#{PREFIX}_ABORT reason=reason-invalid allowed=#{reasons.join('|')}" unless reason.is_a?(String) && reasons.include?(reason)
+    abort "#{PREFIX}_ABORT reason=extra-arguments" unless args.extras.empty?
+
+    [Integer(raw, 10), reason]
+  end
+
+  # 理由は action に入れて読めるようにし、params(id・理由・前の状態と結果、始め直しは前の店舗と照合の時点の店舗も)は digest だけを残す。
+  def audit!(row, context, before)
+    action = "attention.#{context.fetch(:kind).tr('-', '_')}.#{context.fetch(:verb)}.#{context.fetch(:reason)}"
+    Toybaco::Ops::Audit.record!(actor_kind: 'rake', actor_id: context.fetch(:actor), action: action, target: row,
+                                params: { 'id' => row.id, 'reason' => context.fetch(:reason) }.merge(before, context.fetch(:audit, {})), result: 'ok',
+                                source: audit_env('TOYBACO_OPS_SOURCE', Toybaco::Ops::RakeAudit::SOURCE_FORMAT, 'rake:unspecified'))
+  end
+
+  # RakeAudit と同じ値(未設定・空なら既定値)。形の合わない値は RakeAudit が実行の前に止めるが、ここでも監査行に書かない。
+  def audit_env(name, format, fallback)
+    value = ENV.fetch(name, nil)
+    value.present? && value.match?(format) ? value : fallback
+  end
+
+  def line(context, id, state, before)
+    format = Toybaco::Ops::RenewalFormat
+    "#{PREFIX} kind=#{context.fetch(:kind)} id=#{id} action=#{context.fetch(:verb)} reason=#{context.fetch(:reason)} " \
+      "state=#{format.token(state)} previous_state=#{format.token(before.fetch('state'))} " \
+      "previous_result=#{format.token(before.fetch('result'))}#{context[:suffix]}"
+  end
+
+  def refuse!(kind, id, reason) = abort("#{PREFIX} kind=#{kind} id=#{id} result=refused reason=#{reason}")
+end
+
+namespace :toybaco do
+  desc '課金通知の受付の確認待ちを、理由を付けて閉じる(rake "toybaco:billing_attention_close[id,foreign|handled|refunded|duplicate|test]")'
+  task :billing_attention_close, %i[id reason] => :environment do |_t, args|
+    puts Toybaco::Ops::AttentionOps.close_billing(args)
+  end
+
+  desc '購読照合の確認待ちを、理由を付けて閉じる(rake "toybaco:sync_attention_close[id,foreign|handled|refunded|duplicate|test]")'
+  task :sync_attention_close, %i[id reason] => :environment do |_t, args|
+    puts Toybaco::Ops::AttentionOps.close_sync(args)
+  end
+
+  desc '購読照合を確認待ちから始め直す(rake "toybaco:sync_attention_retry[id,fixed|transient|rebind]"。rebind は要求の店舗を外して結び付け直す)'
+  task :sync_attention_retry, %i[id reason] => :environment do |_t, args|
+    puts Toybaco::Ops::AttentionOps.retry_sync(args)
+  end
+
+  desc '開通後の初期設定の確認待ちを、理由を付けて閉じる(rake "toybaco:opening_attention_close[id,foreign|handled|refunded|duplicate|test]")'
+  task :opening_attention_close, %i[id reason] => :environment do |_t, args|
+    puts Toybaco::Ops::AttentionOps.close_opening(args)
+  end
+
+  desc '更新請求の処理の確認待ちを、理由を付けて閉じる(rake "toybaco:renewal_attention_close[id,foreign|handled|refunded|duplicate|test]")'
+  task :renewal_attention_close, %i[id reason] => :environment do |_t, args|
+    puts Toybaco::Ops::AttentionOps.close_renewal(args)
   end
 end

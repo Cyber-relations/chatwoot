@@ -10,6 +10,10 @@ require_relative 'opening_notices'
 # 通知の失敗は開通処理を止めない(ログに残し、送信は ActiveJob の再試行に任せる)。
 module Toybaco::Growth::OpeningOperations
   ADDRESS_ENV = 'TOYBACO_OPERATIONS_EMAIL'
+  # 2 本目の宛先(alerts の主宛先 alert_email と同じ個人宛)。主宛先(会社の共有受信箱)が届かなくなっても通知が残るように、
+  # recipient と同じ規則で選び、OperationsMailer が配送時に Bcc で足す(job の引数とログに載せず、主宛先の受信箱からも見えない)。
+  # 主宛先と同じ宛先なら 1 通にまとめ、主宛先が無ければ 2 本目を To にする。
+  SECONDARY_ENV = 'TOYBACO_OPERATIONS_ALERT_EMAIL'
   EMAIL = /\A[^@\s,]+@[^@\s,]+\.[^@\s,]+\z/
   RESULTS = {
     'payment_mismatch' => '決済の内容を開通の条件と照合できませんでした(割引・金額・メールアドレス・業種・契約版など)',
@@ -25,9 +29,9 @@ module Toybaco::Growth::OpeningOperations
   module_function
 
   # 名簿なしで送るのは production だけ。それ以外(staging、未設定や綴り違いの環境名を含む)と、名簿が渡っている
-  # 環境では、テスト用の名簿に含まれる宛先にだけ送る(staging の SES の送信許可と同じ範囲)。
-  def recipient(environment = ENV)
-    address = environment[ADDRESS_ENV].to_s.strip.downcase
+  # 環境では、テスト用の名簿に含まれる宛先にだけ送る(staging の SES の送信許可と同じ範囲)。key は主宛先か 2 本目(SECONDARY_ENV)。
+  def recipient(environment = ENV, key = ADDRESS_ENV)
+    address = environment[key].to_s.strip.downcase
     return unless address.match?(EMAIL)
 
     roster = environment['TOYBACO_STAGING_FIXTURE_EMAILS']
@@ -116,9 +120,10 @@ module Toybaco::Growth::OpeningOperations
     "業種: #{Toybaco::IndustryPack.load_pack(industry)&.dig('label') || industry}"
   end
 
+  # job の引数に載せるのは主宛先だけ(主宛先が無ければ nil)。2 本目は配送時に OperationsMailer が足す。
   def deliver(message)
     to = recipient
-    unless to
+    unless to || recipient(ENV, SECONDARY_ENV)
       Rails.logger.warn('TOYBACO_OPERATIONS_NOTICE_SKIPPED reason=recipient')
       return false
     end

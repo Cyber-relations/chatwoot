@@ -6,6 +6,7 @@ require 'active_support/testing/time_helpers'
 require Rails.root.join('lib/toybaco/growth/billing_receipt')
 require Rails.root.join('lib/toybaco/growth/billing_execution')
 require Rails.root.join('app/jobs/toybaco/growth_payment_sweep_job')
+require Rails.root.join('lib/toybaco/subscription_reconciliation/execution')
 
 class ToybacoBillingIngressRuntimeTest < Minitest::Test
   include ActiveSupport::Testing::TimeHelpers
@@ -17,13 +18,18 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     ENV.update('TOYBACO_STRIPE_MODE' => 'test', 'TOYBACO_BILLING_INGRESS_ENABLED' => 'true')
     @adapter = ActiveJob::Base.queue_adapter
     ActiveJob::Base.queue_adapter = :test
-    @events, @requests = [], []
+    @events, @requests, @subscriptions, @accounts = [], [], [], []
     travel_to NOW
   end
 
   def teardown
-    Toybaco::BillingEvent.where(id: @events).delete_all
-    Toybaco::SubscriptionSyncRequest.where(id: @requests).delete_all
+    operations = Toybaco::RenewalOperation.where(subscription_id: @subscriptions)
+    operations.update_all(first_fact_id: nil, first_failed_at: nil, due_at: nil, state: 'unverified')
+    Toybaco::RenewalInvoiceFact.where(subscription_id: @subscriptions).delete_all
+    operations.delete_all
+    Toybaco::BillingEvent.where(id: @events).or(Toybaco::BillingEvent.where(reference_id: @subscriptions)).delete_all
+    Toybaco::SubscriptionSyncRequest.where(id: @requests).or(Toybaco::SubscriptionSyncRequest.where(subscription_id: @subscriptions)).delete_all
+    Account.where(id: @accounts).destroy_all
     %w[TOYBACO_STRIPE_MODE TOYBACO_BILLING_INGRESS_ENABLED].each { |key| @previous.key?(key) ? ENV[key] = @previous[key] : ENV.delete(key) }
     ActiveJob::Base.queue_adapter = @adapter
     travel_back
@@ -50,6 +56,150 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     request = Growth::BillingSubscription.accept!(row)
     @requests << request.id
     request
+  end
+
+  # 更新請求(subscription_cycle)の invoice の通知。購読 ID は teardown で消す名簿に載せる。
+  def renewal_event(subscription: "sub_#{SecureRandom.hex(8)}", type: 'invoice.paid')
+    @subscriptions << subscription
+    object = { 'object' => 'invoice', 'id' => "in_#{SecureRandom.hex(8)}", 'customer' => "cus_#{SecureRandom.hex(8)}",
+               'parent' => { 'subscription_details' => { 'subscription' => subscription } }, 'billing_reason' => 'subscription_cycle',
+               'attempt_count' => 1, 'customer_email' => 'never-retain@example.invalid' }
+    { 'id' => "evt_#{SecureRandom.hex(8)}", 'object' => 'event', 'type' => type, 'livemode' => false, 'created' => NOW.to_i - 60,
+      'data' => { 'object' => object } }
+  end
+
+  def store!(subscription)
+    account = Account.create!(name: 'Billing ingress fixture', locale: 'ja', internal_attributes: { 'toybaco_subscription_id' => subscription })
+    @accounts << account.id
+    account
+  end
+
+  def logged
+    io = StringIO.new
+    value = Rails.stub(:logger, ActiveSupport::Logger.new(io)) { yield }
+    [value, io.string]
+  end
+
+  def execute_sync(request, at:)
+    Toybaco::SubscriptionReconciliation::Execution.new(request, now: at, environment: { 'TOYBACO_STRIPE_MODE' => 'test' }).call
+  end
+
+  def provider
+    client = Object.new
+    client.define_singleton_method(:retrieve_subscription) { |id| { 'id' => id, 'object' => 'subscription', 'livemode' => false } }
+    client
+  end
+
+  def run_attention_task(name, id, reason)
+    require 'rake'
+    Rails.application.load_tasks unless Rake::Task.task_defined?("toybaco:#{name}")
+    output, = capture_io { Rake::Task["toybaco:#{name}"].execute(Rake::TaskArguments.new(%i[id reason], [id.to_s, reason])) }
+    output
+  end
+
+  # 店舗に結び付かない購読(Stripe を共用する他製品)の更新請求も、受付は従来どおり記録し(署名した事実・照合の要求。ACK の形も同じ)、
+  # 処理は店舗を待って再試行し、期限で確認待ちになる(手元の記録だけでは他製品と決められず、開通の途中の正規の購読と区別できない)。
+  # 運営が他製品と確かめた確認待ちは、理由 foreign で閉じる。
+  def test_another_products_renewal_waits_into_attention_until_an_operator_closes_it_as_foreign
+    row = accept(renewal_event)
+    subscription = @subscriptions.last
+    assert Toybaco::RenewalInvoiceFact.exists?(billing_event_id: row.id)
+    Growth::BillingExecution.new(row, client: provider).call
+    assert_equal %w[pending provider_or_processing_unavailable], row.reload.values_at(:state, :result)
+    travel_to NOW + 86_401
+    _, log = logged { Growth::BillingExecution.new(row, client: provider).call }
+    assert_equal %w[attention retry_limit], row.reload.values_at(:state, :result)
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{row.id} result=retry_limit"], log.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
+    assert_includes run_attention_task('billing_attention_close', row.id, 'foreign'),
+                    "TOYBACO_ATTENTION_OPS kind=billing-event id=#{row.id} action=close reason=foreign state=completed"
+    assert_equal %w[completed operator_closed], row.reload.values_at(:state, :result)
+    assert_equal 'foreign', row.recovery_log.last['reason']
+    assert_nil Toybaco::RenewalOperation.find_by!(subscription_id: subscription).account_id
+  end
+
+  # 店舗の作成を待ち切った照合の要求も、従来どおり確認待ちになる(1 回だけ TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW)。
+  # 運営が他製品と確かめたら理由 foreign で閉じ、次の通知は終わった要求と同じく再開する。
+  def test_a_sync_request_that_waits_out_provisioning_turns_attention_and_is_closed_as_foreign
+    row = accept
+    Growth::BillingExecution.new(row).call
+    request = Toybaco::SubscriptionSyncRequest.find(row.reload.subscription_sync_request_id)
+    @requests << request.id
+    assert_equal 'pending', execute_sync(request, at: NOW)
+    assert_equal ['pending', 'not_provisioned', 1], request.reload.values_at(:state, :result, :attempts)
+    request.update!(attempts: Toybaco::SubscriptionReconciliation::ATTEMPTS - 1, next_attempt_at: NOW)
+    state, log = logged { execute_sync(request, at: NOW + 60) }
+    assert_equal ['attention', 'attention', 'not_provisioned'], [state, *request.reload.values_at(:state, :result)]
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{request.id} result=not_provisioned"],
+                 log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION\S* .*$/)
+    assert_includes run_attention_task('sync_attention_close', request.id, 'foreign'),
+                    "TOYBACO_ATTENTION_OPS kind=sync-request id=#{request.id} action=close reason=foreign state=completed"
+    assert_equal ['completed', 'operator_closed', 0], request.reload.values_at(:state, :result, :completed_revision)
+    again = accept_subscription(accept(event(reference: row.reference_id)))
+    assert_equal [request.id, 'pending', 0, 2], again.values_at(:id, :state, :attempts, :requested_revision)
+  end
+
+  # 受付が確認待ちになった時だけ TOYBACO_BILLING_ATTENTION_NEW が 1 回出る(billing-attention の alarm が数える行)。毎分の sweep が
+  # 確認待ちの残る間ずっと出す pending_receipts=true の行には含まれない。
+  def test_a_new_billing_attention_logs_its_marker_once_and_the_sweep_repeat_does_not
+    row = accept
+    row.update!(state: 'processing', attempts: 47, lease_token: 'fixture', lease_expires_at: NOW - 1)
+    travel_to NOW + 86_400
+    _, log = logged { Growth::BillingExecution.new(row).call }
+    assert_equal %w[attention retry_limit], row.reload.values_at(:state, :result)
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{row.id} result=retry_limit"], log.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
+    _, log = logged { 2.times { Growth::BillingExecution.new(row).call } }
+    refute_includes log, 'TOYBACO_BILLING_ATTENTION_NEW'
+    _, log = logged { Growth::BillingReceipt.sweep(now: Time.now.utc) }
+    assert_includes log, 'TOYBACO_BILLING_ATTENTION pending_receipts=true'
+    refute_includes log, 'TOYBACO_BILLING_ATTENTION_NEW'
+    corrupt = accept
+    Toybaco::BillingEvent.connection.execute("UPDATE toybaco_billing_events SET payload_digest = '#{'0' * 64}' WHERE id = #{corrupt.id}")
+    _, log = logged { Growth::BillingExecution.new(corrupt.reload).call }
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{corrupt.id} result=payment_mismatch"], log.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
+  end
+
+  # attention を commit した直後(TOYBACO_BILLING_ATTENTION_NEW と運営メールの前)に worker が止まっても、新規確認待ちの行は
+  # commit の前に出ている(行は再び claim されず、毎分の sweep の行は alarm に当たらないため、ここで出ていないと気付けない)。
+  class StopAfterCommit < StandardError; end
+
+  def test_the_new_billing_attention_line_is_logged_before_the_commit_a_crash_after_it_cannot_lose
+    row = accept
+    Toybaco::BillingEvent.connection.execute("UPDATE toybaco_billing_events SET payload_digest = '#{'0' * 64}' WHERE id = #{row.id}")
+    execution = Growth::BillingExecution.new(row.reload)
+    execution.singleton_class.prepend(Module.new { def finish!(state, result) = super.tap { raise StopAfterCommit if state == 'attention' } })
+    _, log = logged { assert_raises(StopAfterCommit) { execution.call } }
+    assert_equal %w[attention payment_mismatch], Toybaco::BillingEvent.find(row.id).values_at(:state, :result)
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{row.id} result=payment_mismatch"], log.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
+    _, log = logged { Growth::BillingExecution.new(Toybaco::BillingEvent.find(row.id)).call }
+    refute_includes log, 'TOYBACO_BILLING_ATTENTION_NEW'
+  end
+
+  def test_each_new_sync_attention_logs_its_marker_once_and_the_sweep_repeat_is_a_different_line
+    row = accept
+    subscription = row.reference_id
+    request = accept_subscription(row)
+    @subscriptions << subscription
+    request.update!(attempts: Toybaco::SubscriptionReconciliation::ATTEMPTS - 1, next_attempt_at: NOW)
+    state, log = logged { execute_sync(request, at: NOW + 60) }
+    assert_equal ['attention', 'attention', 'not_provisioned'], [state, *request.reload.values_at(:state, :result)]
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{request.id} result=not_provisioned"],
+                 log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION\S* .*$/)
+    _, log = logged { 2.times { execute_sync(request, at: NOW + 120) } }
+    refute_includes log, 'TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW'
+    _, log = logged { Toybaco::SubscriptionReconciliationSweepJob.perform_now }
+    assert_includes log.lines, "TOYBACO_SUBSCRIPTION_SYNC_ATTENTION\n"
+    refute_includes log, 'TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW'
+    # 期限(claim! の期限判定)と、照合の失敗(finish! の attention)でも 1 回ずつ。
+    other = accept_subscription(accept)
+    other.update!(next_attempt_at: NOW, deadline_at: NOW)
+    _, log = logged { execute_sync(other, at: NOW + 1) }
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{other.id} result=renewal_pending"], log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW .*$/)
+    split = accept_subscription(accept)
+    2.times { store!(split.subscription_id) }
+    @subscriptions << split.subscription_id
+    state, log = logged { execute_sync(split, at: NOW) }
+    assert_equal ['attention', 'binding_unresolved'], [state, split.reload.result]
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{split.id} result=binding_unresolved"], log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW .*$/)
   end
 
   def test_minimal_committed_receipt_is_idempotent_and_does_not_extend_deadline

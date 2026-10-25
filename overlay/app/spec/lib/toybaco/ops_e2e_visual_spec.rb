@@ -238,6 +238,7 @@ RSpec.describe Toybaco::Ops::E2eVisual do # rubocop:disable RSpec/SpecFilePathFo
       expect(run!('e2e_purge_accounts', 'e2e-consent-x'))
         .to eq(['TOYBACO_E2E_PURGE prefix=e2e-consent-x accounts=0 users=0 skipped_users=0 remaining=0',
                 'TOYBACO_E2E_PURGE_GROWTH prefix=e2e-consent-x trials=0 identities=0 installations=0',
+                'TOYBACO_E2E_PURGE_BILLING prefix=e2e-consent-x events=0 requests=0 inflight=0',
                 'TOYBACO_E2E_PURGE_OPENING prefix=e2e-consent-x requests=0 events=0 notices=0'])
       expect(Toybaco::Ops::E2eConsent.accounts('e2e-consent-').map(&:id)).to eq([consent.id])
       expect(refusal('e2e_visual_purge', 'e2e-consent-r1-1')).to eq(name_error)
