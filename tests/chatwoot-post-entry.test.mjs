@@ -6259,3 +6259,148 @@ for (const kind of ['ai', 'about']) {
   assert.equal(seen, 1);
 }
 console.log('TOYBACO_SELF_SERVICE_ENTRY=PASS released fallback store-change no-email');
+
+// Reproduce the parent lifecycle reported for store 4 without a browser,
+// credentials, an SSO server, or a real /user/self response. History tests above
+// check restored destinations; this also requires each new frame to complete its
+// own protocol before it becomes visible. Child proof here is synthetic input,
+// not evidence that production authentication or its requests succeeded.
+function postingReloadLifecycle(postPath = '/settings') {
+  const base = '/app/accounts/4/dashboard';
+  const hash = '#/toybaco/posting?path=' + encodeURIComponent(postPath);
+  const values = new Map(), timers = new Map(); let timerId = 0;
+  const storage = { getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const env = loadInjectEntry(() => new Promise(() => {}), base, {
+    hash, sessionStorage: storage,
+    setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  // The native router consumes the initial hash before the overlay restores it.
+  Object.assign(env.window.location, { hash: '', href: 'https://app.staging.toybaco.jp' + base });
+  const browser = installEntryHistory(env, { current: base, position: 0,
+    back: null, forward: null, replaced: true, scroll: null });
+  env.api.onHashMaybeChanged();
+  const frame = () => env.document.querySelector('iframe');
+  const traces = new WeakMap();
+  const attach = target => {
+    const messages = []; traces.set(target, messages);
+    target.contentWindow = { postMessage(data, origin) { messages.push({ data: { ...data }, origin }); } };
+    return messages;
+  };
+  const send = (target, data) => [...env.windowListeners.message].forEach(fn => fn({
+    origin: 'https://post.staging.toybaco.jp', source: target.contentWindow, data,
+  }));
+  const begin = target => {
+    const messages = attach(target);
+    send(target, { type: 'TOYBACO_POSTIZ_CONTEXT_REQUEST', documentId: randomUUID() });
+    const init = messages.find(message => message.data.type === 'TOYBACO_POSTIZ_INIT')?.data;
+    assert.ok(init, 'a restored frame must receive its own INIT');
+    assert.equal(init.accountId, '4');
+    const destination = new URL(new URL(target.src).searchParams.get('return'), 'https://post.staging.toybaco.jp');
+    assert.equal(init.initialRoute.pathname, destination.pathname);
+    return { ...init, type: 'TOYBACO_POSTIZ_READY',
+      organizationId: 'c86a5f5e-ed55-5105-88a2-4ff8ab6c79eb', theme: 'light' };
+  };
+  const accept = (target, proof) => {
+    send(target, proof);
+    assert.equal(target.style.visibility, 'visible');
+    assert.equal(env.document.querySelector('[data-toybaco-post-loading]'), null);
+    assert.equal([...timers.values()].some(timer => timer.ms === 20000), false);
+  };
+  const allowClose = target => {
+    const request = traces.get(target).findLast(message => message.data.type === 'TOYBACO_POSTIZ_REQUEST_CLOSE')?.data;
+    assert.ok(request, 'history preserves a mounted editor until its normal close answer');
+    send(target, { type: 'TOYBACO_POSTIZ_CLOSE_RESULT', requestId: request.requestId, allowed: true });
+  };
+  return { env, browser, frame, begin, accept, send, allowClose, timers };
+}
+{
+  const f = postingReloadLifecycle('/settings');
+  const initial = f.frame();
+  assert.equal(new URL(initial.src).searchParams.get('return'), '/settings?tb_embed=1&tb_theme=light');
+  const firstProof = f.begin(initial); f.accept(initial, firstProof);
+  const nav = f.env.document.querySelector('[data-toybaco-post-subnav]');
+  fireClick(nav.children[0]); f.allowClose(initial);
+  const calendar = f.frame(); assert.notEqual(calendar, initial);
+  const calendarProof = f.begin(calendar); f.accept(calendar, calendarProof);
+
+  f.browser.go(-1); f.allowClose(calendar);
+  const back = f.frame(); assert.notEqual(back, calendar);
+  assert.equal(new URL(back.src).searchParams.get('return'), '/settings?tb_embed=1&tb_theme=light');
+  f.send(calendar, calendarProof);
+  assert.equal(back.style.visibility, 'hidden', 'old calendar proof cannot reveal the restored settings document');
+  f.accept(back, f.begin(back)); f.browser.assertCurrent();
+
+  f.browser.go(1); f.allowClose(back);
+  const forward = f.frame(); assert.notEqual(forward, back);
+  assert.equal(new URL(forward.src).searchParams.get('return'), '/launches?tb_embed=1&tb_theme=light');
+  f.send(initial, firstProof);
+  assert.equal(forward.style.visibility, 'hidden', 'pre-reload/history documents cannot satisfy a new frame');
+  f.accept(forward, f.begin(forward)); f.browser.assertCurrent();
+  f.env.api.closePanel();
+}
+{
+  const f = postingReloadLifecycle('/launches');
+  const initial = f.frame(); const proof = f.begin(initial);
+  // Fault injection: withhold READY. This reproduces the *displayed symptom*,
+  // not its production cause; no HTTP request or response is represented.
+  [...f.timers.values()].find(timer => timer.ms === 20000).fn();
+  const loader = f.env.document.querySelector('[data-toybaco-post-loading]');
+  assert.equal(loader.querySelector('span').textContent,
+    '投稿画面を開けませんでした。店舗を確認してから再試行してください。');
+  const entries = f.browser.entries.length;
+  loader.querySelectorAll('button').find(button => button.textContent === '再試行').listeners.click[0]();
+  const retried = f.frame(); assert.notEqual(retried, initial);
+  assert.equal(f.browser.entries.length, entries, 'explicit retry does not invent another history destination');
+  f.send(initial, proof); assert.equal(retried.style.visibility, 'hidden');
+  f.accept(retried, f.begin(retried));
+  assert.ok(f.env.fetches.every(call => String(call.url).includes('/toybaco/posting_status')),
+    'the local fixture performs no authentication or business API simulation');
+  f.env.api.closePanel();
+}
+console.log('TOYBACO_POSTING_STARTUP_LIFECYCLE=PASS synthetic-only reload-restoration settings-calendar back-forward fresh-frame-proof timeout-manual-retry no-production-auth-claim');
+
+// Retrying a failed historical destination must retain the real forward entry,
+// not merely keep a visually similar URL at a newly pushed history position.
+{
+  const f = postingReloadLifecycle('/analytics');
+  const analytics = f.frame(); f.accept(analytics, f.begin(analytics));
+  const nav = f.env.document.querySelector('[data-toybaco-post-subnav]');
+  fireClick(nav.children[2]); f.allowClose(analytics);
+  const media = f.frame(); f.accept(media, f.begin(media));
+  f.browser.go(-1); f.allowClose(media);
+  const loading = f.frame();
+  const urls = f.browser.entries.map(entry => entry.url);
+  const current = f.browser.assertCurrent();
+  [...f.timers.values()].find(timer => timer.ms === 20000).fn();
+  f.env.document.querySelector('[data-toybaco-post-loading]').querySelector('button').listeners.click[0]();
+  const retried = f.frame(); assert.notEqual(retried, loading);
+  assert.deepEqual(f.browser.entries.map(entry => entry.url), urls, 'retry keeps both back and forward destinations');
+  assert.deepEqual(f.browser.assertCurrent(), current, 'same-route retry retains the router position and metadata');
+  f.accept(retried, f.begin(retried));
+  f.browser.go(1); f.allowClose(retried);
+  const forward = f.frame();
+  assert.equal(new URL(forward.src).searchParams.get('return'), '/media?tb_embed=1&tb_theme=light');
+  f.accept(forward, f.begin(forward));
+  f.env.api.closePanel();
+}
+
+// A startup router can strip the posting hash before its normal route watcher
+// runs. Explicit recovery still belongs to the visible, already-validated panel.
+{
+  const f = postingReloadLifecycle('/media');
+  const current = f.browser.assertCurrent();
+  f.env.window.history.replaceState({ ...current, current: '/app/accounts/4/dashboard' }, '', '/app/accounts/4/dashboard');
+  const count = f.browser.entries.length;
+  [...f.timers.values()].find(timer => timer.ms === 20000).fn();
+  f.env.document.querySelector('[data-toybaco-post-loading]').querySelector('button').listeners.click[0]();
+  const retried = f.frame();
+  assert.equal(new URL(retried.src).searchParams.get('return'), '/media?tb_embed=1&tb_theme=light', 'a lost hash must not redirect a media retry to the calendar');
+  assert.equal(f.browser.entries.length, count);
+  assert.equal(f.browser.assertCurrent().position, current.position);
+  assert.equal(f.browser.assertCurrent().current, '/app/accounts/4/dashboard#/toybaco/posting?path=%2Fmedia');
+  f.accept(retried, f.begin(retried));
+  f.env.api.closePanel();
+}
+console.log('TOYBACO_POSTING_RETRY_HISTORY=PASS forward-tail retained-position lost-hash restored-panel-intent synthetic-only');
