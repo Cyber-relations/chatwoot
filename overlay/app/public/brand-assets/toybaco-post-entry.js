@@ -780,9 +780,12 @@
         spinner.appendChild(button);
       }
       if (canRetry !== false) addRecoveryButton('再試行', function () {
-        var nextPath = currentHashPath() || DEFAULT_PATH;
-        closePanel();
-        openPanel(nextPath, false, pendingAiIntent);
+        var nextPath = currentHashPath() || panelPath || DEFAULT_PATH;
+        // Retry owns the current destination. Stripping it and pushing again
+        // inserts a duplicate base entry and changes Back/Forward semantics.
+        closePanel(true);
+        if (currentHashPath() !== nextPath) writePostingHistory(postingHash(nextPath), true);
+        openPanel(nextPath, true, pendingAiIntent);
       });
       // Re-fetch the current trusted parent route, including its posting hash.
       // A same-URL anchor can be fragment-only and keep an old parent script.
