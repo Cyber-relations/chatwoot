@@ -31,8 +31,9 @@ RSpec.describe Toybaco::OperationsMailer do
 
   it '配送 job は ActionMailer::MailDeliveryJob を継いで引数をログに出さず、queue は親の指定のまま' do
     job = Toybaco::OperationsMailDeliveryJob
+    # toybaco_log_redaction.rb(CASA 6.5.1 R1)が ActiveJob の log_arguments を全体で false にしたため、親の MailDeliveryJob も false。
     expect([described_class.delivery_job, job.superclass, job.log_arguments?, ActionMailer::MailDeliveryJob.log_arguments?])
-      .to eq([job, ActionMailer::MailDeliveryJob, false, true])
+      .to eq([job, ActionMailer::MailDeliveryJob, false, false])
     arguments = [described_class.name, 'notice', 'deliver_now', { params: {}, args: [] }]
     expect(job.new(*arguments).queue_name).to eq(ActionMailer::MailDeliveryJob.new(*arguments).queue_name)
   end

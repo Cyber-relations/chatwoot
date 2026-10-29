@@ -240,6 +240,27 @@ RSpec.describe Toybaco::Ops::AttentionOps do # rubocop:disable RSpec/SpecFilePat
         expect(row.reload.values_at(:state, :account_id, :result)).to eq(['completed', store_b.id, 'payment_pending'])
       end
 
+      it '始め直した後、照合の job の前に購読の店舗が移ると、superseded で消さず確認待ち(account_moved)にし、rebind で今の店舗を照合する' do
+        store_a = store!(subscription)
+        row = sync_request!(account_id: store_a.id)
+        capture(:stdout) { run_task('sync_attention_retry', row.id, 'fixed') }
+        store_a.update!(internal_attributes: {})
+        store_b = store!(subscription)
+        allow(Toybaco::StoreFulfillment).to receive(:synchronize).and_return('payment_pending')
+        allow(Rails.logger).to receive(:error).and_call_original
+        environment = { 'TOYBACO_STRIPE_MODE' => 'test' }
+        execution = -> { Toybaco::SubscriptionReconciliation::Execution.new(row, client: Object.new, now: at, environment: environment).call }
+        expect([execution.call, *row.reload.values_at(:state, :result, :account_id, :requested_revision)])
+          .to eq(['attention', 'attention', 'account_moved', store_a.id, 3])
+        expect(Rails.logger).to have_received(:error).with("TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{row.id} result=account_moved").once
+        expect(Toybaco::StoreFulfillment).not_to have_received(:synchronize)
+        expect { run_task('sync_attention_retry', row.id, 'fixed') }.to raise_error(SystemExit).and output(/reason=account-moved/).to_stderr
+        expect { run_task('sync_attention_retry', row.id, 'rebind') }
+          .to output(/reason=rebind state=pending .* previous_result=account-moved previous_account=#{store_a.id} owner=#{store_b.id} /).to_stdout
+        expect([execution.call, *row.reload.values_at(:state, :account_id, :result)]).to eq(['completed', 'completed', store_b.id, 'payment_pending'])
+        expect(Toybaco::StoreFulfillment).to have_received(:synchronize).with(store_b, hash_including(subscription_id: subscription)).once
+      end
+
       it '今も 2 店舗がその購読を持つ時は rebind も止める(multiple-owners)' do
         stores = [store!(subscription), store!(subscription)]
         row = sync_request!(account_id: stores.first.id)
@@ -257,10 +278,23 @@ RSpec.describe Toybaco::Ops::AttentionOps do # rubocop:disable RSpec/SpecFilePat
         with_modified_env(TOYBACO_SUBSCRIPTION_RECONCILIATION_ENABLED: 'true', TOYBACO_STRIPE_MODE: 'test') do
           expect { Rake::Task['toybaco:sync_subscription'].execute(Rake::TaskArguments.new([:subscription_id], [subscription])) }.to output(
             "契約照合: receipt=#{row.id} state=attention\n" \
-            "契約照合: 確認待ちのため再開しません。rake \"toybaco:sync_attention_retry[#{row.id},fixed|transient]\" で始め直してください。\n"
+            "契約照合: 確認待ちのため再開しません。rake \"toybaco:sync_attention_retry[#{row.id},fixed|transient]\" で始め直してください" \
+            "(reason=account-moved で止まった時は、今の店舗が正しいことを確かめてから rebind で始め直してください)。\n"
           ).to_stdout
         end
         expect(row.reload.attributes.slice('state', 'requested_revision')).to eq('state' => 'attention', 'requested_revision' => 2)
+      end
+
+      it '購読を持つ店舗が変わった確認待ち(account_moved)には、fixed / transient ではなく rebind を案内する' do
+        row = sync_request!(result: 'account_moved', account_id: store!.id)
+        with_modified_env(TOYBACO_SUBSCRIPTION_RECONCILIATION_ENABLED: 'true', TOYBACO_STRIPE_MODE: 'test') do
+          expect { Rake::Task['toybaco:sync_subscription'].execute(Rake::TaskArguments.new([:subscription_id], [subscription])) }.to output(
+            "契約照合: receipt=#{row.id} state=attention\n" \
+            '契約照合: 確認待ちのため再開しません(result=account_moved: 購読を持つ店舗が変わりました)。今の店舗が正しいことを確かめてから ' \
+            "rake \"toybaco:sync_attention_retry[#{row.id},rebind]\" で結び付け直してください。\n"
+          ).to_stdout
+        end
+        expect(row.reload.values_at(:state, :result, :requested_revision)).to eq(['attention', 'account_moved', 2])
       end
     end
   end

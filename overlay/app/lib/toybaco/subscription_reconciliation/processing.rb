@@ -16,7 +16,7 @@ module Toybaco::SubscriptionReconciliation::Processing
     return 'attention' unless @environment['TOYBACO_STRIPE_MODE'] == @record.mode
 
     account = bound_account
-    return 'superseded' if account == :superseded
+    return account.to_s if %i[superseded account_moved].include?(account)
     raise Toybaco::SubscriptionReconciliation::NotProvisioned unless account
 
     checked = mode_client
@@ -128,7 +128,7 @@ module Toybaco::SubscriptionReconciliation::Processing
 
   def bound_account
     account = @record.account_id ? current_account : bind_account
-    return account if account.nil? || account == :superseded
+    return account unless account.is_a?(Account)
 
     ids = Toybaco::SubscriptionReconciliation.accounts_for(@record.subscription_id).limit(2).pluck(:id)
     raise Toybaco::SubscriptionReconciliation::Invalid unless ids == [account.id]
@@ -136,11 +136,28 @@ module Toybaco::SubscriptionReconciliation::Processing
     account
   end
 
+  # The bound store, while it still holds the subscription. When the first read finds it
+  # without the subscription (or gone), the holders from one query (accounts_for) decide,
+  # compared with the bound store:
+  # - Only the bound store: an operator's repair gave the subscription back to it between the
+  #   two reads. The run reconciles it as usual, read again (the first read is stale); a store
+  #   gone by then is superseded. bound_account checks the holders once more.
+  # - None (the store moved to a newer subscription or back to Free): the request is superseded.
+  # - Another store, or two or more, which only an operator's repair does: the run turns
+  #   attention (account_moved) without reading Stripe or binding that store: a silent
+  #   superseded would leave that store unreconciled and drop the request from the attention
+  #   list. The operator checks the store and rebinds it with the audited
+  #   toybaco:sync_attention_retry[id,rebind], which also refuses two or more holders.
+  # A bare exists? would also count the bound store that such a repair gave the subscription
+  # back to, and turn it attention, which no later notification re-arms (refresh_request!).
   def current_account
     account = Account.find_by(id: @record.account_id)
-    return :superseded unless account && account.internal_attributes&.fetch('toybaco_subscription_id', nil) == @record.subscription_id
+    return account if account && account.internal_attributes&.fetch('toybaco_subscription_id', nil) == @record.subscription_id
 
-    account
+    ids = Toybaco::SubscriptionReconciliation.accounts_for(@record.subscription_id).limit(2).pluck(:id)
+    return Account.find_by(id: @record.account_id) || :superseded if ids == [@record.account_id]
+
+    ids.empty? ? :superseded : :account_moved
   end
 
   def bind_account

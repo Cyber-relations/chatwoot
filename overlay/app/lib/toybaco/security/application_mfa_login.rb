@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 module Toybaco::Security::ApplicationMfaLogin
+  # Raised when another request removed the SSO token after this request validated it.
+  SsoTokenUsed = Class.new(StandardError)
+
   def create
     return super if mfa_verification_request?
 
@@ -8,6 +11,10 @@ module Toybaco::Security::ApplicationMfaLogin
     return super unless enrollment_required?(user)
 
     begin_enrollment(user)
+  rescue SsoTokenUsed
+    # The duplicate that lost may answer after the winner's 200 in the same browser: leave its login cookies alone.
+    request.env[Toybaco::Security::BrowserAuthentication::KEEP_COOKIES] = true
+    render_create_error_bad_credentials
   rescue Redis::BaseError, ConnectionPool::TimeoutError
     render json: { error: 'authentication_temporarily_unavailable' }, status: :service_unavailable
   end
@@ -21,7 +28,7 @@ module Toybaco::Security::ApplicationMfaLogin
   def begin_enrollment(user)
     return render_mfa_error('errors.mfa.invalid_token', :unauthorized) unless user.active_for_authentication? && user.confirmed?
 
-    user.invalidate_sso_auth_token(params[:sso_auth_token]) if sso_authentication_request?
+    claim_sso_auth_token!(user) if sso_authentication_request?
     clear_toybaco_browser_cookie if toybaco_browser_request?
     reset_session
     session[:toybaco_mfa_enrollment] = {
@@ -40,8 +47,40 @@ module Toybaco::Security::ApplicationMfaLogin
     return render_mfa_error('errors.mfa.invalid_token', :unauthorized) unless @resource.active_for_authentication? && @resource.confirmed?
     return super unless @resource.mfa_enabled?
 
-    @resource.invalidate_sso_auth_token(params[:sso_auth_token])
+    claim_sso_auth_token!(@resource)
     handle_mfa_required(@resource)
+  end
+
+  # Upstream checks the SSO token with GET and deletes it only after issuing the session, without looking at the
+  # result, so two requests with one token both signed in. DEL reports how many keys it removed: only the request
+  # that removed the token goes on to a session or an MFA challenge. Upstream's later delete then removes nothing.
+  def authenticate_resource_with_sso_token
+    claim_sso_auth_token!(@resource)
+    super
+  end
+
+  # Upstream's session limit runs before the SSO sign-in and may revoke (revoke_all_sessions / revoke_session_id)
+  # or evict devices. Claim the token first, so a request that lost it changes no device before its 401.
+  # The 409 session picker changes nothing and keeps the token for the retry.
+  def revoke_sessions_for_login(user)
+    claim_sso_auth_token!(user) if sso_sign_in_request?
+    super
+  end
+
+  def evict_oldest_session(user)
+    claim_sso_auth_token!(user) if sso_sign_in_request?
+    super
+  end
+
+  def sso_sign_in_request?
+    sso_authentication_request? && !mfa_verification_request?
+  end
+
+  def claim_sso_auth_token!(user)
+    return if @toybaco_sso_auth_token_claimed
+    raise SsoTokenUsed unless user.invalidate_sso_auth_token(params[:sso_auth_token]).to_i == 1
+
+    @toybaco_sso_auth_token_claimed = true
   end
 
   def handle_mfa_verification

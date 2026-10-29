@@ -3270,8 +3270,8 @@ module Toybaco::Ops::AttentionOps
   end
 
   # 要求に保存した店舗と、今その購読を持つ店舗(購読 ID の完全一致)を行ロックの中で照合する。保存した店舗が今の唯一の店舗でなければ
-  # (店舗が移った・0 件・2 件以上)、そのまま始め直すと照合は superseded で終わり、今の店舗を照合しないまま確認待ちの一覧からも
-  # 消えるので止める(account-moved)。rebind の時だけ要求の店舗を外し、照合の bind_account の一意検査に任せる。今の店舗が 2 件以上なら
+  # (店舗が移った・0 件・2 件以上)、そのまま始め直しても照合は今の店舗を照合しない(別の店舗が持てば account_moved の確認待ちに
+  # 戻り、どの店舗も持たなければ superseded で確認待ちの一覧から消える)ので止める(account-moved)。rebind の時だけ要求の店舗を外し、照合の bind_account の一意検査に任せる。今の店舗が 2 件以上なら
   # rebind も止める(bind_account が決められない。先に重複を直す)。前の店舗と照合の時点の店舗は、監査行の params と出力に残す。
   def rebind_values(request, context)
     owners = Toybaco::SubscriptionReconciliation.accounts_for(request.subscription_id).limit(2).pluck(:id)

@@ -174,6 +174,92 @@ class ToybacoMicrosoftRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The upstream IMAP/SMTP flow (AZURE_APP_ID, /microsoft/callback) is the one whose callback reads id_token claims
+  # without verifying the signature. No authorization entry point may fall back to it, including reauthorization by
+  # email and unrecognized return targets. Its OAuth client is recorded, never built.
+  def test_all_authorization_entry_points_respect_the_release_gate
+    headers = sign_in_user_with_mfa(@user)
+    clients = []
+    build = OAuth2::Client.method(:new)
+    OAuth2::Client.stub(:new, ->(*args, **options) { clients << args.first; build.call(*args, **options) }) do
+      Microsoft.stub(:allowed?, false) do
+        [{}, { return_to: 'settings' }, { return_to: 'onboarding' }, { return_to: 'growth' }, { return_to: 'unrecognized' },
+         { email: 'legacy@example.test' }, { email: 'legacy@example.test', return_to: 'settings' }].each do |params|
+          post "/api/v1/accounts/#{@account.id}/microsoft/authorization", params: params, headers: headers, as: :json
+          assert_response :service_unavailable
+          assert_nil response.parsed_body['url']
+        end
+      end
+    end
+    assert_empty clients
+    assert_equal 0, @account.inboxes.count
+  end
+
+  # A provider response carrying an unsigned id_token. If the upstream callback ran, it would exchange the code,
+  # decode these claims without a signature check and create an inbox for the forged address.
+  class ForgedUpstreamClient
+    def initialize(exchanges, id_token)
+      @exchanges = exchanges
+      @id_token = id_token
+    end
+
+    def auth_code
+      self
+    end
+
+    def get_token(code, **_options)
+      @exchanges << code
+      parsed = ActiveSupport::HashWithIndifferentAccess.new('id_token' => @id_token, 'access_token' => 'fixture-upstream-access',
+                                                            'refresh_token' => 'fixture-upstream-refresh')
+      OpenStruct.new(response: OpenStruct.new(parsed: parsed))
+    end
+  end
+
+  def unsigned_id_token(claims)
+    "#{[{ 'alg' => 'none', 'typ' => 'JWT' }, claims].map { |part| Base64.urlsafe_encode64(part.to_json, padding: false) }.join('.')}."
+  end
+
+  def test_legacy_callback_cannot_exchange_a_code_or_decode_a_token
+    forged = "forged-#{SecureRandom.hex(6)}@example.test"
+    token = unsigned_id_token('email' => forged, 'preferred_username' => forged, 'name' => 'Forged mailbox')
+    exchanges = []
+    decoded = []
+    decode = JWT.method(:decode)
+    OAuth2::Client.stub(:new, ->(*_args, **_options) { ForgedUpstreamClient.new(exchanges, token) }) do
+      JWT.stub(:decode, ->(*args, **options) { decoded << args.first; decode.call(*args, **options) }) do
+        [nil, @account.to_sgid(expires_in: 15.minutes).to_s].each do |state|
+          get '/microsoft/callback', params: { state: state, code: 'fixture-unused-code' }
+          assert_response :gone
+          assert_equal 'no-store', response.headers['Cache-Control']
+          assert_equal 0, @account.inboxes.count
+        end
+      end
+    end
+    assert_empty exchanges
+    assert_empty decoded
+    assert_nil Channel::Email.find_by(email: forged)
+  end
+
+  # Defence in depth for any upstream callback that still reaches OauthCallbackController#users_data.
+  def test_upstream_callbacks_refuse_unverified_id_token_claims
+    token = unsigned_id_token('email' => 'forged@example.test', 'preferred_username' => 'forged@example.test')
+    decoded = []
+    decode = JWT.method(:decode)
+    JWT.stub(:decode, ->(*args, **options) { decoded << args.first; decode.call(*args, **options) }) do
+      [::Microsoft::CallbacksController, ::Google::CallbacksController].each do |controller_class|
+        controller = controller_class.new
+        controller.define_singleton_method(:parsed_body) { ActiveSupport::HashWithIndifferentAccess.new('id_token' => token) }
+        assert_raises(ActionController::BadRequest) { controller.send(:users_data) }
+      end
+      assert_raises(ActionController::BadRequest) do
+        controller = ::Microsoft::CallbacksController.new
+        controller.define_singleton_method(:parsed_body) { ActiveSupport::HashWithIndifferentAccess.new('id_token' => token) }
+        controller.send(:imap_login_identity)
+      end
+    end
+    assert_empty decoded
+  end
+
   def test_cancelled_authorization_does_not_create_a_mailbox
     with_microsoft do
       state = authorize

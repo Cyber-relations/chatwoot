@@ -12,6 +12,9 @@ class Toybaco::SubscriptionReconciliation::Execution
   # The Sync's own rule for a suspension (SubscriptionSyncStatus#suspended_status?), used as is.
   STATUS_RULES = Object.new.extend(Toybaco::SubscriptionSyncStatus).freeze
   RULES = Toybaco::SubscriptionReconciliation
+  # The state a reconcile result ends in, where it is not the result itself. account_moved: the
+  # bound store no longer holds the subscription and another store does (Processing#current_account).
+  FINISHED_STATES = { 'applied' => 'completed', 'payment_pending' => 'completed', 'account_moved' => 'attention' }.freeze
 
   def initialize(record, client: nil, now: nil, environment: ENV)
     @record = record
@@ -134,7 +137,7 @@ class Toybaco::SubscriptionReconciliation::Execution
     return renewal_pending! if result == 'renewal_pending'
     return retry_later!('free_return_pending') if result == 'free_return_pending'
 
-    finish!(%w[applied payment_pending].include?(result) ? 'completed' : result, result)
+    finish!(FINISHED_STATES.fetch(result, result), result)
   rescue Toybaco::Growth::InboxRetention::Busy, ActiveRecord::LockWaitTimeout, ActiveRecord::Deadlocked
     retry_later!('writer_busy')
   rescue Toybaco::SubscriptionReconciliation::NotProvisioned

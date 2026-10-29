@@ -118,4 +118,13 @@ RSpec.describe Toybaco::Oidc::SessionReader do
       expect(described_class.renewal_current?(valid_user, captured)).to be(false)
     end
   end
+
+  it '文字列でないcookie値は例外にせずsessionなしとして扱う' do
+    expect(User).not_to receive(:where)
+
+    [{ 'uid' => 1 }, { 'uid' => [uid] }, { 'uid' => { 'email' => uid } }, { 'access-token' => 1 }, { 'client' => [client] }].each do |override|
+      value = { 'access-token' => access_token, 'client' => client, 'uid' => uid }.merge(override).to_json
+      expect(described_class.new(value).user).to be_nil
+    end
+  end
 end

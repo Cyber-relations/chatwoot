@@ -7,6 +7,8 @@ require_relative '../../lib/toybaco/connections/gmail_schedule'
 require_relative '../../lib/toybaco/connections/gmail_cleanup'
 require_relative '../../lib/toybaco/connections/gmail_message_boundary'
 require_relative '../../lib/toybaco/connections/microsoft_authorization'
+require_relative '../../lib/toybaco/connections/legacy_microsoft_callback'
+require_relative '../../lib/toybaco/connections/unverified_id_token_guard'
 require_relative '../../lib/toybaco/connections/microsoft_send'
 require_relative '../../lib/toybaco/connections/microsoft_schedule'
 require_relative '../../lib/toybaco/connections/microsoft_message_boundary'
@@ -22,6 +24,8 @@ Rails.application.config.to_prepare do
   Api::V1::Accounts::Google::AuthorizationsController.prepend(Toybaco::Connections::GoogleAuthorization)
   Google::CallbacksController.prepend(Toybaco::Connections::LegacyGoogleCallback)
   Api::V1::Accounts::Microsoft::AuthorizationsController.prepend(Toybaco::Connections::MicrosoftAuthorization)
+  Microsoft::CallbacksController.prepend(Toybaco::Connections::LegacyMicrosoftCallback)
+  OauthCallbackController.prepend(Toybaco::Connections::UnverifiedIdTokenGuard)
   Email::SendOnEmailService.prepend(Toybaco::Connections::GmailSendRouting)
   Email::SendOnEmailService.prepend(Toybaco::Connections::MicrosoftSendRouting)
   ConversationReplyMailer.prepend(Toybaco::Connections::GmailMailer)

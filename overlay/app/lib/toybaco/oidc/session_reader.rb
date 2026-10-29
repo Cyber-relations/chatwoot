@@ -16,7 +16,7 @@ class Toybaco::Oidc::SessionReader
     return unless session
 
     access_token, client, uid = session.values_at('access-token', 'client', 'uid')
-    return unless [access_token, client, uid].all?(&:present?)
+    return unless [access_token, client, uid].all? { |value| present_string?(value) }
 
     # js-cookie が値に残す生の + は Rack で空白に復号されるため、復元候補も検索する。
     # uid(email) は変更・重複し得るため一意キーとは扱わず、候補をすべて bcrypt 照合し、
@@ -84,6 +84,11 @@ class Toybaco::Oidc::SessionReader
   private_class_method :valid_binding?, :current_auth_time?, :valid_record?, :valid_client?
 
   private
+
+  # cookie は利用者が書き換えられる。文字列以外の JSON 値は例外(500)にせず、session なしとして扱う。
+  def present_string?(value)
+    value.is_a?(String) && value.present?
+  end
 
   def parsed_session
     value = JSON.parse(@cookie_value)

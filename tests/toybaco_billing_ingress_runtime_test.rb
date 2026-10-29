@@ -202,6 +202,128 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{split.id} result=binding_unresolved"], log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW .*$/)
   end
 
+  # 運営が始め直した後、照合の job が走る前に購読の店舗が移っても(運営の例外的な修正だけで起きる)、要求を superseded で黙って
+  # 終わらせない。Stripe を読まず(client なし)、どの店舗にも書かずに確認待ち(account_moved)にし、新規確認待ちの行を 1 回出す。
+  # fixed では始め直せず(account-moved)、rebind で要求の店舗を外す。
+  def test_a_store_move_after_the_retry_and_before_the_job_turns_attention_instead_of_superseded
+    row = accept
+    subscription = row.reference_id
+    @subscriptions << subscription
+    store_a = store!(subscription)
+    request = accept_subscription(row)
+    assert_equal store_a.id, request.account_id
+    request.update!(state: 'attention', result: 'retry_limit', attempts: Toybaco::SubscriptionReconciliation::ATTEMPTS)
+    assert_includes run_attention_task('sync_attention_retry', request.id, 'fixed'), "previous_account=#{store_a.id} owner=#{store_a.id} revision=2"
+    store_a.update!(internal_attributes: {})
+    store_b = store!(subscription)
+    before = store_b.reload.attributes
+    state, log = logged { execute_sync(request, at: NOW) }
+    assert_equal ['attention', 'attention', 'account_moved', store_a.id], [state, *request.reload.values_at(:state, :result, :account_id)]
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{request.id} result=account_moved"], log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW .*$/)
+    assert_equal before, store_b.reload.attributes
+    refused = assert_raises(SystemExit) { run_attention_task('sync_attention_retry', request.id, 'fixed') }
+    assert_includes refused.message, "id=#{request.id} result=refused reason=account-moved"
+    assert_includes run_attention_task('sync_attention_retry', request.id, 'rebind'),
+                    "previous_result=account-moved previous_account=#{store_a.id} owner=#{store_b.id}"
+    assert_equal ['pending', nil], request.reload.values_at(:state, :account_id)
+  end
+
+  # 後の通知(refresh_request!)も要求の店舗を変えない。終わった要求に次の通知が届き、照合が走る時に店舗が移っていれば確認待ち
+  # (account_moved)にし、その後の通知でも再開しない。どの店舗もその購読を持たない要求(店舗が新しい購読に替わった)だけが、
+  # 従来どおり superseded で終わる。
+  def test_a_later_notice_for_a_moved_subscription_turns_attention_and_only_an_unheld_one_is_superseded
+    row = accept
+    subscription = row.reference_id
+    @subscriptions << subscription
+    store_a = store!(subscription)
+    request = accept_subscription(row)
+    request.update!(state: 'completed', result: 'applied', completed_revision: 1, completed_at: NOW)
+    store_a.update!(internal_attributes: {})
+    store!(subscription)
+    again = accept_subscription(accept(event(reference: subscription)))
+    assert_equal [request.id, 'pending', 2, store_a.id], again.values_at(:id, :state, :requested_revision, :account_id)
+    state, log = logged { execute_sync(again, at: NOW) }
+    assert_equal ['attention', 'attention', 'account_moved', store_a.id], [state, *again.reload.values_at(:state, :result, :account_id)]
+    assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{request.id} result=account_moved"], log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW .*$/)
+    last = accept_subscription(accept(event(reference: subscription)))
+    assert_equal ['attention', 'account_moved', 2, store_a.id], last.values_at(:state, :result, :requested_revision, :account_id)
+    unheld = accept
+    @subscriptions << unheld.reference_id
+    store_c = store!(unheld.reference_id)
+    other = accept_subscription(unheld)
+    store_c.update!(internal_attributes: { 'toybaco_subscription_id' => "sub_#{SecureRandom.hex(8)}" })
+    state, log = logged { execute_sync(other, at: NOW) }
+    assert_equal ['superseded', 'superseded', 'superseded'], [state, *other.reload.values_at(:state, :result)]
+    refute_includes log, 'TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW'
+  end
+
+  # 照合が要求の店舗 A を最初に読んだ時には購読が外れていても(古い読み)、今の持ち主を数える前に運営の修復が同じ A へ購読を戻して
+  # いれば、確認待ち(account_moved)にせず、A を読み直して照合を続ける(Stripe を読む)。今の持ち主は 1 つの query の結果で決める。
+  def test_a_repair_back_to_the_bound_store_between_the_two_reads_keeps_reconciling_instead_of_account_moved
+    row = accept
+    subscription = row.reference_id
+    @subscriptions << subscription
+    store_a = store!(subscription)
+    request = accept_subscription(row)
+    assert_equal store_a.id, request.account_id
+    stale = Account.find(store_a.id)
+    stale.internal_attributes = {}
+    original = Account.method(:find_by)
+    reads = []
+    find_by = lambda do |*args, **options|
+      reads << (options.empty? ? args.first : options)
+      reads.size == 1 ? stale : original.call(*args, **options)
+    end
+    # 直しの前(f3a45d7e)の判定(古い読みが外れた後の exists?)を同じ状態に当てると account_moved になる。手元に Rails が無いので、
+    # この試験が直しの前の実装で落ちることを、同じ CI の 1 回の run で示す。
+    refute_equal subscription, stale.internal_attributes&.fetch('toybaco_subscription_id', nil)
+    assert_equal :account_moved, (Toybaco::SubscriptionReconciliation.accounts_for(subscription).exists? ? :account_moved : :superseded)
+    assert_equal [store_a.id], Toybaco::SubscriptionReconciliation.accounts_for(subscription).limit(2).pluck(:id)
+    # 照合が続いたことは Stripe の読み(retrieve)で見て、そこで止める(止めた run は processing_unavailable で再試行を待つ)。
+    retrieved = []
+    client = Object.new
+    client.define_singleton_method(:retrieve_subscription) { |id| retrieved << id; raise IOError, 'fixture provider read' }
+    execution = Toybaco::SubscriptionReconciliation::Execution.new(request, client: client, now: NOW,
+                                                                            environment: { 'TOYBACO_STRIPE_MODE' => 'test' })
+    state, log = logged { Account.stub(:find_by, find_by) { execution.call } }
+    assert_equal({ id: store_a.id }, reads.first)
+    assert_equal [subscription], retrieved
+    assert_equal ['pending', 'pending', 'processing_unavailable', store_a.id], [state, *request.reload.values_at(:state, :result, :account_id)]
+    refute_includes log, 'TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW'
+    assert_equal subscription, store_a.reload.internal_attributes['toybaco_subscription_id']
+  end
+
+  # lease を失った fail!(その間に他の worker が claim し直して確認待ちにした)は、旧形式の行も運営メール(tell_operations)も出さない。
+  # その確認待ちを書いた worker が知らせる。lease を保った fail! は、従来どおり新旧の行と運営メールを 1 回ずつ出す。
+  def test_a_fail_that_lost_its_lease_logs_no_attention_line_and_sends_no_operations_mail
+    mails = []
+    counting = Module.new { define_method(:tell_operations) { |result| mails << result } }
+    stolen = Module.new do
+      def reconcile
+        Toybaco::BillingEvent.where(id: @event.id).update_all(state: 'attention', result: 'payment_mismatch', lease_token: nil, lease_expires_at: nil)
+        super
+      end
+    end
+    lost, kept = Array.new(2) do
+      row = accept
+      Toybaco::BillingEvent.connection.execute("UPDATE toybaco_billing_events SET payload_digest = '#{'0' * 64}' WHERE id = #{row.id}")
+      row.reload
+    end
+    execution = Growth::BillingExecution.new(lost)
+    execution.singleton_class.prepend(counting, stolen)
+    _, log = logged { execution.call }
+    assert_equal %w[attention payment_mismatch], lost.reload.values_at(:state, :result)
+    assert_empty mails
+    refute_includes log, 'TOYBACO_BILLING_ATTENTION'
+    execution = Growth::BillingExecution.new(kept)
+    execution.singleton_class.prepend(counting)
+    _, log = logged { execution.call }
+    assert_equal %w[attention payment_mismatch], kept.reload.values_at(:state, :result)
+    assert_equal ['payment_mismatch'], mails
+    assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{kept.id} result=payment_mismatch", "TOYBACO_BILLING_ATTENTION receipt=#{kept.id}"],
+                 log.scan(/TOYBACO_BILLING_ATTENTION\S* receipt=.*$/)
+  end
+
   def test_minimal_committed_receipt_is_idempotent_and_does_not_extend_deadline
     value = event
     row = accept(value)

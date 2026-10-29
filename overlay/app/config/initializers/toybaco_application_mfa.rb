@@ -2,6 +2,7 @@
 
 Rails.application.config.to_prepare do
   User.prepend(Toybaco::Security::ApplicationMfaSession::TokenValidation)
+  User.prepend(Toybaco::Security::TotpConsumption)
   Toybaco::Oidc::SessionReader.singleton_class.prepend(Toybaco::Security::ApplicationMfaSession::ReaderValidation)
   Mfa::AuthenticationService.prepend(Toybaco::Security::ApplicationMfaSession::SingleUseVerification)
   DeviseOverrides::SessionsController.prepend(Toybaco::Security::ApplicationMfaLogin)
