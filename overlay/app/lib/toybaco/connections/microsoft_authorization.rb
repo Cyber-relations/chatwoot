@@ -10,7 +10,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def create
         available = Microsoft.allowed?(Current.account)
-        return super unless available || existing_microsoft_connection? || params[:return_to] == 'growth'
+        # Every entry point uses the adopted Graph scopes and release gate.
+        # Falling back upstream would start the IMAP/SMTP flow, whose callback
+        # trusts id_token claims without verifying the signature.
         return render(json: { error: 'この連携は現在準備中です。' }, status: :service_unavailable) unless available
 
         # The OAuth callback binds to the same web session, not just a submitted
@@ -25,13 +27,6 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
-
-      def existing_microsoft_connection?
-        return false if params[:email].blank?
-
-        channel = Current.account.email_channels.where('LOWER(email) = ?', params[:email].to_s.downcase).first
-        Microsoft.connected?(channel)
-      end
 
       def microsoft_oauth_state
         OauthState.new(store: Redis::Alfred).issue(account_id: Current.account.id, user_id: Current.user.id,

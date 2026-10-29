@@ -17,8 +17,15 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
       request = Toybaco::SubscriptionReconciliation.request!(id)
       puts "契約照合: receipt=#{request.id} state=#{request.state}"
       # 確認待ち(attention)の要求は、この再実行でも新しい通知でも再開しない(更新の処理を待っただけの renewal_pending は除く)。
-      # 監査付きで始め直す rake を案内する(toybaco_ops.rake の AttentionOps)。
-      retry_hint = "契約照合: 確認待ちのため再開しません。rake \"toybaco:sync_attention_retry[#{request.id},fixed|transient]\" で始め直してください。"
+      # 監査付きで始め直す rake を案内する(toybaco_ops.rake の AttentionOps)。購読を持つ店舗が変わった要求(result account_moved)と、
+      # 要求の店舗が今の唯一の店舗でない要求は fixed / transient では始め直せない(account-moved で止まる)ので、rebind を案内する。
+      retry_hint = if request.result == 'account_moved'
+                     '契約照合: 確認待ちのため再開しません(result=account_moved: 購読を持つ店舗が変わりました)。今の店舗が正しいことを確かめてから ' \
+                       "rake \"toybaco:sync_attention_retry[#{request.id},rebind]\" で結び付け直してください。"
+                   else
+                     "契約照合: 確認待ちのため再開しません。rake \"toybaco:sync_attention_retry[#{request.id},fixed|transient]\" で始め直してください" \
+                       '(reason=account-moved で止まった時は、今の店舗が正しいことを確かめてから rebind で始め直してください)。'
+                   end
       puts retry_hint if request.state == 'attention'
       next
     end

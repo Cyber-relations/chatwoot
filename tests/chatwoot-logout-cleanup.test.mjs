@@ -25,6 +25,13 @@ const helpersSource = strip(
 const authSource = strip(
   source('app/javascript/dashboard/api/auth.js')
 ).replace('default {', 'const auth = {');
+// Upstream push registration (not overlaid): subscribe and post to the server.
+const pushHelperSource = strip(
+  readFileSync(
+    resolve(upstream, 'app/javascript/dashboard/helper/pushHelper.js'),
+    'utf8'
+  )
+);
 const constants = readFileSync(
   resolve(upstream, 'app/javascript/dashboard/constants/localStorage.js'),
   'utf8'
@@ -36,6 +43,9 @@ const version = Number(
   ).match(/INBOX_CACHE_INVALIDATION_VERSION = (\d+)/)[1]
 );
 const tick = () => new Promise(r => setImmediate(r));
+// The 1500ms push-unsubscribe bound runs as this many ms inside the test VM.
+const PUSH_BOUND = 150;
+const PUSH_RESTORE = 'toybaco:push-restore';
 const storage = () => {
   const object = {};
   Object.defineProperties(object, {
@@ -72,6 +82,11 @@ const makeTab = ({
   database = indexedDB,
   open = openDB,
   request,
+  navigator,
+  page = { unloaded: false },
+  notification,
+  posted = [],
+  postFailures = [],
 } = {}) => {
   const body = node();
   const events = {};
@@ -80,12 +95,18 @@ const makeTab = ({
   const redirects = [];
   const win = {
     indexedDB: database,
+    sessionStorage: session,
+    navigator,
+    Notification: notification,
+    chatwootConfig: { vapidPublicKey: 'fixture-vapid-key' },
     globalConfig: {},
     addEventListener: (name, callback) => {
       events[name] = callback;
     },
     set location(value) {
       redirects.push(value);
+      // Navigation unloads the document: pending page work never resumes.
+      page.unloaded = true;
     },
   };
   const document = {
@@ -100,11 +121,19 @@ const makeTab = ({
     openDB: open,
     DATA_VERSION: version,
     INBOX_CACHE_INVALIDATION_VERSION: version,
-    // Shorten only the failure bound; IDB itself is real asynchronous fake-indexeddb.
-    setTimeout: (f, ms) => setTimeout(f, ms === 5000 ? 60 : ms),
+    // Shorten only the bounds (IDB failure, push unsubscribe); IDB itself is
+    // real asynchronous fake-indexeddb.
+    setTimeout: (f, ms) =>
+      setTimeout(f, ms === 5000 ? 60 : ms === 1500 ? PUSH_BOUND : ms),
     clearTimeout,
     queueMicrotask,
-    console,
+    // Upstream registerSubscription logs the failures the restore test injects.
+    console: {
+      ...console,
+      error: (...args) => {
+        if (!String(args[0]).startsWith('Push subscription registration failed')) console.error(...args);
+      },
+    },
     fromUnixTime: value => new Date(value * 1000),
     differenceInDays: () => 1,
     Cookies: {
@@ -127,13 +156,26 @@ const makeTab = ({
     ANALYTICS_IDENTITY: 'identity',
     axios: { delete: request ?? (async () => ({ status: 200 })) },
     endPoints: () => ({ url: '/auth/sign_out' }),
+    navigator,
+    btoa,
+    useAlert: () => {},
+    NotificationSubscriptions: {
+      create: async payload => {
+        if (postFailures.shift()) throw new Error('server unavailable');
+        posted.push(payload);
+      },
+    },
   });
   vm.runInContext(
-    `${constants}\n${managerSource}\n${cleanupSource}\n${helpersSource}\n${authSource}`,
+    `${constants}\n${managerSource}\n${cleanupSource}\n${helpersSource}\n${authSource}\n${pushHelperSource}`,
     context
   );
   const api = vm.runInContext(
-    '({ DataManager, stopBrowserCache, clearCookiesOnLogout, setAuthCredentials, isSessionEnding, auth })',
+    `({ DataManager, stopBrowserCache, clearCookiesOnLogout, setAuthCredentials, isSessionEnding, auth, setUser,
+      registerSubscription,
+      unsubscribeBrowserPush: typeof unsubscribeBrowserPush === 'function' ? unsubscribeBrowserPush : undefined,
+      pendingBrowserPushRestore: typeof pendingBrowserPushRestore === 'function' ? pendingBrowserPushRestore : undefined,
+      restoreBrowserPushOnLogin: typeof restoreBrowserPushOnLogin === 'function' ? restoreBrowserPushOnLogin : undefined })`,
     context
   );
   return { ...api, local, session, events, cookies, redirects, body, context };
@@ -388,4 +430,261 @@ await run(
     assert.equal(failure.isSessionEnding(), false);
   }
 );
+// A browser push subscription that the signed-out browser keeps would go on
+// showing customer message previews. The service worker answers after a delay,
+// and a continuation that would resume after navigation never runs (the page
+// is gone), so only an unsubscribe that logout waits for actually happens.
+const pushNavigator = (page, calls, { delay = 25, unsubscribe = async () => true, registration } = {}) => {
+  const later = value => new Promise(r => setTimeout(() => r(value), delay));
+  const alive = () => (page.unloaded ? new Promise(() => {}) : undefined);
+  return {
+    serviceWorker: {
+      getRegistration:
+        registration ??
+        (async () => {
+          calls.registration += 1;
+          await later();
+          await alive();
+          return {
+            pushManager: {
+              getSubscription: async () => {
+                calls.subscription += 1;
+                await later();
+                await alive();
+                return {
+                  unsubscribe: async () => {
+                    calls.unsubscribe += 1;
+                    calls.unloadedAtUnsubscribe = page.unloaded;
+                    return unsubscribe();
+                  },
+                };
+              },
+            },
+          };
+        }),
+    },
+  };
+};
+const within = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} did not finish within ${ms}ms`)), ms)),
+  ]);
+
+await run(
+  'logout waits for a delayed Web Push unsubscribe, runs it once before navigation and removes only toybaco session keys',
+  async () => {
+    const page = { unloaded: false };
+    const calls = { registration: 0, subscription: 0, unsubscribe: 0 };
+    const tab = makeTab({ page, navigator: pushNavigator(page, calls) });
+    tab.session.setItem('toybaco:ai-reply-draft:1:2', '1');
+    tab.session.setItem('toybaco:ai-reply-draft:7:9', '1');
+    tab.session.setItem('impersonationUser', 'true');
+    tab.session.setItem('unrelated-session-key', 'kept');
+    assert.equal(await tab.clearCookiesOnLogout(), true);
+    assert.deepEqual(calls, { registration: 1, subscription: 1, unsubscribe: 1, unloadedAtUnsubscribe: false });
+    assert.deepEqual(tab.redirects, ['/']);
+    assert.equal(await tab.unsubscribeBrowserPush(), true);
+    assert.equal(calls.unsubscribe, 1);
+    assert.deepEqual(Object.keys(tab.session), ['unrelated-session-key']);
+    assert.equal(tab.cookies.size, 0);
+  }
+);
+
+await run(
+  'a failed cleanup that keeps the page still unsubscribes Web Push once',
+  async () => {
+    const page = { unloaded: false };
+    const calls = { registration: 0, subscription: 0, unsubscribe: 0 };
+    const blocking = await openDB('cw-store-push-blocking-tab', 1);
+    const tab = makeTab({ page, navigator: pushNavigator(page, calls) });
+    assert.equal(await tab.clearCookiesOnLogout(), false);
+    await new Promise(r => setTimeout(r, 100));
+    assert.equal(tab.redirects.length, 0);
+    assert.equal(calls.unsubscribe, 1);
+    blocking.close();
+    await tick();
+    assert.equal(await tab.clearCookiesOnLogout(), true);
+    assert.deepEqual(tab.redirects, ['/']);
+    assert.equal(calls.unsubscribe, 1);
+  }
+);
+
+await run(
+  'rejected, denied, hanging, too slow or unsupported push cleanup still finishes logout within the bound',
+  async () => {
+    const rejectedPage = { unloaded: false };
+    const calls = { registration: 0, subscription: 0, unsubscribe: 0 };
+    const rejected = makeTab({
+      page: rejectedPage,
+      navigator: pushNavigator(rejectedPage, calls, {
+        unsubscribe: async () => {
+          throw new Error('push service unavailable');
+        },
+      }),
+    });
+    assert.equal(await rejected.clearCookiesOnLogout(), true);
+    assert.equal(calls.unsubscribe, 1);
+    assert.equal(calls.unloadedAtUnsubscribe, false);
+    assert.equal(rejected.local.getItem(PUSH_RESTORE), null);
+    assert.equal(await rejected.unsubscribeBrowserPush(), false);
+    assert.deepEqual(rejected.redirects, ['/']);
+    assert.equal(rejected.cookies.size, 0);
+    const deniedPage = { unloaded: false };
+    const denied = makeTab({
+      page: deniedPage,
+      navigator: pushNavigator(deniedPage, calls, {
+        registration: async () => {
+          throw new Error('denied');
+        },
+      }),
+    });
+    assert.equal(await denied.clearCookiesOnLogout(), true);
+    assert.equal(await denied.unsubscribeBrowserPush(), false);
+    assert.deepEqual(denied.redirects, ['/']);
+    for (const [label, delay] of [['hanging', null], ['too slow', PUSH_BOUND * 4]]) {
+      const page = { unloaded: false };
+      const slowCalls = { registration: 0, subscription: 0, unsubscribe: 0 };
+      const navigator =
+        delay === null
+          ? { serviceWorker: { getRegistration: () => new Promise(() => {}) } }
+          : pushNavigator(page, slowCalls, { delay });
+      const tab = makeTab({ page, navigator });
+      const started = Date.now();
+      assert.equal(await within(tab.clearCookiesOnLogout(), PUSH_BOUND * 10, `${label} logout`), true);
+      const elapsed = Date.now() - started;
+      assert(elapsed >= PUSH_BOUND - 10, `${label}: navigation waited only ${elapsed}ms`);
+      assert.deepEqual(tab.redirects, ['/']);
+      assert.equal(tab.cookies.size, 0);
+      assert.equal(slowCalls.unsubscribe, 0);
+    }
+    const unsupported = makeTab();
+    assert.equal(await unsupported.clearCookiesOnLogout(), true);
+    assert.equal(await unsupported.unsubscribeBrowserPush(), undefined);
+    assert.deepEqual(unsupported.redirects, ['/']);
+  }
+);
+// After logout removed the subscription, the next login (App.vue
+// initializeAccount) subscribes again through the upstream registration and
+// posts it to the server, for whoever signs in (as upstream re-binds a kept
+// subscription). The marker holds no user data.
+const loginNavigator = (subscribed, existing = null, subscribeFailures = []) => {
+  const registration = {
+    pushManager: {
+      getSubscription: async () => existing,
+      subscribe: async options => {
+        subscribed.push(options);
+        if (subscribeFailures.shift()) throw new Error('push service unavailable');
+        return {
+          endpoint: 'https://push.example.test/endpoint-1',
+          getKey: name => new TextEncoder().encode(`${name}-key`).buffer,
+        };
+      },
+    },
+  };
+  return {
+    registration,
+    navigator: { serviceWorker: { ready: Promise.resolve(registration) } },
+  };
+};
+const storedValues = local =>
+  Object.keys(local).map(key => [key, local.getItem(key)]);
+
+await run(
+  'logout leaves an identifier-free marker and the next login subscribes Web Push again and registers it with the server',
+  async () => {
+    const page = { unloaded: false };
+    const calls = { registration: 0, subscription: 0, unsubscribe: 0 };
+    const local = storage();
+    const out = makeTab({ page, local, navigator: pushNavigator(page, calls) });
+    out.setUser({ id: 42, email: 'staff-42@example.test', name: 'Fixture Staff' });
+    assert.equal(await out.clearCookiesOnLogout(), true);
+    assert.equal(calls.unsubscribe, 1);
+    assert.deepEqual(storedValues(local), [[PUSH_RESTORE, '1']]);
+    const subscribed = [];
+    const posted = [];
+    const { registration, navigator } = loginNavigator(subscribed);
+    const login = makeTab({ local, navigator, notification: { permission: 'granted' }, posted });
+    await login.restoreBrowserPushOnLogin(registration, login.registerSubscription);
+    await tick();
+    await tick();
+    assert.equal(subscribed.length, 1);
+    assert.equal(subscribed[0].applicationServerKey, 'fixture-vapid-key');
+    assert.deepEqual(
+      posted.map(payload => [payload.subscription_type, payload.subscription_attributes.endpoint]),
+      [['browser_push', 'https://push.example.test/endpoint-1']]
+    );
+    assert.equal(local.getItem(PUSH_RESTORE), null);
+    // Consumed: the following start does not subscribe again.
+    let registered = 0;
+    const count = () => {
+      registered += 1;
+    };
+    await login.restoreBrowserPushOnLogin(loginNavigator([]).registration, count);
+    assert.equal(registered, 0);
+    // An existing subscription is registered for whoever signs in (as upstream).
+    const existing = loginNavigator([], { endpoint: 'https://push.example.test/existing' });
+    await login.restoreBrowserPushOnLogin(existing.registration, count);
+    assert.equal(registered, 1);
+  }
+);
+
+await run('no restore without the notification permission, and the marker is cleared', async () => {
+  for (const permission of ['default', 'denied', undefined]) {
+    const local = storage();
+    local.setItem(PUSH_RESTORE, '1');
+    const tab = makeTab({ local, notification: permission && { permission } });
+    let registered = 0;
+    await tab.restoreBrowserPushOnLogin(loginNavigator([]).registration, () => {
+      registered += 1;
+    });
+    assert.equal(registered, 0, `permission ${permission}`);
+    assert.equal(local.getItem(PUSH_RESTORE), null, `permission ${permission}`);
+  }
+  const granted = storage();
+  const tab = makeTab({ local: granted, notification: { permission: 'granted' } });
+  assert.equal(tab.pendingBrowserPushRestore(), false);
+  granted.setItem(PUSH_RESTORE, 'unexpected');
+  assert.equal(tab.pendingBrowserPushRestore(), false);
+});
+
+await run(
+  'a failed restore keeps the marker and a later startup restores push without touching preferences',
+  async () => {
+    const local = storage();
+    local.setItem(PUSH_RESTORE, '1');
+    const subscribed = [];
+    const posted = [];
+    // 1st startup: the push service rejects subscribe(); upstream swallows it.
+    const first = loginNavigator(subscribed, null, [true]);
+    const tab1 = makeTab({ local, navigator: first.navigator, notification: { permission: 'granted' }, posted });
+    await tab1.restoreBrowserPushOnLogin(first.registration, tab1.registerSubscription);
+    await tick();
+    await tick();
+    assert.deepEqual([subscribed.length, posted.length, local.getItem(PUSH_RESTORE)], [1, 0, '1']);
+    // 2nd startup: subscribed, but the server POST fails; still not registered.
+    const second = loginNavigator(subscribed);
+    const tab2 = makeTab({ local, navigator: second.navigator, notification: { permission: 'granted' }, posted, postFailures: [true] });
+    await tab2.restoreBrowserPushOnLogin(second.registration, tab2.registerSubscription);
+    await tick();
+    await tick();
+    assert.deepEqual([subscribed.length, posted.length, local.getItem(PUSH_RESTORE)], [2, 0, '1']);
+    // 3rd startup: subscribed and posted; the marker is gone only now.
+    const third = loginNavigator(subscribed);
+    const tab3 = makeTab({ local, navigator: third.navigator, notification: { permission: 'granted' }, posted });
+    await tab3.restoreBrowserPushOnLogin(third.registration, tab3.registerSubscription);
+    await tick();
+    await tick();
+    assert.deepEqual([subscribed.length, posted.length, local.getItem(PUSH_RESTORE)], [3, 1, null]);
+  }
+);
+
+await run('App.vue restores Web Push through restoreBrowserPushOnLogin at authenticated startup', async () => {
+  const app = source('app/javascript/dashboard/App.vue');
+  assert.match(app, /import \{ restoreBrowserPushOnLogin \} from 'dashboard\/store\/utils\/api';/);
+  assert.match(
+    app,
+    /verifyServiceWorkerExistence\(registration =>\s*restoreBrowserPushOnLogin\(registration, registerSubscription\)\s*\)/
+  );
+});
 console.log(`TOYBACO_LOGOUT_CLEANUP=PASS ${count} behavioral scenarios`);

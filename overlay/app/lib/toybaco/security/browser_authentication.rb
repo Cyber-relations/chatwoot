@@ -6,6 +6,8 @@ module Toybaco::Security::BrowserAuthentication
   COOKIE = 'cw_d_session_info'
   MARKER = 'cw_d_authenticated'
   AUTH_HEADERS = %w[access-token token-type client expiry uid authorization api_access_token].freeze
+  # Set by a response that must not change the browser's login cookies (Toybaco::Security::ApplicationMfaLogin).
+  KEEP_COOKIES = 'toybaco.browser_keep_cookies'
 
   def toybaco_browser_request?
     request.cookies.key?(COOKIE) || request.headers['X-Toybaco-Browser'] == '1' ||
@@ -35,8 +37,8 @@ module Toybaco::Security::BrowserAuthentication
     super
     return unless toybaco_browser_auth_path? && toybaco_browser_request?
 
-    if (response.status == 401 && !request.env['toybaco.browser_authenticated']) || toybaco_logout?
-      clear_toybaco_browser_cookie
+    if toybaco_browser_session_ended?
+      clear_toybaco_browser_cookie unless request.env[KEEP_COOKIES]
     else
       publish_toybaco_browser_cookie
     end
@@ -60,6 +62,10 @@ module Toybaco::Security::BrowserAuthentication
 
   def toybaco_logout?
     request.path_parameters[:controller] == 'devise_overrides/sessions' && request.path_parameters[:action] == 'destroy'
+  end
+
+  def toybaco_browser_session_ended?
+    (response.status == 401 && !request.env['toybaco.browser_authenticated']) || toybaco_logout?
   end
 
   def toybaco_safe_method?

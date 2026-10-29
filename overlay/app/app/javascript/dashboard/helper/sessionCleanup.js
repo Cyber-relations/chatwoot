@@ -140,6 +140,14 @@ export const clearBrowserData = options => {
         // Remove any draft/search write that completed while deletion was pending.
         options.clearSession();
         localStorage.removeItem(PENDING_KEY);
+        // Navigation unloads the page and drops pending work, so bounded
+        // best-effort steps (Web Push unsubscribe) finish first. They never
+        // block or fail logout.
+        try {
+          await options.beforeRedirect?.();
+        } catch {
+          // Ignore: credentials and storage are already cleared.
+        }
         options.redirect();
         return true;
       } catch {

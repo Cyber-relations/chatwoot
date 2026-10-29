@@ -43,11 +43,12 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
     raise 'billing receipt could not be claimed' unless @token
 
     state = final || @event.attempts >= @event.attempt_limit ? 'attention' : 'pending'
-    finish!(state, result)
-    return unless state == 'attention'
+    # 旧形式の行と運営メールも、TOYBACO_BILLING_ATTENTION_NEW と同じく finish! が行を書いた時だけ出す。lease を失った時(他の
+    # worker が claim し直した、または attention にした時)は何も出さない。その attention を書いた worker が知らせる。
+    return unless finish!(state, result) && state == 'attention'
 
     Rails.logger.error("TOYBACO_BILLING_ATTENTION receipt=#{@event.id}")
-    tell_operations(result) if @event.state == 'attention'
+    tell_operations(result)
   end
 
   # attention に決まる時は、TOYBACO_BILLING_ATTENTION_NEW を commit の前(行 lock の中、update! の直後)に出す。commit の後に出すと、

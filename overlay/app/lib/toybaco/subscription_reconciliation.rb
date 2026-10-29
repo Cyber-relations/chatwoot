@@ -46,6 +46,10 @@ module Toybaco::SubscriptionReconciliation
   def refresh_request!(record, now)
     # A duplicate notification must not reset an outstanding retry budget. An attention
     # reached only by waiting for renewal dispatch is re-armed by the next notification.
+    # The bound store stays as it is, also when the subscription moved to another store: the
+    # re-armed run checks the binding (Processing#current_account) and turns it attention
+    # (account_moved), which no notification re-arms. Only the operator's audited rebind
+    # (toybaco:sync_attention_retry[id,rebind]) binds the request to another store.
     return if record.state == 'attention' && record.result != 'renewal_pending'
 
     values = { requested_revision: record.requested_revision + 1 }

@@ -22,6 +22,7 @@ import {
   registerSubscription,
   verifyServiceWorkerExistence,
 } from './helper/pushHelper';
+import { restoreBrowserPushOnLogin } from 'dashboard/store/utils/api';
 import ReconnectService from 'dashboard/helper/ReconnectService';
 import { useUISettings } from 'dashboard/composables/useUISettings';
 
@@ -128,12 +129,9 @@ export default {
       this.reconnectService = new ReconnectService(this.store, this.router);
       window.reconnectService = this.reconnectService;
 
+      // Logout unsubscribes this browser; the next login restores it.
       verifyServiceWorkerExistence(registration =>
-        registration.pushManager.getSubscription().then(subscription => {
-          if (subscription) {
-            registerSubscription();
-          }
-        })
+        restoreBrowserPushOnLogin(registration, registerSubscription)
       );
     },
   },
