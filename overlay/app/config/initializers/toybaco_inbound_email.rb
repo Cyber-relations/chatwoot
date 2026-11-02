@@ -24,6 +24,17 @@ Rails.application.config.to_prepare do
   Toybaco::InboundEmail.install_action_mailbox_hooks!
 end
 
+# 会話探しの In-Reply-To と reply+<uuid> を、封筒の宛先(先頭の SES の Received の for)の店舗に絞り、封筒の宛先が確かめられた時は
+# EmailChannelFinder もその channel を返す(Toybaco::InboundEmail::ConversationScope。宛先が複数の 1 回の受信では上流のまま)。
+# 上流の strategy の file は書き換えず、prepend する。
+Rails.application.config.to_prepare do
+  scope = Toybaco::InboundEmail::ConversationScope
+  strategies = Mailbox::ConversationFinderStrategies
+  strategies::InReplyToStrategy.prepend(scope::InReplyTo) unless strategies::InReplyToStrategy < scope::InReplyTo
+  strategies::ReceiverUuidStrategy.prepend(scope::ReceiverUuid) unless strategies::ReceiverUuidStrategy < scope::ReceiverUuid
+  EmailChannelFinder.prepend(scope::EnvelopeChannelFinder) unless EmailChannelFinder < scope::EnvelopeChannelFinder
+end
+
 # eager_load 後、ActionMailbox / Engine append のあとで hook を載せ、
 # ライブ RouteSet が overlay でなければ ERROR を1行出す。
 Rails.application.config.after_initialize do

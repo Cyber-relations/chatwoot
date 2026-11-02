@@ -6,10 +6,12 @@ overlay/app/spec
 overlay/app/spec/**
 !config/
 !config/chatwoot-runtime-gems.json
+!config/chatwoot-runtime-apk.txt
 !scripts/
 !scripts/harden-chatwoot-runtime-gems.rb
 !tests/
 !tests/verify_chatwoot_runtime_gems.rb
+!tests/verify_chatwoot_runtime_apk.rb
 !config/chatwoot-ruby-llm-backport.json
 !scripts/harden-chatwoot-ruby-llm.rb
 !tests/verify_chatwoot_ruby_llm_backport.rb

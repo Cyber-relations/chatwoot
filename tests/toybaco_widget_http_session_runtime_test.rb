@@ -851,6 +851,206 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     end
     assert_nil grant.reload.consumed_at
   end
+
+  # SECRET_KEY_BASE rotation inside this one process. Rails caches one key
+  # generator per secret, but message_verifiers caches each verifier by salt,
+  # so the block gets a fresh verifier set and the original object returns
+  # afterwards. The widget cookie is a plain cookie (no signed or encrypted
+  # jar), so env_config is unchanged. Failures report only booleans/statuses.
+  def with_secret_key_base(rotate:, &block)
+    rotate ? with_rotated_secret_key_base(&block) : yield
+  end
+
+  def with_rotated_secret_key_base
+    app = Rails.application
+    original_secret = app.config.secret_key_base
+    original_verifiers = app.message_verifiers
+    original_key = Toybaco::Security::WidgetHttpSession.key
+    witnesses = secret_rotation_witnesses
+    assert_secret_rotation_witnesses(witnesses, valid: true, phase: 'before rotation')
+    next_secret = SecureRandom.hex(64)
+    begin
+      app.config.secret_key_base = next_secret
+      app.instance_variable_set(:@message_verifiers, nil)
+      assert original_key != Toybaco::Security::WidgetHttpSession.key, 'The widget key must change with SECRET_KEY_BASE'
+      assert_secret_rotation_witnesses(witnesses, valid: false, phase: 'after rotation')
+      result = yield
+    ensure
+      app.config.secret_key_base = original_secret
+      app.instance_variable_set(:@message_verifiers, original_verifiers)
+      app.instance_variable_get(:@key_generators).delete(next_secret)
+    end
+    assert original_key == Toybaco::Security::WidgetHttpSession.key, 'The widget key must return to the original secret'
+    assert_secret_rotation_witnesses(witnesses, valid: true, phase: 'after restore')
+    result
+  end
+
+  def secret_rotation_witnesses
+    row = Toybaco::WidgetSessionRecord.order(:id).last
+    { recovery: Toybaco::Security::WidgetHttpSession.recovery_token(row, expires_at: 2.hours.from_now), legacy: token_for(@links[0]) }
+  end
+
+  def assert_secret_rotation_witnesses(witnesses, valid:, phase:)
+    payload = Toybaco::Security::WidgetHttpSession.verifier.verified(witnesses[:recovery].delete_prefix('tbwr1.'), purpose: 'widget-recovery')
+    claims = Widget::TokenService.new(token: witnesses[:legacy]).decode_token
+    assert_equal valid, payload.is_a?(Hash), "Recovery token verification #{phase}"
+    assert_equal valid, claims[:inbox_id] == @links[0].inbox_id, "Legacy JWT decoding #{phase}"
+  end
+
+  def widget_cookie_issued?
+    name = Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])
+    Array(response.headers['Set-Cookie']).any? { |line| line.include?(name) }
+  end
+
+  def cookie_session_id
+    name = Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])
+    cookie_request = ActionDispatch::TestRequest.create('HTTPS' => 'on', 'HTTP_HOST' => integration_session.host,
+      'HTTP_COOKIE' => "#{name}=#{cookies[name]}")
+    Toybaco::Security::WidgetHttpSession.read(cookie_request, @widgets[0])&.record&.id
+  rescue ActiveRecord::RecordNotFound
+    nil
+  end
+
+  def bootstrap_status(intent:, legacy: nil)
+    post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
+      legacy_token: legacy, consume_intent: intent }, headers: headers_for, as: :json
+    @proof = response.parsed_body['proof'] if response.successful?
+    response.status
+  end
+
+  def consume_status(code, intent)
+    post '/api/v1/widget/http_session/consume', params: { website_token: @widgets[0].website_token,
+      handoff_code: code, consume_intent: intent }, headers: headers_for, as: :json
+    @proof = response.parsed_body['proof'] if response.successful?
+    response.status
+  end
+
+  # A retry without the cookie: does its response cookie read back and
+  # bootstrap again?
+  def cookieless_retry_observations(status)
+    observed = { retry: status, cookie_reissued: widget_cookie_issued? }
+    readback
+    observed[:readback] = response.status
+    observed.merge(bootstrap: bootstrap_status(intent: SecureRandom.hex(32)), error: response.parsed_body['error'])
+  end
+
+  # A retry with the matching cookie: the cookie stays and only a proof from
+  # the retry response (not the one issued before it) reads back.
+  def cookie_retry_observations(status, issued_proof)
+    observed = { retry: status, cookie_reissued: widget_cookie_issued? }
+    readback
+    observed[:readback] = response.status
+    @proof = issued_proof
+    readback
+    observed.merge(issued_proof_readback: response.status)
+  end
+
+  def consumed_popout
+    clear_browser_cookies
+    issue(intent: SecureRandom.hex(32))
+    post '/api/v1/widget/http_session/handoff', params: { website_token: @widgets[0].website_token }, headers: headers_for(@proof), as: :json
+    assert_response :success
+    code = response.parsed_body.fetch('code')
+    clear_browser_cookies
+    intent = SecureRandom.hex(32)
+    assert_equal 200, consume_status(code, intent)
+    [code, intent]
+  end
+
+  def issued_credentials_across(rotate:)
+    clear_browser_cookies
+    issue(intent: SecureRandom.hex(32))
+    row = Toybaco::WidgetSessionRecord.last
+    post '/api/v1/widget/http_session/recover', params: { website_token: @widgets[0].website_token,
+      handoff_code: @issued['recovery_code'], consume_intent: SecureRandom.hex(32) }, headers: headers_for, as: :json
+    assert_response :success
+    recovery = response.parsed_body.fetch('proof')
+    with_secret_key_base(rotate: rotate) do
+      readback
+      observed = { readback: response.status }
+      post '/api/v1/widget/http_session/proof', params: { website_token: @widgets[0].website_token },
+        headers: headers_for(@proof), as: :json
+      observed[:renewal] = response.status
+      contact(recovery)
+      observed.merge(recovery: response.status, cookie_session: cookie_session_id == row.id, current: row.reload.current?)
+    end
+  end
+
+  def test_secret_rotation_keeps_the_issued_cookie_session_but_rejects_issued_proofs_and_recovery_tokens
+    expected = { readback: 200, renewal: 200, recovery: 200, cookie_session: true, current: true }
+    assert_equal expected, issued_credentials_across(rotate: false)
+    assert_equal expected.merge(readback: 404, renewal: 404, recovery: 404), issued_credentials_across(rotate: true)
+  end
+
+  def cookie_bootstrap_across(rotate:)
+    clear_browser_cookies
+    issue(intent: SecureRandom.hex(32))
+    with_secret_key_base(rotate: rotate) do
+      observed = { bootstrap: bootstrap_status(intent: SecureRandom.hex(32)), cookie_reissued: widget_cookie_issued? }
+      readback
+      observed.merge(readback: response.status, issued_legacy_bootstrap: bootstrap_status(intent: SecureRandom.hex(32), legacy: @legacy[0]))
+    end
+  end
+
+  def test_secret_rotation_cookie_bootstrap_returns_a_new_key_proof_but_rejects_an_issued_legacy_token
+    expected = { bootstrap: 200, cookie_reissued: false, readback: 200, issued_legacy_bootstrap: 200 }
+    assert_equal expected, cookie_bootstrap_across(rotate: false)
+    assert_equal expected.merge(issued_legacy_bootstrap: 404), cookie_bootstrap_across(rotate: true)
+  end
+
+  def cookieless_bootstrap_retry_across(rotate:)
+    clear_browser_cookies
+    intent = SecureRandom.hex(32)
+    assert_equal 200, bootstrap_status(intent: intent)
+    clear_browser_cookies
+    with_secret_key_base(rotate: rotate) { cookieless_retry_observations(bootstrap_status(intent: intent)) }
+  end
+
+  def test_secret_rotation_between_cookieless_bootstrap_retries_returns_a_cookie_that_cannot_read_or_bootstrap
+    expected = { retry: 200, cookie_reissued: true, readback: 200, bootstrap: 200, error: nil }
+    assert_equal expected, cookieless_bootstrap_retry_across(rotate: false)
+    assert_equal expected.merge(readback: 404, bootstrap: 409, error: 'widget_session_conflict'),
+      cookieless_bootstrap_retry_across(rotate: true)
+  end
+
+  def cookie_bootstrap_retry_across(rotate:)
+    clear_browser_cookies
+    intent = SecureRandom.hex(32)
+    assert_equal 200, bootstrap_status(intent: intent)
+    issued_proof = @proof
+    with_secret_key_base(rotate: rotate) { cookie_retry_observations(bootstrap_status(intent: intent), issued_proof) }
+  end
+
+  def test_secret_rotation_between_bootstrap_retries_with_a_valid_cookie_keeps_it_and_reads_with_a_new_proof
+    expected = { retry: 200, cookie_reissued: false, readback: 200, issued_proof_readback: 200 }
+    assert_equal expected, cookie_bootstrap_retry_across(rotate: false)
+    assert_equal expected.merge(issued_proof_readback: 404), cookie_bootstrap_retry_across(rotate: true)
+  end
+
+  def popout_retry_with_cookie_across(rotate:)
+    code, intent = consumed_popout
+    issued_proof = @proof
+    with_secret_key_base(rotate: rotate) { cookie_retry_observations(consume_status(code, intent), issued_proof) }
+  end
+
+  def test_secret_rotation_between_popout_consume_retries_with_the_matching_cookie_keeps_it
+    expected = { retry: 200, cookie_reissued: false, readback: 200, issued_proof_readback: 200 }
+    assert_equal expected, popout_retry_with_cookie_across(rotate: false)
+    assert_equal expected.merge(issued_proof_readback: 404), popout_retry_with_cookie_across(rotate: true)
+  end
+
+  def cookieless_popout_retry_across(rotate:)
+    code, intent = consumed_popout
+    clear_browser_cookies
+    with_secret_key_base(rotate: rotate) { cookieless_retry_observations(consume_status(code, intent)) }
+  end
+
+  def test_secret_rotation_between_cookieless_popout_consume_retries_returns_a_cookie_that_cannot_read_or_bootstrap
+    expected = { retry: 200, cookie_reissued: true, readback: 200, bootstrap: 200, error: nil }
+    assert_equal expected, cookieless_popout_retry_across(rotate: false)
+    assert_equal expected.merge(readback: 404, bootstrap: 409, error: 'widget_session_conflict'),
+      cookieless_popout_retry_across(rotate: true)
+  end
 end
 
 require 'action_cable/channel/test_case'

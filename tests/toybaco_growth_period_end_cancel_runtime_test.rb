@@ -12,6 +12,7 @@ require Rails.root.join('lib/toybaco/growth/inbox_release')
 require Rails.root.join('lib/toybaco/store_fulfillment')
 require Rails.root.join('lib/toybaco/subscription_reconciliation/execution')
 require Rails.root.join('app/jobs/toybaco/subscription_reconciliation_sweep_job')
+require Rails.root.join('app/jobs/toybaco/managed_auto_sweep_job')
 
 FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 
@@ -515,6 +516,31 @@ class ToybacoGrowthPeriodEndCancelRuntimeTest < ActiveSupport::TestCase
     assert_equal [before, [], 0], [@account.reload.attributes, @posting_calls, free_returns.count]
     assert_equal 'free_completed', finalize(now: NOW + 301)
     assert_equal [NOW + 300, 'reserved', 0], [operation.reload.lease_expires_at, operation.state, grant.reload.used]
+  end
+
+  # 自動返信の結果不明(uncertain)の行は、予約の期限が過ぎても Free 復帰を Busy で待たせ、何も書かない。開始から 15 分で
+  # 自動返信の sweep が行を閉じた後の再試行で、復帰が完了する。閉じた行の予約は課金せず期限切れになる。
+  def test_unknown_automatic_result_defers_the_return_until_the_managed_sweep_closes_it
+    synchronize
+    grant = Toybaco::Growth::AiGrants.new(@account).issue!(source: 'included', source_key: 'paid:sub_periodend:fixture:base',
+                                                            units: 500, starts_at: NOW - 1.day, ends_at: NOW + 20.days)
+    started_at = NOW - Toybaco::Growth::ManagedAutoUnknown::CLOSE_AFTER
+    operation = Toybaco::GrowthAiOperation.create!(account: @account, grant: grant, request_key: 'a' * 64, context_digest: 'b' * 64,
+                                                   token_digest: 'c' * 64, kind: 'automatic_reply', lease_expires_at: started_at + 300)
+    request = Toybaco::GrowthAutoRequest.create!(account_id: @account.id, inbox_id: @held.id, installation_id: 0, generation: 1,
+                                                 epoch: SecureRandom.uuid, message_id: 0, conversation_id: 0, operation_id: operation.id,
+                                                 state: 'uncertain', reason: 'result_unknown', started_at: started_at, enqueue_after: started_at)
+    before = @account.reload.attributes.deep_dup
+    assert_equal 'free_pending', finalize
+    assert_equal [before, [], 0], [@account.reload.attributes, @posting_calls, free_returns.count]
+    travel_to(NOW - 1) { Toybaco::ManagedAutoSweepJob.perform_now }
+    assert_equal 'uncertain', request.reload.state
+    travel_to(NOW) { Toybaco::ManagedAutoSweepJob.perform_now }
+    assert_equal ['cancelled', 'uncertain_expired', NOW], request.reload.attributes.values_at('state', 'reason', 'terminal_at')
+    assert_equal ['expired', 0], [operation.reload.state, grant.reload.used]
+    assert_equal 'free_completed', finalize
+  ensure
+    Toybaco::GrowthAutoRequest.where(account_id: @account.id).delete_all
   end
 
   def accept_sync(at: NOW, subscription: 'sub_periodend')

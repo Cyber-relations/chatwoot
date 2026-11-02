@@ -763,6 +763,23 @@ RSpec.describe Toybaco::Ops::E2eBilling do # rubocop:disable RSpec/SpecFilePathF
       expect(present(events + requests)).to eq([true, false, true, true, false, false, true, false])
     end
 
+    it '数字で終わる prefix は購入者の名前の続きが - か終端の run だけに当て、同じ run の別の attempt(r100-10)と別の run(r1000-1)の孤児は消さない' do
+      gone = Account.maximum(:id).to_i + 1000
+      names = %w[e2e-consent-r100-1 e2e-consent-r100-10 e2e-consent-r1000-1]
+      refs = %w[own attempt other].map { |kind| "cs_test_e2eorphan920#{kind}" }
+      events = refs.map do |ref|
+        billing_event!("evt_#{ref.delete_prefix('cs_test_')}", 'growth_checkout', ref, 'attention', result: 'record_missing')
+      end
+      orphan_stripe(refs.zip(names).to_h { |ref, name| [ref, orphan_session(gone, name: name)] })
+      expect(run!('e2e_purge_billing', 'e2e-consent-r100-1')).to eq([orphans_line('e2e-consent-r100-1', 1, 0, 2, 0)])
+      expect(present(events)).to eq([false, true, true])
+      # run の prefix(e2e-consent-r100)は同じ run の全 attempt に当たり、r1000-1 には当たらない。族の prefix は残りの run 全部に当たる。
+      expect(run!('e2e_purge_billing', 'e2e-consent-r100')).to eq([orphans_line('e2e-consent-r100', 1, 0, 1, 0)])
+      expect(present(events)).to eq([false, false, true])
+      expect(run!('e2e_purge_billing', 'e2e-consent-r')).to eq([orphans_line('e2e-consent-r', 1, 0, 0, 0)])
+      expect(present(events)).to eq([false, false, false])
+    end
+
     it '応答の無い失敗(接続の失敗・切断・本文の破損)は、その時点で Stripe を呼ぶのをやめ、何も消さずに例外の文を出さず stripe_unavailable で止める' do
       gone = Account.maximum(:id).to_i + 1000
       # 走査は新しい順なので、作る順を c・b・a にして a・b・c の順に照合させる。

@@ -50,17 +50,17 @@ function fixture() {
         checksums: [{ algorithm: 'SHA256', checksumValue: hex }],
         externalRefs: ref('pkg:oci/' + IMAGE + '@sha256%3A' + hex + '?arch=amd64') },
       { SPDXID: 'SPDXRef-ruby', name: 'ruby_llm', versionInfo: '1.15.0', externalRefs: ref(GEM_PURL) },
-      { SPDXID: 'SPDXRef-alpine', name: 'alpine-baselayout', versionInfo: '3.6.8-r1',
-        externalRefs: ref('pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=x86_64&distro=alpine-3.21.3') },
+      { SPDXID: 'SPDXRef-alpine', name: 'alpine-baselayout', versionInfo: '3.7.0-r0',
+        externalRefs: ref('pkg:apk/alpine/alpine-baselayout@3.7.0-r0?arch=x86_64&distro=alpine-3.22.0') },
     ], relationships: [
       { spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-image' },
       { spdxElementId: 'SPDXRef-image', relationshipType: 'CONTAINS', relatedSpdxElement: 'SPDXRef-ruby' },
     ] };
   const finding = id => ({ VulnerabilityID: id, Severity: 'HIGH', PkgName: 'ruby_llm', InstalledVersion: '1.15.0',
     FixedVersion: '>= 2.0.0.rc1', PkgPath: specPath.slice(1), PkgIdentifier: { PURL: GEM_PURL, UID: 'gem-id' } });
-  const raw = { SchemaVersion: 2, ArtifactType: 'spdx', Metadata: { OS: { Family: 'alpine', Name: '3.21.3' } },
+  const raw = { SchemaVersion: 2, ArtifactType: 'spdx', Metadata: { OS: { Family: 'alpine', Name: '3.22.0' } },
     Results: [
-      { Target: 'alpine', Type: 'alpine', Class: 'os-pkgs', Packages: [{ Name: 'openjpeg', Version: '2.5.4-r0' }] },
+      { Target: 'alpine', Type: 'alpine', Class: 'os-pkgs', Packages: [{ Name: 'openjpeg', Version: '2.5.4-r1' }] },
       { Target: 'Ruby', Type: 'gemspec', Class: 'lang-pkgs',
         Packages: [{ Name: 'ruby_llm', Version: '1.15.0', Identifier: { PURL: GEM_PURL, UID: 'gem-id' } }],
         Vulnerabilities: CVES.map(finding) },
@@ -189,6 +189,9 @@ const negatives = [
   ['scanner error', x => { x.rawExit = 2; }],
   ['wrong scanner exit', x => { x.rawExit = 0; }],
   ['lost OS inventory', x => { x.raw.Results.shift(); }],
+  // The scanned distro is the shipped runtime's pinned Alpine 3.22 release, never the retired 3.21 base or another point release.
+  ['raw scan of the retired Alpine 3.21 distro', x => { x.raw.Metadata.OS.Name = '3.21.3'; }],
+  ['raw scan of another Alpine 3.22 point release', x => { x.raw.Metadata.OS.Name = '3.22.6'; }],
   ['lost language inventory', x => { x.raw.Results[1].Packages = []; }],
   ['additional unfixed HIGH', x => { x.raw.Results[0].Vulnerabilities = [{ VulnerabilityID: 'CVE-2099-1', Severity: 'HIGH', FixedVersion: '' }]; }],
   ['additional CRITICAL', x => { x.raw.Results[0].Vulnerabilities = [{ VulnerabilityID: 'CVE-2099-2', Severity: 'CRITICAL' }]; }],

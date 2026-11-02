@@ -30,11 +30,20 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         line.to_s.gsub(/[\r\n]+/, ' ').squeeze(' ').strip
       end
 
+      # stdout の行も、logger の行と同じ最後の網(LogScrub、CASA 6.5.1)に通す。message_id のアドレスの形だけが伏せられ、
+      # 行頭・marker・mailbox=・Conversation= は残る。伏せる途中で落ちたら stdout には書かない。
       def write_stdout_line(text)
-        $stdout.puts(text)
+        $stdout.puts(scrub_stdout_line(text))
         $stdout.flush
       rescue StandardError
         nil
+      end
+
+      # Rails では toybaco_log_redaction の initializer が LogScrub を先に読む。読まない Rails の外の単体の試験だけ素通し。
+      def scrub_stdout_line(text)
+        return text unless defined?(Toybaco::Security::LogScrub)
+
+        Toybaco::Security::LogScrub.mask(text)
       end
 
       def write_captured_logger(text)

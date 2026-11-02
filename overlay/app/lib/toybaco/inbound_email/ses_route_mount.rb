@@ -66,10 +66,11 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         emit_ses_route_mismatch("expected=#{INGRESS_CONTROLLER} actual=#{actual}")
       end
 
+      # stdout の行も LogScrub に通す(logger の行は formatter の LogScrub が伏せる)。controller 名は伏せる形に当たらない。
       def emit_ses_route_mismatch(detail)
         line = "#{ROUTE_MISMATCH_PREFIX} #{detail}"
         rails_error_logger&.error(line)
-        $stdout.puts(line)
+        $stdout.puts(scrub_ses_route_line(line))
         $stdout.flush
         line
       rescue StandardError
@@ -77,6 +78,13 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       end
 
       private
+
+      # Rails では toybaco_log_redaction の initializer が LogScrub を先に読む。読まない Rails の外の単体の試験だけ素通し。
+      def scrub_ses_route_line(line)
+        return line unless defined?(Toybaco::Security::LogScrub)
+
+        Toybaco::Security::LogScrub.mask(line)
+      end
 
       def overlay_ses_controller?(name)
         [INGRESS_CONTROLLER, INGRESS_TO.split('#').first].include?(name.to_s)

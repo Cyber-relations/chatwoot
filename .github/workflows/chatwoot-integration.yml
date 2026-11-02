@@ -17,6 +17,10 @@ on:
       - 'config/chatwoot-ruby-llm-backport.json'
       - 'scripts/harden-chatwoot-ruby-llm.rb'
       - 'scripts/verify-chatwoot-ruby-llm-classification.mjs'
+      - 'scripts/chatwoot-alpine-status.py'
+      - 'config/chatwoot-runtime-apk.txt'
+      - 'docs/chatwoot-runtime-os-policy.md'
+      - 'scripts/verify-chatwoot-ee-view-twins.sh'
       - 'docs/chatwoot-ruby-llm-backport-policy.md'
       - 'scripts/harden-chatwoot-runtime-gems.rb'
       - 'scripts/generate-chatwoot-active-ja-overrides.rb'
@@ -103,6 +107,7 @@ jobs:
       CHATWOOT_SOURCE_COMMIT: 9f920b549c14491a4e587687a3eed5d21c6ccc7d
       CHATWOOT_SOURCE_TREE: 16432eeeef9153f7aff66be382e04a20e6f5683a
       CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de
+      CHATWOOT_RUNTIME_IMAGE: ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1
       TRIVY_IMAGE: docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682
     steps:
       - name: owner review済みmain sourceを取得
@@ -110,6 +115,90 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
+
+      - name: runner付属のgh・aws・dockerの版とimage storeをbuild前に確認
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export LC_ALL=C
+          # hosted runner(ubuntu-24.04)の gh・aws・docker は、runner image の週次の更新で版が変わる。この publisher は、buildx の
+          # metadata の digest と ECR の DescribeImages・imagetools の manifest の照合、ECR の scan、pull した image の docker image
+          # inspect と proof、attestation の検証を、下の major と従来の image store(overlay2)の挙動として読む。Docker 29 の containerd
+          # image store では image ID の意味が変わる。image store が違う、gh か aws の major が違う、道具が無いか読めないときは、
+          # 何が想定外かを固定語(TOYBACO_RUNNER_CLI=UNEXPECTED)で出して build の前に止める。docker の major の違いだけは警告
+          # (TOYBACO_RUNNER_CLI=WARN)にとどめる。期待値は、新しい版の挙動を確かめてから契約テストと同じ変更で上げる。
+          expected_gh_major='2'
+          expected_aws_major='2'
+          expected_docker_major='28'
+          unexpected() {
+            echo "::error::TOYBACO_RUNNER_CLI=UNEXPECTED $1"
+            exit 1
+          }
+          # 版の文字列から major.minor.patch だけを取り出す。取り出せない出力はそのまま出さずに止める。
+          parsed_major=''
+          parsed_version=''
+          parse_version() {
+            if [[ ! "$2" =~ $3 ]]; then
+              unexpected "${1}=unparsable"
+            fi
+            parsed_major="${BASH_REMATCH[1]}"
+            parsed_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          }
+          # gh・aws は major が違うと出力の解析が壊れうるので止める。
+          require_major() {
+            if [[ "$parsed_major" != "$2" ]]; then
+              unexpected "${1}_major=${parsed_major} expected_major=${2} version=${parsed_version}"
+            fi
+          }
+          # docker の major の違いは警告だけにする(image store は下で別に止める)。overlay2 のままの新しい major で hotfix まで止めないため。
+          warn_docker_major() {
+            if [[ "$parsed_major" != "$expected_docker_major" ]]; then
+              echo "::warning::TOYBACO_RUNNER_CLI=WARN docker_major=${parsed_major} component=${1} expected_major=${expected_docker_major} version=${parsed_version}"
+              printf 'TOYBACO_RUNNER_CLI=WARN docker_major=%s component=%s expected_major=%s version=%s\n' \
+                "$parsed_major" "$1" "$expected_docker_major" "$parsed_version" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+          for tool in gh aws docker; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              unexpected "${tool}=missing"
+            fi
+          done
+          gh_output="$(gh --version)" || unexpected 'gh=failed'
+          parse_version gh "$gh_output" '^gh version ([0-9]+)\.([0-9]+)\.([0-9]+)'
+          require_major gh "$expected_gh_major"
+          gh_version="$parsed_version"
+          aws_output="$(aws --version)" || unexpected 'aws=failed'
+          parse_version aws "$aws_output" '^aws-cli/([0-9]+)\.([0-9]+)\.([0-9]+)'
+          require_major aws "$expected_aws_major"
+          aws_version="$parsed_version"
+          docker_client_output="$(docker version --format '{{.Client.Version}}')" || unexpected 'docker_client=failed'
+          parse_version docker_client "$docker_client_output" '^([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.+-]*)?$'
+          warn_docker_major client
+          docker_client_version="$parsed_version"
+          docker_server_output="$(docker version --format '{{.Server.Version}}')" || unexpected 'docker_server=failed'
+          parse_version docker_server "$docker_server_output" '^([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.+-]*)?$'
+          warn_docker_major server
+          docker_server_version="$parsed_version"
+          # image store は従来の graph driver の overlay2 だけを受ける。containerd image store は Driver が overlayfs などになり、
+          # DriverStatus に driver-type io.containerd.snapshotter.v1 が出る(image ID が config digest でなくなる)。
+          docker_driver="$(docker info --format '{{.Driver}}')" || unexpected 'docker_info=failed'
+          docker_driver_status="$(docker info --format '{{json .DriverStatus}}')" || unexpected 'docker_info=failed'
+          if [[ "$docker_driver_status" == *io.containerd.snapshotter* ]]; then
+            unexpected 'docker_image_store=containerd-snapshotter'
+          fi
+          if [[ "$docker_driver" != 'overlay2' ]]; then
+            if [[ ! "$docker_driver" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+              docker_driver='unparsable'
+            fi
+            unexpected "docker_storage_driver=${docker_driver} expected=overlay2"
+          fi
+          runner_image="${ImageOS:-unknown}-${ImageVersion:-unknown}"
+          if [[ ! "$runner_image" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+            runner_image='unknown'
+          fi
+          printf 'TOYBACO_RUNNER_CLI=OK gh=%s aws=%s docker_client=%s docker_server=%s docker_storage_driver=%s runner_image=%s\n' \
+            "$gh_version" "$aws_version" "$docker_client_version" "$docker_server_version" "$docker_driver" "$runner_image" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: main commit・固定Chatwoot source・exact overlayを再確認
         id: source
@@ -136,7 +225,9 @@ jobs:
           [[ "$CHATWOOT_SOURCE_COMMIT" == '9f920b549c14491a4e587687a3eed5d21c6ccc7d' ]]
           [[ "$CHATWOOT_SOURCE_TREE" == '16432eeeef9153f7aff66be382e04a20e6f5683a' ]]
           [[ "$CHATWOOT_BASE_IMAGE" == 'chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de' ]]
+          [[ "$CHATWOOT_RUNTIME_IMAGE" == 'ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1' ]]
           grep -Fqx "ARG CHATWOOT_IMAGE=$CHATWOOT_BASE_IMAGE" Dockerfile
+          grep -Fqx "ARG RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE" Dockerfile
           grep -Fq "org.opencontainers.image.revision=\"$CHATWOOT_SOURCE_COMMIT\"" Dockerfile
           grep -Fq "jp.toybaco.source.tree=\"$CHATWOOT_SOURCE_TREE\"" Dockerfile
           ruby tests/verify_chatwoot_overlay_manifest.rb verify . tests/chatwoot-overlay-manifest.tsv
@@ -146,6 +237,11 @@ jobs:
           control_sha="${BASH_REMATCH[1]}"
           printf 'repository_tree=%s\n' "$repository_tree" >> "$GITHUB_OUTPUT"
           printf 'control_sha=%s\n' "$control_sha" >> "$GITHUB_OUTPUT"
+
+      # 表示だけで判定には使わない(CW-1)。版はSBOMのdistroとTrivyの--distroと同じ固定値
+      # (出荷するruntimeのalpine-releaseはbase imageの版のまま。docs/chatwoot-runtime-os-policy.md)。
+      - name: Alpine branchのEOLをStep Summaryへ出す(出荷は止めない)
+        run: python3 -I scripts/chatwoot-alpine-status.py eol --release 3.22.0 || true
 
       - name: GitHub OIDCで本番publisher roleを取得
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -177,6 +273,7 @@ jobs:
           docker buildx build --no-cache --pull --platform linux/amd64 \
             --file Dockerfile \
             --build-arg "CHATWOOT_IMAGE=$CHATWOOT_BASE_IMAGE" \
+            --build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE" \
             --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_SHA" \
             --build-arg "TOYBACO_PUBLIC_REVISION=$REPOSITORY_COMMIT" \
             --tag "$image" \
@@ -198,12 +295,14 @@ jobs:
             (.layers | type == "array" and length > 0)' <<<"$manifest_json" >/dev/null
           image_json="$(docker buildx imagetools inspect "$ECR_REPOSITORY@$digest" --format '{{json .Image}}')"
           jq -e \
-            --arg base "$CHATWOOT_BASE_IMAGE" \
+            --arg base "$CHATWOOT_RUNTIME_IMAGE" \
+            --arg upstream "$CHATWOOT_BASE_IMAGE" \
             --arg revision "$CHATWOOT_SOURCE_COMMIT" \
             --arg tree "$CHATWOOT_SOURCE_TREE" \
             --arg control "$CONTROL_SHA" \
             '.os == "linux" and .architecture == "amd64" and
              .config.Labels["org.opencontainers.image.base.name"] == $base and
+             .config.Labels["jp.toybaco.upstream.image"] == $upstream and
              .config.Labels["org.opencontainers.image.revision"] == $revision and
              .config.Labels["jp.toybaco.source.tree"] == $tree and
              .config.Labels["jp.toybaco.gate.control-sha256"] == $control' \
@@ -324,7 +423,7 @@ jobs:
               select(any(.checksums[]; .algorithm == "SHA256" and .checksumValue == $digest))] | length == 1) and
             any(.packages[].externalRefs[]?; .referenceType == "purl" and
               (.referenceLocator | startswith("pkg:apk/alpine/")) and
-              (.referenceLocator | split("?")[1] // "" | split("&") | index("distro=alpine-3.21.3") != null))
+              (.referenceLocator | split("?")[1] // "" | split("&") | index("distro=alpine-3.22.0") != null))
           ' "$sbom" >/dev/null
 
       - name: 固定Trivyの生結果と実imageのRubyLLM backportを検証
@@ -366,7 +465,7 @@ jobs:
             --mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db" \
             --mount "type=bind,src=$security/scan-output,dst=/output" \
             "$TRIVY_IMAGE" --config /dev/null sbom \
-            --scanners vuln --pkg-types os,library --distro alpine/3.21.3 \
+            --scanners vuln --pkg-types os,library --distro alpine/3.22.0 \
             --severity CRITICAL,HIGH --ignore-unfixed=false --exit-code 1 --list-all-pkgs \
             --skip-db-update --skip-java-db-update --offline-scan \
             --format json --output /output/raw-report.json --no-progress /scan/sbom.spdx.json \

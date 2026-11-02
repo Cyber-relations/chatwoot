@@ -1,5 +1,8 @@
 # amd64本番で実行するChatwoot v4.18.0 manifestとsourceを不変値で固定する。
 ARG CHATWOOT_IMAGE=chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de
+# The shipped runtime is Alpine 3.22 with the same Ruby 3.4.4 as upstream (the Gemfile pins ruby '3.4.4'; this is the
+# newest official 3.4.4 image). The upstream image above only supplies the code and every build-only stage.
+ARG RUBY_RUNTIME_IMAGE=ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1
 
 FROM ${CHATWOOT_IMAGE} AS overlay-normalizer
 COPY overlay/app/ /toybaco-overlay/
@@ -73,122 +76,122 @@ RUN node --version \
     && rm -rf /app/node_modules /root/.cache /root/.local/share/pnpm/store
 
 FROM localized-assets AS runtime-hardening
-# Expat 2.8.4 fixes CVE-2026-66046 and CVE-2026-76641; Alpine v3.21 secdb lists CVE-2026-93990 as fixed in
-# 2.8.5-r0 and CVE-2026-102633 / CVE-2026-77214 in 2.9.0-r0 (the publisher's ECR scan gate, 2026-10-19).
-# Alpine v3.21 ships 2.9.0-r0 (so:libexpat.so.1=1.13.0, same SONAME).
-# https://github.com/libexpat/libexpat/blob/R_2_9_0/expat/Changes
-# This stage's apk DB reaches the final stage without /lib/ld-musl-x86_64.so.1, so musl must stay as bundled-gems
-# installed it; exact requests (no --upgrade) leave dependencies alone, and the final stage upgrades musl.
-RUN musl_before="$(apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]')" \
-    && apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \
-    # Alpine v3.21 openjpeg 2.5.4-r1 fixes CVE-2026-6192 and OSV-2025-219 (same libopenjp2.so.2.5.4 / SONAME).
-    # Use the regular v3.21 repository; do not fetch APKs from other releases.
-    && apk add --no-cache 'openjpeg=2.5.4-r1' \
-    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r1' \
-    && test "$(apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]')" = "$musl_before" \
-    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
-    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.9.0-r0' \
+# Collect the localized served assets for the runtime. The shipped OS and gems come from the Alpine 3.22 stages below.
+RUN mkdir -p /toybaco-runtime-root/app/public \
     && test "$(find /app/public/vite/assets -type f -name '*.js' \
       -exec grep -h -o -E '\.set\("cw_d_session_info",' {} + \
       | wc -l | tr -d ' ')" = '0' \
-    && for path in \
-      etc/apk/world \
-      lib/apk/db/installed lib/apk/db/scripts.tar lib/apk/db/triggers; do \
-      mkdir -p "/toybaco-runtime-root/$(dirname "$path")"; \
-      cp -p "/$path" "/toybaco-runtime-root/$path"; \
-    done \
-    && mkdir -p /toybaco-runtime-root/usr/lib \
-    && cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/ \
-    && cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.13.0 /toybaco-runtime-root/usr/lib/ \
-    && cp -a /usr/lib/libopenjp2.so.7 /usr/lib/libopenjp2.so.2.5.4 /toybaco-runtime-root/usr/lib/ \
-    && mkdir -p /toybaco-runtime-root/app/public \
     && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \
     && cp -a /app/public/assets /toybaco-runtime-root/app/public/assets \
     && mkdir -p /toybaco-runtime-root/app/public/packs/js \
     && cp -a /app/public/packs/js/sdk.js /app/public/packs/js/sdk.js.gz /app/public/packs/js/sdk.js.br /toybaco-runtime-root/app/public/packs/js/ \
     && find /toybaco-runtime-root -exec touch -t 200001010000.00 {} +
 
-FROM bundled-gems
+FROM ${CHATWOOT_IMAGE} AS upstream
+
+FROM ${RUBY_RUNTIME_IMAGE} AS runtime-base
+# Package policy (docs/chatwoot-runtime-os-policy.md): config/chatwoot-runtime-apk.txt is the reviewed package list.
+# alpine-release stays at the pinned base image's own build, so the distro that the SBOM, Trivy and the evaluator
+# bind to moves only with a reviewed base change, not with Alpine point releases. Every other package takes the
+# branch's current signed build (security rebuilds need no pin bump); the verifier then requires exactly the reviewed
+# package names and no version older than reviewed, and reports newer ones. The package set is the upstream final
+# stage's without ImageMagick (Active Storage processes variants with libvips; see the policy), plus Bundler as
+# upstream.
+COPY config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk.txt
+COPY tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb
+RUN alpine_release="$(sed -n 's/^alpine-release=//p' /opt/toybaco/config/chatwoot-runtime-apk.txt)" \
+    && test -n "$alpine_release" \
+    && apk add --no-cache "alpine-release=$alpine_release" \
+    && apk upgrade --no-cache \
+    && apk add --no-cache build-base openssl tzdata postgresql-client git vips \
+    # Same-ABI official signed stable APK from another branch: v3.24 libexif 0.6.26-r0 fixes CVE-2026-32775,
+    # CVE-2026-40385 and CVE-2026-40386 (Alpine secdb v3.23, not in v3.22) with the same SONAME as 0.6.25-r0.
+    # libvips links libexif and reads EXIF of received JPEGs. Do not switch repositories or permit untrusted APKs.
+    && ruby -ropen-uri -e 'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.24/community/x86_64/libexif-0.6.26-r0.apk") { |input| File.open("/tmp/toybaco-libexif.apk", "wb") { |output| IO.copy_stream(input, output) } }' \
+    && echo '9fcc1b2c7f9a28aa7c310fe1ee215be4ece70e4b27f5cf079b3b56bf4ba683ae  /tmp/toybaco-libexif.apk' | sha256sum -c - \
+    && apk --no-network verify /tmp/toybaco-libexif.apk \
+    && apk add --no-network --upgrade /tmp/toybaco-libexif.apk \
+    && rm /tmp/toybaco-libexif.apk \
+    && test "$(apk info -v | grep '^libexif-')" = 'libexif-0.6.26-r0' \
+    && gem install bundler -v 2.5.16 \
+    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt
+# The upstream final image's environment.
+ENV NODE_VERSION=24.13.0 \
+    PNPM_VERSION=10.2.0 \
+    BUNDLE_WITHOUT=development:test \
+    BUNDLER_VERSION=2.5.16 \
+    EXECJS_RUNTIME=Disabled \
+    RAILS_SERVE_STATIC_FILES=true \
+    BUNDLE_FORCE_RUBY_PLATFORM=1 \
+    RAILS_ENV=production \
+    BUNDLE_PATH=/gems \
+    VIPS_BLOCK_UNTRUSTED=1 \
+    CW_EDITION=ee
+COPY --from=upstream /usr/local/bin/node /usr/local/bin/node
+# Same Ruby 3.4.4, so the default/bundled gem hardening applies unchanged.
+COPY config/chatwoot-runtime-gems.json /opt/toybaco/runtime-gems.json
+COPY scripts/harden-chatwoot-runtime-gems.rb /opt/toybaco/harden-runtime-gems.rb
+COPY tests/verify_chatwoot_runtime_gems.rb /opt/toybaco/verify-runtime-gems.rb
+RUN test "$(node --version)" = 'v24.21.0' \
+    && apk add --no-cache --virtual .toybaco-gem-build zlib-dev \
+    && ruby /opt/toybaco/harden-runtime-gems.rb /opt/toybaco/runtime-gems.json \
+    && apk del .toybaco-gem-build \
+    && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
+WORKDIR /app
+
+FROM runtime-base AS gems
+# Build parallelism only; grpc's extconf reads GRPC_RUBY_BUILD_PROCS.
+ARG BUNDLE_JOBS=4
+ARG GRPC_RUBY_BUILD_PROCS=4
+COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile.lock /app/
+COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
+# Every gem, native extensions included, is compiled here against the shipped Alpine 3.22 libraries
+# (BUNDLE_FORCE_RUBY_PLATFORM=1 as upstream). The headers are the upstream pre-builder's and stay in this stage; only
+# /gems and /opt/toybaco are copied out. Bundler follows the lock's BUNDLED WITH (2.5.16).
+RUN apk add --no-cache --virtual .toybaco-gem-native postgresql-dev openssl-dev linux-headers musl-dev xz \
+    && test "$(bundle --version)" = 'Bundler version 2.5.16' \
+    && BUNDLE_FROZEN=true bundle install --jobs "$BUNDLE_JOBS" --retry 3 \
+    && bundle clean --force \
+    && rm -rf /gems/ruby/3.4.0/cache \
+    && find /gems/ruby/3.4.0/gems/ \( -name '*.c' -o -name '*.o' \) -delete \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
+    && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
+
+FROM runtime-base AS runtime-app
+COPY --from=gems /gems /gems
+COPY --from=gems /opt/toybaco/ /opt/toybaco/
+COPY --from=upstream /app /app
+# Only the Gemfile and lock here, for the bundle check. The whole overlay is copied once, last, after the LABEL in
+# the final stage (the gate pins that single COPY), so no later layer can shadow an overlay file.
+COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile.lock /app/
+RUN rm -rf /app/tests/playwright \
+    && test ! -e /app/node_modules \
+    && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
+EXPOSE 3000
+CMD ["irb"]
+
+FROM runtime-app
 RUN rm -rf /app/public/vite
 RUN rm -rf /app/public/assets
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
 COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
 COPY tests/verify_chatwoot_sprockets_artifacts.mjs /opt/toybaco/tests/
-# Alpine v3.21 backports CVE-2026-45447 in 3.3.7-r1 and CVE-2026-75804 /
-# CVE-2026-84782 in 3.3.7-r2 (the publisher's ECR scan gate, 2026-10-02). Upgrade the final
-# filesystem and APK inventory together, including both linked libraries.
-# Alpine v3.21 tiff 4.7.2-r0 fixes CVE-2026-4775. Upgrade the final
-# runtime library and its APK inventory, then verify the actually loaded ABI.
-RUN apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' 'tiff=4.7.2-r0' \
-    && for package in openssl libcrypto3 libssl3; do \
-      test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"; \
-    done \
-    && ruby -ropenssl -e 'abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?("OpenSSL 3.3.7 "); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)' \
-    && test "$(apk info -v | grep '^tiff-')" = 'tiff-4.7.2-r0' \
-    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}'
-# Alpine 3.21 backports the publisher's 2026-10-21 curl/pcre2 findings without an OS or ABI change.
-# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/curl/APKBUILD
-# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/pcre2/APKBUILD
-# Exact requests keep already-satisfied dependencies, including the existing CA trust bundle.
-RUN ca_bundle_before="$(apk info -v | grep '^ca-certificates-bundle-')" \
-    && apk add --no-cache 'curl=8.14.1-r3' 'libcurl=8.14.1-r3' 'pcre2=10.43-r1' \
-    && test "$(apk info -v | grep '^ca-certificates-bundle-')" = "$ca_bundle_before" \
-    && test "$(apk info -v | grep '^curl-')" = 'curl-8.14.1-r3' \
-    && test "$(apk info -v | grep '^libcurl-')" = 'libcurl-8.14.1-r3' \
-    && test "$(apk info -v | grep '^pcre2-')" = 'pcre2-10.43-r1' \
-    && curl --version | head -n 1 | grep -F 'libcurl/8.14.1' \
-    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}], [], Fiddle::TYPE_VOIDP).call.to_s.start_with?(%q{libcurl/8.14.1 })' \
-    && ruby -rfiddle -e 'config = Fiddle::Function.new(Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}], [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT); version = Fiddle::Pointer.malloc(128); abort unless config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })'
-# Alpine 3.21 backports musl CVE-2026-107891 in 1.2.5-r12 and ships the c-ares 1.34.9 security release (libcurl's
-# resolver) and brotli 1.1.1 (CVE-2026-111497, decoder; libcurl and freetype) with the same SONAMEs. musl moves
-# only here, where apk rewrites the loader itself; version strings cannot tell r11 from r12 (or openjpeg r0 from r1,
-# copied from runtime-hardening), so the files are checked against the apk records. No other package may change.
-# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/musl/APKBUILD
-# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/c-ares/APKBUILD
-# https://gitlab.alpinelinux.org/alpine/aports/-/blob/3.21-stable/main/brotli/APKBUILD
-RUN ca_trust_before="$(apk info -v | grep '^ca-certificates-bundle-')" \
-    && others_before="$(apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares|brotli-libs)-[0-9]' | sort)" \
-    && apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0' 'brotli-libs=1.1.1-r0' \
-    && test "$(apk info -v | grep '^ca-certificates-bundle-')" = "$ca_trust_before" \
-    && test "$(apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares|brotli-libs)-[0-9]' | sort)" = "$others_before" \
-    && test "$(apk info -v | grep '^musl-[0-9]')" = 'musl-1.2.5-r12' \
-    && test "$(apk info -v | grep '^musl-utils-[0-9]')" = 'musl-utils-1.2.5-r12' \
-    && test "$(apk info -v | grep '^musl-dev-[0-9]')" = 'musl-dev-1.2.5-r12' \
-    && test "$(apk info -v | grep '^c-ares-[0-9]')" = 'c-ares-1.34.9-r0' \
-    && test "$(apk info -v | grep '^brotli-libs-[0-9]')" = 'brotli-libs-1.1.1-r0' \
-    && test "$(readlink /lib/libc.musl-x86_64.so.1)" = 'ld-musl-x86_64.so.1' \
-    && test ! -e /usr/lib/libcares.so.2.19.7 \
-    && test ! -e /usr/lib/libbrotlicommon.so.1.1.0 \
-    && test ! -e /usr/lib/libbrotlidec.so.1.1.0 \
-    && test ! -e /usr/lib/libbrotlienc.so.1.1.0 \
-    && ruby -rdigest -e 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0}, %q{brotli-libs} => %q{1.1.1-r0}, %q{openjpeg} => %q{2.5.4-r1} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8 usr/lib/libbrotlicommon.so.1 usr/lib/libbrotlicommon.so.1.1.1 usr/lib/libbrotlidec.so.1 usr/lib/libbrotlidec.so.1.1.1 usr/lib/libbrotlienc.so.1 usr/lib/libbrotlienc.so.1.1.1 usr/lib/libopenjp2.so.7 usr/lib/libopenjp2.so.2.5.4] - verified).empty?' \
-    && curl --version | head -n 1 | grep -F ' c-ares/1.34.9 ' \
-    && curl --version | head -n 1 | grep -F ' brotli/1.1.1 ' \
-    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}' \
-    && ruby -rfiddle -e 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}], [], Fiddle::TYPE_INT).call == 0x1001001'
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /app/tests/playwright \
-    && rm -f /usr/lib/libz.so.1.3.1 /usr/lib/libexpat.so.1.12.3 /usr/lib/libexpat.so.1.12.4 /usr/lib/libopenjp2.so.2.5.2 \
-    && test ! -e /usr/local/lib/node_modules/npm \
+# Re-check the final filesystem: the reviewed package set and versions, the actually loaded OpenSSL, expat, TIFF,
+# OpenJPEG, zlib and musl, and the hardened Ruby default gems.
+RUN test ! -e /usr/local/lib/node_modules/npm \
+    && test ! -e /usr/local/bin/npm \
+    && test ! -e /usr/local/bin/npx \
     && test ! -e /app/tests/playwright \
-    && test "$(apk info -v | grep '^openjpeg-')" = 'openjpeg-2.5.4-r1' \
-    && test "$(readlink /usr/lib/libopenjp2.so.7)" = 'libopenjp2.so.2.5.4' \
-    && test ! -e /usr/lib/libopenjp2.so.2.5.2 \
-    && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}" \
-    && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json \
-    && test "$(apk info -v | grep '^zlib-')" = 'zlib-1.3.2-r1' \
-    && test "$(readlink /usr/lib/libz.so.1)" = 'libz.so.1.3.2' \
-    && test -f /usr/lib/libz.so.1.3.2 \
-    && test ! -e /usr/lib/libz.so.1.3.1 \
-    && test "$(apk info -v | grep '^libexpat-')" = 'libexpat-2.9.0-r0' \
-    && test "$(readlink /usr/lib/libexpat.so.1)" = 'libexpat.so.1.13.0' \
-    && test -f /usr/lib/libexpat.so.1.13.0 \
-    && test ! -e /usr/lib/libexpat.so.1.12.3 \
-    && test ! -e /usr/lib/libexpat.so.1.12.4 \
-    && ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}"
+    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt \
+    && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
 ARG TOYBACO_CONTROL_SHA256
-LABEL org.opencontainers.image.base.name="chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de" \
+LABEL org.opencontainers.image.base.name="ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1" \
       org.opencontainers.image.source="https://github.com/Cyber-relations/chatwoot" \
       org.opencontainers.image.revision="9f920b549c14491a4e587687a3eed5d21c6ccc7d" \
+      jp.toybaco.upstream.image="chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de" \
       jp.toybaco.source.tree="16432eeeef9153f7aff66be382e04a20e6f5683a" \
       jp.toybaco.gate.control-sha256="${TOYBACO_CONTROL_SHA256}"
 COPY --from=overlay-normalizer /toybaco-overlay/ /app/

@@ -18,7 +18,7 @@
 // this contract in its fixed container and forwards the name from its own environment as is (checked below).
 
 import assert from 'node:assert/strict';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -68,6 +68,21 @@ const PUSH_PATH_BLOCKS = Object.freeze([
     private: pathLines(['scripts/harden-chatwoot-runtime-gems.rb', ...PRIVATE_ONLY_PATHS.slice(1)]) }),
 ]);
 const ECR_SUBJECT = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
+// The shipped runtime: Alpine 3.22 with upstream's Ruby 3.4.4, pinned by digest; the upstream image supplies the code
+// and every build-only stage. alpine-release stays at this base image's own build (docs/chatwoot-runtime-os-policy.md),
+// so the SBOM distro, Trivy --distro and the evaluator bind one fixed release that point releases do not move.
+const RUNTIME_IMAGE = 'ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1';
+const UPSTREAM_IMAGE = 'chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de';
+const RUNTIME_APK_VERIFY = 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt';
+const RUNTIME_APK_PROBE = 'ruby /contract/tests/verify_chatwoot_runtime_apk.rb /contract/config/chatwoot-runtime-apk.txt';
+// The Alpine EOL line (CW-1) is display only. The publisher prints it right after the source check with the same
+// fixed release as the SBOM distro and Trivy --distro; the quality gate reads the fixed runtime image's release.
+// Neither may stop a release (`|| true`).
+const ALPINE_RELEASE = '3.22.0';
+const ALPINE_EOL_STEP = '      - name: Alpine branchのEOLをStep Summaryへ出す(出荷は止めない)\n' +
+  `        run: python3 -I scripts/chatwoot-alpine-status.py eol --release ${ALPINE_RELEASE} || true\n`;
+const ALPINE_EOL_GATE = '  python3 "$CONTROL_ROOT/scripts/chatwoot-alpine-status.py" eol --release="$alpine_release" || true\n';
+const ALPINE_RELEASE_GATE = `"$CHATWOOT_RUNTIME_IMAGE" sh -c 'cat /etc/alpine-release' 2>/dev/null)" || \\\n    alpine_release=''\n`;
 const CONTRACT_RUN = 'node tests/chatwoot-managed-publisher.test.mjs .';
 const CONTRACT_STEP_NAME = Object.freeze({ private: '非公開publisher契約を検証', public: '公開publisher契約を検証' });
 const contractStep = mode => `      - name: ${CONTRACT_STEP_NAME[mode]}\n        run: ${CONTRACT_RUN}\n`;
@@ -82,6 +97,102 @@ const ACTIONS = Object.freeze({
   sbom: 'anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610',
   attest: 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6',
 });
+// Runner CLI check: the hosted runner's gh, aws and docker change with the weekly runner image update (Docker 29 and
+// the containerd image store were rolled out once in 2026-02 and rolled back). The publisher reads the buildx digest,
+// ECR's DescribeImages and imagetools manifest, the ECR scan, the pulled image's `docker image inspect` and the
+// attestations as the behavior of these majors and the classic overlay2 image store; with the containerd image store
+// the image ID is no longer the config digest. Right after checkout (before the source recheck, OIDC and the build)
+// one step stops with TOYBACO_RUNNER_CLI=UNEXPECTED on another image store, another gh or aws major (their output is parsed),
+// or a missing, failing or unparsable tool; another Docker major only warns (TOYBACO_RUNNER_CLI=WARN in the log and the
+// Step Summary), so a new Docker major that keeps overlay2 does not stop every release. Expected values: runner image
+// 20261012.334.1 (gh 2.102.0, AWS CLI 2.37.13, Docker 28.0.4). The step is the same in both repositories.
+const RUNNER_CLI_STEP = 'runner付属のgh・aws・dockerの版とimage storeをbuild前に確認';
+const RUNNER_CLI_RUN_LINES = Object.freeze([
+  "set -Eeuo pipefail",
+  "export LC_ALL=C",
+  "# hosted runner(ubuntu-24.04)の gh・aws・docker は、runner image の週次の更新で版が変わる。この publisher は、buildx の",
+  "# metadata の digest と ECR の DescribeImages・imagetools の manifest の照合、ECR の scan、pull した image の docker image",
+  "# inspect と proof、attestation の検証を、下の major と従来の image store(overlay2)の挙動として読む。Docker 29 の containerd",
+  "# image store では image ID の意味が変わる。image store が違う、gh か aws の major が違う、道具が無いか読めないときは、",
+  "# 何が想定外かを固定語(TOYBACO_RUNNER_CLI=UNEXPECTED)で出して build の前に止める。docker の major の違いだけは警告",
+  "# (TOYBACO_RUNNER_CLI=WARN)にとどめる。期待値は、新しい版の挙動を確かめてから契約テストと同じ変更で上げる。",
+  "expected_gh_major='2'",
+  "expected_aws_major='2'",
+  "expected_docker_major='28'",
+  "unexpected() {",
+  "  echo \"::error::TOYBACO_RUNNER_CLI=UNEXPECTED $1\"",
+  "  exit 1",
+  "}",
+  "# 版の文字列から major.minor.patch だけを取り出す。取り出せない出力はそのまま出さずに止める。",
+  "parsed_major=''",
+  "parsed_version=''",
+  "parse_version() {",
+  "  if [[ ! \"$2\" =~ $3 ]]; then",
+  "    unexpected \"${1}=unparsable\"",
+  "  fi",
+  "  parsed_major=\"${BASH_REMATCH[1]}\"",
+  "  parsed_version=\"${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}\"",
+  "}",
+  "# gh・aws は major が違うと出力の解析が壊れうるので止める。",
+  "require_major() {",
+  "  if [[ \"$parsed_major\" != \"$2\" ]]; then",
+  "    unexpected \"${1}_major=${parsed_major} expected_major=${2} version=${parsed_version}\"",
+  "  fi",
+  "}",
+  "# docker の major の違いは警告だけにする(image store は下で別に止める)。overlay2 のままの新しい major で hotfix まで止めないため。",
+  "warn_docker_major() {",
+  "  if [[ \"$parsed_major\" != \"$expected_docker_major\" ]]; then",
+  "    echo \"::warning::TOYBACO_RUNNER_CLI=WARN docker_major=${parsed_major} component=${1} expected_major=${expected_docker_major} version=${parsed_version}\"",
+  "    printf 'TOYBACO_RUNNER_CLI=WARN docker_major=%s component=%s expected_major=%s version=%s\\n' \\",
+  "      \"$parsed_major\" \"$1\" \"$expected_docker_major\" \"$parsed_version\" >> \"$GITHUB_STEP_SUMMARY\"",
+  "  fi",
+  "}",
+  "for tool in gh aws docker; do",
+  "  if ! command -v \"$tool\" >/dev/null 2>&1; then",
+  "    unexpected \"${tool}=missing\"",
+  "  fi",
+  "done",
+  "gh_output=\"$(gh --version)\" || unexpected 'gh=failed'",
+  "parse_version gh \"$gh_output\" '^gh version ([0-9]+)\\.([0-9]+)\\.([0-9]+)'",
+  "require_major gh \"$expected_gh_major\"",
+  "gh_version=\"$parsed_version\"",
+  "aws_output=\"$(aws --version)\" || unexpected 'aws=failed'",
+  "parse_version aws \"$aws_output\" '^aws-cli/([0-9]+)\\.([0-9]+)\\.([0-9]+)'",
+  "require_major aws \"$expected_aws_major\"",
+  "aws_version=\"$parsed_version\"",
+  "docker_client_output=\"$(docker version --format '{{.Client.Version}}')\" || unexpected 'docker_client=failed'",
+  "parse_version docker_client \"$docker_client_output\" '^([0-9]+)\\.([0-9]+)\\.([0-9]+)([-+][0-9A-Za-z.+-]*)?$'",
+  "warn_docker_major client",
+  "docker_client_version=\"$parsed_version\"",
+  "docker_server_output=\"$(docker version --format '{{.Server.Version}}')\" || unexpected 'docker_server=failed'",
+  "parse_version docker_server \"$docker_server_output\" '^([0-9]+)\\.([0-9]+)\\.([0-9]+)([-+][0-9A-Za-z.+-]*)?$'",
+  "warn_docker_major server",
+  "docker_server_version=\"$parsed_version\"",
+  "# image store は従来の graph driver の overlay2 だけを受ける。containerd image store は Driver が overlayfs などになり、",
+  "# DriverStatus に driver-type io.containerd.snapshotter.v1 が出る(image ID が config digest でなくなる)。",
+  "docker_driver=\"$(docker info --format '{{.Driver}}')\" || unexpected 'docker_info=failed'",
+  "docker_driver_status=\"$(docker info --format '{{json .DriverStatus}}')\" || unexpected 'docker_info=failed'",
+  "if [[ \"$docker_driver_status\" == *io.containerd.snapshotter* ]]; then",
+  "  unexpected 'docker_image_store=containerd-snapshotter'",
+  "fi",
+  "if [[ \"$docker_driver\" != 'overlay2' ]]; then",
+  "  if [[ ! \"$docker_driver\" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then",
+  "    docker_driver='unparsable'",
+  "  fi",
+  "  unexpected \"docker_storage_driver=${docker_driver} expected=overlay2\"",
+  "fi",
+  "runner_image=\"${ImageOS:-unknown}-${ImageVersion:-unknown}\"",
+  "if [[ ! \"$runner_image\" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then",
+  "  runner_image='unknown'",
+  "fi",
+  "printf 'TOYBACO_RUNNER_CLI=OK gh=%s aws=%s docker_client=%s docker_server=%s docker_storage_driver=%s runner_image=%s\\n' \\",
+  "  \"$gh_version\" \"$aws_version\" \"$docker_client_version\" \"$docker_server_version\" \"$docker_driver\" \"$runner_image\" \\",
+  "  | tee -a \"$GITHUB_STEP_SUMMARY\"",
+]);
+const RUNNER_CLI_STEP_TEXT = `      - name: ${RUNNER_CLI_STEP}\n        shell: bash\n        run: |\n` +
+  RUNNER_CLI_RUN_LINES.map(line => (line ? `          ${line}` : '')).join('\n') + '\n';
+const PUBLISH_CHECKOUT_STEP = 'owner review済みmain sourceを取得';
+const PUBLISH_SOURCE_STEP = 'main commit・固定Chatwoot source・exact overlayを再確認';
 
 function count(source, pattern) {
   return source.match(pattern)?.length || 0;
@@ -283,6 +394,33 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
       credentialRefreshIndex < digestReadbackIndex && digestReadbackIndex < scanIndex,
     'publisher must refresh the standard OIDC session before ECR digest readback and scan',
   );
+  // The runner CLI check runs once, exactly as reviewed, between the checkout (the job's first step) and the source
+  // recheck, so it precedes the OIDC session, the registry login and the build.
+  const runnerCliMarker = `      - name: ${RUNNER_CLI_STEP}\n`;
+  assert.equal(workflowSource.split(runnerCliMarker).length - 1, 1, 'the runner CLI check must run exactly once');
+  const publishSteps = publish.indexOf('    steps:\n      - name: ');
+  const runnerCliStart = publish.indexOf(runnerCliMarker);
+  const runnerCliEnd = publish.indexOf('\n      - name: ', runnerCliStart + runnerCliMarker.length);
+  assert.ok(publishSteps >= 0 && runnerCliStart > publishSteps && runnerCliEnd > runnerCliStart,
+    'the publish job must check the runner CLIs');
+  const checkoutStart = publishSteps + '    steps:\n'.length;
+  const checkout = publish.slice(checkoutStart, runnerCliStart);
+  assert.ok(checkout.startsWith(`      - name: ${PUBLISH_CHECKOUT_STEP}\n        uses: ${ACTIONS.checkout} `) &&
+    count(checkout, /^ {6}- /gm) === 1, 'the runner CLI check must directly follow the checkout, the first publisher step');
+  assert.equal(publish.slice(runnerCliStart, runnerCliEnd), RUNNER_CLI_STEP_TEXT,
+    'the runner CLI check must be exactly the reviewed step (no condition, env or tolerance)');
+  assert.ok(publish.startsWith(`\n      - name: ${PUBLISH_SOURCE_STEP}\n`, runnerCliEnd),
+    'the runner CLI check must run right before the source recheck');
+  assert.equal(publish.split(ALPINE_EOL_STEP).length - 1, 1, 'publisher must print the Alpine EOL line exactly once');
+  const alpineEolIndex = publish.indexOf(ALPINE_EOL_STEP);
+  assert.ok(publish.indexOf('main commit・固定Chatwoot source・exact overlayを再確認') < alpineEolIndex &&
+    alpineEolIndex < publish.indexOf('GitHub OIDCで本番publisher roleを取得'),
+    'the Alpine EOL line must follow the source check and precede the publisher credentials');
+  assert.equal(count(workflowSource, /chatwoot-alpine-status\.py"? eol /g), 1, 'one Alpine EOL line in the workflow');
+  assert.deepEqual([...publish.matchAll(/--distro alpine\/(\S+)/g)].map(match => match[1]), [ALPINE_RELEASE],
+    'the Alpine EOL release must be the raw scan distro');
+  assert.deepEqual([...publish.matchAll(/distro=alpine-([0-9.]+)/g)].map(match => match[1]), [ALPINE_RELEASE],
+    'the Alpine EOL release must be the SBOM distro');
 
   for (const forbidden of [
     'uses: actions/upload-artifact',
@@ -326,6 +464,14 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     'CHATWOOT_SOURCE_COMMIT: 9f920b549c14491a4e587687a3eed5d21c6ccc7d',
     'CHATWOOT_SOURCE_TREE: 16432eeeef9153f7aff66be382e04a20e6f5683a',
     'CHATWOOT_BASE_IMAGE: chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de',
+    `CHATWOOT_RUNTIME_IMAGE: ${RUNTIME_IMAGE}`,
+    `[[ "$CHATWOOT_RUNTIME_IMAGE" == '${RUNTIME_IMAGE}' ]]`,
+    'grep -Fqx "ARG RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE" Dockerfile',
+    '--build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"',
+    '--arg base "$CHATWOOT_RUNTIME_IMAGE"',
+    '--arg upstream "$CHATWOOT_BASE_IMAGE"',
+    '.config.Labels["org.opencontainers.image.base.name"] == $base and',
+    '.config.Labels["jp.toybaco.upstream.image"] == $upstream and',
     'ruby tests/verify_chatwoot_overlay_manifest.rb verify . tests/chatwoot-overlay-manifest.tsv',
     './bin/toybaco-chatwoot-gate --control-sha-only',
     "REQUEST_REF: ${{ github.ref }}",
@@ -355,11 +501,11 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   for (const required of [
     'TRIVY_IMAGE: docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682',
     '--pkg-types os,library', '--severity CRITICAL,HIGH', '--ignore-unfixed=false',
-    '--distro alpine/3.21.3', '--exit-code 1 --list-all-pkgs', '--config /dev/null sbom',
+    `--distro alpine/${ALPINE_RELEASE}`, '--exit-code 1 --list-all-pkgs', '--config /dev/null sbom',
     '--network none --workdir /scan', '"$TRIVY_IMAGE"', 'toybaco-chatwoot.spdx.json',
     '.checksumValue == $digest', '.relationshipType == "DESCRIBES"',
     'image: registry:${{ steps.build.outputs.image_uri }}',
-    '.versionInfo == ("sha256:" + $digest)', 'distro=alpine-3.21.3',
+    '.versionInfo == ("sha256:" + $digest)', `distro=alpine-${ALPINE_RELEASE}`,
     '--config /dev/null image --download-db-only --no-progress',
     '--skip-db-update --skip-java-db-update --offline-scan',
     'src=$security/db,dst=/root/.cache/trivy/db"',
@@ -445,9 +591,13 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.doesNotMatch(publish, /--signer-workflow|--signer-repo/);
 
   const controlFiles = functionBlock(gateSource, 'control_file_list', 'control_manifest');
-  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs']) {
+  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs', 'scripts/chatwoot-alpine-status.py']) {
     assert.ok(controlFiles.includes(`'${required}'`), `runtime input missing from quality/export control: ${required}`);
   }
+  const baseContract = functionBlock(gateSource, 'verify_base_and_frame_contract', 'build_test_image');
+  assert.equal(baseContract.split(ALPINE_RELEASE_GATE + ALPINE_EOL_GATE).length - 1, 1,
+    'the quality gate must print the Alpine EOL line once from the fixed base image without failing');
+  assert.equal(count(gateSource, /chatwoot-alpine-status\.py"? eol /g), 1, 'one Alpine EOL line in the gate');
   for (const forbidden of [
     '.github/workflows/chatwoot-integration.yml',
     '.github/workflows/deploy-managed.yml',
@@ -478,14 +628,17 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     'tests/chatwoot-http-smoke.rb',
     'bundle exec sidekiq -C config/sidekiq.yml',
     'DOCKER_BUILDKIT=1 docker build --no-cache --pull --platform linux/amd64',
-    'grep -Fq "libexpat=2.9.0-r0" "$CONTROL_ROOT/Dockerfile"',
-    'test ! -e /usr/lib/libexpat.so.1.12.3',
-    'test ! -e /usr/lib/libexpat.so.1.12.4',
-    'Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}',
-    "grep -Fq \"'tiff=4.7.2-r0'\" \"$CONTROL_ROOT/Dockerfile\"",
-    'tiff-4.7.2-r0',
-    'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
-    'Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}',
+    `readonly CHATWOOT_RUNTIME_IMAGE='${RUNTIME_IMAGE}'`,
+    '"ARG RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"',
+    '--build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"',
+    '[[ "$actual_base_label" == "$CHATWOOT_RUNTIME_IMAGE" ]]',
+    'production imageの上流image labelが不一致です',
+    'production imageに上流imageのENVがありません',
+    '"$CHATWOOT_RUNTIME_IMAGE" \\\n    | sed \'/^$/d\' > "$RUN_ROOT/base-layers"',
+    '--build-arg "CHATWOOT_IMAGE=$PRODUCTION_IMAGE"',
+    RUNTIME_APK_PROBE,
+    'ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt"',
+    'ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb"',
     '"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n',
     'assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'',
     'test ! -e /app/spec',
@@ -494,9 +647,6 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     'test ! -e /usr/local/lib/node_modules/npm',
     'test ! -e /usr/local/bin/npm',
     'test ! -e /usr/local/bin/npx',
-    'openjpeg-2.5.4-r1',
-    'test ! -e /usr/lib/libopenjp2.so.2.5.2',
-    'Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}',
     'ruby /contract/tests/verify_chatwoot_runtime_gems.rb /contract/config/chatwoot-runtime-gems.json',
     'Rails.version == %q{7.2.3.2}',
     'Gem.loaded_specs.fetch(%q{ruby-vips}).version.to_s == %q{2.2.1}',
@@ -511,7 +661,14 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.ok(gateSource.includes('"$TEST_IMAGE" /app/bin/toybaco-chatwoot-schema-preflight'));
   assert.ok(gateSource.includes('--env TOYBACO_CHATWOOT_SCHEMA_REQUIRE_TARGET=true'));
   assert.match(gateSource, /^  run_ruby_quality$/m);
-  assert.match(gateSource, /^  build_and_smoke_production_image$/m);
+  // The production image is built before the test image, which is made from it, and smoked after the Ruby quality.
+  assert.match(gateSource, /^  build_production_image\n  build_test_image\n  start_services$/m);
+  assert.match(gateSource, /^  run_ruby_quality\n  smoke_production_image\n  assert_final_boundaries$/m);
+  for (const required of ['config/chatwoot-runtime-apk.txt', 'tests/verify_chatwoot_runtime_apk.rb',
+    'tests/chatwoot_runtime_apk_test.rb', 'docs/chatwoot-runtime-os-policy.md']) {
+    assert.ok(controlFiles.includes(`'${required}'`), `runtime package input missing from quality/export control: ${required}`);
+  }
+  assert.ok(workflowSource.includes("      - 'config/chatwoot-runtime-apk.txt'"), 'runtime package list push path missing');
   assert.ok(
     gateSource.includes("fail '--artifact-dir release bundleはowner再baselineでpark済みです'"),
     'legacy artifact mode must fail closed',
@@ -700,16 +857,22 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
     'COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/',
   ];
   for (const text of copies) {
-    assert.ok(dockerfile.includes(text), 'production backport input missing: ' + text);
+    assert.equal(dockerfile.split(text).length - 1, 2, 'build-only and shipped backport inputs: ' + text);
     assert.ok(testDockerfile.includes(text), 'test backport input missing: ' + text);
   }
   const apply = 'bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply';
   const verify = 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb';
-  assert.equal(dockerfile.split(apply).length - 1, 1, 'one production gem patch application');
+  // The build-only bundle (upstream base, for the asset build) and the shipped Alpine 3.22 gems are both patched.
+  assert.equal(dockerfile.split(apply).length - 1, 2, 'build-only and shipped gem patch applications');
   assert.equal(testDockerfile.split(apply).length - 1, 1, 'one test gem patch application');
-  assert.equal(dockerfile.split(verify).length - 1, 2, 'bundled and final production proof');
+  assert.equal(dockerfile.split(verify).length - 1, 3, 'build-only, shipped and final production proofs');
   assert.equal(testDockerfile.split(verify).length - 1, 1, 'test gem proof');
   assert.ok(dockerfile.indexOf('bundle clean --force') < dockerfile.indexOf(apply));
+  const shippedGems = dockerfile.indexOf('\nFROM runtime-base AS gems\n');
+  assert.ok(shippedGems >= 0 && shippedGems < dockerfile.lastIndexOf('bundle clean --force') &&
+    dockerfile.lastIndexOf('bundle clean --force') < dockerfile.lastIndexOf(apply) &&
+    dockerfile.lastIndexOf(apply) < dockerfile.indexOf('\nFROM runtime-base AS runtime-app\n'),
+  'the shipped gems are cleaned and patched in the Alpine 3.22 gems stage');
   assert.ok(dockerfile.lastIndexOf(verify) > dockerfile.indexOf('/app/TOYBACO_PUBLIC_REVISION'));
   for (const path of ['config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb',
     'tests/verify_chatwoot_ruby_llm_backport.rb']) {
@@ -725,112 +888,11 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
 }
 const buildInputs = ['Dockerfile', 'tests/chatwoot-test.Dockerfile', '.dockerignore'].map(path =>
   readFileSync(join(root, path), 'utf8'));
-function validateFinalCurlPcre(dockerfile, gateSource) {
-  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
-  assert.ok(final.includes("apk add --no-cache 'curl=8.14.1-r3'"), 'CA-preserving package install missing');
-  assert.ok(final.includes("ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\""), 'CA-preserving package install missing');
-  assert.ok(final.includes("test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\""), 'CA-preserving package install missing');
-  assert.ok(gateSource.includes("= \"ca-certificates-bundle-20241121-r1\""), 'runtime CA bundle changed');
-  for (const [name, version] of [['curl', '8.14.1-r3'], ['libcurl', '8.14.1-r3'], ['pcre2', '10.43-r1']]) {
-    assert.ok(final.includes(`'${name}=${version}'`), `final security upgrade missing: ${name}`);
-    assert.ok(final.includes(`= '${name}-${version}'`), `final package verification missing: ${name}`);
-    assert.match(gateSource, new RegExp(`\\b${name}=${version.replaceAll('.', '\\.')}\\b`),
-      `gate security pin missing: ${name}`);
-    assert.ok(gateSource.includes(`= "${name}-${version}"`), `runtime package verification missing: ${name}`);
-  }
-  for (const required of [
-    'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
-    'call.to_s.start_with?(%q{libcurl/8.14.1 })',
-    'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
-    'config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })',
-  ]) {
-    assert.ok(final.includes(required), `final library verification missing: ${required}`);
-    assert.ok(gateSource.includes(required), `runtime library verification missing: ${required}`);
-  }
-}
-validateFinalCurlPcre(buildInputs[0], gate);
-let curlPcreNegatives = 0;
-for (const text of [
-  "apk add --no-cache 'curl=8.14.1-r3'",
-  "ca_bundle_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\"",
-  "test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_bundle_before\"",
-  "'curl=8.14.1-r3'", "'libcurl=8.14.1-r3'", "'pcre2=10.43-r1'",
-  "= 'curl-8.14.1-r3'", "= 'libcurl-8.14.1-r3'", "= 'pcre2-10.43-r1'",
-  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
-  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
-]) {
-  assert.throws(() => validateFinalCurlPcre(buildInputs[0].replace(text, 'omitted'), gate));
-  curlPcreNegatives++;
-}
-for (const text of [
-  "= \"ca-certificates-bundle-20241121-r1\"",
-  'curl=8.14.1-r3', 'libcurl=8.14.1-r3', 'pcre2=10.43-r1',
-  '= "curl-8.14.1-r3"', '= "libcurl-8.14.1-r3"', '= "pcre2-10.43-r1"',
-  'Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}]',
-  'Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}]',
-]) {
-  assert.throws(() => validateFinalCurlPcre(buildInputs[0], gate.replace(text, 'omitted')),
-    `omitted gate proof must fail: ${text}`);
-  curlPcreNegatives++;
-}
-console.log(`Chatwoot final curl/pcre2 security contract: PASS (${curlPcreNegatives} omission controls)`);
-// Alpine 3.21 musl 1.2.5-r12 (CVE-2026-107891), c-ares 1.34.9-r0 and brotli-libs 1.1.1-r0 (CVE-2026-111497).
-// runtime-hardening hands its apk DB to the final stage without /lib/ld-musl-x86_64.so.1 (or libcares, libbrotli*),
-// so none may move there: a DB claiming the new build over the old loader would also make the final stage's request a
-// no-op. The final stage upgrades them, and the build and the runtime probe check the installed files against the apk
-// records, because musl's version cannot tell r11 from r12. The same check binds openjpeg, which runtime-hardening
-// installs and copies: its version string is 2.5.4 for r0 and r1 alike.
+// The parked SBOM verifiers (release inputs, not run by the quality gate) still prove the Alpine 3.21 builds of
+// musl, c-ares and brotli-libs that #579 and #582 shipped. Before they are un-parked for the Alpine 3.22 runtime,
+// these versions are to be reviewed against config/chatwoot-runtime-apk.txt.
 const MUSL_CARES = [['musl', '1.2.5-r12'], ['musl-utils', '1.2.5-r12'], ['musl-dev', '1.2.5-r12'], ['c-ares', '1.34.9-r0'],
   ['brotli-libs', '1.1.1-r0']];
-const MUSL_CARES_INSTALL = "apk add --no-cache 'musl=1.2.5-r12' 'musl-utils=1.2.5-r12' 'musl-dev=1.2.5-r12' 'c-ares=1.34.9-r0' 'brotli-libs=1.1.1-r0'";
-const MUSL_FAMILY = "apk info -v | grep -E '^musl-(dev-|utils-)?[0-9]'";
-const OTHER_PACKAGES = "apk info -v | grep -v -E '^(musl|musl-utils|musl-dev|c-ares|brotli-libs)-[0-9]' | sort";
-const APK_RECORD_PROOF = 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0}, %q{brotli-libs} => %q{1.1.1-r0}, %q{openjpeg} => %q{2.5.4-r1} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8 usr/lib/libbrotlicommon.so.1 usr/lib/libbrotlicommon.so.1.1.1 usr/lib/libbrotlidec.so.1 usr/lib/libbrotlidec.so.1.1.1 usr/lib/libbrotlienc.so.1 usr/lib/libbrotlienc.so.1.1.1 usr/lib/libopenjp2.so.7 usr/lib/libopenjp2.so.2.5.4] - verified).empty?';
-const CARES_LOAD_PROOF = 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}';
-// BrotliDecoderVersion returns (major << 24) | (minor << 12) | patch.
-const BROTLI_LOAD_PROOF = 'abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}], [], Fiddle::TYPE_INT).call == 0x1001001';
-const OLD_BROTLI_FILES = ['libbrotlicommon', 'libbrotlidec', 'libbrotlienc'].map(name => `test ! -e /usr/lib/${name}.so.1.1.0`);
-// The record check must keep binding these packages and files.
-const RECORD_PROOF_TARGETS = [...MUSL_CARES, ['openjpeg', '2.5.4-r1']].map(([name, version]) => `%q{${name}} => %q{${version}}`);
-const RECORD_PROOF_FILES = ['lib/ld-musl-x86_64.so.1', 'lib/libc.musl-x86_64.so.1', 'usr/lib/libcares.so.2',
-  'usr/lib/libcares.so.2.19.8', ...['libbrotlicommon', 'libbrotlidec', 'libbrotlienc'].flatMap(name =>
-    [`usr/lib/${name}.so.1`, `usr/lib/${name}.so.1.1.1`]), 'usr/lib/libopenjp2.so.7', 'usr/lib/libopenjp2.so.2.5.4'];
-for (const required of RECORD_PROOF_TARGETS) assert.ok(APK_RECORD_PROOF.includes(required), `record proof target: ${required}`);
-assert.ok(APK_RECORD_PROOF.includes(`(%w[${RECORD_PROOF_FILES.join(' ')}] - verified).empty?`), 'record proof files');
-const HARDENING_MUSL_GUARD = [
-  `RUN musl_before="$(${MUSL_FAMILY})" \\\n    && apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0' \\\n`,
-  `test "$(${MUSL_FAMILY})" = "$musl_before"`,
-];
-const MUSL_CARES_DOCKER_PROOFS = [
-  "ca_trust_before=\"$(apk info -v | grep '^ca-certificates-bundle-')\"",
-  "test \"$(apk info -v | grep '^ca-certificates-bundle-')\" = \"$ca_trust_before\"",
-  `others_before="$(${OTHER_PACKAGES})"`,
-  `test "$(${OTHER_PACKAGES})" = "$others_before"`,
-  ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep '^${name}-[0-9]')" = '${name}-${version}'`),
-  "test \"$(readlink /lib/libc.musl-x86_64.so.1)\" = 'ld-musl-x86_64.so.1'",
-  'test ! -e /usr/lib/libcares.so.2.19.7',
-  ...OLD_BROTLI_FILES,
-  `ruby -rdigest -e '${APK_RECORD_PROOF}'`,
-  "curl --version | head -n 1 | grep -F ' c-ares/1.34.9 '",
-  "curl --version | head -n 1 | grep -F ' brotli/1.1.1 '",
-  `ruby -rfiddle -e '${CARES_LOAD_PROOF}'`,
-  `ruby -rfiddle -e '${BROTLI_LOAD_PROOF}'`,
-];
-const MUSL_CARES_GATE_PROOFS = [
-  "grep -Fq '= \"$musl_before\"' \"$CONTROL_ROOT/Dockerfile\"",
-  `grep -Fq '${APK_RECORD_PROOF}' \\\n    "$CONTROL_ROOT/Dockerfile"`,
-  "grep -Fq 'Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}]' \"$CONTROL_ROOT/Dockerfile\"",
-  "grep -Fq 'Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}]' \"$CONTROL_ROOT/Dockerfile\"",
-  ...MUSL_CARES.map(([name, version]) => `test "$(apk info -v | grep "^${name}-[0-9]")" = "${name}-${version}"`),
-  'test "$(readlink /lib/libc.musl-x86_64.so.1)" = "ld-musl-x86_64.so.1"',
-  'test ! -e /usr/lib/libcares.so.2.19.7',
-  ...OLD_BROTLI_FILES,
-  `ruby -rdigest -e "${APK_RECORD_PROOF}"`,
-  'curl --version | head -n 1 | grep -F " c-ares/1.34.9 "',
-  'curl --version | head -n 1 | grep -F " brotli/1.1.1 "',
-  `ruby -rfiddle -e "${CARES_LOAD_PROOF}"`,
-  `ruby -rfiddle -e "${BROTLI_LOAD_PROOF}"`,
-];
 const SBOM_PROOFS = [
   "{ 'musl' => '1.2.5-r12', 'musl-utils' => '1.2.5-r12', 'musl-dev' => '1.2.5-r12', 'c-ares' => '1.34.9-r0',\n" +
     "  'brotli-libs' => '1.1.1-r0' }.each do |name, version|",
@@ -843,33 +905,7 @@ const sbomVerifiers = process.env.GITHUB_REPOSITORY === REPOSITORIES.private.nam
   ? ['tests/verify_chatwoot_oci_archive.rb', 'tests/verify_chatwoot_release_artifact.rb'].map(path =>
     readFileSync(join(root, path), 'utf8'))
   : [];
-function validateFinalMuslCares(dockerfile, gateSource, verifiers) {
-  const hardeningStart = dockerfile.indexOf('\nFROM localized-assets AS runtime-hardening\n');
-  const finalStart = dockerfile.lastIndexOf('\nFROM bundled-gems\n');
-  assert.ok(hardeningStart >= 0 && finalStart > hardeningStart, 'runtime-hardening stage missing');
-  const hardening = dockerfile.slice(hardeningStart, finalStart);
-  for (const required of HARDENING_MUSL_GUARD) {
-    assert.ok(hardening.includes(required), `runtime-hardening musl guard missing: ${required}`);
-  }
-  assert.doesNotMatch(hardening, /'(musl|musl-utils|musl-dev|c-ares|brotli-libs)=|apk add --no-cache --upgrade/,
-    'runtime-hardening must not move musl, c-ares or brotli-libs');
-  const final = dockerfile.slice(finalStart);
-  const install = final.indexOf(MUSL_CARES_INSTALL);
-  const curlPcre = final.indexOf("apk add --no-cache 'curl=8.14.1-r3'");
-  assert.ok(install >= 0 && curlPcre >= 0 && final.lastIndexOf('\nRUN ', install) > curlPcre,
-    'musl/c-ares/brotli upgrade must be its own final-stage RUN after curl/pcre2');
-  const end = final.indexOf('\nRUN ', install);
-  const run = final.slice(final.lastIndexOf('\nRUN ', install), end < 0 ? undefined : end);
-  for (const required of MUSL_CARES_DOCKER_PROOFS) {
-    assert.ok(run.includes(required), `final musl/c-ares proof missing: ${required}`);
-  }
-  for (const [name, version] of MUSL_CARES) {
-    assert.match(gateSource, new RegExp(`\\b${name}=${version.replaceAll('.', '\\.')}\\b`),
-      `gate musl/c-ares pin missing: ${name}`);
-  }
-  for (const required of MUSL_CARES_GATE_PROOFS) {
-    assert.ok(gateSource.includes(required), `gate musl/c-ares proof missing: ${required}`);
-  }
+function validateParkedSbomVerifiers(dockerfile, gateSource, verifiers) {
   for (const verifier of verifiers) {
     for (const required of SBOM_PROOFS) {
       assert.ok(verifier.includes(required), `SBOM musl/c-ares proof missing: ${required}`);
@@ -879,141 +915,25 @@ function validateFinalMuslCares(dockerfile, gateSource, verifiers) {
     assert.ok(!source.includes('1.2.5-r11'), 'superseded musl 1.2.5-r11 remains');
   }
 }
-validateFinalMuslCares(buildInputs[0], gate, sbomVerifiers);
-let muslCaresNegatives = 0;
-for (const text of [
-  ...HARDENING_MUSL_GUARD, MUSL_CARES_INSTALL,
-  ...MUSL_CARES.map(([name, version]) => `'${name}=${version}'`),
-  ...MUSL_CARES_DOCKER_PROOFS,
-]) {
-  assert.throws(() => validateFinalMuslCares(swapOnce(buildInputs[0], text, 'omitted', text), gate, sbomVerifiers),
-    `omitted Dockerfile musl/c-ares proof must fail: ${text}`);
-  muslCaresNegatives++;
-}
-// Re-creating the trap: musl, musl-utils, c-ares or brotli-libs moved in runtime-hardening, or its request upgrading
-// dependencies; and openjpeg or a pinned file dropped from the record check.
-for (const [from, to] of [
-  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl-utils=1.2.5-r12' 'zlib=1.3.2-r1'"],
-  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'musl=1.2.5-r12' 'zlib=1.3.2-r1'"],
-  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'c-ares=1.34.9-r0' 'zlib=1.3.2-r1'"],
-  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache 'brotli-libs=1.1.1-r0' 'zlib=1.3.2-r1'"],
-  ["&& apk add --no-cache 'zlib=1.3.2-r1'", "&& apk add --no-cache --upgrade 'zlib=1.3.2-r1'"],
-  [", %q{openjpeg} => %q{2.5.4-r1}", ''],
-  [' usr/lib/libopenjp2.so.7', ''],
-  [' usr/lib/libbrotlidec.so.1.1.1', ''],
-]) {
-  assert.throws(() => validateFinalMuslCares(swapOnce(buildInputs[0], from, to, from), gate, sbomVerifiers),
-    `runtime-hardening musl trap must fail: ${to}`);
-  muslCaresNegatives++;
-}
-for (const text of [
-  ...MUSL_CARES.map(([name, version]) => `${name}=${version}`),
-  ...MUSL_CARES_GATE_PROOFS,
-]) {
-  assert.throws(() => validateFinalMuslCares(buildInputs[0], swapOnce(gate, text, 'omitted', text), sbomVerifiers),
-    `omitted gate musl/c-ares proof must fail: ${text}`);
-  muslCaresNegatives++;
-}
+validateParkedSbomVerifiers(buildInputs[0], gate, sbomVerifiers);
+let sbomVerifierNegatives = 0;
 for (const [index, verifier] of sbomVerifiers.entries()) {
   for (const text of [...MUSL_CARES.map(([name, version]) => `'${name}' => '${version}'`), SBOM_PROOFS[1]]) {
     const mutated = [...sbomVerifiers];
     mutated[index] = swapOnce(verifier, text, 'omitted', text);
-    assert.throws(() => validateFinalMuslCares(buildInputs[0], gate, mutated),
+    assert.throws(() => validateParkedSbomVerifiers(buildInputs[0], gate, mutated),
       `omitted SBOM musl/c-ares proof must fail: ${text}`);
-    muslCaresNegatives++;
+    sbomVerifierNegatives++;
   }
 }
-// The record check without openjpeg in either copy of the gate (control contract and runtime probe).
-for (const at of ['first', 'last']) {
-  const target = ', %q{openjpeg} => %q{2.5.4-r1}';
-  const index = at === 'first' ? gate.indexOf(target) : gate.lastIndexOf(target);
-  assert.ok(index >= 0 && gate.indexOf(target) !== gate.lastIndexOf(target));
-  assert.throws(() => validateFinalMuslCares(buildInputs[0], gate.slice(0, index) + gate.slice(index + target.length),
-    sbomVerifiers), `gate record check without openjpeg must fail (${at})`);
-  muslCaresNegatives++;
-}
-console.log(`Chatwoot final musl/c-ares/brotli security contract: PASS (${muslCaresNegatives} omission controls)`);
-// Alpine v3.21 openjpeg 2.5.4-r1 (CVE-2026-6192, OSV-2025-219) from the regular repository, in runtime-hardening and
-// copied to the final stage under the same file names. The earlier v3.22 2.5.4-r0 APK fetch failed with 404 once r1
-// replaced it. No other release's APK, and no --upgrade (it would move dependencies such as musl); the musl guard
-// must follow the request.
-const OPENJPEG_INSTALL = "    && apk add --no-cache 'openjpeg=2.5.4-r1' \\\n";
-const OPENJPEG_VERSION = "test \"$(apk info -v | grep '^openjpeg-')\" = 'openjpeg-2.5.4-r1'";
-const OPENJPEG_COPY = 'cp -a /usr/lib/libopenjp2.so.7 /usr/lib/libopenjp2.so.2.5.4 /toybaco-runtime-root/usr/lib/';
-const OPENJPEG_FINAL_PROOFS = [
-  OPENJPEG_VERSION,
-  "test \"$(readlink /usr/lib/libopenjp2.so.7)\" = 'libopenjp2.so.2.5.4'",
-  'test ! -e /usr/lib/libopenjp2.so.2.5.2',
-];
-const OPENJPEG_GATE_PROOFS = [
-  "grep -Fq \"'openjpeg=2.5.4-r1'\" \"$CONTROL_ROOT/Dockerfile\"",
-  "if grep -Fq 'alpine/v3.22/' \"$CONTROL_ROOT/Dockerfile\"; then",
-  'test "$(apk info -v | grep "^openjpeg-")" = "openjpeg-2.5.4-r1"',
-];
-function validateOpenjpeg(dockerfile, gateSource) {
-  const hardeningStart = dockerfile.indexOf('\nFROM localized-assets AS runtime-hardening\n');
-  const finalStart = dockerfile.lastIndexOf('\nFROM bundled-gems\n');
-  assert.ok(hardeningStart >= 0 && finalStart > hardeningStart, 'runtime-hardening stage missing');
-  const hardening = dockerfile.slice(hardeningStart, finalStart);
-  const final = dockerfile.slice(finalStart);
-  for (const required of [OPENJPEG_INSTALL, OPENJPEG_VERSION, OPENJPEG_COPY]) {
-    assert.ok(hardening.includes(required), `runtime-hardening OpenJPEG contract missing: ${required}`);
-  }
-  assert.ok(hardening.indexOf(`test "$(${MUSL_FAMILY})" = "$musl_before"`) > hardening.indexOf(OPENJPEG_INSTALL),
-    'the musl guard must cover the OpenJPEG request');
-  assert.doesNotMatch(hardening, /apk add[^\n]*--upgrade/, 'runtime-hardening must not upgrade dependencies');
-  assert.doesNotMatch(dockerfile, /alpine\/v3\.22\/|openjpeg-2\.5\.4-r0|apk add --no-network|toybaco-openjpeg\.apk/,
-    'superseded v3.22 OpenJPEG APK fetch remains');
-  for (const required of OPENJPEG_FINAL_PROOFS) {
-    assert.ok(final.includes(required), `final OpenJPEG proof missing: ${required}`);
-  }
-  for (const required of OPENJPEG_GATE_PROOFS) {
-    assert.ok(gateSource.includes(required), `gate OpenJPEG proof missing: ${required}`);
-  }
-  assert.ok(!gateSource.includes('openjpeg-2.5.4-r0'), 'gate still expects the superseded OpenJPEG build');
-}
-validateOpenjpeg(buildInputs[0], gate);
-// Replace the occurrence inside one stage: the version test appears in both runtime-hardening and the final stage.
-function swapInStage(dockerfile, text, to, stage) {
-  const finalStart = dockerfile.lastIndexOf('\nFROM bundled-gems\n');
-  const at = stage === 'final' ? dockerfile.indexOf(text, finalStart) : dockerfile.indexOf(text);
-  assert.ok(at >= 0 && (stage === 'final' ? at > finalStart : at < finalStart), `${stage} occurrence missing: ${text}`);
-  return dockerfile.slice(0, at) + to + dockerfile.slice(at + text.length);
-}
-let openjpegNegatives = 0;
-const openjpegMutants = [
-  ...[OPENJPEG_INSTALL, OPENJPEG_VERSION, OPENJPEG_COPY].map(text => swapInStage(buildInputs[0], text, '', 'hardening')),
-  ...OPENJPEG_FINAL_PROOFS.map(text => swapInStage(buildInputs[0], text, 'true', 'final')),
-  // The superseded fetch, a local APK install, --upgrade, and the request moved past the musl guard.
-  swapInStage(buildInputs[0], OPENJPEG_INSTALL, '    && ruby -ropen-uri -e \'URI.open("https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r1.apk")\' \\\n' + OPENJPEG_INSTALL, 'hardening'),
-  swapInStage(buildInputs[0], OPENJPEG_INSTALL, OPENJPEG_INSTALL + '    && apk add --no-network /tmp/toybaco-openjpeg.apk \\\n', 'hardening'),
-  swapInStage(buildInputs[0], OPENJPEG_INSTALL, "    && apk add --no-cache --upgrade 'openjpeg=2.5.4-r1' \\\n", 'hardening'),
-  swapInStage(buildInputs[0], OPENJPEG_VERSION, "test \"$(apk info -v | grep '^openjpeg-')\" = 'openjpeg-2.5.4-r0'", 'final'),
-  swapInStage(swapInStage(buildInputs[0], OPENJPEG_INSTALL, '', 'hardening'),
-    `    && test "$(${MUSL_FAMILY})" = "$musl_before" \\\n`,
-    `    && test "$(${MUSL_FAMILY})" = "$musl_before" \\\n${OPENJPEG_INSTALL}`, 'hardening'),
-];
-for (const mutated of openjpegMutants) {
-  assert.notEqual(mutated, buildInputs[0]);
-  assert.throws(() => validateOpenjpeg(mutated, gate), 'OpenJPEG Dockerfile mutant must fail');
-  openjpegNegatives++;
-}
-for (const [from, to] of [
-  ...OPENJPEG_GATE_PROOFS.map(text => [text, ': # omitted']),
-  ['= "openjpeg-2.5.4-r1"', '= "openjpeg-2.5.4-r0"'],
-]) {
-  assert.throws(() => validateOpenjpeg(buildInputs[0], swapOnce(gate, from, to, from)),
-    `OpenJPEG gate mutant must fail: ${from}`);
-  openjpegNegatives++;
-}
-console.log(`Chatwoot OpenJPEG v3.21 contract: PASS (${openjpegNegatives} omission/regression controls)`);
+console.log(`Chatwoot parked SBOM verifiers: PASS (${sbomVerifierNegatives} omission controls)`);
 // The Dockerfile is bound byte for byte: the sha256 of its exact bytes (newlines, blanks and continuations included)
 // is pinned below, and ONBUILD anywhere or a parser directive fails by name. Imitating Docker's parser and normalizing
 // RUN text left gaps (#582: a LABEL ending in `\\` hiding the next RUN, a COPY heredoc read through ARG RUBYOPT, a
 // COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline), so the pin is what binds. The Dockerfile is
 // a control file: the private CW gate, the PZ gate's control snapshot and the public repository read the same bytes.
 // Changing the Dockerfile means reviewing the whole diff and then updating DOCKERFILE_SHA256.
-const DOCKERFILE_SHA256 = '49ec95ce8706223c0b7b5a67fdf722cef7d0a27dadf938fa867e00362f4c7f95';
+const DOCKERFILE_SHA256 = '78ef176c23a96e16b7aa9f399e095645e69d3a8345063aad863eadc0bf535066';
 const dockerfileBytes = readFileSync(join(root, 'Dockerfile'));
 assert.ok(Buffer.from(buildInputs[0], 'utf8').equals(dockerfileBytes), 'Dockerfile must be UTF-8 text');
 function validateDockerfileBytes(bytes) {
@@ -1033,7 +953,8 @@ validateDockerfileBytes(dockerfileBytes);
 // the RUN forms of runtime-hardening and the final stage, read roughly the way Docker reads them (keywords in any case
 // after optional indentation, `\` continuations joined, comment lines dropped, lines that do not parse failing).
 const DOCKERFILE_FROMS = ['${CHATWOOT_IMAGE} AS overlay-normalizer', '${CHATWOOT_IMAGE} AS bundled-gems',
-  'bundled-gems AS localized-assets', 'localized-assets AS runtime-hardening', 'bundled-gems'];
+  'bundled-gems AS localized-assets', 'localized-assets AS runtime-hardening', '${CHATWOOT_IMAGE} AS upstream',
+  '${RUBY_RUNTIME_IMAGE} AS runtime-base', 'runtime-base AS gems', 'runtime-base AS runtime-app', 'runtime-app'];
 const STAGE_INSTRUCTIONS = { hardening: ['RUN'], final: ['RUN', 'COPY', 'ARG', 'LABEL'] };
 const STAGE_COPY_SOURCES = ['runtime-hardening', 'overlay-normalizer'];
 function dockerInstructions(dockerfile) {
@@ -1077,7 +998,7 @@ function dockerStages(dockerfile) {
   assert.deepEqual(froms.map(from => from.text), DOCKERFILE_FROMS, 'Dockerfile stages differ from the reviewed list');
   return {
     hardening: instructions.slice(froms[3].index + 1, froms[4].index),
-    final: instructions.slice(froms[4].index + 1),
+    final: instructions.slice(froms[froms.length - 1].index + 1),
   };
 }
 function validateStageClosure(dockerfile) {
@@ -1102,17 +1023,9 @@ function validateStageClosure(dockerfile) {
   }
 }
 validateStageClosure(buildInputs[0]);
-const APK_ALLOWED = {
-  hardening: [
-    "apk add --no-cache 'zlib=1.3.2-r1' 'libexpat=2.9.0-r0'",
-    "apk add --no-cache 'openjpeg=2.5.4-r1'",
-  ],
-  final: [
-    "apk add --no-cache --upgrade 'openssl=3.3.7-r2' 'libcrypto3=3.3.7-r2' 'libssl3=3.3.7-r2' 'tiff=4.7.2-r0'",
-    "apk add --no-cache 'curl=8.14.1-r3' 'libcurl=8.14.1-r3' 'pcre2=10.43-r1'",
-    MUSL_CARES_INSTALL,
-  ],
-};
+// On the Alpine 3.22 runtime neither stage requests a package: runtime-base installs the reviewed list
+// (config/chatwoot-runtime-apk.txt), and the final stage only verifies it.
+const APK_ALLOWED = { hardening: [], final: [] };
 const COMMAND_START = String.raw`(?<=(?:^|\bRUN|&&|\|\||;|\$\(|\||!|\bthen|\bdo)[ \t]*)`;
 const COMMAND_END = String.raw`(?=[ \t]*(?:\\\n|&&|\|\||;|\)|\||$))`;
 function commandPattern(command) {
@@ -1129,7 +1042,7 @@ function validateApkAndFetch(dockerfile) {
       assert.equal((rest.match(commandPattern(command)) || []).length, 1, `${stage}: allowed apk request once: ${command}`);
       rest = rest.replace(commandPattern(command), 'ALLOWED_APK_REQUEST');
     }
-    rest = rest.replace(commandPattern('apk info -v'), 'ALLOWED_APK_READ').split(APK_RECORD_PROOF).join('RECORD_PROOF')
+    rest = rest.replace(commandPattern('apk info -v'), 'ALLOWED_APK_READ').split(RUNTIME_APK_VERIFY).join('RUNTIME_APK_VERIFY')
       .replace(/(?<![\w/.-])\/?(?:lib\/apk\/db\/(?:installed|scripts\.tar|triggers)|etc\/apk\/world)(?![\w/.-])/g, 'APK_DB_PATH');
     assert.doesNotMatch(rest, /\bapk\b/, `${stage}: apk used outside the allowed operations`);
     assert.doesNotMatch(rest, /\.apk\b|--no-network|--allow-untrusted|--repositor|--keys-dir|--upgrade|(?:^|\s)-[uX]\b/m,
@@ -1144,35 +1057,35 @@ function validateApkAndFetch(dockerfile) {
 }
 validateApkAndFetch(buildInputs[0]);
 let apkFetchNegatives = 0;
-const OPENJPEG_REQUEST = "    && apk add --no-cache 'openjpeg=2.5.4-r1' \\\n";
-const MUSL_REQUEST = `    && ${MUSL_CARES_INSTALL} \\\n`;
+// Mutants are spliced next to a continuation line of runtime-hardening's RUN and of the final stage's check RUN.
+const HARDENING_LINE = '    && cp -a /app/public/vite /toybaco-runtime-root/app/public/vite \\\n';
+const FINAL_LINE = `    && ${RUNTIME_APK_VERIFY} \\\n`;
 for (const [from, to] of [
   // Astra's #581 counterexample: a concatenated v3.22 URL fetched, then installed by an apk call with the option first.
-  [OPENJPEG_REQUEST, '    && ruby -ropen-uri -e \'URI.open("https://dl-cdn.alpinelinux.org/alpine/" + "v3.22/main/x86_64/openjpeg-2.5.4-r1.apk") { |input| File.binwrite("/tmp/x.apk", input.read) }\' \\\n    && apk --no-network add /tmp/x.apk \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && apk --no-network add /tmp/x.apk \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && ruby -e \'require %q{open-uri}; IO.copy_stream(URI.open(%q{dl-cdn.alpinelinux.org}), %q{/tmp/o})\' \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && ruby -rnet/http -e \'Net::HTTP.get(%q{dl-cdn.alpinelinux.org}, %q{/x})\' \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && wget -qO /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && ruby -e \'Kernel.open(%q{https://dl-cdn.alpinelinux.org/x}) { |input| input.read }\' \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, '    && curl -fsSo /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + OPENJPEG_REQUEST],
-  // A differently named APK file, an unverified install, and apk under another path or a built-up name, each next
-  // to the allowed request.
-  [OPENJPEG_REQUEST, '    && apk add /tmp/renamed.apk \\\n' + OPENJPEG_REQUEST],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache 'openjpeg=2.5.4-r1' --allow-untrusted \\\n"],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --allow-untrusted --no-cache 'openjpeg=2.5.4-r1' \\\n"],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && /sbin/apk add --no-cache 'openjpeg=2.5.4-r1' \\\n"],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add --allow-untrusted /tmp/x \\\n'],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add --no-network /tmp/x \\\n'],
-  // Another repository, an upgrade, a second request, and an extra apk operation in the final stage.
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main 'openjpeg=2.5.4-r1' \\\n"],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" --repository=/tmp/repo add openjpeg \\\n'],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add -X /tmp/repo openjpeg \\\n'],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + '    && tool=ap && "${tool}k" add -u openjpeg \\\n'],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + "    && apk add --no-cache 'openjpeg=2.5.4-r1' -u \\\n"],
-  [OPENJPEG_REQUEST, OPENJPEG_REQUEST + OPENJPEG_REQUEST],
-  [MUSL_REQUEST, MUSL_REQUEST.replace('apk add --no-cache ', 'apk add --no-cache --upgrade ')],
-  [MUSL_REQUEST, MUSL_REQUEST + '    && apk fix \\\n'],
-  [MUSL_REQUEST, MUSL_REQUEST + '    && sh -c "apk add brotli" \\\n'],
+  [HARDENING_LINE, '    && ruby -ropen-uri -e \'URI.open("https://dl-cdn.alpinelinux.org/alpine/" + "v3.22/main/x86_64/openjpeg-2.5.4-r1.apk") { |input| File.binwrite("/tmp/x.apk", input.read) }\' \\\n    && apk --no-network add /tmp/x.apk \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && apk --no-network add /tmp/x.apk \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && ruby -e \'require %q{open-uri}; IO.copy_stream(URI.open(%q{dl-cdn.alpinelinux.org}), %q{/tmp/o})\' \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && ruby -rnet/http -e \'Net::HTTP.get(%q{dl-cdn.alpinelinux.org}, %q{/x})\' \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && wget -qO /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && ruby -e \'Kernel.open(%q{https://dl-cdn.alpinelinux.org/x}) { |input| input.read }\' \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, '    && curl -fsSo /tmp/o dl-cdn.alpinelinux.org/alpine \\\n' + HARDENING_LINE],
+  // A differently named APK file, an unverified install, and apk under another path or a built-up name.
+  [HARDENING_LINE, '    && apk add /tmp/renamed.apk \\\n' + HARDENING_LINE],
+  [HARDENING_LINE, HARDENING_LINE + "    && apk add --no-cache 'openjpeg=2.5.4-r1' --allow-untrusted \\\n"],
+  [HARDENING_LINE, HARDENING_LINE + "    && apk add --allow-untrusted --no-cache 'openjpeg=2.5.4-r1' \\\n"],
+  [HARDENING_LINE, HARDENING_LINE + "    && /sbin/apk add --no-cache 'openjpeg=2.5.4-r1' \\\n"],
+  [HARDENING_LINE, HARDENING_LINE + '    && tool=ap && "${tool}k" add --allow-untrusted /tmp/x \\\n'],
+  [HARDENING_LINE, HARDENING_LINE + '    && tool=ap && "${tool}k" add --no-network /tmp/x \\\n'],
+  // Another repository, an upgrade, an unreviewed request, and extra apk operations in the final stage.
+  [HARDENING_LINE, HARDENING_LINE + "    && apk add --no-cache -X https://dl-cdn.alpinelinux.org/alpine/v3.22/main 'openjpeg=2.5.4-r1' \\\n"],
+  [HARDENING_LINE, HARDENING_LINE + '    && tool=ap && "${tool}k" --repository=/tmp/repo add openjpeg \\\n'],
+  [HARDENING_LINE, HARDENING_LINE + '    && tool=ap && "${tool}k" add -X /tmp/repo openjpeg \\\n'],
+  [HARDENING_LINE, HARDENING_LINE + '    && tool=ap && "${tool}k" add -u openjpeg \\\n'],
+  [HARDENING_LINE, HARDENING_LINE + "    && apk add --no-cache 'openjpeg=2.5.4-r1' -u \\\n"],
+  [HARDENING_LINE, HARDENING_LINE + "    && apk add --no-cache 'openjpeg=2.5.4-r1' \\\n"],
+  [FINAL_LINE, FINAL_LINE + "    && apk add --no-cache --upgrade 'musl=1.2.5-r13' \\\n"],
+  [FINAL_LINE, FINAL_LINE + '    && apk fix \\\n'],
+  [FINAL_LINE, FINAL_LINE + '    && sh -c "apk add brotli" \\\n'],
 ]) {
   assert.throws(() => validateApkAndFetch(swapOnce(buildInputs[0], from, to, from)), `apk/fetch mutant must fail: ${to}`);
   apkFetchNegatives++;
@@ -1185,7 +1098,7 @@ const FOREIGN = '/tmp/foreign-package';
 const LAST_RUN = "RUN ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'";
 const appendFinal = text => `${buildInputs[0].trimEnd()}\n${text}\n`;
 const beforeFinalFrom = text => {
-  const at = buildInputs[0].lastIndexOf('\nFROM bundled-gems\n');
+  const at = buildInputs[0].lastIndexOf('\nFROM runtime-app\n');
   return `${buildInputs[0].slice(0, at)}\n${text}${buildInputs[0].slice(at)}`;
 };
 let bytePinNegatives = 0;
@@ -1195,10 +1108,10 @@ for (const mutated of [
   appendFinal(`RUN eval "a""pk --allow-un""trusted add ${FOREIGN}"`),
   appendFinal(`RUN "$(printf '%s' ap)k" --allow-untrusted add ${FOREIGN}`),
   appendFinal('RUN c""url -fsSo /tmp/x dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openjpeg-2.5.4-r1.apk'),
-  swapOnce(buildInputs[0], MUSL_REQUEST, `${MUSL_REQUEST}    && tool=ap && "\${tool}k" --allow-""untrusted add ${FOREIGN} \\\n`,
-    MUSL_REQUEST),
-  swapOnce(buildInputs[0], OPENJPEG_REQUEST, `${OPENJPEG_REQUEST}    && eval "a""pk add --allow-un""trusted ${FOREIGN}" \\\n`,
-    OPENJPEG_REQUEST),
+  swapOnce(buildInputs[0], FINAL_LINE, `${FINAL_LINE}    && tool=ap && "\${tool}k" --allow-""untrusted add ${FOREIGN} \\\n`,
+    FINAL_LINE),
+  swapOnce(buildInputs[0], HARDENING_LINE, `${HARDENING_LINE}    && eval "a""pk add --allow-un""trusted ${FOREIGN}" \\\n`,
+    HARDENING_LINE),
   appendFinal(`run apk --allow-untrusted add ${FOREIGN}`),
   appendFinal(`  RUN apk --allow-untrusted add ${FOREIGN}`),
   appendFinal(`RUN\tapk --allow-untrusted add ${FOREIGN}`),
@@ -1216,7 +1129,7 @@ for (const mutated of [
   `# escape=\`\n${buildInputs[0]}`,
   appendFinal('%% not an instruction'),
   appendFinal('RUN true \\'),
-  swapOnce(buildInputs[0], MUSL_REQUEST, `${MUSL_REQUEST}\n`, MUSL_REQUEST),
+  swapOnce(buildInputs[0], FINAL_LINE, `${FINAL_LINE}\n`, FINAL_LINE),
   // #582 second review (Astra, Grok): a LABEL ending in `\\` hiding the next RUN, a COPY heredoc read through
   // ARG RUBYOPT by an existing RUN, a COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline, a COPY
   // without flags, `\` + blank, `cat<<EOF`, continuation spacing, a proxy ARG, CRLF, and parser directives.
@@ -1227,13 +1140,13 @@ for (const mutated of [
   swapOnce(buildInputs[0], '\nFROM localized-assets AS runtime-hardening\n',
     '\nONBUILD RUN echo UNREVIEWED_EXECUTION\nFROM localized-assets AS runtime-hardening\n', 'runtime-hardening FROM'),
   appendFinal('  onbuild run echo UNREVIEWED_EXECUTION'),
-  swapOnce(buildInputs[0], '    && test -f /usr/lib/libz.so.1.3.2 \\\n', '    && test -f\\\n/usr/lib/libz.so.1.3.2 \\\n',
-    'test -f libz'),
+  swapOnce(buildInputs[0], '    && test ! -e /usr/local/bin/npm \\\n', '    && test ! -e\\\n/usr/local/bin/npm \\\n',
+    'test ! -e npm'),
   appendFinal(`COPY foreign.apk ${FOREIGN}`),
-  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/\\\n$/, '\\ \n'), MUSL_REQUEST),
+  swapOnce(buildInputs[0], FINAL_LINE, FINAL_LINE.replace(/\\\n$/, '\\ \n'), FINAL_LINE),
   appendFinal('RUN cat<<EOF > /tmp/x.rb\nsystem(%q{echo UNREVIEWED})\nEOF'),
-  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/^ {4}/, '  '), MUSL_REQUEST),
-  swapOnce(buildInputs[0], MUSL_REQUEST, MUSL_REQUEST.replace(/ \\\n$/, '\\\n'), MUSL_REQUEST),
+  swapOnce(buildInputs[0], FINAL_LINE, FINAL_LINE.replace(/^ {4}/, '  '), FINAL_LINE),
+  swapOnce(buildInputs[0], FINAL_LINE, FINAL_LINE.replace(/ \\\n$/, '\\\n'), FINAL_LINE),
   appendFinal('ARG HTTP_PROXY=http://127.0.0.1:3128'),
   buildInputs[0].replace('\n', '\r\n'),
   `# syntax=docker/dockerfile:1\n${buildInputs[0]}`,
@@ -1244,20 +1157,57 @@ for (const mutated of [
   bytePinNegatives++;
 }
 console.log(`Chatwoot Dockerfile byte pin: PASS (${bytePinNegatives} bypass/form controls)`);
-function validateFinalTiff(dockerfile) {
-  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM bundled-gems\n'));
-  for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",
-    'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
-    'call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}']) {
-    assert.ok(final.includes(required), 'final TIFF artifact contract missing: ' + required);
-  }
+// The shipped runtime: the pinned Alpine 3.22 base, alpine-release held at its own build before any upgrade, the
+// reviewed package list verified in the runtime base and again on the final filesystem, and labels naming both images.
+const RUNTIME_DOCKERFILE = Object.freeze([
+  `ARG RUBY_RUNTIME_IMAGE=${RUNTIME_IMAGE}`,
+  'FROM ${RUBY_RUNTIME_IMAGE} AS runtime-base',
+  'COPY config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk.txt',
+  'COPY tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb',
+  '    && apk add --no-cache "alpine-release=$alpine_release" \\',
+  '    && apk upgrade --no-cache \\',
+  '    && apk add --no-cache build-base openssl tzdata postgresql-client git vips \\',
+  'FROM runtime-base AS gems',
+  'FROM runtime-base AS runtime-app',
+  'FROM runtime-app',
+  `LABEL org.opencontainers.image.base.name="${RUNTIME_IMAGE}" \\`,
+  `      jp.toybaco.upstream.image="${UPSTREAM_IMAGE}" \\`,
+  // The whole overlay is copied exactly once, last, after the LABEL (the gate's control contract pins this line).
+  'COPY --from=overlay-normalizer /toybaco-overlay/ /app/',
+]);
+function validateFinalRuntime(dockerfile) {
+  const lines = dockerfile.split('\n');
+  const at = RUNTIME_DOCKERFILE.map(line => {
+    assert.equal(lines.filter(candidate => candidate === line).length, 1, 'shipped runtime contract missing: ' + line);
+    return lines.indexOf(line);
+  });
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'shipped runtime stages out of order');
+  assert.equal(dockerfile.split(RUNTIME_APK_VERIFY).length - 1, 2, 'runtime package list verified twice');
+  const final = dockerfile.slice(dockerfile.lastIndexOf('\nFROM runtime-app\n'));
+  assert.ok(final.includes(RUNTIME_APK_VERIFY), 'final filesystem must verify the runtime package list');
+  // Only build-only stages and the code source come from the upstream (Alpine 3.21) image.
+  assert.deepEqual(lines.filter(line => line.startsWith('FROM ${CHATWOOT_IMAGE}')),
+    ['FROM ${CHATWOOT_IMAGE} AS overlay-normalizer', 'FROM ${CHATWOOT_IMAGE} AS bundled-gems', 'FROM ${CHATWOOT_IMAGE} AS upstream']);
+  assert.doesNotMatch(final, /^FROM (?!runtime-app$)/m, 'the final stage builds on the Alpine 3.22 runtime only');
 }
-validateFinalTiff(buildInputs[0]);
-for (const required of ["'tiff=4.7.2-r0'", "= 'tiff-4.7.2-r0'",
-  'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]',
-  'call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}']) {
-  assert.throws(() => validateFinalTiff(buildInputs[0].replace(required, 'obsolete TIFF contract')));
+validateFinalRuntime(buildInputs[0]);
+let runtimeNegativeCount = 0;
+for (const required of [...RUNTIME_DOCKERFILE, RUNTIME_APK_VERIFY]) {
+  assert.throws(() => validateFinalRuntime(buildInputs[0].replace(required, '# omitted runtime contract')),
+    'omitted shipped runtime contract must fail: ' + required);
+  runtimeNegativeCount++;
 }
+for (const mutated of [
+  buildInputs[0].replace('    && apk add --no-cache "alpine-release=$alpine_release" \\\n    && apk upgrade --no-cache \\\n',
+    '    && apk upgrade --no-cache \\\n    && apk add --no-cache "alpine-release=$alpine_release" \\\n'),
+  buildInputs[0].replace('\nFROM runtime-app\n', '\nFROM bundled-gems\n'),
+  buildInputs[0].replace('FROM ${CHATWOOT_IMAGE} AS upstream', 'FROM ${CHATWOOT_IMAGE} AS upstream\nFROM ${CHATWOOT_IMAGE} AS runtime-extra'),
+]) {
+  assert.notEqual(mutated, buildInputs[0]);
+  assert.throws(() => validateFinalRuntime(mutated), 'reordered or upstream-based shipped runtime must fail');
+  runtimeNegativeCount++;
+}
+console.log('Chatwoot shipped Alpine 3.22 runtime: PASS (' + runtimeNegativeCount + ' negative controls)');
 validateBackportBuild(...buildInputs, gate);
 let buildNegativeCount = 0;
 for (const [index, text] of [
@@ -1335,7 +1285,7 @@ const mutations = [
   [workflow.replace('--ignore-unfixed=false', '--ignore-unfixed=true'), gate],
   [workflow.replace('--exit-code 1', '--exit-code 0'), gate],
   [workflow.replace('--config /dev/null sbom', '--config /repo/trivy.yaml sbom'), gate],
-  [workflow.replace('--distro alpine/3.21.3', '--distro alpine/3.22'), gate],
+  [workflow.replace(`--distro alpine/${ALPINE_RELEASE}`, '--distro alpine/3.22'), gate],
   [workflow.replaceAll('trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682', 'trivy:latest'), gate],
   [workflow.replace('.checksumValue == $digest', 'true'), gate],
   [workflow.replace('.manifests == null', 'true'), gate],
@@ -1359,13 +1309,36 @@ const mutations = [
   [workflow, gate.replace('Vips::Image.csvload(csv)', 'Vips::Image.black(1, 1)')],
   [workflow, gate.replace('ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}', 'true')],
   [workflow, gate.replace('ruby /contract/tests/verify_chatwoot_runtime_gems.rb', 'ruby /contract/tests/not-run.rb')],
-  [workflow, gate.replace('Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}', 'Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.2}')],
   [workflow, gate.replace('assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'', ':')],
   [workflow, gate.replace('test ! -e /app/spec', ':')],
-  [workflow, gate.replaceAll('libexpat=2.9.0-r0', 'libexpat=2.8.4-r0')],
-  [workflow, gate.replaceAll('test ! -e /usr/lib/libexpat.so.1.12.3', ':')],
-  [workflow, gate.replaceAll('test ! -e /usr/lib/libexpat.so.1.12.4', ':')],
-  [workflow, gate.replaceAll('Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}', 'Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.8.4}')],
+  [workflow, gate.replace(RUNTIME_APK_PROBE, 'true')],
+  [workflow, gate.replace('ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb"', 'true')],
+  [workflow, gate.replace('ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint', 'true')],
+  [workflow, gate.replace('[[ "$actual_base_label" == "$CHATWOOT_RUNTIME_IMAGE" ]]', '[[ "$actual_base_label" == "$CHATWOOT_IMAGE" ]]')],
+  [workflow, gate.replace('"$CHATWOOT_RUNTIME_IMAGE" \\\n    | sed \'/^$/d\' > "$RUN_ROOT/base-layers"',
+    '"$CHATWOOT_IMAGE" \\\n    | sed \'/^$/d\' > "$RUN_ROOT/base-layers"')],
+  [workflow, gate.replace('--build-arg "CHATWOOT_IMAGE=$PRODUCTION_IMAGE"', '--build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE"')],
+  [workflow, gate.replace('production imageに上流imageのENVがありません', 'ENV')],
+  [workflow, gate.replace('  build_production_image\n  build_test_image\n', '  build_test_image\n  build_production_image\n')],
+  [workflow, gate.replaceAll(RUNTIME_IMAGE, RUNTIME_IMAGE.replace('017bd0bf', '00000000'))],
+  [workflow, gate.replace("    'config/chatwoot-runtime-apk.txt' \\\n", '')],
+  [workflow.replace('--build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"', ''), gate],
+  [workflow.replace('--arg base "$CHATWOOT_RUNTIME_IMAGE"', '--arg base "$CHATWOOT_BASE_IMAGE"'), gate],
+  [workflow.replace('.config.Labels["jp.toybaco.upstream.image"] == $upstream and', ''), gate],
+  [workflow.replaceAll(RUNTIME_IMAGE, RUNTIME_IMAGE.replace('017bd0bf', '00000000')), gate],
+  [workflow.replace('grep -Fqx "ARG RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE" Dockerfile', 'true'), gate],
+  [workflow.replaceAll(`alpine/${ALPINE_RELEASE}`, 'alpine/3.21.3').replaceAll(`alpine-${ALPINE_RELEASE}`, 'alpine-3.21.3')
+    .replace(`eol --release ${ALPINE_RELEASE}`, 'eol --release 3.21.3'), gate],
+  [workflow.replace(ALPINE_EOL_STEP, ''), gate],
+  [workflow.replace(`eol --release ${ALPINE_RELEASE} || true`, `eol --release ${ALPINE_RELEASE}`), gate],
+  [workflow.replace(`eol --release ${ALPINE_RELEASE}`, 'eol --release 3.22.6'), gate],
+  [workflow.replace(`${ALPINE_EOL_STEP}\n`, '').replace('      - name: SPDX SBOMの形式と上限を確認\n',
+    `${ALPINE_EOL_STEP}\n      - name: SPDX SBOMの形式と上限を確認\n`), gate],
+  [workflow.replace(ALPINE_EOL_STEP, `${ALPINE_EOL_STEP}\n${ALPINE_EOL_STEP}`), gate],
+  [workflow, gate.replace(ALPINE_EOL_GATE, '')],
+  [workflow, gate.replace(ALPINE_EOL_GATE, ALPINE_EOL_GATE.replace(' || true', ''))],
+  [workflow, gate.replace(ALPINE_RELEASE_GATE, `"$CHATWOOT_IMAGE" sh -c 'cat /etc/alpine-release')"\n`)],
+  [workflow, gate.replace("    'scripts/chatwoot-alpine-status.py' \\\n", '')],
   [workflow, gate.replace('"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n', '"$PRODUCTION_IMAGE" sh -c \'\n')],
   [workflow.replace('needs: quality', 'needs: []'), gate],
   [workflow.replace(
@@ -1415,6 +1388,14 @@ const mutations = [
     "    'tests/verify_chatwoot_rspec_result.rb' \\\n+    'scripts/publish-chatwoot-image.sh'",
   )],
   [workflow, gate.replace("    'tests/chatwoot-managed-publisher.test.mjs' \\\n", '')],
+  // The runner CLI check removed, moved after the OIDC session, tolerated, made conditional, or with other expectations.
+  [workflow.replace(`${RUNNER_CLI_STEP_TEXT}\n`, ''), gate],
+  [workflow.replace(`${RUNNER_CLI_STEP_TEXT}\n`, '')
+    .replace('      - name: 固定ECR registryへlogin\n', `${RUNNER_CLI_STEP_TEXT}\n      - name: 固定ECR registryへlogin\n`), gate],
+  [workflow.replace(`      - name: ${RUNNER_CLI_STEP}\n`, `      - name: ${RUNNER_CLI_STEP}\n        continue-on-error: true\n`), gate],
+  [workflow.replace(`      - name: ${RUNNER_CLI_STEP}\n`, `      - name: ${RUNNER_CLI_STEP}\n        if: github.event_name == 'push'\n`), gate],
+  [workflow.replace("          expected_docker_major='28'\n", "          expected_docker_major='29'\n"), gate],
+  [workflow.replace('*io.containerd.snapshotter*', '*never-matches*'), gate],
 ];
 
 // Repository-specific negatives, for a workflow of the given repository.
@@ -1688,7 +1669,7 @@ for (const [label, change] of [
   ['no described image', sbom => { sbom.relationships.shift(); }],
   ['ambiguous described image', sbom => { sbom.relationships.push({ ...sbom.relationships[0], relatedSpdxElement: 'other' }); }],
   ['wrong distro', sbom => { sbom.packages[2].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.22'; }],
-  ['distro prefix is not exact', sbom => { sbom.packages[2].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.21.30'; }],
+  ['distro prefix is not exact', sbom => { sbom.packages[2].externalRefs[0].referenceLocator = 'pkg:apk/alpine/a@1?distro=alpine-3.22.00'; }],
   ['missing OS coverage', (_sbom, report) => { report.Results.shift(); }],
   ['missing language coverage', (_sbom, report) => { report.Results.pop(); }],
   ['empty package scan', (_sbom, report) => { report.Results[0].Packages = []; }],
@@ -1708,3 +1689,147 @@ for (const [label, change] of [
   ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
 ]) executePolicy(label, change, false);
 console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 23 negative controls; Docker stand-in, no external calls)');
+
+// Execute the exact runner CLI check with stand-in gh, aws and docker (and tee) as the only commands on PATH, so the
+// runner's real tools are never reached. Only the expected majors and overlay2 pass; anything else stops with one
+// fixed line that names what is unexpected, never echoing tool output.
+const RUNNER_CLI_DOCKER_CLIENT = 'version --format {{.Client.Version}}';
+const RUNNER_CLI_DOCKER_SERVER = 'version --format {{.Server.Version}}';
+const RUNNER_CLI_DOCKER_DRIVER = 'info --format {{.Driver}}';
+const RUNNER_CLI_DOCKER_STATUS = 'info --format {{json .DriverStatus}}';
+const RUNNER_CLI_MARKER = 'ZZRUNNERCLIMARKER';
+const runnerCliTool = name => {
+  const located = spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' }).stdout.trim();
+  assert.match(located, /^\//, `the runner CLI fixtures need ${name}`);
+  return located;
+};
+const runnerCliTools = Object.freeze({ bash: runnerCliTool('bash'), cat: runnerCliTool('cat'), tee: runnerCliTool('tee') });
+function runnerCliImageOutputs() {
+  return {
+    gh: { '--version': { stdout: 'gh version 2.102.0 (2026-10-01)\nhttps://github.com/cli/cli/releases/tag/v2.102.0\n' } },
+    aws: { '--version': { stdout: 'aws-cli/2.37.13 Python/3.13.7 Linux/6.17.0-1022-azure exe/x86_64.ubuntu.24\n' } },
+    docker: {
+      [RUNNER_CLI_DOCKER_CLIENT]: { stdout: '28.0.4\n' },
+      [RUNNER_CLI_DOCKER_SERVER]: { stdout: '28.0.4\n' },
+      [RUNNER_CLI_DOCKER_DRIVER]: { stdout: 'overlay2\n' },
+      [RUNNER_CLI_DOCKER_STATUS]: { stdout: '[["Backing Filesystem","extfs"],["Supports d_type","true"],["Using metacopy","false"],' +
+        '["Native Overlay Diff","true"],["userxattr","false"]]\n' },
+    },
+  };
+}
+function runRunnerCli(script, change) {
+  const outputs = runnerCliImageOutputs();
+  const env = { ImageOS: 'ubuntu24', ImageVersion: '20261012.334.1' };
+  change(outputs, env);
+  const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-runner-cli-'));
+  try {
+    const bin = join(directory, 'bin');
+    mkdirSync(bin);
+    symlinkSync(runnerCliTools.tee, join(bin, 'tee'));
+    const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+    for (const [tool, responses] of Object.entries(outputs)) {
+      let fake = '#!/bin/sh\ncase "$*" in\n';
+      for (const [args, { stdout = '', exit = 0 }] of Object.entries(responses)) {
+        assert.ok(stdout === '' || (stdout.endsWith('\n') && !stdout.includes('TOYBACO_FAKE_OUTPUT')));
+        fake += `  ${quote(args)})\n    ${quote(runnerCliTools.cat)} <<'TOYBACO_FAKE_OUTPUT'\n${stdout}TOYBACO_FAKE_OUTPUT\n    exit ${exit}\n    ;;\n`;
+      }
+      writeFileSync(join(bin, tool), `${fake}esac\nexit 97\n`, { mode: 0o755 });
+    }
+    const summary = join(directory, 'summary');
+    writeFileSync(summary, '');
+    const result = spawnSync(runnerCliTools.bash, ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+      encoding: 'utf8', timeout: 20000, env: { PATH: bin, GITHUB_STEP_SUMMARY: summary, ...env },
+    });
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr, summary: readFileSync(summary, 'utf8') };
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+function testRunnerCli(script) {
+  const ok = (versions = {}) => {
+    const value = { gh: '2.102.0', aws: '2.37.13', client: '28.0.4', server: '28.0.4', image: 'ubuntu24-20261012.334.1', ...versions };
+    return `TOYBACO_RUNNER_CLI=OK gh=${value.gh} aws=${value.aws} docker_client=${value.client} docker_server=${value.server} ` +
+      `docker_storage_driver=overlay2 runner_image=${value.image}\n`;
+  };
+  const stop = what => `::error::TOYBACO_RUNNER_CLI=UNEXPECTED ${what}\n`;
+  const warn = (component, version) =>
+    `::warning::TOYBACO_RUNNER_CLI=WARN docker_major=${version.split('.')[0]} component=${component} expected_major=28 version=${version}\n`;
+  // The Step Summary keeps only the warnings (without ::warning::) and the passing line.
+  const summaryOf = (stdout, status) => stdout.split(/(?<=\n)/)
+    .filter(line => line.startsWith('::warning::') || (status === 0 && line.startsWith('TOYBACO_RUNNER_CLI=OK ')))
+    .map(line => line.replace(/^::warning::/, '')).join('');
+  const cases = [
+    ['the 2026-10-12 runner image', () => {}, ok(), 0],
+    ['newer minor versions in the same majors', outputs => {
+      outputs.gh['--version'].stdout = 'gh version 2.140.3 (2027-03-01)\n';
+      outputs.aws['--version'].stdout = 'aws-cli/2.41.0 Python/3.13.9 Linux/6.17.0-1030-azure exe/x86_64.ubuntu.24\n';
+      outputs.docker[RUNNER_CLI_DOCKER_CLIENT].stdout = '28.5.2\n';
+      outputs.docker[RUNNER_CLI_DOCKER_SERVER].stdout = '28.5.2+azure-1\n';
+    }, ok({ gh: '2.140.3', aws: '2.41.0', client: '28.5.2', server: '28.5.2' }), 0],
+    ['no runner image variables', (_outputs, env) => { delete env.ImageOS; delete env.ImageVersion; }, ok({ image: 'unknown-unknown' }), 0],
+    ['gh 3', outputs => { outputs.gh['--version'].stdout = 'gh version 3.0.0 (2027-06-01)\n'; },
+      stop('gh_major=3 expected_major=2 version=3.0.0'), 1],
+    ['gh missing', outputs => { delete outputs.gh; }, stop('gh=missing'), 1],
+    ['gh output carrying a workflow command', outputs => { outputs.gh['--version'].stdout = `::warning::${RUNNER_CLI_MARKER}\n`; },
+      stop('gh=unparsable'), 1],
+    ['AWS CLI v1', outputs => { outputs.aws['--version'].stdout = 'aws-cli/1.33.0 Python/3.12.3 Linux/6.8.0 botocore/1.34.0\n'; },
+      stop('aws_major=1 expected_major=2 version=1.33.0'), 1],
+    ['aws fails', outputs => { outputs.aws['--version'].exit = 255; }, stop('aws=failed'), 1],
+    ['docker missing', outputs => { delete outputs.docker; }, stop('docker=missing'), 1],
+    // docker の major の違いは警告だけで進む(image store が overlay2 のままなら)。
+    ['Docker 29 client', outputs => { outputs.docker[RUNNER_CLI_DOCKER_CLIENT].stdout = '29.1.5\n'; },
+      warn('client', '29.1.5') + ok({ client: '29.1.5' }), 0],
+    ['Docker 29 on overlay2', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_CLIENT].stdout = '29.1.5\n';
+      outputs.docker[RUNNER_CLI_DOCKER_SERVER].stdout = '29.1.5\n';
+    }, warn('client', '29.1.5') + warn('server', '29.1.5') + ok({ client: '29.1.5', server: '29.1.5' }), 0],
+    ['Docker 29 with the containerd image store (the 2026-02 runner)', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_CLIENT].stdout = '29.1.5\n';
+      outputs.docker[RUNNER_CLI_DOCKER_SERVER].stdout = '29.1.5\n';
+      outputs.docker[RUNNER_CLI_DOCKER_DRIVER].stdout = 'overlayfs\n';
+      outputs.docker[RUNNER_CLI_DOCKER_STATUS].stdout = '[["driver-type","io.containerd.snapshotter.v1"]]\n';
+    }, warn('client', '29.1.5') + warn('server', '29.1.5') + stop('docker_image_store=containerd-snapshotter'), 1],
+    ['an unreachable Docker daemon', outputs => { outputs.docker[RUNNER_CLI_DOCKER_SERVER] = { stdout: '', exit: 1 }; },
+      stop('docker_server=failed'), 1],
+    ['docker info fails', outputs => { outputs.docker[RUNNER_CLI_DOCKER_STATUS] = { stdout: '', exit: 1 }; }, stop('docker_info=failed'), 1],
+    ['the containerd image store (Docker 29 default)', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_DRIVER].stdout = 'overlayfs\n';
+      outputs.docker[RUNNER_CLI_DOCKER_STATUS].stdout = '[["driver-type","io.containerd.snapshotter.v1"]]\n';
+    }, stop('docker_image_store=containerd-snapshotter'), 1],
+    ['a containerd snapshotter named overlay2', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_STATUS].stdout = '[["driver-type","io.containerd.snapshotter.v1"]]\n';
+    }, stop('docker_image_store=containerd-snapshotter'), 1],
+    ['the vfs graph driver', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_DRIVER].stdout = 'vfs\n';
+      outputs.docker[RUNNER_CLI_DOCKER_STATUS].stdout = 'null\n';
+    }, stop('docker_storage_driver=vfs expected=overlay2'), 1],
+    ['a storage driver carrying a workflow command', outputs => {
+      outputs.docker[RUNNER_CLI_DOCKER_DRIVER].stdout = `::warning::${RUNNER_CLI_MARKER}\n`;
+    }, stop('docker_storage_driver=unparsable expected=overlay2'), 1],
+  ];
+  for (const [label, change, stdout, status] of cases) {
+    const result = runRunnerCli(script, change);
+    assert.equal(result.status, status, `${label} must ${status === 0 ? 'pass' : 'stop the publisher'}: ${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, stdout, `${label} must print exactly its fixed line`);
+    assert.equal(result.summary, summaryOf(stdout, status), `${label} must record only the warnings and a passing check`);
+    assert.ok(!`${result.stdout}${result.summary}`.includes(RUNNER_CLI_MARKER), `${label} must not echo tool output`);
+  }
+  return cases.length;
+}
+const runnerCliRun = stepRun(workflow, RUNNER_CLI_STEP);
+const runnerCliCases = testRunnerCli(runnerCliRun);
+const runnerCliBehaviourMutations = [
+  ["expected_docker_major='28'", "expected_docker_major='29'"],
+  ["if [[ \"$docker_driver_status\" == *io.containerd.snapshotter* ]]; then\n  unexpected 'docker_image_store=containerd-snapshotter'\nfi\n", ''],
+  ['  if [[ "$parsed_major" != "$2" ]]; then\n', '  if false; then\n'],
+  ['require_major gh "$expected_gh_major"\n', ''],
+  ['    echo "::warning::TOYBACO_RUNNER_CLI=WARN docker_major=',
+    '    unexpected "docker_major=${parsed_major}"\n    echo "::warning::TOYBACO_RUNNER_CLI=WARN docker_major='],
+  ['warn_docker_major client\n', ''],
+  ['    unexpected "${1}=unparsable"\n', '    return 0\n'],
+  ['    unexpected "${1}=unparsable"\n', '    unexpected "${1}=${2}"\n'],
+];
+for (const [from, to] of runnerCliBehaviourMutations) {
+  assert.equal(runnerCliRun.split(from).length - 1, 1, `runner CLI behaviour mutation target: ${from}`);
+  assert.throws(() => testRunnerCli(runnerCliRun.replace(from, to)), `runner CLI behaviour mutation was accepted: ${from}`);
+}
+console.log(`Chatwoot runner CLI check shell: PASS (${runnerCliCases} cases / ${runnerCliBehaviourMutations.length} behaviour negatives; ` +
+  'stand-in gh, aws and docker, no external calls)');

@@ -3,7 +3,8 @@ FROM ${CHATWOOT_IMAGE}
 
 ARG CHATWOOT_SOURCE_COMMIT=9f920b549c14491a4e587687a3eed5d21c6ccc7d
 
-# 公式production imageにはtest/development gemが無い。固定sourceへoverlayを
+# gateはCHATWOOT_IMAGEに直前のproduction image(出荷するAlpine 3.22のruntime)を渡す。既定値の公式imageは
+# 手元の再現用。production imageにはtest/development gemが無い。固定sourceへoverlayを
 # 適用したGemfile/lockを先に渡し、本番と同じRails修正版でtest groupを追加する。
 ENV BUNDLE_WITHOUT="" \
     RAILS_ENV=test

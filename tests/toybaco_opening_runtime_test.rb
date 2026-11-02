@@ -241,6 +241,22 @@ class ToybacoOpeningRuntimeTest < Minitest::Test
     end
   end
 
+  # 宛先の形(OpeningOperations::EMAIL)は主宛先と 2 本目(SECONDARY_ENV)で同じ。Mail が解析できないか別の宛先・注記として読み替える形と、
+  # 配送で拒まれうる形は落とす(通す形を Mail::Address で解析できることは overlay の operations_mailer_spec で確かめる)。
+  def test_operations_recipient_takes_only_plain_addresses_for_both_keys
+    ops = Growth::OpeningOperations
+    production = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production' }
+    resolve = ->(value) { [ops::ADDRESS_ENV, ops::SECONDARY_ENV].map { |key| ops.recipient(production.merge(key => value), key) } }
+    %w[ops@example.invalid first.last@example.co.jp qa+e2e-consent-r1-1@example.com user_name-01@mail.example-shop.jp a@b.cd
+       x1@xn--eckwd4c7c.xn--zckzah].each { |address| assert_equal [address, address], resolve.call(address), address }
+    assert_equal ['ops@example.invalid'] * 2, resolve.call(" OPS@Example.Invalid\n")
+    ['a<b@example.invalid', '<ops@example.invalid>', '[ops]@example.invalid', '"ops"@example.invalid', "o'ps@example.invalid",
+     'ops(x)@example.invalid', 'ops;x@example.invalid', 'group:ops@example.invalid', 'a@example.invalid,b@example.invalid',
+     'ops x@example.invalid', "ops\u3000@example.invalid", 'ｏｐｓ@example.invalid', 'ops@例え.jp', 'a..b@example.invalid',
+     'ops@example..invalid', '.ops@example.invalid', 'ops.@example.invalid', 'ops@.example.invalid', 'ops@example.invalid.',
+     'a@b@example.invalid', 'ops@example.c'].each { |address| assert_equal [nil, nil], resolve.call(address), address.inspect }
+  end
+
   # 2 本目の宛先(TOYBACO_OPERATIONS_ALERT_EMAIL)は配送時に Bcc で足し、job の引数に載せない。主宛先が無くても 2 本目へ届く。
   def test_operations_notices_bcc_the_second_address_resolved_at_delivery
     second = { 'TOYBACO_OPERATIONS_ALERT_EMAIL' => ' Owner@Example.invalid ' }

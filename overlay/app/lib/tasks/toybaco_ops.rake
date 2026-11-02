@@ -267,9 +267,24 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         argument!(args, :prefix, PREFIX_FORMAT, PREFIX_ERROR)
       end
 
-      # 名前が prefix で始まる店舗(id の順)。LIKE で絞り、Ruby でも前方一致を確かめる。
+      # 店舗名が prefix に当たるか(店舗名の前方一致の 4 か所: accounts・WriteGuard.relock!・E2eGrowth.relock!・E2eBilling::Orphans の
+      # run 名)。prefix が数字で終わるときは、名前の続きが - か終端のときだけ当てる(e2e-consent-r1 は e2e-consent-r12-1 に、run の名前
+      # e2e-consent-r100-1 は同じ run の attempt の e2e-consent-r100-10 に当たらない)。数字で終わらない prefix(族の e2e-consent-r・
+      # - で終わる e2e-consent-r12-)は前方一致のままで、続き全部に当たる。
+      module Prefix
+        module_function
+
+        def match?(prefix, name)
+          return false unless name.start_with?(prefix)
+          return true unless prefix.match?(/\d\z/)
+
+          name.length == prefix.length || name[prefix.length] == '-'
+        end
+      end
+
+      # 名前が prefix に当たる店舗(id の順)。LIKE で絞り(上位集合)、境界は Ruby の Prefix.match? で確かめる。
       def accounts(prefix)
-        Account.where('name LIKE ?', "#{Account.sanitize_sql_like(prefix)}%").order(:id).select { |account| account.name.start_with?(prefix) }
+        Account.where('name LIKE ?', "#{Account.sanitize_sql_like(prefix)}%").order(:id).select { |account| Prefix.match?(prefix, account.name) }
       end
 
       # toybaco:legal_consents_by_name[prefix]。店舗ごとに legal_consents と同じ行を出し、最後に一致した店舗の数を 1 行で出す。
@@ -639,7 +654,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
         def relock!(prefix, stores, action, name_format: RUN_NAME_FORMAT)
           stores.sort_by(&:id).each do |store|
             store.reload(lock: true)
-            next if store.name.start_with?(prefix) && store.name.match?(name_format) && (!block_given? || yield(store))
+            next if Prefix.match?(prefix, store.name) && store.name.match?(name_format) && (!block_given? || yield(store))
 
             abort "account=#{store.id} の名前か状態が選んだ後に変わったため#{action}しません。"
           end
@@ -1070,7 +1085,7 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
       # transaction の中で、店舗を行ロックして読み直し、名前(prefix と厳格な形)と有効なことを確かめ直す。
       def relock!(label, prefix, account)
         account.lock!
-        return if account.name.start_with?(prefix) && account.name.match?(E2eConsent::RUN_NAME_FORMAT) && account.active?
+        return if E2eConsent::Prefix.match?(prefix, account.name) && account.name.match?(E2eConsent::RUN_NAME_FORMAT) && account.active?
 
         refuse!(label, account.id, 'account_changed')
       end
@@ -2757,9 +2772,9 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
             names.any? && names.uniq.size == 1 && run_name?(prefix, names.first)
           end
 
-          # E2E の run 名の形(RUN_NAME_FORMAT)に合い、prefix で始まる文字列。
+          # E2E の run 名の形(RUN_NAME_FORMAT)に合い、prefix に当たる(E2eConsent::Prefix.match?)文字列。
           def run_name?(prefix, name)
-            name.is_a?(String) && name.match?(E2eConsent::RUN_NAME_FORMAT) && name.start_with?(prefix)
+            name.is_a?(String) && name.match?(E2eConsent::RUN_NAME_FORMAT) && E2eConsent::Prefix.match?(prefix, name)
           end
 
           # 展開された購読の既定の PaymentMethod の請求先の名前(展開されていない・無いときは nil)。

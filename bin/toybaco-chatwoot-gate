@@ -13,6 +13,8 @@ readonly CHATWOOT_PREVIOUS_COMMIT='70e284a044f00326725f65f703162745371075ec'
 readonly CHATWOOT_PREVIOUS_TREE='5dcb62d1588bd247a103bd8c0ef772b9c3d69948'
 readonly CHATWOOT_SOURCE_URL='https://github.com/chatwoot/chatwoot.git'
 readonly CHATWOOT_IMAGE='chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de'
+# 出荷するruntimeのbase(Alpine 3.22 + 上流と同じRuby 3.4.4)。上流imageはcodeとbuildだけのstageに使う。
+readonly CHATWOOT_RUNTIME_IMAGE='ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1'
 readonly POSTGRES_IMAGE='pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b'
 readonly REDIS_IMAGE='redis:7.4.5-alpine@sha256:bb186d083732f669da90be8b0f975a37812b15e913465bb14d845db72a4e3e08'
 readonly EXPECTED_MIN_INTEGRATION_RUBY_FILES=14
@@ -238,6 +240,11 @@ control_file_list() {
     'tests/chatwoot-notification-login.test.mjs' \
     'tests/chatwoot-post-entry.test.mjs' \
     'scripts/verify-chatwoot-ee-view-twins.sh' \
+    'scripts/chatwoot-alpine-status.py' \
+    'config/chatwoot-runtime-apk.txt' \
+    'tests/verify_chatwoot_runtime_apk.rb' \
+    'tests/chatwoot_runtime_apk_test.rb' \
+    'docs/chatwoot-runtime-os-policy.md' \
     'tests/chatwoot-ee-view-twins.test.mjs' \
     'tests/chatwoot-password-policy-ui.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
@@ -481,51 +488,28 @@ assert_control_contract() {
     'Chatwoot日本語生成scriptのRuby syntaxが不正です'
   ruby -c "$CONTROL_ROOT/scripts/generate-chatwoot-active-ja-overrides.rb" >/dev/null || fail \
     'Chatwoot主要画面日本語生成scriptのRuby syntaxが不正です'
-  grep -Fq '= "$musl_before"' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileのruntime-hardening stageがmuslを動かさないことを検証しません'
-  grep -Fq "zlib=1.3.2-r1" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileのzlib修正版が固定されていません'
-  grep -Fq 'cp -a /usr/lib/libz.so.1 /usr/lib/libz.so.1.3.2 /toybaco-runtime-root/usr/lib/' \
-    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版zlib実体をfinal stageへコピーしません'
-  grep -Fq 'test ! -e /usr/lib/libz.so.1.3.1' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileが旧zlib実体を拒否しません'
-  grep -Fq "libexpat=2.9.0-r0" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileのlibexpat修正版が固定されていません'
-  grep -Fq 'cp -a /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.1.13.0 /toybaco-runtime-root/usr/lib/' \
-    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileが修正版libexpat実体をfinal stageへコピーしません'
-  grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.3' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileが旧libexpat実体を拒否しません'
-  grep -Fq 'test ! -e /usr/lib/libexpat.so.1.12.4' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileがbase imageの旧libexpat 2.8.4実体を拒否しません'
-  grep -Fq 'Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileがlibexpatの実ロードを検証しません'
-  grep -Fq "'tiff=4.7.2-r0'" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production DockerfileのTIFF修正版が固定されていません'
-  grep -Fq 'Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production DockerfileがTIFFの実ロードを検証しません'
-  for package in curl=8.14.1-r3 libcurl=8.14.1-r3 pcre2=10.43-r1; do
-    grep -Fq "'$package'" "$CONTROL_ROOT/Dockerfile" || fail \
-      "production Dockerfileの修正版が固定されていません: $package"
-  done
-  for package in musl=1.2.5-r12 musl-utils=1.2.5-r12 musl-dev=1.2.5-r12 c-ares=1.34.9-r0 brotli-libs=1.1.1-r0; do
-    grep -Fq "'$package'" "$CONTROL_ROOT/Dockerfile" || fail \
-      "production Dockerfileのmusl・c-ares・brotli修正版が固定されていません: $package"
-  done
-  grep -Fq 'Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0}, %q{brotli-libs} => %q{1.1.1-r0}, %q{openjpeg} => %q{2.5.4-r1} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8 usr/lib/libbrotlicommon.so.1 usr/lib/libbrotlicommon.so.1.1.1 usr/lib/libbrotlidec.so.1 usr/lib/libbrotlidec.so.1.1.1 usr/lib/libbrotlienc.so.1 usr/lib/libbrotlienc.so.1.1.1 usr/lib/libopenjp2.so.7 usr/lib/libopenjp2.so.2.5.4] - verified).empty?' \
-    "$CONTROL_ROOT/Dockerfile" || fail 'production Dockerfileがmusl・c-ares・brotli・OpenJPEGの実体をapkの記録と照合しません'
-  grep -Fq 'Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}]' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileがc-aresの実ロードを検証しません'
-  grep -Fq 'Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}]' "$CONTROL_ROOT/Dockerfile" || fail \
-    'production Dockerfileがbrotliの実ロードを検証しません'
+  # 出荷するruntimeはAlpine 3.22。packageはreview済みの一覧で名前の集合と下限の版を固定し、alpine-releaseは
+  # base imageの版のまま止める(docs/chatwoot-runtime-os-policy.md)。
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" \
+    "ARG RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" 'FROM ${RUBY_RUNTIME_IMAGE} AS runtime-base'
+  grep -Fq "org.opencontainers.image.base.name=\"$CHATWOOT_RUNTIME_IMAGE\"" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileのbase labelがruntime imageではありません'
+  grep -Fq "jp.toybaco.upstream.image=\"$CHATWOOT_IMAGE\"" "$CONTROL_ROOT/Dockerfile" || fail \
+    'production Dockerfileの上流image labelが固定値ではありません'
+  assert_single_exact_line "$CONTROL_ROOT/Dockerfile" '    && apk add --no-cache "alpine-release=$alpine_release" \'
+  [[ "$(grep -c -F 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt' \
+    "$CONTROL_ROOT/Dockerfile")" == 2 ]] || fail \
+    'production Dockerfileがruntime packageの一覧の検証をruntime baseと最終stageで行いません'
+  ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" >/dev/null || fail \
+    'runtime package検証scriptのRuby syntaxが不正です'
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt" || fail \
+    'runtime packageの一覧の形が不正です'
+  ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb" || fail 'runtime package検証scriptの単体試験が失敗しました'
   for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
     scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
     ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
   done
-  grep -Fq "'openjpeg=2.5.4-r1'" "$CONTROL_ROOT/Dockerfile" || fail \
-    'production DockerfileのOpenJPEG修正版が固定されていません'
-  if grep -Fq 'alpine/v3.22/' "$CONTROL_ROOT/Dockerfile"; then
-    fail 'production DockerfileがAlpine v3.22のAPKを取得しています'
-  fi
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
     'production Vite buildのNode heap上限がassets:precompileへ固定されていません'
   grep -Fq -- "-type f -name '*.js'" "$CONTROL_ROOT/Dockerfile" || fail \
@@ -1066,6 +1050,7 @@ wait_for_rails_port() {
 
 verify_base_and_frame_contract() {
   local actual_revision
+  local alpine_release
   local frame_output
 
   STAGE='固定Chatwoot image/frame-policy契約'
@@ -1076,6 +1061,16 @@ verify_base_and_frame_contract() {
     --security-opt no-new-privileges "$CHATWOOT_IMAGE" sh -c 'cat /app/.git_sha')"
   [[ "$actual_revision" == "$CHATWOOT_SOURCE_COMMIT" ]] || fail \
     "固定Chatwoot imageとsource commitが一致しません: $actual_revision"
+  docker pull --platform linux/amd64 "$CHATWOOT_RUNTIME_IMAGE" >/dev/null
+  [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$CHATWOOT_RUNTIME_IMAGE")" == 'linux/amd64' ]] || \
+    fail '固定runtime imageがlinux/amd64ではありません'
+  # AlpineのEOLの状態をStep Summaryへ1行で出す(CW-1)。表示だけでgateの判定には使わない。
+  # 版は出荷するruntimeの固定base imageの/etc/alpine-releaseから読む(alpine-releaseはこの版のまま出荷する)。
+  # 読めない・scriptが失敗してもgateは止めない。
+  alpine_release="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges "$CHATWOOT_RUNTIME_IMAGE" sh -c 'cat /etc/alpine-release' 2>/dev/null)" || \
+    alpine_release=''
+  python3 "$CONTROL_ROOT/scripts/chatwoot-alpine-status.py" eol --release="$alpine_release" || true
 
   frame_output="$(docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -1193,9 +1188,13 @@ build_test_image() {
       "backport test contextのSHA-256が不一致です: $relative_path"
   done
 
-  DOCKER_BUILDKIT=1 docker build --pull --platform linux/amd64 \
+  # test imageは直前にbuildしたproduction imageから作る(出荷するAlpine 3.22とgemの上でRSpecと実行時試験を流す)。
+  # local imageなので--pullは付けない。
+  [[ -n "$PRODUCTION_IMAGE" ]] && docker image inspect "$PRODUCTION_IMAGE" >/dev/null 2>&1 || fail \
+    'test imageの元になるproduction imageがありません'
+  DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
     --file "$CONTROL_ROOT/tests/chatwoot-test.Dockerfile" \
-    --build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE" \
+    --build-arg "CHATWOOT_IMAGE=$PRODUCTION_IMAGE" \
     --build-arg "CHATWOOT_SOURCE_COMMIT=$CHATWOOT_SOURCE_COMMIT" \
     --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_MANIFEST_SHA" \
     --tag "$TEST_IMAGE" \
@@ -1542,36 +1541,34 @@ run_ruby_quality() {
 
 }
 
-build_and_smoke_production_image() {
+build_production_image() {
   local actual_base_label
   local actual_revision_label
+  local production_env
   local production_env_names
   local log_level_env_names
+  local upstream_env
   local base_count
   local production_count
-  local sidekiq_count
-  local sidekiq_deadline
-  local sidekiq_identity
-  local sidekiq_info
-  local relative_path
-  local hash
-  local production_contract="$RUN_ROOT/production-contract"
-  local production_manifest="$production_contract/production-overlay.sha256"
-  local production_ruby_files="$production_contract/production-ruby-files"
+  local value
 
   STAGE='production linux/amd64 quality build'
-  # quality laneはproduction Dockerfileそのものを通常のBuildKitでbuildしてruntime smokeする。
+  # quality laneはproduction Dockerfileそのものを通常のBuildKitでbuildし、test imageもこのimageから作る
+  # (RSpecと実行時試験を出荷するAlpine・gemの上で流す)。最後にruntime smokeする。
   # release用OCI archive/SBOM/provenanceはparkし、publisher jobだけがbuildxを一度実行する。
   DOCKER_BUILDKIT=1 docker build --no-cache --pull --platform linux/amd64 \
     --file "$CONTROL_ROOT/Dockerfile" \
     --build-arg "CHATWOOT_IMAGE=$CHATWOOT_IMAGE" \
+    --build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE" \
     --build-arg "TOYBACO_CONTROL_SHA256=$CONTROL_MANIFEST_SHA" \
     --tag "$PRODUCTION_IMAGE" \
     "$CONTROL_ROOT"
 
   actual_base_label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.base.name" }}' "$PRODUCTION_IMAGE")"
   actual_revision_label="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$PRODUCTION_IMAGE")"
-  [[ "$actual_base_label" == "$CHATWOOT_IMAGE" ]] || fail "production imageのbase labelが不一致です: $actual_base_label"
+  [[ "$actual_base_label" == "$CHATWOOT_RUNTIME_IMAGE" ]] || fail "production imageのbase labelが不一致です: $actual_base_label"
+  [[ "$(docker image inspect --format '{{ index .Config.Labels "jp.toybaco.upstream.image" }}' "$PRODUCTION_IMAGE")" == \
+    "$CHATWOOT_IMAGE" ]] || fail 'production imageの上流image labelが不一致です'
   [[ "$actual_revision_label" == "$CHATWOOT_SOURCE_COMMIT" ]] || fail \
     "production imageのrevision labelが不一致です: $actual_revision_label"
   [[ "$(docker image inspect --format '{{ index .Config.Labels "jp.toybaco.source.tree" }}' "$PRODUCTION_IMAGE")" == \
@@ -1583,15 +1580,25 @@ build_and_smoke_production_image() {
   # ChatwootのSidekiqとRailsはLOG_LEVELでlog levelを決め、infoより上げるとsidekiq-dead alarmが数える
   # 「Adding dead」の行(info)が消える。最終imageに残るENV(base imageの分を含む)にLOG_LEVEL/RAILS_LOG_LEVELを置かない。
   # build中だけのARGはConfig.Envに残らないので対象外(tests/monitoring-alarms.test.mjsとdocs/operations-backoffice-plan-2026-09-27.md 9章)。
-  production_env_names="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$PRODUCTION_IMAGE" \
-    | sed -e '/^$/d' -e 's/=.*//')"
+  production_env="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$PRODUCTION_IMAGE" \
+    | sed -e '/^$/d')"
+  production_env_names="$(sed -e 's/=.*//' <<< "$production_env")"
   [[ -n "$production_env_names" ]] || fail 'production imageのConfig.Envを読めません'
   log_level_env_names="$(grep -xE 'LOG_LEVEL|RAILS_LOG_LEVEL' <<< "$production_env_names" || true)"
   if [[ -n "$log_level_env_names" ]]; then
     fail "production imageのENVにlog levelを決める変数があります: ${log_level_env_names//$'\n'/ }"
   fi
 
-  docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$CHATWOOT_IMAGE" \
+  # runtimeを載せ替えても、上流の最終imageのENV(Ruby・Bundler・RAILS_ENV・VIPS_BLOCK_UNTRUSTEDなど)は同じ値で残す。
+  upstream_env="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$CHATWOOT_IMAGE" \
+    | sed -e '/^$/d')"
+  [[ -n "$upstream_env" ]] || fail '固定Chatwoot imageのConfig.Envを読めません'
+  while IFS= read -r value; do
+    grep -Fqx -- "$value" <<< "$production_env" || fail "production imageに上流imageのENVがありません: ${value%%=*}"
+  done <<< "$upstream_env"
+
+  # production imageの先頭のlayer列は、出荷するruntimeの固定base imageそのもの。
+  docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$CHATWOOT_RUNTIME_IMAGE" \
     | sed '/^$/d' > "$RUN_ROOT/base-layers"
   docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$PRODUCTION_IMAGE" \
     | sed '/^$/d' > "$RUN_ROOT/production-layers"
@@ -1600,7 +1607,20 @@ build_and_smoke_production_image() {
   [[ "$production_count" -gt "$base_count" ]] || fail 'production imageにoverlay layerがありません'
   head -n "$base_count" "$RUN_ROOT/production-layers" > "$RUN_ROOT/production-base-prefix"
   cmp "$RUN_ROOT/base-layers" "$RUN_ROOT/production-base-prefix" || fail \
-    'production imageのbase layer列が固定imageと一致しません'
+    'production imageのbase layer列が固定runtime imageと一致しません'
+}
+
+smoke_production_image() {
+  local sidekiq_count
+  local sidekiq_deadline
+  local sidekiq_identity
+  local sidekiq_info
+  local relative_path
+  local hash
+  local production_contract="$RUN_ROOT/production-contract"
+  local production_manifest="$production_contract/production-overlay.sha256"
+  local production_ruby_files="$production_contract/production-ruby-files"
+  local runtime_apk_output="$RUN_ROOT/runtime-apk.txt"
 
   mkdir -m 0755 "$production_contract"
   while IFS=' ' read -r hash relative_path; do
@@ -1631,51 +1651,23 @@ build_and_smoke_production_image() {
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
       test "$(cat /app/.git_sha)" = "$1"
-      test "$(apk info -v | grep "^ca-certificates-bundle-")" = "ca-certificates-bundle-20241121-r1"
-      test "$(apk info -v | grep "^curl-")" = "curl-8.14.1-r3"
-      test "$(apk info -v | grep "^libcurl-")" = "libcurl-8.14.1-r3"
-      test "$(apk info -v | grep "^pcre2-")" = "pcre2-10.43-r1"
-      curl --version | head -n 1 | grep -F "libcurl/8.14.1"
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcurl.so.4})[%q{curl_version}], [], Fiddle::TYPE_VOIDP).call.to_s.start_with?(%q{libcurl/8.14.1 })"
-      ruby -rfiddle -e "config = Fiddle::Function.new(Fiddle.dlopen(%q{libpcre2-8.so.0})[%q{pcre2_config_8}], [Fiddle::TYPE_INT, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT); version = Fiddle::Pointer.malloc(128); abort unless config.call(11, version).positive? && version.to_s.start_with?(%q{10.43 })"
-      test "$(apk info -v | grep "^musl-[0-9]")" = "musl-1.2.5-r12"
-      test "$(apk info -v | grep "^musl-utils-[0-9]")" = "musl-utils-1.2.5-r12"
-      test "$(apk info -v | grep "^musl-dev-[0-9]")" = "musl-dev-1.2.5-r12"
-      test "$(apk info -v | grep "^c-ares-[0-9]")" = "c-ares-1.34.9-r0"
-      test "$(apk info -v | grep "^brotli-libs-[0-9]")" = "brotli-libs-1.1.1-r0"
-      test "$(readlink /lib/libc.musl-x86_64.so.1)" = "ld-musl-x86_64.so.1"
-      test ! -e /usr/lib/libcares.so.2.19.7
-      test ! -e /usr/lib/libbrotlicommon.so.1.1.0
-      test ! -e /usr/lib/libbrotlidec.so.1.1.0
-      test ! -e /usr/lib/libbrotlienc.so.1.1.0
-      ruby -rdigest -e "Dir.chdir(%q{/}); records = File.binread(%q{lib/apk/db/installed}).split(10.chr * 2).map { |record| record.lines.map(&:chomp) }; verified = []; { %q{musl} => %q{1.2.5-r12}, %q{musl-utils} => %q{1.2.5-r12}, %q{musl-dev} => %q{1.2.5-r12}, %q{c-ares} => %q{1.34.9-r0}, %q{brotli-libs} => %q{1.1.1-r0}, %q{openjpeg} => %q{2.5.4-r1} }.each { |name, version| found = records.select { |lines| lines.include?(%q{P:} + name) }; abort %q{apk record: } + name unless found.size == 1 && found.first.include?(%q{V:} + version); dir = path = nil; found.first.each { |line| key, value = line.split(%q{:}, 2); if key == %q{F} then dir = value elsif key == %q{R} then abort %q{apk checksum missing: } + path if path; path = File.join(dir.to_s, value) elsif key == %q{Z} then actual = File.symlink?(path) ? Digest::SHA1.digest(File.readlink(path)) : Digest::SHA1.file(path).digest; abort %q{apk checksum mismatch: } + path unless value == %q{Q1} + [actual].pack(%q{m0}); verified << path; path = nil end }; abort %q{apk checksum missing: } + path if path }; abort %q{apk record proof incomplete} unless (%w[lib/ld-musl-x86_64.so.1 lib/libc.musl-x86_64.so.1 usr/lib/libcares.so.2 usr/lib/libcares.so.2.19.8 usr/lib/libbrotlicommon.so.1 usr/lib/libbrotlicommon.so.1.1.1 usr/lib/libbrotlidec.so.1 usr/lib/libbrotlidec.so.1.1.1 usr/lib/libbrotlienc.so.1 usr/lib/libbrotlienc.so.1.1.1 usr/lib/libopenjp2.so.7 usr/lib/libopenjp2.so.2.5.4] - verified).empty?"
-      curl --version | head -n 1 | grep -F " c-ares/1.34.9 "
-      curl --version | head -n 1 | grep -F " brotli/1.1.1 "
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libcares.so.2})[%q{ares_version}], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP).call(nil).to_s == %q{1.34.9}"
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libbrotlidec.so.1})[%q{BrotliDecoderVersion}], [], Fiddle::TYPE_INT).call == 0x1001001"
-      test "$(apk info -v | grep "^zlib-")" = "zlib-1.3.2-r1"
-      test "$(readlink /usr/lib/libz.so.1)" = "libz.so.1.3.2"
-      test -f /usr/lib/libz.so.1.3.2
-      test ! -e /usr/lib/libz.so.1.3.1
-      test "$(apk info -v | grep "^libexpat-")" = "libexpat-2.9.0-r0"
-      test "$(readlink /usr/lib/libexpat.so.1)" = "libexpat.so.1.13.0"
-      test -f /usr/lib/libexpat.so.1.13.0
-      test ! -e /usr/lib/libexpat.so.1.12.3
-      test ! -e /usr/lib/libexpat.so.1.12.4
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libexpat.so.1})[%q{XML_ExpatVersion}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{expat_2.9.0}"
-      test "$(apk info -v | grep "^tiff-")" = "tiff-4.7.2-r0"
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libtiff.so.6})[%q{TIFFGetVersion}], [], Fiddle::TYPE_VOIDP).call.to_s.lines.first.chomp == %q{LIBTIFF, Version 4.7.2}"
-      for package in openssl libcrypto3 libssl3; do
-        test "$(apk info -v | grep "^$package-[0-9]")" = "$package-3.3.7-r2"
-      done
-      ruby -ropenssl -e "abort unless OpenSSL::OPENSSL_LIBRARY_VERSION.start_with?(%q{OpenSSL 3.3.7 }); OpenSSL::SSL::SSLContext.new; OpenSSL::PKey::RSA.generate(2048)"
-      test "$(apk info -v | grep "^postgresql17-client-")" = "postgresql17-client-17.11-r0"
-      test "$(apk info -v | grep "^openjpeg-")" = "openjpeg-2.5.4-r1"
-      test "$(readlink /usr/lib/libopenjp2.so.7)" = "libopenjp2.so.2.5.4"
-      test -f /usr/lib/libopenjp2.so.2.5.4
-      test ! -e /usr/lib/libopenjp2.so.2.5.2
-      ruby -rfiddle -e "abort unless Fiddle::Function.new(Fiddle.dlopen(%q{libopenjp2.so.7})[%q{opj_version}], [], Fiddle::TYPE_VOIDP).call.to_s == %q{2.5.4}"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
+  # 出荷するAlpine packageを、control snapshotのreview済みの一覧で確かめる(名前の集合とalpine-releaseは完全一致、
+  # ほかの版は下限、実際に読み込まれるOpenSSL・expat・TIFF・OpenJPEG・zlib・muslの版、repositoryはbranchだけ)。
+  # 一覧より新しい修正版は失敗にせずStep Summaryへ出す(docs/chatwoot-runtime-os-policy.md)。
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_runtime_apk.rb /contract/config/chatwoot-runtime-apk.txt \
+    > "$runtime_apk_output"
+  cat "$runtime_apk_output"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      printf '\n```\n'
+      grep -E '^(ALPINE_APK_NEWER|TOYBACO_CHATWOOT_RUNTIME_APK=)' "$runtime_apk_output" || true
+      printf '```\n\n'
+    } >> "$GITHUB_STEP_SUMMARY" || true
+  fi
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
@@ -2150,12 +2142,13 @@ main() {
   ruby "$CONTROL_ROOT/tests/chatwoot_full_japanese_test.rb" \
     "$CLEAN_SOURCE" "$CONTROL_ROOT/overlay/app"
 
+  build_production_image
   build_test_image
   start_services
   create_test_databases
   verify_toybaco_database_prepare
   run_ruby_quality
-  build_and_smoke_production_image
+  smoke_production_image
   assert_final_boundaries
 
   STAGE='完了'

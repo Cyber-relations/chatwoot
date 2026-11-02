@@ -18,6 +18,9 @@ export const GEM_PURL = 'pkg:gem/ruby_llm@1.15.0';
 export const VEX_TYPE = 'https://openvex.dev/ns/v0.2.0';
 export const PROOF_TYPE = 'https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1';
 export const TRIVY = 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682';
+// The shipped runtime's distro: alpine-release stays at the pinned Alpine 3.22 base image's own build
+// (docs/chatwoot-runtime-os-policy.md), and the publisher passes the same value as Trivy --distro.
+export const ALPINE_RELEASE = '3.22.0';
 const GEM_ROOT = '/gems/ruby/3.4.0/gems/ruby_llm-1.15.0';
 const SPEC_PATH = '/gems/ruby/3.4.0/specifications/ruby_llm-1.15.0.gemspec';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -199,7 +202,7 @@ export function validateRawReport(report, exitStatus) {
   assert.equal(exitStatus, 1, 'raw scanner must have the three expected HIGH findings and exit 1');
   assert.equal(report.SchemaVersion, 2);
   assert.equal(report.Metadata.OS.Family, 'alpine');
-  assert.equal(report.Metadata.OS.Name, '3.21.3');
+  assert.equal(report.Metadata.OS.Name, ALPINE_RELEASE);
   const results = array(report.Results);
   for (const cls of ['os-pkgs', 'lang-pkgs']) {
     assert.ok(results.some(r => r.Class === cls && Array.isArray(r.Packages) && r.Packages.length > 0),
@@ -318,7 +321,7 @@ export function evaluate(input) {
     bindings: { ...binding, ...hashes, patch_config: configSha },
     scanner: { image: TRIVY, exit_status: rawExit, arguments: [
       '--config', '/dev/null', 'sbom', '--scanners', 'vuln', '--pkg-types', 'os,library',
-      '--distro', 'alpine/3.21.3', '--severity', 'CRITICAL,HIGH', '--ignore-unfixed=false',
+      '--distro', `alpine/${ALPINE_RELEASE}`, '--severity', 'CRITICAL,HIGH', '--ignore-unfixed=false',
       '--exit-code', '1', '--list-all-pkgs', '--skip-db-update', '--skip-java-db-update', '--offline-scan',
     ], database: before },
     installed_source_proof: proof,

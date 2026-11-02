@@ -2,7 +2,9 @@
 
 # Chatwoot v4.17.1 は SupportMailbox を ReplyMailbox に統合し、To が
 # Mail::AddressContainer でないと EmailChannelFinder の前に DefaultMailbox へ落とす。
-# SES fixture / envelope 宛先は X-Original-To・Delivered-To に載るので、
+# SES の取り込みと fixture は原本の前の X-Original-To・Delivered-To に gem の destination(SES の通知の
+# mail.destination の先頭。MIME の To・Cc 由来で、封筒の宛先(RCPT TO)ではない)を、再投入は先頭の SES の
+# Received の for を載せる。EmailChannelFinder(To・Cc・これらの header と、先頭の SES の Received の for)が
 # 公開受信アドレスに一致したら SupportMailbox へ戻す。
 # 経路決定の時点で token 付きログを出し、FilterLogEvents が mailbox 名と結べるようにする。
 # finder が落ちてもログは先に残す。原本は inbound_email.source を使う。

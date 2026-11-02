@@ -410,4 +410,18 @@ RSpec.describe Toybaco::Ops::E2eGrowth do # rubocop:disable RSpec/SpecFilePathFo
       end
     end
   end
+
+  # 店舗名の前方一致の境界(E2eConsent::Prefix.match?)。transaction の中で店舗を読み直す relock! も、数字で終わる prefix は名前の続きが
+  # - か終端の店舗だけを通す(選んだ後の確かめ直しで、別の run や同じ run の別の attempt の店舗に書かない)。
+  describe '店舗名の前方一致の境界(relock!)' do
+    it '数字で終わる prefix の外の店舗(r1 の r12-1・r12-1 の r12-10)は account_changed で断り、族・run の prefix・同じ名前は通す' do
+      stores = %w[e2e-consent-r12-1 e2e-consent-r12-10].map { |name| create(:account, name: name) }
+      relock = ->(prefix, account) { described_class.relock!(described_class::TRIAL, prefix, account) }
+      refused = ->(prefix, account) { capture(:stderr) { expect { relock.call(prefix, account) }.to raise_error(SystemExit) }.chomp }
+      passing = %w[e2e-consent-r e2e-consent-r12 e2e-consent-r12-].product(stores) + [['e2e-consent-r12-1', stores.first]]
+      expect { passing.each { |prefix, account| relock.call(prefix, account) } }.not_to raise_error
+      expect(refused.call('e2e-consent-r1', stores.first)).to eq(trial_line(stores.first, 'refused', 'account_changed'))
+      expect(refused.call('e2e-consent-r12-1', stores.last)).to eq(trial_line(stores.last, 'refused', 'account_changed'))
+    end
+  end
 end
