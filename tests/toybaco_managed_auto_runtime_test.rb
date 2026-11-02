@@ -9,6 +9,7 @@ unless ENV['TOYBACO_MANAGED_AUTO_LOCAL'] == 'true'
   require Rails.root.join('lib/toybaco/growth/managed_auto_work')
   require Rails.root.join('lib/toybaco/growth/managed_auto_install')
   require Rails.root.join('lib/toybaco/growth/managed_auto_ingress')
+  require Rails.root.join('app/jobs/toybaco/managed_auto_sweep_job')
   FactoryBot.find_definitions unless FactoryBot.factories.registered?(:account)
 end
 
@@ -706,6 +707,95 @@ module ToybacoManagedAutoCases
     state = AUTO.public_state(install.reload)
     assert_equal 'stopping', state['state']
     assert state['pending']
+  end
+
+  # 結果不明(uncertain)の行は、開始から CLOSE_AFTER(15 分)で毎分の sweep が閉じる。1 秒前は閉じない。閉じた行は開始と
+  # 予約を残し、理由に元の状態を書く。予約は課金せず期限切れにする。停止待ち(stopping)は同じ回で止まり、保留も Busy で止まらない。
+  def test_sweep_closes_an_unknown_result_after_the_bound_and_lets_stop_and_holds_proceed
+    switch('auto')
+    conversation, message = incoming
+    request = admit(message)
+    complete(request) { raise IOError, 'fixture provider uncertain' }
+    switch('stopped')
+    started_at = request.reload.started_at
+    bound = (started_at + Growth::ManagedAutoUnknown::CLOSE_AFTER).ceil
+    lines = []
+    travel_to(bound - 1) { Rails.logger.stub(:warn, ->(line) { lines << line }) { Toybaco::ManagedAutoSweepJob.perform_now } }
+    assert_equal [[], 'uncertain', 'stopping'], [lines, request.reload.state, install.reload.state]
+    assert_raises(Growth::InboxRetention::Busy) { AUTO.assert_holdable!(@account.id) }
+    travel_to(bound) { Rails.logger.stub(:warn, ->(line) { lines << line }) { Toybaco::ManagedAutoSweepJob.perform_now } }
+    assert_equal ['TOYBACO_MANAGED_AUTO_UNKNOWN_CLOSED closed=1 deferred=0'], lines
+    assert_equal ['cancelled', 'uncertain_expired', bound, started_at],
+                 request.reload.attributes.values_at('state', 'reason', 'terminal_at', 'started_at')
+    assert_equal ['expired', 0], [Operation.find(request.operation_id).state, @grant.reload.used]
+    assert_equal 'stopped', install.reload.state
+    AUTO.assert_holdable!(@account.id)
+    assert_equal 'open', conversation.reload.status
+    assert_empty conversation.messages.where(message_type: :outgoing, private: false)
+    closed = request.reload.attributes
+    travel_to(bound + 60) { Rails.logger.stub(:warn, ->(line) { lines << line }) { Toybaco::ManagedAutoSweepJob.perform_now } }
+    assert_equal [1, closed], [lines.size, request.reload.attributes]
+  end
+
+  # worker が開始(started)のまま結果を持ち帰れなかった行も同じ境界で閉じ、会話を担当者へ戻す。閉じた後に遅れて戻った結果は
+  # 公開返信を作らず課金もしない(finish! は同じ Account の排他の中で started の行だけを保存する)。
+  def test_sweep_closes_a_lost_start_and_a_late_result_never_replies
+    switch('auto')
+    conversation, message = incoming
+    request = admit(message)
+    ready, finish = Queue.new, Queue.new
+    model = Object.new
+    model.define_singleton_method(:generate) do |_|
+      ready << true
+      finish.pop
+      { 'action' => 'answer', 'reply' => '10時からです。' }
+    end
+    thread = Thread.new do
+      Account.connection_pool.with_connection { Work.new(Requests.find(request.id), model: model).perform }
+    end
+    Timeout.timeout(5) { ready.pop }
+    assert_equal ['started', 'pending'], [request.reload.state, conversation.reload.status]
+    travel_to((request.started_at + Growth::ManagedAutoUnknown::CLOSE_AFTER).ceil) { Toybaco::ManagedAutoSweepJob.perform_now }
+    assert_equal ['cancelled', 'started_expired', 'open'], [request.reload.state, request.reason, conversation.reload.status]
+    finish << true
+    assert thread.join(5)
+    thread.value
+    assert_equal ['cancelled', 'started_expired'], [request.reload.state, request.reason]
+    assert_empty conversation.messages.where(message_type: :outgoing, private: false)
+    assert_equal ['expired', 0], [Operation.find(request.operation_id).state, @grant.reload.used]
+  ensure
+    finish << true if finish
+    thread&.kill&.join if thread&.alive?
+  end
+
+  # 店舗の Account 行が他の処理で排他中なら、その行は閉じずに次の回へ回し、sweep 自体は落ちない(毎分の決済 sweep の後続を止めない)。
+  def test_sweep_defers_a_busy_store_and_closes_it_on_the_next_run
+    switch('auto')
+    _, message = incoming
+    request = admit(message)
+    complete(request) { raise IOError, 'fixture provider uncertain' }
+    bound = (request.reload.started_at + Growth::ManagedAutoUnknown::CLOSE_AFTER).ceil
+    locked, release = Queue.new, Queue.new
+    holder = Thread.new do
+      Account.connection_pool.with_connection do
+        Account.transaction do
+          Account.lock('FOR UPDATE').find(@account.id)
+          locked << true
+          release.pop
+        end
+      end
+    end
+    Timeout.timeout(5) { locked.pop }
+    lines = []
+    travel_to(bound) { Rails.logger.stub(:warn, ->(line) { lines << line }) { Toybaco::ManagedAutoSweepJob.perform_now } }
+    assert_equal [['TOYBACO_MANAGED_AUTO_UNKNOWN_CLOSED closed=0 deferred=1'], 'uncertain'], [lines, request.reload.state]
+    release << true
+    assert holder.join(5)
+    travel_to(bound + 60) { Toybaco::ManagedAutoSweepJob.perform_now }
+    assert_equal ['cancelled', 'uncertain_expired'], [request.reload.state, request.reason]
+  ensure
+    release << true if release
+    holder&.kill&.join if holder&.alive?
   end
 
   def test_new_model_parser_enforces_single_tool_no_free_text_and_handoff_shape

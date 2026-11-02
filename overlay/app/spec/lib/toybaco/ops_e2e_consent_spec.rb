@@ -1252,4 +1252,48 @@ RSpec.describe Toybaco::Ops::E2eConsent do # rubocop:disable RSpec/SpecFilePathF
       expect(new_rows.pluck(:result)).to eq(%w[started failed])
     end
   end
+
+  # 店舗名の前方一致の境界(E2eConsent::Prefix.match?)。prefix が数字で終わるときだけ、名前の続きが - か終端の店舗に当てる。族の prefix
+  # (e2e-consent-r)と - で終わる prefix は前方一致のまま。LIKE の絞り込みは上位集合のままで、境界は Ruby で見る。
+  describe '店舗名の前方一致の境界' do
+    let(:names) { %w[e2e-consent-r1-1 e2e-consent-r12-1 e2e-consent-r12-10 e2e-consent-r120-1] }
+
+    it 'Prefix.match? は数字で終わる prefix にだけ名前の続きが - か終端であることを求め、族と - で終わる prefix は続き全部に当てる' do
+      expected = { 'e2e-consent-r' => names, 'e2e-consent-r1' => %w[e2e-consent-r1-1],
+                   'e2e-consent-r12' => %w[e2e-consent-r12-1 e2e-consent-r12-10], 'e2e-consent-r12-' => %w[e2e-consent-r12-1 e2e-consent-r12-10],
+                   'e2e-consent-r12-1' => %w[e2e-consent-r12-1], 'e2e-consent-r12-10' => %w[e2e-consent-r12-10], 'e2e-consent-r2' => [] }
+      expect(expected.keys.index_with { |prefix| names.select { |name| described_class::Prefix.match?(prefix, name) } }).to eq(expected)
+      # 数字で終わらない prefix は続きが英字でも当たり、数字で終わる prefix の続きは - か終端だけ(英字の続きにも当てない)。
+      expect(%w[e2e-consent-run e2e-consent-run1].map { |prefix| described_class::Prefix.match?(prefix, 'e2e-consent-run1b') }).to eq([true, false])
+    end
+
+    it 'accounts は数字で終わる prefix を別の run(r1 に r12-1)と同じ run の別の attempt(r12-1 に r12-10)に当てず、族では全 run を出す' do
+      names.each { |name| create(:account, name: name) }
+      found = ->(prefix) { described_class.accounts(prefix).map(&:name) }
+      expect(found.call('e2e-consent-r')).to eq(names)
+      expect(found.call('e2e-consent-r1')).to eq(%w[e2e-consent-r1-1])
+      expect(found.call('e2e-consent-r12-1')).to eq(%w[e2e-consent-r12-1])
+      expect(found.call('e2e-consent-r12')).to eq(%w[e2e-consent-r12-1 e2e-consent-r12-10])
+      expect(run!('legal_consents_by_name', 'e2e-consent-r1').last).to eq('TOYBACO_LEGAL_CONSENTS_BY_NAME prefix=e2e-consent-r1 accounts=1')
+    end
+
+    it '削除は run の完全な名前の prefix で同じ名前の店舗だけを消し、同じ run の別の attempt(r12-10)の店舗は残す' do
+      stores = names.index_with { |name| create(:account, name: name) }
+      expect(run!('e2e_purge_accounts', 'e2e-consent-r12-1')).to eq(purged('e2e-consent-r12-1', 'accounts=1 users=0 skipped_users=0 remaining=0'))
+      expect(names.map { |name| Account.exists?(stores.fetch(name).id) }).to eq([true, false, true, true])
+    end
+
+    it 'WriteGuard.relock! は読み直した名前を同じ境界で確かめ、数字で終わる prefix の外の店舗(r1 の r12-1・r12-1 の r12-10)なら abort する' do
+      stores = names.index_with { |name| create(:account, name: name) }
+      relock = ->(prefix, *picked) { described_class::WriteGuard.relock!(prefix, stores.values_at(*picked), '削除') }
+      refused = ->(prefix, name) { capture(:stderr) { expect { relock.call(prefix, name) }.to raise_error(SystemExit) }.chomp }
+      expect { relock.call('e2e-consent-r', *names) }.not_to raise_error
+      expect { relock.call('e2e-consent-r12', 'e2e-consent-r12-1', 'e2e-consent-r12-10') }.not_to raise_error
+      expect { relock.call('e2e-consent-r12-1', 'e2e-consent-r12-1') }.not_to raise_error
+      expect(refused.call('e2e-consent-r1', 'e2e-consent-r12-1'))
+        .to eq("account=#{stores.fetch('e2e-consent-r12-1').id} の名前か状態が選んだ後に変わったため削除しません。")
+      expect(refused.call('e2e-consent-r12-1', 'e2e-consent-r12-10'))
+        .to eq("account=#{stores.fetch('e2e-consent-r12-10').id} の名前か状態が選んだ後に変わったため削除しません。")
+    end
+  end
 end

@@ -94,8 +94,8 @@ RSpec.describe 'Toybaco Devise password reset(ブラウザー)', type: :request 
     expect(password_state(invitee)).to eq(saved)
   end
 
-  # upstream の reset_password_and_confirmation はパスワードの検証より先に確認を保存するため、要件外の 422 でも招待先は確認済みになる
-  # (再設定 token は残り、設定し直せる)。確認の有無は upstream の挙動なので、ここでは契約にしない。
+  # upstream の reset_password_and_confirmation はパスワードの検証より先に確認を保存するが、PasswordResetExpiry が利用者の行の lock の
+  # transaction の中で動かすので、要件外の 422 では確認も戻る(再設定 token は残り、設定し直せる)。確認が戻ることは devise_password_reset_expiry_spec で確かめる。
   it '要件を満たさないパスワードは 422 で日本語の message を返し、パスワードを変えず token を残す(設定し直せる)' do
     invitee, = invited_agent('r703-1')
     set_password(new_password: 'Abcdef12')

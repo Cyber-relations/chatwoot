@@ -80,6 +80,52 @@ RSpec.describe Toybaco::OperationsMailer do
     expect(Toybaco::OperationsMailDeliveryJob.unseal(injected)).to eq(Toybaco::OperationsMailDeliveryJob.unseal(payload))
   end
 
+  # 宛先の形(OpeningOperations::EMAIL。主宛先と 2 本目は同じ recipient を通る)。通す形は Mail が例外なく解析して address が入力と
+  # 一致する。落とす形は recipient が nil になり、送らずに固定の文のログだけを出す(宛先そのものをログ・例外・出力に出さない)。
+  describe '宛先の形' do
+    let(:operations) { Toybaco::Growth::OpeningOperations }
+    let(:locals) { %w[ops first.last qa+e2e-consent-r1-1 user_name-01 a x.y-z_1+tag] }
+    let(:domains) { %w[example.invalid example.co.jp mail.example-shop.jp b.cd xn--eckwd4c7c.xn--zckzah] }
+    # 角括弧・引用符・括弧・セミコロン・コロン・カンマ・空白・全角文字・連続ドット・local / domain の先頭末尾のドット・@ が 2 つ・TLD が 1 字と、
+    # IP の literal・\・domain の _ や先頭末尾の -・ラベル 1 つの domain・数字の TLD・空の local / domain。
+    let(:rejected) do
+      ['a<b@example.invalid', '<ops@example.invalid>', 'ops@example.invalid>', '[ops]@example.invalid', '"ops"@example.invalid',
+       "o'ps@example.invalid", 'ops(x)@example.invalid', 'ops@example.invalid(x)', 'ops;x@example.invalid', 'a@example.invalid;b@example.invalid',
+       'group:ops@example.invalid', 'ops@example.invalid:25', 'a@example.invalid,b@example.invalid', 'ops x@example.invalid',
+       "ops\t@example.invalid", "ops\u3000@example.invalid", 'ｏｐｓ@example.invalid', 'ops@例え.jp', 'ops＠example.invalid',
+       'a..b@example.invalid', 'ops@example..invalid', '.ops@example.invalid', 'ops.@example.invalid', 'ops@.example.invalid',
+       'ops@example.invalid.', 'a@b@example.invalid', 'ops@example.c', 'ops@[127.0.0.1]', 'ops\\x@example.invalid', 'ops@exa_mple.invalid',
+       'ops@-example.invalid', 'ops@example-.invalid', 'ops@localhost', 'ops@example.123', '@example.invalid', 'ops@']
+    end
+
+    # 主宛先と 2 本目の recipient(名簿なしの production)。
+    def resolved(address)
+      production = { 'TOYBACO_DEPLOYMENT_ENVIRONMENT' => 'production' }
+      [operations::ADDRESS_ENV, operations::SECONDARY_ENV].map { |key| operations.recipient(production.merge(key => address), key) }
+    end
+
+    it '通す形は全て Mail::Address で例外なく解析でき、address が入力と一致し、主宛先・2 本目とも recipient がそのまま返す' do
+      accepted = locals.product(domains).map { |local, domain| "#{local}@#{domain}" }
+      expect(accepted.map { |address| Mail::Address.new(address).address }).to eq(accepted)
+      expect(accepted.map { |address| resolved(address) }).to eq(accepted.map { |address| [address, address] })
+      expect(resolved(" Ops@Example.Invalid\n")).to eq(['ops@example.invalid'] * 2)
+    end
+
+    it '落とす形は主宛先・2 本目とも recipient が nil になる' do
+      expect(rejected.reject { |address| resolved(address) == [nil, nil] }).to eq([])
+    end
+
+    it '主宛先と 2 本目がどちらも落とす形なら、送らずに固定の文のログだけを出し、宛先そのものをログに出さない' do
+      io = StringIO.new
+      allow(Rails).to receive(:logger).and_return(ActiveSupport::Logger.new(io))
+      with_modified_env(TOYBACO_DEPLOYMENT_ENVIRONMENT: 'production', TOYBACO_STAGING_FIXTURE_EMAILS: nil,
+                        TOYBACO_OPERATIONS_EMAIL: 'a<b@example.invalid', TOYBACO_OPERATIONS_ALERT_EMAIL: 'ops;x@example.invalid') do
+        expect(Toybaco::Growth::OpeningOperations.deliver(message)).to be(false)
+      end
+      expect([enqueued_jobs, io.string]).to eq([[], "TOYBACO_OPERATIONS_NOTICE_SKIPPED reason=recipient\n"])
+    end
+  end
+
   context 'when Sidekiq で配送する' do
     around do |example|
       saved = [ActionMailer::Base.delivery_method, ActionMailer::Base.perform_deliveries, ActionMailer::Base.raise_delivery_errors]

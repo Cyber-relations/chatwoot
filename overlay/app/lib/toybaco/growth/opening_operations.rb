@@ -14,7 +14,13 @@ module Toybaco::Growth::OpeningOperations
   # recipient と同じ規則で選び、OperationsMailer が配送時に Bcc で足す(job の引数とログに載せず、主宛先の受信箱からも見えない)。
   # 主宛先と同じ宛先なら 1 通にまとめ、主宛先が無ければ 2 本目を To にする。
   SECONDARY_ENV = 'TOYBACO_OPERATIONS_ALERT_EMAIL'
-  EMAIL = /\A[^@\s,]+@[^@\s,]+\.[^@\s,]+\z/
+  # 宛先の形(主宛先と 2 本目の両方。recipient が小文字にそろえてから照合する)。addr-spec の dot-atom の狭い部分集合だけを通す:
+  # local は英小文字・数字・_ + - の語を . でつなぎ、domain は英小文字・数字・- のラベル(先頭と末尾は - でない)を . でつなぎ、
+  # 最後のラベルは英字で始まる 2 字以上。Mail が解析できずに例外の文へ宛先を載せる形(a<b@…・空白・: ・@ が 2 つなど)、別の宛先や
+  # 注記として読み替える形(<…>・括弧・; ,)と、引用符・全角文字・連続や先頭末尾の . のような配送で拒まれうる形は、ここで落として
+  # 送らない(NullMail)。Mail を読み込まずに判定できるよう正規表現のままにし、通す形が Mail::Address で解析できて address が
+  # 入力と一致することは spec(operations_mailer_spec)で確かめる。
+  EMAIL = /\A[a-z0-9_+-]+(?:\.[a-z0-9_+-]+)*@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])\z/
   RESULTS = {
     'payment_mismatch' => '決済の内容を開通の条件と照合できませんでした(割引・金額・メールアドレス・業種・契約版など)',
     'record_missing' => '受付の記録が見つかりませんでした',

@@ -217,7 +217,8 @@ namespace :toybaco do # rubocop:disable Metrics/BlockLength
 
       # 初回設定・再設定共通のメールから、顧客自身がパスワードを設定する。
       user.send_reset_password_instructions
-      puts "開通完了: account ##{account.id} #{name} / #{email} / #{plan}" \
+      # ECS の task の puts は LogScrub を通らず CloudWatch に生で出る。店舗名と契約者のメールアドレスは出さない(CASA 6.5.1)。
+      puts "開通完了: account ##{account.id} / #{plan}" \
            "#{posting ? ' / 投稿オプション' : ''} / subscription #{subscription_id}"
     end
   end

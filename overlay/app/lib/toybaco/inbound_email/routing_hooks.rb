@@ -2,8 +2,10 @@
 
 module Toybaco # rubocop:disable Style/ClassAndModuleChildren
   module InboundEmail
-    # gem 0.1.0 は inline だけ X-Original-To を LF で足す。S3 原本にも
-    # envelope 宛先を CRLF で載せ、finder が shop-1 SES 経路を拾えるようにする。
+    # gem 0.1.0 は inline だけ X-Original-To を LF で足す。S3 原本にも同じ値(gem の destination。SES の通知の
+    # mail.destination の先頭で、MIME の To・Cc 由来。封筒の宛先(RCPT TO)ではない)を X-Original-To / Delivered-To として
+    # CRLF で載せ、finder が shop-1 SES 経路を拾えるようにする。封筒の宛先は先頭の SES の Received の for で決める
+    # (ConversationScope。再投入はこの for を X-Original-To / Delivered-To に載せる)。
     module RoutingHooks
       module SesSource
         def message_content

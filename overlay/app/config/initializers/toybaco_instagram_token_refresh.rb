@@ -5,8 +5,8 @@
 # (sidekiq-cron の取り逃しの猶予は 60 秒)に次は翌日になる。更新が成功した後は、上流の更新の条件(前回の更新から
 # 24 時間以上)で次の 24 時間は API を呼ばない。更新に失敗した時は、4 時間後の回でやり直す。
 # 時刻は TZ に依存させないよう UTC を明示する(toybaco_ops.rb と同じ)。
-# name は S-D(受信チャネルの健全性、日次の '25 1 * * * UTC')の登録と同じ。sidekiq-cron は name ごとに 1 件なので、
-# 両方が残っても cron は 1 件だが、後に読まれた create の時刻が勝つ。S-D を統合する時は、どちらか一方の登録を消す。
+# Instagram の cron はこの initializer だけが登録する。S-D(受信チャネルの健全性、config/initializers/toybaco_channel_health.rb)は
+# LINE の日次の確認だけを登録し、Instagram は登録しない(name は全 initializer で 1 件。停止の設定が日次の登録で戻らない)。
 # 停止の設定: env TOYBACO_INSTAGRAM_TOKEN_REFRESH が `off` のときは、登録せずにこの cron だけを消し(sidekiq-cron は
 # トイバコの create を dynamic として Redis に残すので、image を戻すだけでは消えない)、固定の 1 行を出す。
 # ほかの cron・queue・retry には触れない。job の側も off なら API を呼ばずに終える(Toybaco::InstagramTokenRefreshJob)。

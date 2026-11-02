@@ -290,4 +290,62 @@ RSpec.describe Toybaco::InboundEmail do
         .and(a_string_matching(/Conversation=(yes|no)/))
     ).to_stdout
   end
+
+  # stdout の行も LogScrub(CASA 6.5.1)に通す。logger は元の STDOUT を持つので、ここで捕まえるのは $stdout.puts の行だけ。
+  def stdout_of
+    original = $stdout
+    $stdout = StringIO.new
+    yield
+    $stdout.string
+  ensure
+    $stdout = original
+  end
+
+  it 'Message-ID がアドレスの形でも stdout の route-log はアドレスを伏せ、行頭・marker・mailbox・Conversation を残す' do
+    described_class.clear_ses_route_token
+    source = fixture_source.sub('<rewritten@unknown.host>', '<route.customer+tag@mail.example.com>')
+
+    output = stdout_of { described_class.log_ses_create_route(source: source) }
+
+    expect(output).to eq(
+      "toybaco-route-log toybaco-fixture-#{token} mailbox=SupportMailbox Conversation=no message_id=<[FILTERED_EMAIL]>\n"
+    )
+    expect(output).not_to match(Toybaco::Security::LogScrub::EMAIL)
+    expect(output).not_to include('route.customer')
+  ensure
+    described_class.clear_ses_route_token
+  end
+
+  it 'fixture の Message-ID でも stdout の行が受信の E2E の route と created の式に一致する' do
+    described_class.clear_ses_route_token
+    source = fixture_source.sub('<rewritten@unknown.host>', "<toybaco-fixture-#{token}@inbox.staging.toybaco.jp>")
+    # .github/workflows/staging-inbound-email-fixture.yml の evaluate_fixture_evidence の --arg route / created と同じ形。
+    route = /(^|[[:space:]])toybaco-route-log toybaco-fixture-#{token}([[:space:]]|$)/
+    created = /(^|[[:space:]])toybaco-route-log toybaco-fixture-#{token} mailbox=SupportMailbox Conversation=yes([[:space:]]|$)/
+
+    routed = stdout_of { described_class.log_ses_create_route(source: source) }
+    created_line = described_class.log_mailbox_route(Mail.new(source), mailbox: 'SupportMailbox', conversation: true, raw: source)
+    created_output = stdout_of { described_class.emit_cloudwatch_line(created_line) }
+
+    expect(routed.lines.grep(route)).not_to be_empty
+    expect(created_output.lines.grep(created)).not_to be_empty
+    expect(routed + created_output).to include('message_id=<[FILTERED_EMAIL]>')
+    expect(routed + created_output).not_to match(Toybaco::Security::LogScrub::EMAIL)
+  ensure
+    described_class.clear_ses_route_token
+  end
+
+  it '経路の不一致の行も stdout では LogScrub を通し、controller 名の部分は変えない' do
+    expected = "expected=#{described_class::INGRESS_CONTROLLER}"
+    prefix = "toybaco-ses-route-mismatch #{expected}"
+
+    masked = stdout_of { described_class.emit_ses_route_mismatch("#{expected} owner=ops.mismatch@mail.example.com") }
+    plain = stdout_of { described_class.emit_ses_route_mismatch("#{expected} actual=action_mailbox/ingresses/ses/inbound_emails") }
+
+    expect(masked).to start_with("#{prefix} ")
+    expect(masked).to include(Toybaco::Security::LogScrub::FILTERED_EMAIL)
+    expect(masked).not_to match(Toybaco::Security::LogScrub::EMAIL)
+    expect(masked).not_to include('ops.mismatch')
+    expect(plain).to eq("#{prefix} actual=action_mailbox/ingresses/ses/inbound_emails\n")
+  end
 end
