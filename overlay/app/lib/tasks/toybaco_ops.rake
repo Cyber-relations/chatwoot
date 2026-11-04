@@ -3211,6 +3211,10 @@ end
 #   onboarding_state ready(CHECK が許す値は pending / ready / attention だけ)。更新請求の処理は idle(phase はそのまま、result
 #   operator_closed)。どれも sweep は拾わず、毎分の確認待ちのログと日次ダイジェストの件数から外れる。閉じても Stripe や店舗の契約は
 #   変えない(対応は先に運営が済ませる)。
+# - 他製品の購読と確かめられた受付と購読照合は、確認待ちになる直前に job が自動で閉じる(Growth::ForeignSubscriptionReceipt /
+#   ForeignSubscriptionSync)。閉じた後は completed(result foreign_closed)で、operator_closed と全ての所で同じ扱い(sweep は拾わず、
+#   確認待ちのログと日次ダイジェストの件数から外れ、購読照合は次の通知で re-arm される)。監査行は実行者 job / system、action は
+#   ここと同じ attention.<種類>.close.foreign、受付の recovery_log の 1 件は action auto_close・reason foreign・actor system。
 # - 書かずに止める(abort。監査行は failed): 行が無い・確認待ちでない・購読照合で Free 復帰の停止を sweep が再試行している
 #   (SubscriptionReconciliation.suspension_due?。閉じると停止の再試行が止まる。始め直しは止めない)・更新請求の処理の phase が
 #   grace_ready(idle にすると猶予の期日に sweep が再実行する)か、店舗が今も持つ購読の未完の phase(received / due_waiting /

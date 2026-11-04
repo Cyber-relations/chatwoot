@@ -6,9 +6,15 @@ require_relative '../store_fulfillment'
 require_relative '../growth/inbox_retention'
 require_relative 'processing'
 require_relative '../growth/renewal_dispatch'
+require_relative '../growth/foreign_subscription_sync'
 
 class Toybaco::SubscriptionReconciliation::Execution
   include Toybaco::SubscriptionReconciliation::Processing
+  # A request bound to no store whose wait runs out is judged before claim!, defer_behind_barrier!
+  # and finish! take the row lock, and is closed instead of attention when it is proven another
+  # product's subscription on the shared Stripe account (APP-1). Its expiries and the attention of
+  # finish! go through foreign_expire! / foreign_update!, which fall back to the existing writes.
+  prepend Toybaco::Growth::ForeignSubscriptionSync
   # The Sync's own rule for a suspension (SubscriptionSyncStatus#suspended_status?), used as is.
   STATUS_RULES = Object.new.extend(Toybaco::SubscriptionSyncStatus).freeze
   RULES = Toybaco::SubscriptionReconciliation
@@ -72,12 +78,12 @@ class Toybaco::SubscriptionReconciliation::Execution
       next unless Toybaco::SubscriptionReconciliation::STATES.include?(@record.state)
 
       if @record.state == 'pending' && @record.deadline_at <= now
-        RULES.expire!(@record, expired_result, now)
+        foreign_expire!(expired_result)
       else
         @record.update!(next_attempt_at: deferred_slot, next_enqueue_at: now + 60)
       end
     end
-    @record.state == 'attention' ? 'attention' : 'renewal_pending'
+    %w[attention completed].include?(@record.state) ? @record.state : 'renewal_pending'
   end
 
   # Behind the barrier the Sync waits, so a Free return's attention would wait for good when
@@ -159,7 +165,7 @@ class Toybaco::SubscriptionReconciliation::Execution
         next reclaim_orphan! if orphan_rearmable?
 
         @expired_return = @record.result == 'free_return_pending'
-        RULES.expire!(@record, expired_result, now)
+        foreign_expire!(expired_result)
         next false
       end
 
@@ -216,7 +222,7 @@ class Toybaco::SubscriptionReconciliation::Execution
     @record.with_lock do
       raise Toybaco::SubscriptionReconciliation::Invalid unless current_claim?
 
-      @record.update!(completion_values(state, result))
+      foreign_update!(completion_values(state, result))
       RULES.log_transition(@record)
       @record.state
     end

@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 1442,
-  "examples_sha256": "59f09580bec7957d9a1ccb934a73e5933340b1e7f421675c95c668e5fe5d82bf",
+  "example_count": 1499,
+  "examples_sha256": "50c16171983412a8a4d85aaecb2aadf4a12c771d3c8bae1fdc3fbf594a84051c",
   "spec_inventory": "complete",
   "spec_files": [
     "spec/jobs/agent_bots/webhook_job_log_spec.rb",
@@ -44,6 +44,7 @@
     "spec/lib/toybaco/cron_health_spec.rb",
     "spec/lib/toybaco/dashboard_frame_policy_spec.rb",
     "spec/lib/toybaco/growth/automated_mail_spec.rb",
+    "spec/lib/toybaco/growth/foreign_subscription_spec.rb",
     "spec/lib/toybaco/inbound_email/conversation_scope_spec.rb",
     "spec/lib/toybaco/inbound_email_reingest_spec.rb",
     "spec/lib/toybaco/inbound_email_route_log_spec.rb",

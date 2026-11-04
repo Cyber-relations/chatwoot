@@ -9,8 +9,11 @@ require_relative 'opening_fulfillment'
 require_relative 'opening_operations'
 require_relative 'renewal_ingress_verification'
 require_relative 'renewal_dispatch_queue'
+require_relative 'foreign_subscription_receipt'
 
 class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
+  include Toybaco::Growth::ForeignSubscriptionReceipt
+
   class Pending < StandardError; end
 
   def call
@@ -21,12 +24,16 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
 
   private
 
+  # 期限切れの受付が他製品の購読なら(ForeignSubscriptionReceipt)、確認待ちにせず閉じる。判定は行 lock の前、閉じるのは lock の中。
   def claim
     expired = false
+    judged = foreign_expiry
     token = @event.with_lock do
       next unless @event.state == 'queued' || Toybaco::Growth::PaymentDispatch.due?(@event, @now)
 
       if @event.deadline_at <= @now || @event.attempts >= @event.attempt_limit
+        next if foreign_expiry_closed?(judged)
+
         @event.update!(state: 'attention', result: 'retry_limit', lease_token: nil, lease_expires_at: nil)
         Rails.logger.error('TOYBACO_BILLING_ATTENTION retry_limit=true')
         Rails.logger.error("TOYBACO_BILLING_ATTENTION_NEW receipt=#{@event.id} result=retry_limit")
@@ -43,6 +50,9 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
     raise 'billing receipt could not be claimed' unless @token
 
     state = final || @event.attempts >= @event.attempt_limit ? 'attention' : 'pending'
+    # 最後の試行が final でない失敗で、他製品の購読と決まれば(ForeignSubscriptionReceipt)、確認待ちにせず閉じる。
+    return if foreign_failure_settled?(state, final)
+
     # 旧形式の行と運営メールも、TOYBACO_BILLING_ATTENTION_NEW と同じく finish! が行を書いた時だけ出す。lease を失った時(他の
     # worker が claim し直した、または attention にした時)は何も出さない。その attention を書いた worker が知らせる。
     return unless finish!(state, result) && state == 'attention'
@@ -59,6 +69,7 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
 
     Toybaco::BillingEvent.transaction do
       written = super
+      foreign_checked(@foreign_reason) if written && @event.state == 'attention' && @foreign_reason
       Rails.logger.error("TOYBACO_BILLING_ATTENTION_NEW receipt=#{@event.id} result=#{result}") if written && @event.state == 'attention'
       written
     end
@@ -66,6 +77,7 @@ class Toybaco::Growth::BillingExecution < Toybaco::Growth::PaymentExecution
 
   # 受付が attention になる 2 か所(claim の期限切れと fail!)だけが TOYBACO_BILLING_ATTENTION_NEW を 1 回出し、billing-attention の
   # alarm はこの行を数える(毎分の BillingReceipt.sweep が残る間ずっと出す pending_receipts=true の行は数えない)。
+  # 他製品の購読と決まって閉じた受付(result foreign_closed)は、どちらの行も運営メールも出さない(ForeignSubscriptionReceipt)。
   # 開通の受付だけ、店舗を作れなかったことを運営へメールでも知らせる(alarm の通知には受付の中身が載らないため)。
   def tell_operations(result)
     Toybaco::Growth::OpeningOperations.failed!(@event, result) if @event.action == 'opening_checkout'

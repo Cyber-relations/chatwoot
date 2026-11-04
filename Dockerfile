@@ -94,10 +94,14 @@ FROM ${RUBY_RUNTIME_IMAGE} AS runtime-base
 # alpine-release stays at the pinned base image's own build, so the distro that the SBOM, Trivy and the evaluator
 # bind to moves only with a reviewed base change, not with Alpine point releases. Every other package takes the
 # branch's current signed build (security rebuilds need no pin bump); the verifier then requires exactly the reviewed
-# package names and no version older than reviewed, and reports newer ones. The package set is the upstream final
-# stage's without ImageMagick (Active Storage processes variants with libvips; see the policy), plus Bundler as
-# upstream.
+# package names and no version older than reviewed or than the CVE floors, and reports newer ones. Every regular file
+# and symlink under /lib and /usr/lib must match its apk record (Z:) or the reviewed unowned-file list, except the
+# apk database itself and the gdk-pixbuf loader cache (checked against gdk-pixbuf-query-loaders). The package set is
+# the upstream final stage's without ImageMagick (Active Storage processes variants with libvips; see the policy),
+# plus Bundler as upstream.
 COPY config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk.txt
+COPY config/chatwoot-runtime-apk-cve-floors.tsv /opt/toybaco/config/chatwoot-runtime-apk-cve-floors.tsv
+COPY config/chatwoot-runtime-apk-unowned-files.tsv /opt/toybaco/config/chatwoot-runtime-apk-unowned-files.tsv
 COPY tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb
 RUN alpine_release="$(sed -n 's/^alpine-release=//p' /opt/toybaco/config/chatwoot-runtime-apk.txt)" \
     && test -n "$alpine_release" \
@@ -114,7 +118,7 @@ RUN alpine_release="$(sed -n 's/^alpine-release=//p' /opt/toybaco/config/chatwoo
     && rm /tmp/toybaco-libexif.apk \
     && test "$(apk info -v | grep '^libexif-')" = 'libexif-0.6.26-r0' \
     && gem install bundler -v 2.5.16 \
-    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt
+    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk-cve-floors.tsv /opt/toybaco/config/chatwoot-runtime-apk-unowned-files.tsv
 # The upstream final image's environment.
 ENV NODE_VERSION=24.13.0 \
     PNPM_VERSION=10.2.0 \
@@ -127,13 +131,11 @@ ENV NODE_VERSION=24.13.0 \
     BUNDLE_PATH=/gems \
     VIPS_BLOCK_UNTRUSTED=1 \
     CW_EDITION=ee
-COPY --from=upstream /usr/local/bin/node /usr/local/bin/node
 # Same Ruby 3.4.4, so the default/bundled gem hardening applies unchanged.
 COPY config/chatwoot-runtime-gems.json /opt/toybaco/runtime-gems.json
 COPY scripts/harden-chatwoot-runtime-gems.rb /opt/toybaco/harden-runtime-gems.rb
 COPY tests/verify_chatwoot_runtime_gems.rb /opt/toybaco/verify-runtime-gems.rb
-RUN test "$(node --version)" = 'v24.21.0' \
-    && apk add --no-cache --virtual .toybaco-gem-build zlib-dev \
+RUN apk add --no-cache --virtual .toybaco-gem-build zlib-dev \
     && ruby /opt/toybaco/harden-runtime-gems.rb /opt/toybaco/runtime-gems.json \
     && apk del .toybaco-gem-build \
     && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
@@ -179,13 +181,13 @@ RUN rm -rf /app/public/assets
 COPY --from=runtime-hardening /toybaco-runtime-root/ /
 COPY tests/verify_chatwoot_sdk_artifacts.mjs /opt/toybaco/tests/
 COPY tests/verify_chatwoot_sprockets_artifacts.mjs /opt/toybaco/tests/
-# Re-check the final filesystem: the reviewed package set and versions, the actually loaded OpenSSL, expat, TIFF,
-# OpenJPEG, zlib and musl, and the hardened Ruby default gems.
+# Re-check the final filesystem: the reviewed package set and versions, the CVE floors, the bytes under /lib and
+# /usr/lib, the actually loaded OpenSSL, expat, TIFF, OpenJPEG, zlib and musl, and the hardened Ruby default gems.
 RUN test ! -e /usr/local/lib/node_modules/npm \
     && test ! -e /usr/local/bin/npm \
     && test ! -e /usr/local/bin/npx \
     && test ! -e /app/tests/playwright \
-    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt \
+    && ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk-cve-floors.tsv /opt/toybaco/config/chatwoot-runtime-apk-unowned-files.tsv \
     && ruby /opt/toybaco/verify-runtime-gems.rb /opt/toybaco/runtime-gems.json
 ARG TOYBACO_CONTROL_SHA256
 LABEL org.opencontainers.image.base.name="ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1" \
@@ -204,8 +206,11 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
     fi \
     && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
-RUN node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js
-RUN node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-final /app/public/assets
+# Node is not shipped (docs/chatwoot-runtime-os-policy.md). These two checks borrow the upstream binary for their own
+# RUN only, read-only through a BuildKit bind mount; the next RUN proves that neither Node nor a mount stub is left.
+RUN --mount=type=bind,from=upstream,source=/usr/local/bin/node,target=/usr/local/bin/node /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js
+RUN --mount=type=bind,from=upstream,source=/usr/local/bin/node,target=/usr/local/bin/node /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-final /app/public/assets
+RUN test ! -e /usr/local/bin/node && test -z "$(command -v node || :)"
 # Inspect the public trust artifact after every final filesystem write.
 # Enabling each client's certificate verification is a separate change.
 RUN ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'
