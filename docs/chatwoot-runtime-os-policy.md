@@ -5,11 +5,16 @@
 ## 形(`Dockerfile`)
 
 - 出荷する runtime の base は `ruby:3.4.4-alpine3.22@sha256:017bd0bf…`(linux/amd64 の manifest digest で固定。上流 image の固定と同じ形)。上流と同じ Ruby 3.4.4 を使う。Gemfile は `ruby '3.4.4'` に固定されていて、Ruby 3.4.4 の公式 image は alpine3.22 が最後。
-- 上流 image(`chatwoot/chatwoot@sha256:03a03a85…`、Alpine 3.21)から取るのは次の 3 つだけ。いずれも出荷しない。
+- 上流 image(`chatwoot/chatwoot@sha256:03a03a85…`、Alpine 3.21)から取るのは次の 3 つだけ。上流の OS は出荷しない。
   - code(`/app`)
-  - node
+  - node(`/usr/local/bin/node`)。asset の build と最終 stage の検査の間だけ使い、出荷しない
   - build だけの stage(overlay-normalizer・bundled-gems・localized-assets)
 - 上流の最終 stage の package から ImageMagick を除いたもの(build-base・openssl・tzdata・postgresql-client・git・vips)を入れる。ENV は上流の最終 image と同じ値にし、gate が一致を確かめる。
+- **Node は出荷しない**(2026-11-04)。
+  - 理由: 実行時に使わない。上流の ENV の `EXECJS_RUNTIME=Disabled` で ExecJS は Node を呼ばず、overlay の bin・lib/tasks・config にも呼び出しは無い。出荷しなければ、1〜2 か月ごとに来る Node の security release を追わなくてよい。出荷すれば SBOM の generic の package になり、Trivy が照らさないので、古くなっても走査に出ない(2026-10-21 の修正が入る前の 24.21.0 が、この形で残っていた)。
+  - 使う所: asset の build(localized-assets)は上流の Node のまま。出荷しない build の入力で、入力は固定の source だけ。最終 stage の 2 つの検査(`verify_chatwoot_sdk_artifacts.mjs`・`verify_chatwoot_sprockets_artifacts.mjs --verify-final`)は、`RUN --mount=type=bind,from=upstream,…` で、その RUN の間だけ読み取り専用で借りる。
+  - 確かめ: 最終 stage の次の RUN と gate の production image の試験が、`/usr/local/bin/node` が無いこと(BuildKit の mount の跡も含む)と PATH の上に node が無いことを確かめる。契約試験(`tests/chatwoot-managed-publisher.test.mjs`)は、Node を出荷する stage に戻す変更を止める。
+  - ENV の `NODE_VERSION`・`PNPM_VERSION` は上流の ENV の写しで、Node が在ることを示さない(上の gate の一致の確かめのために残す)。
 - **ImageMagick は出荷しない**(C1c、2026-11-01)。ここで上流の最終 stage の package の集合から離れる。
   - 理由: Alpine の community の repository は次の stable の release までしか support されず、3.22 の community は 2025-11-01 に終わった。ImageMagick 7.1.2.15 には、3.23・3.24 の secdb に 70〜80 件の新しい修正がある。
   - 受け取る画像から届かない: 上流の config は `load_defaults 7.0` で、Active Storage の `variant_processor` は `:vips`(上流と overlay に上書きは無い)。ImageMagick の analyzer と transformer は `:mini_magick` の時だけ使われ、previewers は空。Rails 7.2.3.2 は起動の時に `Vips.block_untrusted(true)` を呼び、libvips の ImageMagick への委任(magickload)も止める。upstream・overlay・Gemfile.lock の gem に、MiniMagick や ImageMagick の CLI を呼ぶ所は無い(2026-11-01 に grep と呼ぶ側の分岐で確かめた)。
@@ -20,7 +25,7 @@
 
 ## 版の固定の方針
 
-review 済みの一覧は `config/chatwoot-runtime-apk.txt` に置く(`name=version` を名前の順に並べる)。`tests/verify_chatwoot_runtime_apk.rb` が、runtime の base と最終 stage の両方で一覧と照らし、gate も production image で照らす。
+review 済みの一覧は `config/chatwoot-runtime-apk.txt` に置く(`name=version` を名前の順に並べる)。`tests/verify_chatwoot_runtime_apk.rb` が、runtime の base と最終 stage の両方で一覧と照らし、gate も production image で照らす。3 か所とも、一覧・CVE の下限の表(`config/chatwoot-runtime-apk-cve-floors.tsv`)・持ち主の無い file の許可の一覧(`config/chatwoot-runtime-apk-unowned-files.tsv`)の 3 つを渡す。gate の control 検査は、同じ 3 つの形を `--lint` で照らす(版の比較は image の中だけ)。
 
 - **package の名前の集合**: 一覧と完全一致。足し引きは review を要する。
 - **alpine-release**: base image の版(3.22.0-r0)で止める。`apk upgrade` の前に、`apk add alpine-release=<一覧の版>` で world に入れる。
@@ -31,9 +36,23 @@ review 済みの一覧は `config/chatwoot-runtime-apk.txt` に置く(`name=vers
   - 一覧より古ければ失敗する。新しければ `ALPINE_APK_NEWER` を build の log と gate の Step Summary に出す(黙っては変わらない)。版そのものは publisher の SPDX SBOM の署名にも残る。
   - 完全一致にしない理由: Alpine の APKINDEX は各 package の最新版しか載せない。置き換えられた古い `.apk` も、CDN から数日で消える(2026-10-21 の実測。1 世代前だけ残る例と、残らない例の両方があった)。完全一致の固定は再 build のたびに全 PR の gate を止める(2026-10-21 の時点で、過去 30 日に一覧の 10 系統が再 build された)。
 - **CVE の下限**: `config/chatwoot-runtime-apk-cve-floors.tsv` に、CVE の修正のために版を上げた package ごとの最小の版と根拠(CVE の id(未採番なら advisory の id)と、secdb v3.22 の secfixes の版か upstream の release notes の URL)を置く。
-  - 下限は CVE を直した版で、一覧の版の写しではない。契約試験(`tests/ops-chatwoot-alpine-status.test.mjs`)が、一覧の版がこの下限以上であることを apk と同じ比較で確かめる。
+  - 下限は CVE を直した版で、一覧の版の写しではない。
+  - verifier が、出荷する image の中で、一覧の版と入った版(`/lib/apk/db/installed`)の両方がこの下限以上であることを、本物の `apk version -t` で確かめる。表の package が一覧に無い時、表が無い・空・形が違う時(3 列、根拠に CVE か advisory の id と https の URL、名前の順)も止まる。
+  - 表の値そのもの(package の集合と各行の下限の文字)の完全一致は、private の repo の試験(`tests/ops-chatwoot-alpine-status.test.mjs` の KNOWN_FLOORS)が見る。verifier は「以上」、試験は「完全一致」。表を変えた時は KNOWN_FLOORS も同じに直す。
   - CVE の修正のために一覧の版を上げた時は、表にも行を足す。
 - **実際に読み込まれる library**: OpenSSL・expat・TIFF・OpenJPEG・zlib・musl の版が apk の版と一致すること。あわせて、apk の repository が branch(v3.22)の main と community だけであることも確かめる。
+- **/lib・/usr/lib の byte**(apk audit に当たる照合): 通常の file と symlink は全部、次のどれかでなければ止まる。ほかの種類の file(FIFO・device など)も止まる。照らした file が 0 件の時も止まる。
+  - apk の記録に持ち主があり、`Z:`(`Q1` + sha1 の base64)が一致する。symlink は link 先の文字の sha1 で、`//usr/libexec/…` のような link 先も正規化せず文字のまま比べる。path は byte 列のまま比べる(非 ASCII の名前でも locale によらない)。記録にあって disk に無い file も止まる。upstream の版の文字だけを見る library の照合では、同じ upstream の版の別の build(musl の r10 と r13 など)を区別できないので、この照合で byte を縛る。
+  - 許可の一覧(`config/chatwoot-runtime-apk-unowned-files.tsv`)の行と、path・内容が一致する。列は path・内容・理由の 3 つで、内容は通常の file なら sha256、symlink なら link 先の文字。glob・directory・path だけの行は書けない(byte が変わっても通るため)。使われない行も止まる。今は `/lib/apk/db/lock`(空)の 1 行。
+  - apk の DB の 3 file(`/lib/apk/db/installed`・`scripts.tar`・`triggers`)。中身は照らさず、verifier の定数にする(許可の一覧に書けば `--lint` で止まる)。通常の file として在ることと、実行 bit が無いことを確かめる。
+    - 外す理由: 3 つは package の版と `C:` を中身に持ち、一覧より新しい修正版が入るたびに変わる(2026-11-03 の実測では、同じ index の 4 回の build で byte は同じ)。sha256 で固定すると修正版のたびに gate が止まり、「一覧の版は下限」の方針と食い違う。installed は照合の基準そのもの。
+    - 外しても縛られている範囲: package の名前の集合と版(一覧・下限の表)、持ち主のある全 file の `Z:` の一致、`/lib/apk/db` の下のほかの持ち主の無い file は許可の一覧に無ければ止まること、3 file の種類と実行 bit。
+  - `/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache`(gdk-pixbuf の trigger が作る loader の一覧)。`/usr/bin/gdk-pixbuf-query-loaders`(apk の記録の持ち主が gdk-pixbuf で、`Z:` が一致するもの)を、root に連結した絶対 path で、空の環境・引数なしで走らせる(`--update-cache` は使わない)。stdout と stderr を 2 つの pipe で並べて読み、どちらにも同じ大きさの上限と同じ timeout を置く。終了 code 0・stdout が空でない・`.so` の行が 1 つ以上・stderr が空、のどれかを外れれば止まる。
+    - stderr を止める理由: 上流の query(2.42.12)は、個別の loader を読めない時、それを stderr に出し、残りの一覧を出して exit 0 で終わる。trigger の `--update-cache` も同じ不完全な一覧を cache に書くので、stdout と cache の一致だけでは見つからない。止めた時は、stderr の byte 数と、制御文字と改行を除いて短く切った先頭を出す。
+    - 比べ方: stdout が「file の byte + `\n` ちょうど 1 つ」と完全一致すること(空白や改行は正規化しない)。上流(gdk-pixbuf 2.42.12 の `gdk-pixbuf/queryloaders.c`)は、`--update-cache` の時は `g_file_set_contents (cache_file, contents->str, -1, &err)` で中身をそのまま書き(484 行)、stdout の時は `g_print ("%s\n", contents->str)` で改行を 1 つ足して出す(489 行)。上流の書き方が変われば止まる。
+    - sha256 で固定しない理由: gdk-pixbuf と librsvg の修正版が入っても、loader の集合と gdk-pixbuf の upstream の版が同じなら中身は変わらず、変われば query の出力も同じだけ変わる。
+  - PASS の行(`TOYBACO_CHATWOOT_RUNTIME_APK=PASS`)は、#569 の欄の後ろに `files=<Z: と一致した数> unowned=<許可の一覧で通った数> apk_db_excluded=3 loaders_cache=query floors=<下限の数>` を出す。
+  - 許可の一覧に行を足す時は、image を build して持ち主の無い file を測り、review する。2026-11-03 の実測(runtime base)は 5 件: DB の 3 file・lock・loaders.cache。最終 stage と gate の probe も同じ `/lib`・`/usr/lib` を見る(後の stage は `/gems`・`/app`・`/opt/toybaco` だけを足す)。
 - **安全の判定は変えない**: ECR HIGH=0、Trivy の raw が ruby_llm の 3 件だけであること(独立の分類)、署名、SBOM。
 - 別の branch の個別 package を checksum 固定で取り込む形(3.21 の時の openjpeg)は、branch に修正版が無い時の手段として残す。Dockerfile に書けば、`pins` がその固定も照らす。
   - 今は libexif だけ(C1c): v3.24 の community の `libexif-0.6.26-r0.apk` を sha256 で固定し、`apk --no-network verify` で署名を確かめてから入れる。0.6.26-r0 は CVE-2026-32775・CVE-2026-40385・CVE-2026-40386 を直す(secdb v3.23 の community。3.22 の secdb には載っていない)。SONAME は 3.22 の 0.6.25 と同じ。libvips は libexif を直接 link し、受け取る JPEG の EXIF を読む。
@@ -49,7 +68,7 @@ review 済みの一覧は `config/chatwoot-runtime-apk.txt` に置く(`name=vers
   - 一覧は全部の package を確かめてから書く。止まる時は書き換えない: 名前ごと消えた package は 1(`ALPINE_REFRESH=MISSING`)、apk の規則に合わない版は 2(`ALPINE_REFRESH=INVALID`)、index の最大が一覧の版より古い package は 1(`ALPINE_REFRESH=LOWER`。遅れた mirror で CVE の修正の下限を下げない)。
   - 一覧・下限の表・Dockerfile の固定を変える PR では、advisory-watch(D5)の go-check の fixture の index の記録(`tests/fixtures/advisory-watch/alpine/index/`)も、同じ日の本物の index から取り直す。一覧と下限の表の版が fixture の index の最大を超えると、鮮度の錨が未測定になり、advisory-watch の単体試験と契約試験が落ちる。超えない変更は試験では止まらないので、手順として同じ日に取り直す。
 - **package の足し引き**: image を build して `apk info -v` から一覧を作り直し、review する。
-- **公開 repo**: 一覧・検証 script・単体試験・この文書は control の名簿に入り、公開同期で届く。`.github/workflows/chatwoot-integration.yml` は同期の対象外なので、公開同期の PR で同じ差分を手で当てる。
+- **公開 repo**: 一覧・下限の表・許可の一覧・検証 script・その単体試験・この文書は control の名簿に入り、公開同期で届く。表の完全一致の試験(`tests/ops-chatwoot-alpine-status.test.mjs`)と advisory-watch の fixture は、private の repo の試験として残る(control に入らない)。`.github/workflows/chatwoot-integration.yml` は同期の対象外なので、公開同期の PR で同じ差分(push の paths に 2 つの表を足す行など)を手で当てる。
 
 ## 期限
 

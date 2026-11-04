@@ -105,9 +105,11 @@ module Toybaco::SubscriptionReconciliation
   # expiry and finish!), which the subscription-sync-attention alarm counts. The sweep's bare
   # TOYBACO_SUBSCRIPTION_SYNC_ATTENTION repeats every minute while any attention stays and is not
   # the alarm's basis, so an attention left open no longer hides the next one. Callers run it right
-  # after the transition, under the request lock. Every unresolved store waits into attention, also
-  # another product's subscription on the shared Stripe account: no local fact proves a subscription
-  # foreign, so an operator closes that one (toybaco:sync_attention_close[id,foreign]).
+  # after the transition, under the request lock. Every unresolved store waits into attention, unless
+  # a request bound to no store is proven another product's subscription on the shared Stripe account
+  # when its wait runs out (Growth::ForeignSubscriptionSync): that one is closed (result foreign_closed,
+  # an audit row and TOYBACO_FOREIGN_SUBSCRIPTION_CLOSED) and logs no line here. Anything not proven
+  # stays attention, which an operator closes (toybaco:sync_attention_close[id,foreign]).
   def log_transition(record)
     Rails.logger.error("TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{record.id} result=#{record.result}") if record.state == 'attention'
   end

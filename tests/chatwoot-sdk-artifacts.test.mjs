@@ -74,7 +74,8 @@ for (const [index, text] of [
   negativeControls++;
 }
 const prematureCheck = [...inputs];
-const finalRun = 'RUN node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js\n';
+const finalRun = 'RUN --mount=type=bind,from=upstream,source=/usr/local/bin/node,target=/usr/local/bin/node /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js\n';
+assert(prematureCheck[0].includes(finalRun), 'the final SDK check must be the line this control moves');
 prematureCheck[0] = prematureCheck[0].replace(finalRun, '').replace('COPY --from=overlay-normalizer /toybaco-overlay/ /app/\n',
   finalRun + 'COPY --from=overlay-normalizer /toybaco-overlay/ /app/\n');
 assert.throws(() => verifyWiring(...prematureCheck), 'SDK proof before the final overlay must fail');

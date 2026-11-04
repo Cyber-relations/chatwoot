@@ -18,7 +18,7 @@
 // this contract in its fixed container and forwards the name from its own environment as is (checked below).
 
 import assert from 'node:assert/strict';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -73,8 +73,21 @@ const ECR_SUBJECT = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/c
 // so the SBOM distro, Trivy --distro and the evaluator bind one fixed release that point releases do not move.
 const RUNTIME_IMAGE = 'ruby:3.4.4-alpine3.22@sha256:017bd0bf72da696261a11a1575ab04d65b3340def62ce39219e8862fc0aa13d1';
 const UPSTREAM_IMAGE = 'chatwoot/chatwoot@sha256:03a03a85a00f1d119367deb0d090a56e553468d0aa5e9194a57eba7c61deb7de';
-const RUNTIME_APK_VERIFY = 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt';
-const RUNTIME_APK_PROBE = 'ruby /contract/tests/verify_chatwoot_runtime_apk.rb /contract/config/chatwoot-runtime-apk.txt';
+// The runtime package verifier takes the reviewed list, the CVE floor table and the reviewed unowned-file list (all three
+// control files) in the runtime base, on the final filesystem and in the gate's production probe.
+const RUNTIME_APK_INPUTS = ['config/chatwoot-runtime-apk.txt', 'config/chatwoot-runtime-apk-cve-floors.tsv',
+  'config/chatwoot-runtime-apk-unowned-files.tsv'];
+const RUNTIME_APK_VERIFY = 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb ' +
+  RUNTIME_APK_INPUTS.map(path => `/opt/toybaco/${path}`).join(' ');
+const RUNTIME_APK_PROBE = 'ruby /contract/tests/verify_chatwoot_runtime_apk.rb /contract/config/chatwoot-runtime-apk.txt \\\n' +
+  '    /contract/config/chatwoot-runtime-apk-cve-floors.tsv /contract/config/chatwoot-runtime-apk-unowned-files.tsv';
+const RUNTIME_APK_LINT = 'ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt" \\\n' +
+  '    "$CONTROL_ROOT/config/chatwoot-runtime-apk-cve-floors.tsv" "$CONTROL_ROOT/config/chatwoot-runtime-apk-unowned-files.tsv"';
+// The gate's proof that the production image ships no Node. `! command -v node` would never fail: set -e ignores `!`.
+const NODE_FILE_PROBE = 'test ! -e /usr/local/bin/node';
+const NODE_PATH_PROBE = 'test -z "$(command -v node || :)"';
+const NODE_GATE_PROBES = `      test ! -e /usr/local/bin/npx\n      ${NODE_FILE_PROBE}\n      ${NODE_PATH_PROBE}\n` +
+  '      sha256sum -c /contract/production-overlay.sha256\n';
 // The Alpine EOL line (CW-1) is display only. The publisher prints it right after the source check with the same
 // fixed release as the SBOM distro and Trivy --distro; the quality gate reads the fixed runtime image's release.
 // Neither may stop a release (`|| true`).
@@ -83,6 +96,14 @@ const ALPINE_EOL_STEP = '      - name: Alpine branchのEOLをStep Summaryへ出�
   `        run: python3 -I scripts/chatwoot-alpine-status.py eol --release ${ALPINE_RELEASE} || true\n`;
 const ALPINE_EOL_GATE = '  python3 "$CONTROL_ROOT/scripts/chatwoot-alpine-status.py" eol --release="$alpine_release" || true\n';
 const ALPINE_RELEASE_GATE = `"$CHATWOOT_RUNTIME_IMAGE" sh -c 'cat /etc/alpine-release' 2>/dev/null)" || \\\n    alpine_release=''\n`;
+// Pinned Trivy reads an OS package's source name only from SPDX sourceInfo; pinned Syft writes it only as purl upstream=, so
+// renamed Alpine packages (ssl_client, libcrypto3, libcurl ...) were scanned under their own names. The raw scan reads a copy
+// supplemented once by the shared script (the same implementation the daily advisory watch loads). The attested SBOM and the copy
+// the classification binds stay byte-identical; an unreadable shape or no package to supplement fails the step.
+const OS_SOURCE_SCRIPT = 'scripts/spdx-os-source.py';
+const OS_SOURCE_LINE = `python3 -I ${OS_SOURCE_SCRIPT} "$security/sbom.spdx.json" "$security/scan-sbom.spdx.json"`;
+const BINDING_COPY_LINE = 'cp "$RUNNER_TEMP/toybaco-chatwoot.spdx.json" "$security/sbom.spdx.json"';
+const SCAN_SBOM_MOUNT = '--mount "type=bind,src=$security/scan-sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly"';
 const CONTRACT_RUN = 'node tests/chatwoot-managed-publisher.test.mjs .';
 const CONTRACT_STEP_NAME = Object.freeze({ private: '非公開publisher契約を検証', public: '公開publisher契約を検証' });
 const contractStep = mode => `      - name: ${CONTRACT_STEP_NAME[mode]}\n        run: ${CONTRACT_RUN}\n`;
@@ -549,6 +570,17 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-before/g), 2, 'snapshot original and scanned copy before scan');
   assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-after/g), 2, 'snapshot original and scanned copy after scan');
   assert.equal(count(publish, /--config \/dev\/null sbom/g), 1, 'one raw pinned scanner invocation');
+  // The raw scan reads the supplemented copy, made once right after the binding copy and before the scanner runs.
+  assert.equal(count(workflowSource, /spdx-os-source\.py/g), 2, 'the OS source script: one push path and one call');
+  assert.equal(publish.split(OS_SOURCE_LINE).length - 1, 1, 'the raw scan input must be supplemented exactly once');
+  assert.ok(publish.includes(`          ${OS_SOURCE_LINE}\n`), 'the OS source supplement must be a plain line (no tolerance)');
+  assert.equal(publish.split(BINDING_COPY_LINE).length - 1, 1, 'the classification binds an exact copy of the attested SBOM');
+  assert.ok(publish.indexOf(BINDING_COPY_LINE) < publish.indexOf(OS_SOURCE_LINE) &&
+    publish.indexOf(OS_SOURCE_LINE) < publish.indexOf('docker pull "$TRIVY_IMAGE"'),
+  'the supplement must follow the binding copy and precede the scanner');
+  assert.ok(rawScan.includes(SCAN_SBOM_MOUNT), 'the raw scan must read the supplemented copy');
+  assert.equal(count(publish, /dst=\/scan\/sbom\.spdx\.json/g), 1, 'one SBOM mount into the scanner');
+  assert.ok(workflowSource.includes(`      - '${OS_SOURCE_SCRIPT}'\n`), 'OS source push path missing');
   assert.equal(count(publish, /--download-db-only/g), 1, 'one fresh DB download');
   assert.equal(count(publish, /--cert-oidc-issuer 'https:\/\/token\.actions\.githubusercontent\.com'/g), 4);
   assert.doesNotMatch(publish, /--ignore-unfixed=true|--ignorefile|--ignore-policy|--vex|--skip-files|--skip-dirs|--ignore-status/);
@@ -591,7 +623,7 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.doesNotMatch(publish, /--signer-workflow|--signer-repo/);
 
   const controlFiles = functionBlock(gateSource, 'control_file_list', 'control_manifest');
-  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs', 'scripts/chatwoot-alpine-status.py']) {
+  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs', 'scripts/chatwoot-alpine-status.py', OS_SOURCE_SCRIPT]) {
     assert.ok(controlFiles.includes(`'${required}'`), `runtime input missing from quality/export control: ${required}`);
   }
   const baseContract = functionBlock(gateSource, 'verify_base_and_frame_contract', 'build_test_image');
@@ -637,7 +669,7 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     '"$CHATWOOT_RUNTIME_IMAGE" \\\n    | sed \'/^$/d\' > "$RUN_ROOT/base-layers"',
     '--build-arg "CHATWOOT_IMAGE=$PRODUCTION_IMAGE"',
     RUNTIME_APK_PROBE,
-    'ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt"',
+    RUNTIME_APK_LINT,
     'ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb"',
     '"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n',
     'assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'',
@@ -647,15 +679,36 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     'test ! -e /usr/local/lib/node_modules/npm',
     'test ! -e /usr/local/bin/npm',
     'test ! -e /usr/local/bin/npx',
+    NODE_GATE_PROBES,
     'ruby /contract/tests/verify_chatwoot_runtime_gems.rb /contract/config/chatwoot-runtime-gems.json',
     'Rails.version == %q{7.2.3.2}',
     'Gem.loaded_specs.fetch(%q{ruby-vips}).version.to_s == %q{2.2.1}',
     '-ractive_storage/vips', 'ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}',
     'Vips::Image.csvload(csv)', 'csvload: operation is blocked',
+    'File.binwrite(exr, "\\x76\\x2f\\x31\\x01".b + ("\\0" * 60).b)',
+    'Vips::Image.openexrload(exr)', 'abort unless lines.last == "openexrload: operation is blocked\\n" && lines.size <= 2',
+    'Vips::Image.fitsload(fits)', 'abort unless lines.last == "fitsload: operation is blocked\\n" && lines.size <= 2',
+    'abort unless error.message == "VipsForeignLoad: \\"#{exr}\\" is not a known file format\\n"',
+    'abort unless error.message == "VipsForeignLoad: \\"#{fits}\\" is not a known file format\\n"',
+    '"$PRODUCTION_IMAGE" env -u VIPS_BLOCK_UNTRUSTED bundle exec ruby -rruby-vips -rtmpdir -e \'',
+    'abort if defined?(Rails) || ENV.key?(%q{VIPS_BLOCK_UNTRUSTED})',
+    'abort unless error.message.start_with?("exr2vips: EXR error: ")',
+    'abort unless error.message.lines.last == "fits: no HDU found with naxes > 0\\n"',
 
 
   ]) {
     assert.ok(gateSource.includes(required), `essential quality gate missing: ${required}`);
+  }
+  // EXR と FITS の fixture は、受信の経路の probe と block を外した対照の 2 か所に、同じ bytes で置く(片側だけを壊させない)。
+  const gateLines = gateSource.split('\n');
+  for (const [name, expected] of [
+    ['exr', ['        File.binwrite(exr, "\\x76\\x2f\\x31\\x01".b + ("\\0" * 60).b)']],
+    ['fits', ['        File.binwrite(fits, (%q{SIMPLE  =                    T}.ljust(80) + %q{BITPIX  =                    8}.ljust(80) +',
+      '          %q{NAXIS   =                    0}.ljust(80) + %q{END}.ljust(80)).ljust(2880))']],
+  ]) {
+    const found = gateLines.flatMap((line, index) => (line.trim().startsWith(`File.binwrite(${name},`)
+      ? [gateLines.slice(index, index + expected.length)] : []));
+    assert.deepEqual(found, [expected, expected], `vips ${name} fixture must be the same in the probe and the control`);
   }
   assert.match(gateSource, /^  verify_toybaco_database_prepare$/m);
   assert.ok(gateSource.includes('"$TEST_IMAGE" /app/bin/toybaco-chatwoot-schema-preflight'));
@@ -664,11 +717,13 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   // The production image is built before the test image, which is made from it, and smoked after the Ruby quality.
   assert.match(gateSource, /^  build_production_image\n  build_test_image\n  start_services$/m);
   assert.match(gateSource, /^  run_ruby_quality\n  smoke_production_image\n  assert_final_boundaries$/m);
-  for (const required of ['config/chatwoot-runtime-apk.txt', 'tests/verify_chatwoot_runtime_apk.rb',
+  for (const required of [...RUNTIME_APK_INPUTS, 'tests/verify_chatwoot_runtime_apk.rb',
     'tests/chatwoot_runtime_apk_test.rb', 'docs/chatwoot-runtime-os-policy.md']) {
     assert.ok(controlFiles.includes(`'${required}'`), `runtime package input missing from quality/export control: ${required}`);
   }
-  assert.ok(workflowSource.includes("      - 'config/chatwoot-runtime-apk.txt'"), 'runtime package list push path missing');
+  for (const input of RUNTIME_APK_INPUTS) {
+    assert.ok(workflowSource.includes(`      - '${input}'\n`), `runtime package input push path missing: ${input}`);
+  }
   assert.ok(
     gateSource.includes("fail '--artifact-dir release bundleはowner再baselineでpark済みです'"),
     'legacy artifact mode must fail closed',
@@ -933,7 +988,7 @@ console.log(`Chatwoot parked SBOM verifiers: PASS (${sbomVerifierNegatives} omis
 // COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline), so the pin is what binds. The Dockerfile is
 // a control file: the private CW gate, the PZ gate's control snapshot and the public repository read the same bytes.
 // Changing the Dockerfile means reviewing the whole diff and then updating DOCKERFILE_SHA256.
-const DOCKERFILE_SHA256 = '78ef176c23a96e16b7aa9f399e095645e69d3a8345063aad863eadc0bf535066';
+const DOCKERFILE_SHA256 = 'd3673c1fb047be179121fd39a40be78c0615782600bf551b32137a5e7928a814';
 const dockerfileBytes = readFileSync(join(root, 'Dockerfile'));
 assert.ok(Buffer.from(buildInputs[0], 'utf8').equals(dockerfileBytes), 'Dockerfile must be UTF-8 text');
 function validateDockerfileBytes(bytes) {
@@ -957,6 +1012,13 @@ const DOCKERFILE_FROMS = ['${CHATWOOT_IMAGE} AS overlay-normalizer', '${CHATWOOT
   '${RUBY_RUNTIME_IMAGE} AS runtime-base', 'runtime-base AS gems', 'runtime-base AS runtime-app', 'runtime-app'];
 const STAGE_INSTRUCTIONS = { hardening: ['RUN'], final: ['RUN', 'COPY', 'ARG', 'LABEL'] };
 const STAGE_COPY_SOURCES = ['runtime-hardening', 'overlay-normalizer'];
+// The only RUN flag: the final stage's two checks borrow the upstream Node, read-only, for their own RUN.
+const NODE_BUILD_MOUNT = '--mount=type=bind,from=upstream,source=/usr/local/bin/node,target=/usr/local/bin/node';
+const NODE_BUILD_CHECKS = Object.freeze([
+  `${NODE_BUILD_MOUNT} /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js`,
+  `${NODE_BUILD_MOUNT} /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-final /app/public/assets`,
+]);
+const NODE_ABSENT_CHECK = `${NODE_FILE_PROBE} && ${NODE_PATH_PROBE}`;
 function dockerInstructions(dockerfile) {
   const instructions = [];
   let current = null;
@@ -996,9 +1058,13 @@ function dockerStages(dockerfile) {
   const froms = instructions.flatMap((instruction, index) => instruction.keyword === 'FROM'
     ? [{ index, text: instruction.text.replace(/\s+as\s+/i, ' AS ') }] : []);
   assert.deepEqual(froms.map(from => from.text), DOCKERFILE_FROMS, 'Dockerfile stages differ from the reviewed list');
+  const hardening = instructions.slice(froms[3].index + 1, froms[4].index);
   return {
-    hardening: instructions.slice(froms[3].index + 1, froms[4].index),
+    hardening,
     final: instructions.slice(froms[froms.length - 1].index + 1),
+    // Every stage whose files reach the shipped image: all but bundled-gems and localized-assets (only their assets
+    // arrive, through runtime-hardening) and the empty upstream stage.
+    shipped: [...instructions.slice(froms[0].index + 1, froms[1].index), ...hardening, ...instructions.slice(froms[5].index + 1)],
   };
 }
 function validateStageClosure(dockerfile) {
@@ -1016,7 +1082,9 @@ function validateStageClosure(dockerfile) {
         }
       }
       if (keyword === 'RUN') {
-        assert.doesNotMatch(text, /^(?:\[|--)/, `${where}: RUN exec form or RUN flags are not allowed`);
+        if (stage !== 'final' || !NODE_BUILD_CHECKS.includes(text)) {
+          assert.doesNotMatch(text, /^(?:\[|--)/, `${where}: RUN exec form or RUN flags are not allowed`);
+        }
         assert.doesNotMatch(text, /<<-?["']?[A-Za-z_]/, `${where}: RUN heredocs are not allowed`);
       }
     }
@@ -1157,12 +1225,120 @@ for (const mutated of [
   bytePinNegatives++;
 }
 console.log(`Chatwoot Dockerfile byte pin: PASS (${bytePinNegatives} bypass/form controls)`);
+// Node is not shipped (docs/chatwoot-runtime-os-policy.md): nothing in a stage that reaches the image names it except
+// the final stage's two borrowed checks and the proof after them, and only the reviewed COPY --from lines cross stages.
+// Like the stage closure these are readable reasons; the byte pin above is what binds the Dockerfile.
+const SHIPPED_STAGE_COPIES = Object.freeze(['--from=gems /gems /gems', '--from=gems /opt/toybaco/ /opt/toybaco/',
+  '--from=upstream /app /app', '--from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile.lock /app/',
+  '--from=runtime-hardening /toybaco-runtime-root/ /', '--from=overlay-normalizer /toybaco-overlay/ /app/']);
+function validateNodeNotShipped(dockerfile) {
+  const { final, shipped } = dockerStages(dockerfile);
+  const finalRuns = final.filter(({ keyword }) => keyword === 'RUN');
+  const reviewed = [...NODE_BUILD_CHECKS, NODE_ABSENT_CHECK].map(text => {
+    const found = finalRuns.filter(instruction => instruction.text === text);
+    assert.equal(found.length, 1, `Node contract: the final stage must run once: ${text}`);
+    return found[0];
+  });
+  assert.ok(reviewed[0].line < reviewed[2].line && reviewed[1].line < reviewed[2].line,
+    'Node contract: the absence check must follow the borrowed checks');
+  for (const instruction of shipped) {
+    const { keyword, line, text } = instruction;
+    if (reviewed.includes(instruction)) continue;
+    const where = `Node contract (Dockerfile line ${line})`;
+    assert.doesNotMatch(text, /\bnode(?:js)?\b/i, `${where}: a stage that reaches the image names Node`);
+    assert.doesNotMatch(text, /\bapk\b[^&|;]*\b(?:npm|yarn|pnpm)\b/, `${where}: an apk request that pulls in Node`);
+    if (keyword === 'RUN') assert.doesNotMatch(text, /^--/, `${where}: RUN flags beyond the borrowed checks`);
+    if (keyword === 'ADD' || (keyword === 'COPY' && /(?:^|\s)--from=/.test(text))) {
+      assert.ok(keyword === 'COPY' && SHIPPED_STAGE_COPIES.includes(text), `${where}: unreviewed ${keyword} ${text}`);
+    }
+  }
+  assert.ok(shipped.some(({ keyword, text }) => keyword === 'ENV' && /(?:^|\s)EXECJS_RUNTIME=Disabled(?:\s|$)/.test(text)),
+    'Node contract: without EXECJS_RUNTIME=Disabled ExecJS looks for a JavaScript runtime');
+}
+validateNodeNotShipped(buildInputs[0]);
+const RUNTIME_BASE_ANCHOR = '# Same Ruby 3.4.4, so the default/bundled gem hardening applies unchanged.\n';
+const RUNTIME_BASE_PACKAGES = 'apk add --no-cache build-base openssl tzdata postgresql-client git vips';
+const OVERLAY_TOUCH_RUN = 'RUN find /toybaco-overlay -exec touch -t 200001010000.00 {} +\n';
+const [SDK_CHECK_RUN, SPROCKETS_CHECK_RUN, NODE_ABSENT_RUN] = [...NODE_BUILD_CHECKS.map(text => `RUN ${text}\n`),
+  `RUN ${NODE_ABSENT_CHECK}\n`];
+const atRuntimeBase = text => swapOnce(buildInputs[0], RUNTIME_BASE_ANCHOR, `${text}\n${RUNTIME_BASE_ANCHOR}`, 'runtime-base anchor');
+let nodeNegatives = 0;
+for (const [mutated, reason] of [
+  // Node back in the runtime: the removed COPY, another path, its directory, another stage's copy, or after the proof.
+  [atRuntimeBase('COPY --from=upstream /usr/local/bin/node /usr/local/bin/node'), /names Node/],
+  [atRuntimeBase('COPY --from=upstream /usr/local/bin/node /opt/toybaco/node'), /names Node/],
+  [atRuntimeBase('COPY --link --from=upstream /usr/local/bin/node /usr/bin/'), /names Node/],
+  [atRuntimeBase('COPY --from=upstream /usr/local/bin/ /opt/toybaco/upstream-bin/'), /unreviewed COPY/],
+  [atRuntimeBase('COPY --from=localized-assets /usr/local/bin/node /usr/local/bin/node'), /names Node/],
+  [atRuntimeBase('COPY --from=bundled-gems /usr/local/ /opt/toybaco/upstream-local/'), /unreviewed COPY/],
+  [atRuntimeBase('ADD https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64-musl.tar.xz /opt/toybaco/'), /names Node/],
+  [atRuntimeBase('ADD https://example.invalid/runtime.tar.xz /opt/toybaco/'), /unreviewed ADD/],
+  [appendFinal('COPY --from=upstream /usr/local/bin/node /usr/local/bin/node'), /names Node/],
+  // Node from a package, in the runtime base and in the final stage.
+  [swapOnce(buildInputs[0], RUNTIME_BASE_PACKAGES, `${RUNTIME_BASE_PACKAGES} nodejs`, 'packages'), /names Node/],
+  [swapOnce(buildInputs[0], RUNTIME_BASE_PACKAGES, `${RUNTIME_BASE_PACKAGES} nodejs-current`, 'packages'), /names Node/],
+  [swapOnce(buildInputs[0], RUNTIME_BASE_PACKAGES, `${RUNTIME_BASE_PACKAGES} npm`, 'packages'), /pulls in Node/],
+  [swapOnce(buildInputs[0], FINAL_LINE, `${FINAL_LINE}    && apk add --no-cache nodejs \\\n`, FINAL_LINE), /names Node/],
+  // Node carried through a stage the image copies from, or a mount used by another stage.
+  [swapOnce(buildInputs[0], HARDENING_LINE, `${HARDENING_LINE}    && cp -a /usr/local/bin/node /toybaco-runtime-root/usr/local/bin/ \\\n`, HARDENING_LINE), /names Node/],
+  [swapOnce(buildInputs[0], OVERLAY_TOUCH_RUN, `RUN cp /usr/local/bin/node /toybaco-overlay/node\n${OVERLAY_TOUCH_RUN}`, OVERLAY_TOUCH_RUN), /names Node/],
+  [atRuntimeBase('RUN --mount=type=bind,from=upstream,source=/usr/local/bin,target=/opt/toybaco/upstream-bin true'), /RUN flags/],
+  // The two checks and the proof: not borrowed any more, gone, or the proof gone, softened or before the checks.
+  [swapOnce(buildInputs[0], SDK_CHECK_RUN, SDK_CHECK_RUN.replace(`${NODE_BUILD_MOUNT} /usr/local/bin/`, ''), SDK_CHECK_RUN), /must run once/],
+  [swapOnce(buildInputs[0], SDK_CHECK_RUN, '', SDK_CHECK_RUN), /must run once/],
+  [swapOnce(buildInputs[0], SPROCKETS_CHECK_RUN, '', SPROCKETS_CHECK_RUN), /must run once/],
+  [swapOnce(buildInputs[0], SPROCKETS_CHECK_RUN, SPROCKETS_CHECK_RUN.replace(NODE_BUILD_MOUNT, `${NODE_BUILD_MOUNT},rw`), SPROCKETS_CHECK_RUN), /must run once/],
+  [swapOnce(buildInputs[0], NODE_ABSENT_RUN, '', NODE_ABSENT_RUN), /must run once/],
+  [swapOnce(buildInputs[0], NODE_ABSENT_RUN, NODE_ABSENT_RUN.replace('\n', ' || :\n'), NODE_ABSENT_RUN), /must run once/],
+  [swapOnce(buildInputs[0], SDK_CHECK_RUN, NODE_ABSENT_RUN + SDK_CHECK_RUN, SDK_CHECK_RUN).replace(`${SPROCKETS_CHECK_RUN}${NODE_ABSENT_RUN}`, SPROCKETS_CHECK_RUN), /must follow/],
+  // ExecJS would look for a JavaScript runtime.
+  [swapOnce(buildInputs[0], '    EXECJS_RUNTIME=Disabled \\\n', '', 'EXECJS_RUNTIME'), /EXECJS_RUNTIME=Disabled/],
+  [swapOnce(buildInputs[0], 'EXECJS_RUNTIME=Disabled', 'EXECJS_RUNTIME=Node', 'EXECJS_RUNTIME'), /names Node/],
+  [swapOnce(buildInputs[0], 'EXECJS_RUNTIME=Disabled', 'EXECJS_RUNTIME=Bun', 'EXECJS_RUNTIME'), /EXECJS_RUNTIME=Disabled/],
+]) {
+  assert.notEqual(mutated, buildInputs[0]);
+  assert.throws(() => validateNodeNotShipped(mutated), reason, 'Node in the runtime must fail');
+  assert.throws(() => validateDockerfileBytes(Buffer.from(mutated, 'utf8')), /Dockerfile bytes changed/);
+  nodeNegatives++;
+}
+// RUN flags stay closed: only the exact borrowed checks in the final stage, not a writable, wider or other mount.
+for (const mutated of [
+  appendFinal('RUN --network=host true'),
+  appendFinal('RUN --security=insecure true'),
+  appendFinal(`RUN ${NODE_BUILD_MOUNT},rw /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js`),
+  appendFinal('RUN --mount=type=bind,from=upstream,source=/usr/local/bin,target=/opt/toybaco/upstream-bin true'),
+  appendFinal('RUN --mount=type=cache,target=/tmp/x true'),
+  appendFinal('RUN --mount=type=secret,id=x true'),
+  appendFinal(`RUN ${NODE_BUILD_MOUNT} true`),
+  swapOnce(buildInputs[0], '\nFROM ${CHATWOOT_IMAGE} AS upstream\n', `\nRUN ${NODE_BUILD_CHECKS[0]}\nFROM \${CHATWOOT_IMAGE} AS upstream\n`, 'upstream FROM'),
+]) {
+  assert.throws(() => validateStageClosure(mutated), /RUN exec form or RUN flags are not allowed/, 'a RUN flag beyond the borrowed checks must fail');
+  nodeNegatives++;
+}
+// The gate's PATH probe, run for real under set -e as the gate's sh -c runs it: it must stop on a node on the PATH.
+{
+  const directory = mkdtempSync(join(tmpdir(), 'chatwoot-node-probe-'));
+  try {
+    const probe = path => spawnSync('/bin/sh', ['-c', `set -e\n${NODE_PATH_PROBE}\necho reached`], { encoding: 'utf8', env: { PATH: path } });
+    const clean = probe(directory);
+    assert.equal(clean.status, 0, 'the PATH probe must pass without a node');
+    assert.equal(clean.stdout, 'reached\n');
+    writeFileSync(join(directory, 'node'), '#!/bin/sh\n', { mode: 0o755 });
+    const stopped = probe(directory);
+    assert.notEqual(stopped.status, 0, 'the PATH probe must stop on a node on the PATH');
+    assert.equal(stopped.stdout, '');
+    nodeNegatives++;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+console.log(`Chatwoot runtime without Node: PASS (${nodeNegatives} negative controls)`);
 // The shipped runtime: the pinned Alpine 3.22 base, alpine-release held at its own build before any upgrade, the
 // reviewed package list verified in the runtime base and again on the final filesystem, and labels naming both images.
 const RUNTIME_DOCKERFILE = Object.freeze([
   `ARG RUBY_RUNTIME_IMAGE=${RUNTIME_IMAGE}`,
   'FROM ${RUBY_RUNTIME_IMAGE} AS runtime-base',
-  'COPY config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk.txt',
+  ...RUNTIME_APK_INPUTS.map(path => `COPY ${path} /opt/toybaco/${path}`),
   'COPY tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb',
   '    && apk add --no-cache "alpine-release=$alpine_release" \\',
   '    && apk upgrade --no-cache \\',
@@ -1208,6 +1384,20 @@ for (const mutated of [
   runtimeNegativeCount++;
 }
 console.log('Chatwoot shipped Alpine 3.22 runtime: PASS (' + runtimeNegativeCount + ' negative controls)');
+// The verifier and its three inputs reach the build context: .dockerignore ignores the whole tree and lets each one back in.
+const RUNTIME_APK_CONTEXT = [...RUNTIME_APK_INPUTS, 'tests/verify_chatwoot_runtime_apk.rb'];
+function validateRuntimeApkContext(ignore) {
+  const lines = ignore.split('\n');
+  for (const path of RUNTIME_APK_CONTEXT) {
+    assert.equal(lines.filter(line => line === `!${path}`).length, 1, `Docker context runtime package input missing: ${path}`);
+  }
+}
+validateRuntimeApkContext(buildInputs[2]);
+for (const path of RUNTIME_APK_CONTEXT) {
+  assert.throws(() => validateRuntimeApkContext(swapOnce(buildInputs[2], `!${path}\n`, '', path)),
+    `omitted Docker context runtime package input must fail: ${path}`);
+}
+console.log(`Chatwoot runtime package build context: PASS (${RUNTIME_APK_CONTEXT.length} omission controls)`);
 validateBackportBuild(...buildInputs, gate);
 let buildNegativeCount = 0;
 for (const [index, text] of [
@@ -1303,10 +1493,33 @@ const mutations = [
   [workflow, gate.replace('test ! -e /app/tests/playwright', ':')],
   [workflow, gate.replace('test ! -e /app/node_modules', ':')],
   [workflow, gate.replace('test ! -e /usr/local/lib/node_modules/npm', ':')],
+  // The Node proofs removed, softened, written in the form set -e ignores, or outside the production image's check.
+  [workflow, gate.replace(NODE_FILE_PROBE, ':')],
+  [workflow, gate.replace(`      ${NODE_FILE_PROBE}\n`, '')],
+  [workflow, gate.replace(NODE_FILE_PROBE, `${NODE_FILE_PROBE} || :`)],
+  [workflow, gate.replace(NODE_PATH_PROBE, ':')],
+  [workflow, gate.replace(`      ${NODE_PATH_PROBE}\n`, '')],
+  [workflow, gate.replace(NODE_PATH_PROBE, `${NODE_PATH_PROBE} || :`)],
+  [workflow, gate.replace(NODE_PATH_PROBE, '! command -v node')],
+  [workflow, gate.replace(`      ${NODE_FILE_PROBE}\n      ${NODE_PATH_PROBE}\n`, '').replace('smoke_production_image() {\n',
+    `smoke_production_image() {\n      ${NODE_FILE_PROBE}\n      ${NODE_PATH_PROBE}\n`)],
   [workflow, gate.replace('Rails.version == %q{7.2.3.2}', 'Rails.version == %q{7.2.2.2}')],
   [workflow, gate.replace('version.to_s == %q{2.2.1}', 'version.to_s == %q{2.2.0}')],
   [workflow, gate.replace('-ractive_storage/vips', '')],
   [workflow, gate.replace('Vips::Image.csvload(csv)', 'Vips::Image.black(1, 1)')],
+  [workflow, gate.replace('Vips::Image.openexrload(exr)', 'Vips::Image.black(1, 1)')],
+  [workflow, gate.replace('Vips::Image.fitsload(fits)', 'Vips::Image.black(1, 1)')],
+  [workflow, gate.replaceAll('"\\x76\\x2f\\x31\\x01".b', '"\\x00\\x00\\x00\\x00".b')],
+  [workflow, gate.replace('"\\x76\\x2f\\x31\\x01".b + ("\\0" * 60).b)\n        begin\n          Vips::Image.openexrload(exr)',
+    '"\\x00\\x00\\x00\\x00".b + ("\\0" * 60).b)\n        begin\n          Vips::Image.openexrload(exr)')],
+  [workflow, gate.replace('"\\x76\\x2f\\x31\\x01".b + ("\\0" * 60).b)\n        begin\n          Vips::Image.new_from_file(exr)',
+    '"\\x00\\x00\\x00\\x00".b + ("\\0" * 60).b)\n        begin\n          Vips::Image.new_from_file(exr)')],
+  [workflow, gate.replace('.ljust(2880))\n        begin\n          Vips::Image.fitsload(fits)',
+    '.ljust(5760))\n        begin\n          Vips::Image.fitsload(fits)')],
+  [workflow, gate.replace('.ljust(2880))\n        begin\n          Vips::Image.new_from_file(fits)',
+    '.ljust(5760))\n        begin\n          Vips::Image.new_from_file(fits)')],
+  [workflow, gate.replace('env -u VIPS_BLOCK_UNTRUSTED bundle exec ruby -rruby-vips', 'bundle exec ruby -rruby-vips')],
+  [workflow, gate.replace('abort unless error.message.start_with?("exr2vips: EXR error: ")', 'true')],
   [workflow, gate.replace('ENV.fetch(%q{VIPS_BLOCK_UNTRUSTED}) == %q{1}', 'true')],
   [workflow, gate.replace('ruby /contract/tests/verify_chatwoot_runtime_gems.rb', 'ruby /contract/tests/not-run.rb')],
   [workflow, gate.replace('assert_single_exact_line "$CONTROL_ROOT/.dockerignore" \'overlay/app/spec\'', ':')],
@@ -1322,6 +1535,12 @@ const mutations = [
   [workflow, gate.replace('  build_production_image\n  build_test_image\n', '  build_test_image\n  build_production_image\n')],
   [workflow, gate.replaceAll(RUNTIME_IMAGE, RUNTIME_IMAGE.replace('017bd0bf', '00000000'))],
   [workflow, gate.replace("    'config/chatwoot-runtime-apk.txt' \\\n", '')],
+  [workflow, gate.replace("    'config/chatwoot-runtime-apk-cve-floors.tsv' \\\n", '')],
+  [workflow, gate.replace("    'config/chatwoot-runtime-apk-unowned-files.tsv' \\\n", '')],
+  [workflow, gate.replace(' "$CONTROL_ROOT/config/chatwoot-runtime-apk-unowned-files.tsv" || fail', ' || fail')],
+  [workflow, gate.replace(' /contract/config/chatwoot-runtime-apk-unowned-files.tsv \\\n', ' \\\n')],
+  [workflow.replace("      - 'config/chatwoot-runtime-apk-cve-floors.tsv'\n", ''), gate],
+  [workflow.replace("      - 'config/chatwoot-runtime-apk-unowned-files.tsv'\n", ''), gate],
   [workflow.replace('--build-arg "RUBY_RUNTIME_IMAGE=$CHATWOOT_RUNTIME_IMAGE"', ''), gate],
   [workflow.replace('--arg base "$CHATWOOT_RUNTIME_IMAGE"', '--arg base "$CHATWOOT_BASE_IMAGE"'), gate],
   [workflow.replace('.config.Labels["jp.toybaco.upstream.image"] == $upstream and', ''), gate],
@@ -1339,6 +1558,17 @@ const mutations = [
   [workflow, gate.replace(ALPINE_EOL_GATE, ALPINE_EOL_GATE.replace(' || true', ''))],
   [workflow, gate.replace(ALPINE_RELEASE_GATE, `"$CHATWOOT_IMAGE" sh -c 'cat /etc/alpine-release')"\n`)],
   [workflow, gate.replace("    'scripts/chatwoot-alpine-status.py' \\\n", '')],
+  // The raw scan input back to a plain copy or to the unsupplemented copy, the supplement tolerated, dropped, moved after the
+  // scanner or outside the control snapshot.
+  [workflow.replace(OS_SOURCE_LINE, 'cp "$security/sbom.spdx.json" "$security/scan-sbom.spdx.json"'), gate],
+  [workflow.replace(SCAN_SBOM_MOUNT, '--mount "type=bind,src=$security/sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly"'), gate],
+  [workflow.replace(OS_SOURCE_LINE, `${OS_SOURCE_LINE} || true`), gate],
+  [workflow.replace(`          ${OS_SOURCE_LINE}\n`, ''), gate],
+  [workflow.replace(`          ${OS_SOURCE_LINE}\n`, '').replace('          scan_status=0\n', `          ${OS_SOURCE_LINE}\n          scan_status=0\n`), gate],
+  [workflow.replace(BINDING_COPY_LINE, OS_SOURCE_LINE.replace('"$security/sbom.spdx.json"', '"$RUNNER_TEMP/toybaco-chatwoot.spdx.json"')
+    .replace('"$security/scan-sbom.spdx.json"', '"$security/sbom.spdx.json"')), gate],
+  [workflow.replace(`      - '${OS_SOURCE_SCRIPT}'\n`, ''), gate],
+  [workflow, gate.replace(`    '${OS_SOURCE_SCRIPT}' \\\n`, '')],
   [workflow, gate.replace('"$PRODUCTION_IMAGE" sh -c \'\n      set -e\n', '"$PRODUCTION_IMAGE" sh -c \'\n')],
   [workflow.replace('needs: quality', 'needs: []'), gate],
   [workflow.replace(
@@ -1511,6 +1741,11 @@ function validatePostizGateForwarding(postizGateSource) {
     'the Postiz gate container bootstrap must point native fallback builds at the fixed image headers');
   const code = postizGateSource.split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
   assert.equal(count(code, /GITHUB_REPOSITORY/g), 1, 'the Postiz gate must not set or default GITHUB_REPOSITORY');
+  // The container runs this contract on the control snapshot only, and the publisher shell below calls the OS source script.
+  const roster = postizGateSource.slice(postizGateSource.indexOf('CONTROL_STATIC_FILES=('),
+    postizGateSource.indexOf('\nreadonly CONTROL_STATIC_FILES'));
+  assert.equal(roster.split('\n').filter(line => line === `  ${OS_SOURCE_SCRIPT}`).length, 1,
+    'the Postiz gate control snapshot must carry the OS source script this contract executes');
 }
 const postizGateNegatives = [];
 if (mode === 'private') {
@@ -1518,6 +1753,7 @@ if (mode === 'private') {
   validatePostizGateForwarding(postizGate);
   postizGateNegatives.push(
     postizGate.replace(POSTIZ_GATE_FORWARD, ''),
+    postizGate.replace(`  ${OS_SOURCE_SCRIPT}\n`, ''),
     postizGate.replace(POSTIZ_GATE_NODEDIR, ''),
     postizGate.replace(POSTIZ_GATE_NODEDIR, '#' + POSTIZ_GATE_NODEDIR),
     postizGate.replace(POSTIZ_GATE_FORWARD, '    --env GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-Cyber-relations/toybaco}" \\\n'),
@@ -1554,11 +1790,19 @@ const imageName = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/cha
 const digest = 'sha256:' + 'a'.repeat(64);
 
 const { classificationFixture } = await import(join(root, 'tests/chatwoot-ruby-llm-classification.test.mjs'));
+// The fixture's OS package as pinned Syft writes a renamed Alpine package: the source only as purl upstream= and its own
+// provenance as sourceInfo. The supplement replaces that sourceInfo in the scanned copy only.
+const SOURCE_SYFT_INFO = 'acquired package info from APK DB: /lib/apk/db/installed';
+const SOURCE_PURL = 'pkg:apk/alpine/ssl_client@1.37.0-r19?arch=x86_64&distro=alpine-3.22.0&upstream=busybox';
+const SOURCE_INFO = 'built package from: busybox 1.37.0-r19';
 function executePolicy(label, change, expected) {
   const directory = mkdtempSync(join(tmpdir(), 'toybaco-cw-sbom-policy-'));
   try {
     const fixture = classificationFixture(), sbom = fixture.sbom, report = fixture.raw;
-    const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false, proofStartup: null };
+    Object.assign(sbom.packages[2], { name: 'ssl_client', versionInfo: '1.37.0-r19', sourceInfo: SOURCE_SYFT_INFO,
+      externalRefs: [{ referenceCategory: 'PACKAGE-MANAGER', referenceType: 'purl', referenceLocator: SOURCE_PURL }] });
+    const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false, proofStartup: null,
+      scanInput: null, sourceStop: false };
     change(sbom, report, settings, fixture);
     const bin = join(directory, 'bin'); mkdirSync(bin);
     writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
@@ -1580,6 +1824,12 @@ if (a.includes('--download-db-only')) {
 }
 if (a.includes('sbom')) {
  if (!a.includes('type=bind,src=' + security + '/db,dst=/root/.cache/trivy/db')) process.exit(95);
+ const input = a.filter(value => value.endsWith(',dst=/scan/sbom.spdx.json,readonly'));
+ if (input.length !== 1) process.exit(91);
+ const scanned = JSON.parse(fs.readFileSync(input[0].slice('type=bind,src='.length, input[0].indexOf(',dst='))));
+ if (!scanned.packages.some(item => item.sourceInfo === ${JSON.stringify(SOURCE_INFO)})) {
+  process.stderr.write('UNSUPPLEMENTED_SCAN'); process.exit(92);
+ }
  if (a.some(value => value.includes('frozen-source'))) process.exit(96);
  if (process.env.TOYBACO_TEST_ORIGINAL_CHANGE === 'true') fs.appendFileSync(path.join(security, 'frozen-source/db/trivy.db'), 'changed');
  if (process.env.TOYBACO_TEST_METADATA_CHANGE === 'true') {
@@ -1607,6 +1857,10 @@ process.exit(98);
       'fixture-db.json': fixture.before.metadata,
     })) writeFileSync(join(directory, name), JSON.stringify(data));
     let executedScan = scanRun;
+    if (settings.scanInput === 'attested') {
+      assert.equal(scanRun.split('src=$security/scan-sbom.spdx.json,').length - 1, 1);
+      executedScan = scanRun.replace('src=$security/scan-sbom.spdx.json,', 'src=$security/sbom.spdx.json,');
+    }
     if (settings.proofStartup) {
       const invocation = '-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json';
       assert.ok(scanRun.includes(invocation));
@@ -1627,9 +1881,22 @@ process.exit(98);
     assert.equal(result.error, undefined, `${label}: ${result.error}`);
     assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
     if (settings.proofStartup) assert.match(result.stderr, /BUNDLER_PRELOAD_REQUIRED/, 'startup regression fails at the actual Ruby invocation');
+    if (settings.scanInput) assert.match(result.stderr, /UNSUPPLEMENTED_SCAN/, 'an unsupplemented copy fails at the actual scanner');
+    if (settings.sourceStop) {
+      assert.match(result.stdout, /^::error::TOYBACO_SPDX_OS_SOURCE=STOP /m, `${label}: the supplement must stop the step`);
+      assert.ok(!existsSync(join(directory, 'chatwoot-source-backport/scan-sbom.spdx.json')), `${label}: no scanned copy`);
+    }
     if (expected) {
+      // The scanner read the supplemented copy; the attested SBOM and the copy the classification binds are unchanged bytes.
+      const attested = readFileSync(join(directory, 'toybaco-chatwoot.spdx.json'));
+      assert.equal(attested.toString(), JSON.stringify(sbom), 'the attested SBOM is unchanged');
+      assert.deepEqual(readFileSync(join(directory, 'chatwoot-source-backport/sbom.spdx.json')), attested, 'binding copy is exact');
+      const scanned = JSON.parse(readFileSync(join(directory, 'chatwoot-source-backport/scan-sbom.spdx.json'), 'utf8'));
+      assert.deepEqual(scanned, { ...sbom, packages: sbom.packages.map(item => item.name === 'ssl_client' ? { ...item, sourceInfo: SOURCE_INFO } : item) });
+      assert.match(result.stdout, /^TOYBACO_SPDX_OS_SOURCE=OK os_packages=1 source_added=1 source_kept=0 no_upstream=0$/m);
       const proof = JSON.parse(readFileSync(join(directory, 'chatwoot-source-backport/source-backport-classification.json')));
       assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
+      assert.equal(proof.bindings.sbom, createHash('sha256').update(attested).digest('hex'), 'the classification binds the attested SBOM');
       assert.equal(proof.scanner_vex_filtering, false);
       assert.equal(proof.counts.raw_high, 3);
       assert.equal(proof.counts.source_verified_fixed, 3);
@@ -1687,8 +1954,19 @@ for (const [label, change] of [
   ['actual scanned copy DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
   ['original DB changed during raw scan', (_sbom, _report, settings) => { settings.changedOriginal = true; }],
   ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
+  ['raw scan reads the unsupplemented copy', (_sbom, _report, settings) => { settings.scanInput = 'attested'; }],
+  ['OS source qualifier outside the rules', (sbom, _report, settings) => {
+    sbom.packages[2].externalRefs[0].referenceLocator = SOURCE_PURL.replace('upstream=busybox', 'upstream=bad%2Forigin');
+    settings.sourceStop = true;
+  }],
+  ['no OS package to supplement', (sbom, _report, settings) => {
+    sbom.packages[2].externalRefs[0].referenceLocator = SOURCE_PURL.replace('&upstream=busybox', ''); settings.sourceStop = true;
+  }],
+  ['another OS source already recorded', (sbom, _report, settings) => {
+    sbom.packages[2].sourceInfo = 'built package from: openssl 1.37.0-r19'; settings.sourceStop = true;
+  }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 23 negative controls; Docker stand-in, no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 27 negative controls; Docker stand-in, no external calls)');
 
 // Execute the exact runner CLI check with stand-in gh, aws and docker (and tee) as the only commands on PATH, so the
 // runner's real tools are never reached. Only the expected majors and overlay2 pass; anything else stops with one

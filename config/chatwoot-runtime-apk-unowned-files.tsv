@@ -1,0 +1,9 @@
+# 出荷する Chatwoot runtime の /lib・/usr/lib にある、apk の記録(/lib/apk/db/installed)に持ち主の無い file の許可の一覧。
+# 方針は docs/chatwoot-runtime-os-policy.md。1 行 1 file の path<TAB>内容<TAB>理由、path の順。内容は、通常の file なら sha256、
+# symlink なら link 先の文字。glob・directory・path だけの行は書けない(byte が変わっても通るため)。
+# tests/verify_chatwoot_runtime_apk.rb が、image の中で /lib・/usr/lib の全部の通常の file と symlink を、apk の記録の Z: か
+# この一覧に照らす(使われない行も失敗)。この一覧は control に入り、公開 repo にも届く。fixture の試験は verifier の単体試験。
+# 書かないもの(verifier の定数): apk の DB の 3 file(/lib/apk/db/installed・scripts.tar・triggers。中身は package の版と C: で
+# 変わり、照合の基準そのもの。書けば --lint で止まる)と、gdk-pixbuf の query の出力で照らす /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache。
+# 行を足す時は、image を build して持ち主の無い file を測り、review する(2026-11-03 の実測は 5 件: DB の 3 file・lock・loaders.cache)。
+/lib/apk/db/lock	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855	apk の DB の lock。base の alpine-minirootfs から空のまま(apk は flock だけを使い、中身を書かない)

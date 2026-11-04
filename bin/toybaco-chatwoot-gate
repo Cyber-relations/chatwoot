@@ -241,7 +241,10 @@ control_file_list() {
     'tests/chatwoot-post-entry.test.mjs' \
     'scripts/verify-chatwoot-ee-view-twins.sh' \
     'scripts/chatwoot-alpine-status.py' \
+    'scripts/spdx-os-source.py' \
     'config/chatwoot-runtime-apk.txt' \
+    'config/chatwoot-runtime-apk-cve-floors.tsv' \
+    'config/chatwoot-runtime-apk-unowned-files.tsv' \
     'tests/verify_chatwoot_runtime_apk.rb' \
     'tests/chatwoot_runtime_apk_test.rb' \
     'docs/chatwoot-runtime-os-policy.md' \
@@ -498,13 +501,14 @@ assert_control_contract() {
   grep -Fq "jp.toybaco.upstream.image=\"$CHATWOOT_IMAGE\"" "$CONTROL_ROOT/Dockerfile" || fail \
     'production Dockerfileの上流image labelが固定値ではありません'
   assert_single_exact_line "$CONTROL_ROOT/Dockerfile" '    && apk add --no-cache "alpine-release=$alpine_release" \'
-  [[ "$(grep -c -F 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt' \
+  [[ "$(grep -c -F 'ruby /opt/toybaco/tests/verify_chatwoot_runtime_apk.rb /opt/toybaco/config/chatwoot-runtime-apk.txt /opt/toybaco/config/chatwoot-runtime-apk-cve-floors.tsv /opt/toybaco/config/chatwoot-runtime-apk-unowned-files.tsv' \
     "$CONTROL_ROOT/Dockerfile")" == 2 ]] || fail \
-    'production Dockerfileがruntime packageの一覧の検証をruntime baseと最終stageで行いません'
+    'production Dockerfileがruntime packageの一覧・CVEの下限・持ち主の無いfileの検証をruntime baseと最終stageで行いません'
   ruby -c "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" >/dev/null || fail \
     'runtime package検証scriptのRuby syntaxが不正です'
-  ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt" || fail \
-    'runtime packageの一覧の形が不正です'
+  ruby "$CONTROL_ROOT/tests/verify_chatwoot_runtime_apk.rb" --lint "$CONTROL_ROOT/config/chatwoot-runtime-apk.txt" \
+    "$CONTROL_ROOT/config/chatwoot-runtime-apk-cve-floors.tsv" "$CONTROL_ROOT/config/chatwoot-runtime-apk-unowned-files.tsv" || fail \
+    'runtime packageの一覧・CVEの下限の表・持ち主の無いfileの許可の一覧の形が不正です'
   ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb" || fail 'runtime package検証scriptの単体試験が失敗しました'
   for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
     scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
@@ -1648,17 +1652,21 @@ smoke_production_image() {
       test ! -e /usr/local/lib/node_modules/npm
       test ! -e /usr/local/bin/npm
       test ! -e /usr/local/bin/npx
+      test ! -e /usr/local/bin/node
+      test -z "$(command -v node || :)"
       sha256sum -c /contract/production-overlay.sha256
       while IFS= read -r file; do ruby -c "$file" >/dev/null; done < /contract/production-ruby-files
       test "$(cat /app/.git_sha)" = "$1"
     ' sh "$CHATWOOT_SOURCE_COMMIT"
   # 出荷するAlpine packageを、control snapshotのreview済みの一覧で確かめる(名前の集合とalpine-releaseは完全一致、
-  # ほかの版は下限、実際に読み込まれるOpenSSL・expat・TIFF・OpenJPEG・zlib・muslの版、repositoryはbranchだけ)。
+  # ほかの版は下限、一覧の版と入った版はCVEの下限以上、/lib・/usr/libのfileとsymlinkはapkの記録のZ:か持ち主の無い
+  # fileの許可の一覧と一致、実際に読み込まれるOpenSSL・expat・TIFF・OpenJPEG・zlib・muslの版、repositoryはbranchだけ)。
   # 一覧より新しい修正版は失敗にせずStep Summaryへ出す(docs/chatwoot-runtime-os-policy.md)。
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$PRODUCTION_IMAGE" ruby /contract/tests/verify_chatwoot_runtime_apk.rb /contract/config/chatwoot-runtime-apk.txt \
+    /contract/config/chatwoot-runtime-apk-cve-floors.tsv /contract/config/chatwoot-runtime-apk-unowned-files.tsv \
     > "$runtime_apk_output"
   cat "$runtime_apk_output"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -1700,6 +1708,68 @@ smoke_production_image() {
           abort %q{untrusted CSV loader was not blocked}
         rescue Vips::Error => error
           abort unless error.message == "csvload: operation is blocked\n"
+        end
+        exr = File.join(directory, %q{untrusted.exr})
+        File.binwrite(exr, "\x76\x2f\x31\x01".b + ("\0" * 60).b)
+        begin
+          Vips::Image.openexrload(exr)
+          abort %q{untrusted OpenEXR loader was not blocked}
+        rescue Vips::Error => error
+          lines = error.message.lines
+          abort unless lines.last == "openexrload: operation is blocked\n" && lines.size <= 2
+          puts lines.last
+        end
+        begin
+          Vips::Image.new_from_file(exr)
+          abort %q{untrusted OpenEXR file was loaded}
+        rescue Vips::Error => error
+          abort unless error.message == "VipsForeignLoad: \"#{exr}\" is not a known file format\n"
+          puts error.message.sub(exr, %q{<path>})
+        end
+        fits = File.join(directory, %q{untrusted.fits})
+        File.binwrite(fits, (%q{SIMPLE  =                    T}.ljust(80) + %q{BITPIX  =                    8}.ljust(80) +
+          %q{NAXIS   =                    0}.ljust(80) + %q{END}.ljust(80)).ljust(2880))
+        begin
+          Vips::Image.fitsload(fits)
+          abort %q{untrusted FITS loader was not blocked}
+        rescue Vips::Error => error
+          lines = error.message.lines
+          abort unless lines.last == "fitsload: operation is blocked\n" && lines.size <= 2
+          puts lines.last
+        end
+        begin
+          Vips::Image.new_from_file(fits)
+          abort %q{untrusted FITS file was loaded}
+        rescue Vips::Error => error
+          abort unless error.message == "VipsForeignLoad: \"#{fits}\" is not a known file format\n"
+          puts error.message.sub(fits, %q{<path>})
+        end
+      end
+    '
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=1m \
+    "$PRODUCTION_IMAGE" env -u VIPS_BLOCK_UNTRUSTED bundle exec ruby -rruby-vips -rtmpdir -e '
+      abort if defined?(Rails) || ENV.key?(%q{VIPS_BLOCK_UNTRUSTED})
+      Dir.mktmpdir do |directory|
+        exr = File.join(directory, %q{untrusted.exr})
+        File.binwrite(exr, "\x76\x2f\x31\x01".b + ("\0" * 60).b)
+        begin
+          Vips::Image.new_from_file(exr)
+          abort %q{OpenEXR control fixture was loaded}
+        rescue Vips::Error => error
+          abort unless error.message.start_with?("exr2vips: EXR error: ")
+          puts error.message.lines.first.sub(exr, %q{<path>})
+        end
+        fits = File.join(directory, %q{untrusted.fits})
+        File.binwrite(fits, (%q{SIMPLE  =                    T}.ljust(80) + %q{BITPIX  =                    8}.ljust(80) +
+          %q{NAXIS   =                    0}.ljust(80) + %q{END}.ljust(80)).ljust(2880))
+        begin
+          Vips::Image.new_from_file(fits)
+          abort %q{FITS control fixture was loaded}
+        rescue Vips::Error => error
+          abort unless error.message.lines.last == "fits: no HDU found with naxes > 0\n"
+          puts error.message.lines.last
         end
       end
     '

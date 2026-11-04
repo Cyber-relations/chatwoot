@@ -30,6 +30,7 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     Toybaco::BillingEvent.where(id: @events).or(Toybaco::BillingEvent.where(reference_id: @subscriptions)).delete_all
     Toybaco::SubscriptionSyncRequest.where(id: @requests).or(Toybaco::SubscriptionSyncRequest.where(subscription_id: @subscriptions)).delete_all
     Account.where(id: @accounts).destroy_all
+    delete_audit_rows(@audit_baseline) if @audit_baseline
     %w[TOYBACO_STRIPE_MODE TOYBACO_BILLING_INGRESS_ENABLED].each { |key| @previous.key?(key) ? ENV[key] = @previous[key] : ENV.delete(key) }
     ActiveJob::Base.queue_adapter = @adapter
     travel_back
@@ -90,6 +91,64 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     client
   end
 
+  # 監査表は追記専用トリガで DELETE を拒むため、test DB の superuser の session でトリガを止めて消す(attention_ops_rake_spec と同じ)。
+  def delete_audit_rows(after_id)
+    connection = ActiveRecord::Base.connection_db_config.new_connection
+    connection.execute('SET session_replication_role = replica')
+    connection.execute("DELETE FROM toybaco_operator_actions WHERE id > #{Integer(after_id)}")
+  ensure
+    connection&.disconnect!
+  end
+
+  # Stripe を共用する他製品の購読(明細の価格・商品も metadata もトイバコのものでなく、作って 40 日たつ)。呼ばれた id を calls に控える。
+  def foreign_provider(calls = [])
+    client = Object.new
+    client.define_singleton_method(:retrieve_subscription) do |id|
+      calls << id
+      product = { 'id' => 'prod_foreignproduct', 'name' => 'AI employee standard', 'metadata' => {} }
+      price = { 'id' => 'price_foreignproduct', 'lookup_key' => nil, 'metadata' => {}, 'product' => product }
+      { 'id' => id, 'object' => 'subscription', 'livemode' => false, 'customer' => 'cus_foreignproduct', 'created' => NOW.to_i - (40 * 86_400),
+        'metadata' => { 'planKey' => 'ai_employee_standard' },
+        'items' => { 'object' => 'list', 'has_more' => false, 'data' => [{ 'id' => 'si_foreignproduct', 'price' => price }] } }
+    end
+    client
+  end
+
+  # 受付を、毎回の再試行の時刻へ進めながら終わる(completed か attention)まで流す。log を返す。
+  def drain_receipt(row, client)
+    log = +''
+    60.times do
+      break unless %w[pending queued processing].include?(row.reload.state)
+
+      travel_to [row.next_attempt_at, Time.now.utc].max
+      _, line = logged { Growth::BillingExecution.new(row, client: client).call }
+      log << line
+    end
+    log
+  end
+
+  # 照合の要求を、毎回の再試行の時刻で終わる(completed か attention)まで流す。log を返す。
+  def drain_sync(request, client)
+    log = +''
+    60.times do
+      break unless %w[pending running].include?(request.reload.state)
+
+      at = [request.next_attempt_at, Time.now.utc].max
+      _, line = logged do
+        Toybaco::SubscriptionReconciliation::Execution.new(request, client: client, now: at, environment: { 'TOYBACO_STRIPE_MODE' => 'test' }).call
+      end
+      log << line
+    end
+    log
+  end
+
+  # 確認待ちの行の数(全ての表)。日次ダイジェストの確認待ちの区画(期限で数が変わる利用者からの報告は除く)に、更新請求の処理と
+  # renewal operation を足す。区画が読めなければ(nil)ここで落とす。
+  def attention_counts
+    [Toybaco::Ops::Digest.new(now: Time.now.utc).summary.fetch(:attention).except(:support_reports),
+     Toybaco::GrowthRenewalDispatch.where(state: 'attention').count, Toybaco::RenewalOperation.where(state: 'attention').count]
+  end
+
   def run_attention_task(name, id, reason)
     require 'rake'
     Rails.application.load_tasks unless Rake::Task.task_defined?("toybaco:#{name}")
@@ -97,10 +156,10 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     output
   end
 
-  # 店舗に結び付かない購読(Stripe を共用する他製品)の更新請求も、受付は従来どおり記録し(署名した事実・照合の要求。ACK の形も同じ)、
-  # 処理は店舗を待って再試行し、期限で確認待ちになる(手元の記録だけでは他製品と決められず、開通の途中の正規の購読と区別できない)。
-  # 運営が他製品と確かめた確認待ちは、理由 foreign で閉じる。
-  def test_another_products_renewal_waits_into_attention_until_an_operator_closes_it_as_foreign
+  # 店舗に結び付かない購読の更新請求も、受付は従来どおり記録し(署名した事実・照合の要求。ACK の形も同じ)、処理は店舗を待って
+  # 再試行する。期限で他製品の購読かを確かめ(Growth::ForeignSubscriptionReceipt)、確かめられない時(ここでは Stripe の購読に
+  # 明細も metadata も無い)は従来どおり確認待ちになり、CHECK の行に理由が出る。運営が他製品と確かめた確認待ちは、理由 foreign で閉じる。
+  def test_an_unbound_renewal_that_cannot_be_proven_foreign_waits_into_attention_until_an_operator_closes_it
     row = accept(renewal_event)
     subscription = @subscriptions.last
     assert Toybaco::RenewalInvoiceFact.exists?(billing_event_id: row.id)
@@ -109,6 +168,8 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     travel_to NOW + 86_401
     _, log = logged { Growth::BillingExecution.new(row, client: provider).call }
     assert_equal %w[attention retry_limit], row.reload.values_at(:state, :result)
+    assert_equal ["TOYBACO_FOREIGN_SUBSCRIPTION_CHECK kind=receipt id=#{row.id} result=not_foreign reason=stripe_error"],
+                 log.scan(/TOYBACO_FOREIGN_SUBSCRIPTION\S* .*$/)
     assert_equal ["TOYBACO_BILLING_ATTENTION_NEW receipt=#{row.id} result=retry_limit"], log.scan(/TOYBACO_BILLING_ATTENTION_NEW .*$/)
     assert_includes run_attention_task('billing_attention_close', row.id, 'foreign'),
                     "TOYBACO_ATTENTION_OPS kind=billing-event id=#{row.id} action=close reason=foreign state=completed"
@@ -117,9 +178,10 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     assert_nil Toybaco::RenewalOperation.find_by!(subscription_id: subscription).account_id
   end
 
-  # 店舗の作成を待ち切った照合の要求も、従来どおり確認待ちになる(1 回だけ TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW)。
-  # 運営が他製品と確かめたら理由 foreign で閉じ、次の通知は終わった要求と同じく再開する。
-  def test_a_sync_request_that_waits_out_provisioning_turns_attention_and_is_closed_as_foreign
+  # 店舗の作成を待ち切った照合の要求も、他製品の購読と確かめられない時(ここでは Stripe を読めない)は、従来どおり確認待ちになる
+  # (CHECK の行の後に 1 回だけ TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW)。運営が他製品と確かめたら理由 foreign で閉じ、次の通知は
+  # 終わった要求と同じく再開する。
+  def test_a_sync_request_that_cannot_be_proven_foreign_waits_out_provisioning_into_attention_and_is_closed_as_foreign
     row = accept
     Growth::BillingExecution.new(row).call
     request = Toybaco::SubscriptionSyncRequest.find(row.reload.subscription_sync_request_id)
@@ -131,11 +193,51 @@ class ToybacoBillingIngressRuntimeTest < Minitest::Test
     assert_equal ['attention', 'attention', 'not_provisioned'], [state, *request.reload.values_at(:state, :result)]
     assert_equal ["TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW id=#{request.id} result=not_provisioned"],
                  log.scan(/TOYBACO_SUBSCRIPTION_SYNC_ATTENTION\S* .*$/)
+    assert_equal ["TOYBACO_FOREIGN_SUBSCRIPTION_CHECK kind=sync id=#{request.id} result=not_foreign reason=stripe_error"],
+                 log.scan(/TOYBACO_FOREIGN_SUBSCRIPTION\S* .*$/)
     assert_includes run_attention_task('sync_attention_close', request.id, 'foreign'),
                     "TOYBACO_ATTENTION_OPS kind=sync-request id=#{request.id} action=close reason=foreign state=completed"
     assert_equal ['completed', 'operator_closed', 0], request.reload.values_at(:state, :result, :completed_revision)
     again = accept_subscription(accept(event(reference: row.reference_id)))
     assert_equal [request.id, 'pending', 0, 2], again.values_at(:id, :state, :attempts, :requested_revision)
+  end
+
+  # 他製品の購読(Stripe を共用する別の製品)の更新請求を、受付(ingress)から閉じるまで通しで流す。照合の要求は試行の上限(48 回)で、
+  # 受付は期限(24 時間)で他製品と確かめられ、確認待ちにならずに閉じる(result foreign_closed・監査行・CLOSED の行)。どの表にも確認待ちが
+  # 増えず、alarm の数える行も出ない。店舗の無い renewal operation と invoice fact は残るが、更新請求の処理も確認待ちも作らない
+  # (毎分の sweep と日次ダイジェストの件数で確かめる)。月を跨いだ 2 回目の通知では、閉じた照合の要求が始め直り、もう一度閉じる。
+  def test_another_products_renewal_is_closed_from_ingress_without_attention_and_again_the_next_month
+    @audit_baseline = Toybaco::OperatorAction.maximum(:id).to_i
+    subscription = "sub_#{SecureRandom.hex(8)}"
+    client = foreign_provider
+    before = attention_counts
+    log = +''
+    [0, 30].each_with_index do |days, month|
+      travel_to NOW + (days * 86_400)
+      row = accept(renewal_event(subscription: subscription))
+      request = Toybaco::SubscriptionSyncRequest.find(row.subscription_sync_request_id)
+      @requests << request.id
+      assert_equal ['pending', month + 1], request.values_at(:state, :requested_revision)
+      log << drain_sync(request, client) << drain_receipt(row, client)
+      assert_equal %w[completed foreign_closed], row.reload.values_at(:state, :result)
+      assert_equal ['completed', 'foreign_closed', month + 1], request.reload.values_at(:state, :result, :completed_revision)
+    end
+    _, swept = logged do
+      Growth::BillingReceipt.sweep(now: Time.now.utc)
+      Toybaco::SubscriptionReconciliationSweepJob.perform_now
+      Growth::RenewalDispatchQueue.sweep(now: Time.now.utc)
+    end
+    operations = Toybaco::RenewalOperation.where(subscription_id: subscription)
+    assert_equal %w[unverified unverified], operations.order(:id).pluck(:state)
+    assert_nil operations.where.not(account_id: nil).pick(:id)
+    refute Toybaco::GrowthRenewalDispatch.exists?(renewal_operation_id: operations.select(:id))
+    assert_equal before, attention_counts
+    assert_empty log.scan(/^.*(?:_ATTENTION_NEW|TOYBACO_BILLING_ATTENTION receipt=|TOYBACO_BILLING_ATTENTION retry_limit=true).*$/)
+    refute_includes swept, 'TOYBACO_SUBSCRIPTION_SYNC_ATTENTION_NEW'
+    actions = Toybaco::OperatorAction.where('id > ?', @audit_baseline).order(:id).pluck(:actor_kind, :actor_id, :action)
+    assert_equal [%w[job system attention.sync_request.close.foreign], %w[job system attention.billing_event.close.foreign]] * 2, actions
+    assert_equal 4, log.scan(/^TOYBACO_FOREIGN_SUBSCRIPTION_CLOSED kind=(?:receipt|sync) id=\d+ sub_tail=#{subscription[-6..]}$/).size
+    refute_includes log, 'TOYBACO_FOREIGN_SUBSCRIPTION_CHECK'
   end
 
   # 受付が確認待ちになった時だけ TOYBACO_BILLING_ATTENTION_NEW が 1 回出る(billing-attention の alarm が数える行)。毎分の sweep が

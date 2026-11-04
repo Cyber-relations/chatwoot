@@ -18,7 +18,10 @@ on:
       - 'scripts/harden-chatwoot-ruby-llm.rb'
       - 'scripts/verify-chatwoot-ruby-llm-classification.mjs'
       - 'scripts/chatwoot-alpine-status.py'
+      - 'scripts/spdx-os-source.py'
       - 'config/chatwoot-runtime-apk.txt'
+      - 'config/chatwoot-runtime-apk-cve-floors.tsv'
+      - 'config/chatwoot-runtime-apk-unowned-files.tsv'
       - 'docs/chatwoot-runtime-os-policy.md'
       - 'scripts/verify-chatwoot-ee-view-twins.sh'
       - 'docs/chatwoot-ruby-llm-backport-policy.md'
@@ -440,6 +443,10 @@ jobs:
           security="$RUNNER_TEMP/chatwoot-source-backport"
           mkdir -m 0700 "$security"
           cp "$RUNNER_TEMP/toybaco-chatwoot.spdx.json" "$security/sbom.spdx.json"
+          # Trivy reads OS source names only from SPDX sourceInfo; Syft writes them only as purl upstream=.
+          # The raw scan reads a supplemented copy (exclusive create). The attested SBOM and the copy bound by
+          # the classification stay byte-identical; an unreadable shape or zero supplemented packages fails here.
+          python3 -I scripts/spdx-os-source.py "$security/sbom.spdx.json" "$security/scan-sbom.spdx.json"
           mkdir -m 0700 "$security/scan-output"
           db_download_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           docker pull "$TRIVY_IMAGE"
@@ -461,7 +468,7 @@ jobs:
           scan_status=0
           # Raw scan: no VEX, ignore policy, credentials, repository config, or Docker socket.
           docker run --rm --network none --workdir /scan \
-            --mount "type=bind,src=$security/sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly" \
+            --mount "type=bind,src=$security/scan-sbom.spdx.json,dst=/scan/sbom.spdx.json,readonly" \
             --mount "type=bind,src=$security/db,dst=/root/.cache/trivy/db" \
             --mount "type=bind,src=$security/scan-output,dst=/output" \
             "$TRIVY_IMAGE" --config /dev/null sbom \

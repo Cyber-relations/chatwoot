@@ -7,6 +7,8 @@ overlay/app/spec/**
 !config/
 !config/chatwoot-runtime-gems.json
 !config/chatwoot-runtime-apk.txt
+!config/chatwoot-runtime-apk-cve-floors.tsv
+!config/chatwoot-runtime-apk-unowned-files.tsv
 !scripts/
 !scripts/harden-chatwoot-runtime-gems.rb
 !tests/
