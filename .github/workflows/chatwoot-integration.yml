@@ -16,6 +16,8 @@ on:
       - 'config/chatwoot-runtime-gems.json'
       - 'config/chatwoot-ruby-llm-backport.json'
       - 'scripts/harden-chatwoot-ruby-llm.rb'
+      - 'config/chatwoot-rails-backport.json'
+      - 'scripts/harden-chatwoot-rails.rb'
       - 'scripts/verify-chatwoot-ruby-llm-classification.mjs'
       - 'scripts/chatwoot-alpine-status.py'
       - 'scripts/spdx-os-source.py'
@@ -25,6 +27,7 @@ on:
       - 'docs/chatwoot-runtime-os-policy.md'
       - 'scripts/verify-chatwoot-ee-view-twins.sh'
       - 'docs/chatwoot-ruby-llm-backport-policy.md'
+      - 'docs/chatwoot-rails-backport-policy.md'
       - 'scripts/harden-chatwoot-runtime-gems.rb'
       - 'scripts/generate-chatwoot-active-ja-overrides.rb'
       - 'scripts/generate-chatwoot-ja-overrides.rb'
@@ -500,6 +503,16 @@ jobs:
             "$ECR_REPOSITORY@$IMAGE_DIGEST" \
             -rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json \
             > "$security/installed-proof.json"
+          # The Rails proof writes tempfiles and Disk-service blobs, so it alone gets a private /tmp.
+          docker run --rm --platform linux/amd64 --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/config,dst=/contract/config,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts,dst=/contract/scripts,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/contract/tests,readonly" \
+            "$ECR_REPOSITORY@$IMAGE_DIGEST" \
+            -rbundler/setup /contract/tests/verify_chatwoot_rails_backport.rb /contract/config/chatwoot-rails-backport.json \
+            > "$security/installed-rails-proof.json"
           jq -n --arg image "$ECR_REPOSITORY" --arg digest "$IMAGE_DIGEST" \
             --arg source "$REPOSITORY_COMMIT" --arg control "$CONTROL_SHA" --arg trivy "$TRIVY_IMAGE" \
             --arg started "$db_download_started_at" --arg issued "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -507,9 +520,10 @@ jobs:
               source_ref:"refs/heads/main",control_sha256:$control,trivy_image:$trivy,
               db_download_started_at:$started,issued_at:$issued}' > "$security/context.json"
           # This is an independent source-backport classification, not a Trivy-filtered scan.
-          # Exactly three proved fixed findings (CVE-2026-67987 / 67989 / 67991) are allowed; every other HIGH/CRITICAL still fails.
+          # Exactly seven proved fixed findings are allowed: ruby_llm CVE-2026-67987 / 67989 / 67991 and Rails 7.2.3.2
+          # GHSA-8474-xrp6-wh69 / GHSA-wm3x-v3qw-4jh3 / GHSA-f3w6-w445-fwh9 / GHSA-v924-7rp8-4mxh; every other HIGH/CRITICAL still fails.
           node scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \
-            "$security" config/chatwoot-ruby-llm-backport.json
+            "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json
 
       - name: SLSA provenanceを署名してOCIへ保存
         id: provenance
@@ -605,7 +619,7 @@ jobs:
             --predicate-type 'https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1' \
             --format json > "$security/verified-source-backport.json"
           node scripts/verify-chatwoot-ruby-llm-classification.mjs verify-attestations \
-            "$security" config/chatwoot-ruby-llm-backport.json
+            "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json
           printf 'Published %s:%s@%s from %s\n' \
             "$ECR_REPOSITORY" "$IMAGE_TAG" "$IMAGE_DIGEST" "$REPOSITORY_COMMIT"
 

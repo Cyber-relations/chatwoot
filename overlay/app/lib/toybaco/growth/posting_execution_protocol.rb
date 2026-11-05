@@ -27,6 +27,8 @@ module Toybaco::Growth::PostingExecutionProtocol
     origin = Toybaco::PostizOrigin.fetch!(environment)
     pair = Toybaco::Growth::PostingPreparationProtocol::PAIRS[origin]
     secret = environment['TOYBACO_OIDC_CLIENT_SECRET'].to_s
+    raise Invalid if secret.match?(/\A[[:space:]]*\z/)
+
     raise Invalid unless pair == [environment['FRONTEND_URL'], environment['TOYBACO_STRIPE_MODE']] && pair && secret.bytesize >= 32
 
     { origin: origin, issuer: pair.first, mode: pair.last, key: OpenSSL::HMAC.digest('SHA256', secret, PURPOSE) }

@@ -80,6 +80,15 @@ class Toybaco::Security::WidgetHttpSession
   end
 
   def self.read(request, widget)
+    row = cookie_record(request, widget)
+    return unless row
+
+    raise ActiveRecord::RecordNotFound unless row.current?
+
+    new(row)
+  end
+
+  def self.cookie_record(request, widget)
     cookie = request.cookies[cookie_name(widget, secure: request.ssl?)]
     return if cookie.blank?
 
@@ -87,10 +96,12 @@ class Toybaco::Security::WidgetHttpSession
     raise ActiveRecord::RecordNotFound unless parts
 
     row = Toybaco::WidgetSessionRecord.find_by!(id: parts[1], inbox_id: widget.inbox.id)
-    raise ActiveRecord::RecordNotFound unless matches_cookie?(row, parts[2]) && row.current?
+    raise ActiveRecord::RecordNotFound unless matches_cookie?(row, parts[2])
 
-    new(row)
+    row
   end
+
+  private_class_method :cookie_record
 
   def self.matches_cookie?(row, secret)
     supplied = digest(secret)
@@ -127,18 +138,6 @@ class Toybaco::Security::WidgetHttpSession
   def self.development_host?(hostname)
     host = hostname.downcase.sub(/\.$/, '')
     %w[localhost ::1 [::1]].include?(host) || host.end_with?('.localhost', '.test') || host.match?(/\A127\.\d{1,3}\.\d{1,3}\.\d{1,3}\z/)
-  end
-
-  def self.legacy_link(widget, token)
-    return if token.blank?
-
-    claims = ::Widget::TokenService.new(token: token).decode_token
-    raise ActiveRecord::RecordNotFound unless claims[:inbox_id] == widget.inbox.id
-
-    link = widget.inbox.contact_inboxes.find_by!(source_id: claims[:source_id])
-    raise ActiveRecord::RecordNotFound unless link.contact.account_id == widget.inbox.account_id
-
-    link
   end
 
   def self.expiry_days
@@ -206,6 +205,12 @@ class Toybaco::Security::WidgetHttpSession
   end
 
   def handoff(kind: 'popout')
+    Toybaco::Security::WidgetSessionSecurityEpoch.with_creation_lock { create_handoff(kind) }
+  end
+
+  private
+
+  def create_handoff(kind)
     raise ActiveRecord::RecordNotFound unless record.current?
 
     code = SecureRandom.hex(32)

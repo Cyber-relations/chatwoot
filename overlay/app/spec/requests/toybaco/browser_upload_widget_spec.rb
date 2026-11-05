@@ -14,6 +14,7 @@ RSpec.describe 'Browser session upload and public widget boundaries', type: :req
   before do
     host! 'chatwoot.test'
     https!
+    create(:inbox_member, inbox: widget.inbox, user: user)
   end
 
   def staff_csrf
@@ -37,12 +38,12 @@ RSpec.describe 'Browser session upload and public widget boundaries', type: :req
     expect(response.headers['access-token']).to be_nil
   end
 
-  it 'preserves public widget JWT authentication across customer origins' do
+  it 'rejects legacy widget JWT authentication across customer origins' do
     token = Widget::TokenService.new(payload: { source_id: contact_inbox.source_id, inbox_id: widget.inbox.id }).generate_token
     patch '/api/v1/widget/contact', params: { website_token: widget.website_token, name: 'Synthetic visitor' },
                                     headers: { 'Origin' => 'https://customer.example.test', 'X-Auth-Token' => token }, as: :json
-    expect(response).to have_http_status(:success)
-    expect(contact.reload.name).to eq('Synthetic visitor')
+    expect(response).to have_http_status(:not_found)
+    expect(contact.reload.name).not_to eq('Synthetic visitor')
   end
 
   it 'does not grant widget access from the staff cookie alone or expire that separate cookie' do

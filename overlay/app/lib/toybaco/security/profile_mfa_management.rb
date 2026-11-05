@@ -22,6 +22,14 @@ module Toybaco::Security::ProfileMfaManagement
 
   private
 
+  def validate_otp
+    super
+  rescue Toybaco::Security::MfaLoginAttempts::LimitExceeded
+    render json: { error: I18n.t('errors.mfa.toybaco_attempt_limit') }, status: :too_many_requests
+  rescue Redis::BaseError, ConnectionPool::TimeoutError
+    render json: { error: 'authentication_temporarily_unavailable' }, status: :service_unavailable
+  end
+
   # Only a DTA device record identifies the device; API access tokens keep nothing.
   def toybaco_current_client
     client = @token&.client

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Webチャットのプレビュー | トイバコ</title>
+  </head>
+  <body>
+    <main>
+      <h1>Webチャットのプレビュー</h1>
+      <p>お店のサイトに設置する前に、チャットをお試しいただけます。</p>
+      <p>右下のチャットを開いて、テストメッセージを送ってください。送ったメッセージは、お店の受信箱に届きます。</p>
+      <p>送信後は、このタブを閉じてトイバコの画面にお戻りください。</p>
+    </main>
+    <script nonce="<%= content_security_policy_nonce %>">
+      window.chatwootSettings = { locale: 'ja' };
+      (function(d,t) {
+        var base = '<%= j request.base_url %>';
+        var script = d.createElement(t);
+        script.src = base + '/packs/js/sdk.js';
+        script.async = true;
+        script.onload = function() {
+          window.chatwootSDK.run({websiteToken: '<%= j @web_widget.website_token %>', baseUrl: base});
+        };
+        d.head.appendChild(script);
+      })(document, 'script');
+    </script>
+  </body>
+</html>

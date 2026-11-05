@@ -115,6 +115,12 @@ RSpec.describe 'Toybaco API role matrix', type: :request do
     }
   end
 
+  # Retain permission-boundary coverage for the opt-in Platform API. Its
+  # default-off behavior has its own request specs.
+  around do |example|
+    with_modified_env(TOYBACO_PLATFORM_API_ENABLED: 'true') { example.run }
+  end
+
   before do
     allow(ViteRuby.instance).to receive(:dev_server_running?).and_return(true)
     host! 'chatwoot.test'

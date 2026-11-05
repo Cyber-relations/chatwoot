@@ -28,6 +28,9 @@ module Toybaco::Security::LogScrub
   # identifier 内の引用符は \u0022 でもよい。閉じる引用符を値として食べず、後続の無関係な属性を保つ。
   TOKEN_VALUE = /(#{escapable('pubsub_token')}(?:#{QUOTE})?\s*(?:=(?:>|\\+u003e)|:)\s*#{QUOTE})(?:\\+u#{VALUE_HEX4}|[^"\\])*/i
   WIDGET_TOKEN = %r{\btbw(?:http|r|p)\d+\.[A-Za-z0-9._~+/=-]+}
+  # Bot API credentials can occur outside params, including Rails Started paths.
+  TELEGRAM_TOKEN = /\d+(?::|%3a|\\+u003a)[A-Za-z0-9_-]{30,}/i
+  TELEGRAM_PATH = %r{(/webhooks/telegram/)[^\s/?"'\\]+}i
   JWT = /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/
   SEALED = %r{[A-Za-z0-9+/]{16,}={0,2}--[A-Za-z0-9+/]{16,}={0,2}--[A-Za-z0-9+/]{16,}={0,2}}
 
@@ -35,6 +38,8 @@ module Toybaco::Security::LogScrub
   RULES = [
     [/token|\\u/i, TOKEN_VALUE, "\\1#{FILTERED}"],
     [/tbw/, WIDGET_TOKEN, FILTERED],
+    [/:|%3a|u003a/i, TELEGRAM_TOKEN, FILTERED],
+    [/telegram/i, TELEGRAM_PATH, "\\1#{FILTERED}"],
     [/eyJ/, JWT, FILTERED],
     [/--/, SEALED, FILTERED],
     [/@|u0040/, EMAIL, FILTERED_EMAIL]

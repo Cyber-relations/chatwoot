@@ -2,18 +2,28 @@
 class WidgetsController < ActionController::Base
   include WidgetHelper
   include Toybaco::WidgetPrivacyResponse
-  helper_method :http_session_requested?
+  helper_method :http_session_requested?, :legacy_widget_document?
 
   before_action :set_global_config
   before_action :set_web_widget
   before_action :ensure_account_is_active
   before_action :ensure_location_is_supported
+  before_action :retire_legacy_session
   before_action :set_token
-  before_action :set_contact
-  before_action :build_contact
   after_action :allow_iframe_requests
 
   private
+
+  def retire_legacy_session
+    return unless request.format.html? && legacy_widget_document?
+
+    response.headers['Clear-Site-Data'] = '"cache"'
+    Toybaco::Security::WidgetHttpSession.discard_cookie(request, @web_widget)
+  end
+
+  def legacy_widget_document?
+    params[:toybaco_sdk] != '2' && params[:toybaco_popout] != '2'
+  end
 
   def set_global_config
     @global_config = GlobalConfig.get(
@@ -34,48 +44,9 @@ class WidgetsController < ActionController::Base
   end
 
   def set_token
-    if http_session_requested?
-      # The new document is inert until the typed body handshake selects a
-      # visitor and confirms cookie storage. Never create one during this GET.
-      @token = ''
-      @auth_token_params = {}
-      return
-    end
-
-    @token = permitted_params[:cw_conversation]
-    restore_legacy_cookie_identity if @token.blank?
-    @auth_token_params = if @token.present?
-                           ::Widget::TokenService.new(token: @token).decode_token
-                         else
-                           {}
-                         end
-  end
-
-  def restore_legacy_cookie_identity
-    session = Toybaco::Security::WidgetHttpSession.read(request, @web_widget)
-    return unless session
-
-    @token = ::Widget::TokenService.new(payload: session.claims).generate_token
-  end
-
-  def set_contact
-    return if @auth_token_params[:source_id].nil?
-    return unless @auth_token_params[:inbox_id] == @web_widget.inbox.id
-
-    @contact_inbox = ::ContactInbox.find_by(
-      inbox_id: @web_widget.inbox.id,
-      source_id: @auth_token_params[:source_id]
-    )
-
-    @contact = @contact_inbox&.contact
-  end
-
-  def build_contact
-    return if http_session_requested?
-    return if @contact.present?
-
-    @contact_inbox, @token = build_contact_inbox_with_token(@web_widget, additional_attributes)
-    @contact = @contact_inbox.contact
+    # Every document is inert, including loads from a cached legacy SDK.
+    # Identity is selected only by the same-origin HTTP session bootstrap.
+    @token = ''
   end
 
   def ensure_account_is_active
@@ -84,20 +55,12 @@ class WidgetsController < ActionController::Base
 
   def ensure_location_is_supported; end
 
-  def additional_attributes
-    if @web_widget.inbox.account.feature_enabled?('ip_lookup')
-      { created_at_ip: request.remote_ip }
-    else
-      {}
-    end
-  end
-
   def permitted_params
-    params.permit(:website_token, :cw_conversation, :toybaco_sdk, :toybaco_popout)
+    params.permit(:website_token)
   end
 
   def http_session_requested?
-    permitted_params[:toybaco_sdk] == '2' || permitted_params[:toybaco_popout] == '2'
+    true
   end
 
   def allow_iframe_requests
@@ -105,7 +68,9 @@ class WidgetsController < ActionController::Base
       response.headers.delete('X-Frame-Options')
     else
       domains = @web_widget.allowed_domains.split(',').map(&:strip).join(' ')
-      response.headers['Content-Security-Policy'] = "frame-ancestors #{domains}"
+      # The public preview and help center embed the SDK on the Chatwoot origin.
+      # Keep every configured customer origin while allowing that trusted parent.
+      response.headers['Content-Security-Policy'] = "frame-ancestors 'self' #{domains}"
     end
   end
 

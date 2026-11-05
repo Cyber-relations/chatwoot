@@ -1,0 +1,16 @@
+ja:
+  errors:
+    mfa:
+      toybaco_attempt_limit: '確認コードの入力回数が上限に達しました。15分後にもう一度お試しください。'
+  devise:
+    mailer:
+      email_changed:
+        subject: '【トイバコ】メールアドレス変更のお知らせ'
+en:
+  errors:
+    mfa:
+      toybaco_attempt_limit: 'Too many verification attempts. Please try again in 15 minutes.'
+  devise:
+    mailer:
+      email_changed:
+        subject: '【トイバコ】メールアドレス変更のお知らせ'

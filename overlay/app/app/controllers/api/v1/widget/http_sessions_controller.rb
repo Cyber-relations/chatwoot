@@ -20,6 +20,8 @@ class Api::V1::Widget::HttpSessionsController < ApplicationController
   end
 
   def create
+    return create_ephemeral if params[:ephemeral] == true
+
     session, secret = Toybaco::Security::WidgetHttpSession.bootstrap(
       request, @web_widget, legacy_token: params[:legacy_token], intent: params[:consume_intent]
     )
@@ -34,7 +36,10 @@ class Api::V1::Widget::HttpSessionsController < ApplicationController
   end
 
   def handoff
-    with_authenticated { |session| render json: { code: session.handoff } }
+    # Acquire the cutover lock before with_authenticated takes session/link locks.
+    Toybaco::Security::WidgetSessionSecurityEpoch.with_creation_lock do
+      with_authenticated { |session| render json: { code: session.handoff } }
+    end
   end
 
   def consume
@@ -53,31 +58,15 @@ class Api::V1::Widget::HttpSessionsController < ApplicationController
   end
 
   def destroy
-    # Used only by the inert conflict UI after an explicit local-user action.
-    # It revokes this cookie session, not the other visitor's link/history.
-    revoke_current_cookie
-    cookies.delete(Toybaco::Security::WidgetHttpSession.cookie_name(@web_widget, secure: request.ssl?),
-                   path: '/', secure: request.ssl?, httponly: true, same_site: request.ssl? ? :none : :lax, partitioned: request.ssl?)
+    Toybaco::Security::WidgetHttpSession.discard_cookie(request, @web_widget)
     render json: { cookie_session_revoked: true }
   end
 
   private
 
-  def revoke_current_cookie
-    initial = Toybaco::Security::WidgetHttpSession.read(request, @web_widget)
-    return unless initial
-
-    initial.record.with_lock do
-      current = Toybaco::Security::WidgetHttpSession.read(request, @web_widget)
-      raise Toybaco::Security::WidgetHttpSession::RetryIntent unless current && current.record.id == initial.record.id
-
-      current.record.update!(revoked_at: Time.current)
-    end
-  rescue ActiveRecord::RecordNotFound
-    # Invalid cookie: clear only that unusable browser cookie. A valid cookie
-    # changed while waiting for the lock is an unknown outcome, never a revoke
-    # of the newer identity or an instruction to overwrite its cookie.
-    raise Toybaco::Security::WidgetHttpSession::RetryIntent if initial
+  def create_ephemeral
+    proof = Toybaco::Security::WidgetHttpSession.bootstrap_ephemeral(request, @web_widget, intent: params[:consume_intent])
+    render json: { proof: proof, persisted: false }
   end
 
   def set_widget

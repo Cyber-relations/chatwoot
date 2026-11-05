@@ -129,10 +129,10 @@ const showFacts = computed(
 const selectedInbox = computed(() =>
   state.value?.inboxes.find((inbox) => inbox.id === state.value.inbox_id),
 );
-// Web チャットの受信の確認: サイトに設置する前でも、同じ origin のウィジェット(/widget)を新しいタブで開けば 1 件送れる。
+// サイトに設置する前でも、同じ origin のプレビューページで SDK を通して 1 件送れる。
 const widgetPreviewUrl = computed(() => {
   const token = selectedInbox.value?.website_token;
-  return token ? `/widget?website_token=${encodeURIComponent(token)}` : "";
+  return token ? `/toybaco/widget_preview?website_token=${encodeURIComponent(token)}` : "";
 });
 // 完了画面の「次にやること」1 行。案内した窓口(完了の段で決まっていないときは一覧の先頭)の媒体で出し分ける。
 const nextSteps = {

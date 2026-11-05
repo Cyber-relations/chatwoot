@@ -7,6 +7,10 @@ RSpec.describe 'Application administrator MFA', type: :request do
   let(:user) { create(:user, account: account, role: :administrator) }
   let(:headers) { { 'Origin' => 'https://chatwoot.test', 'X-Toybaco-Browser' => '1', 'Sec-Fetch-Site' => 'same-origin' } }
 
+  around do |example|
+    with_modified_env(TOYBACO_ADMIN_MFA_REQUIRED: nil) { example.run }
+  end
+
   before do
     allow(ViteRuby.instance).to receive(:dev_server_running?).and_return(true)
     host! 'chatwoot.test'
@@ -44,7 +48,7 @@ RSpec.describe 'Application administrator MFA', type: :request do
     travel_to(mfa_verified_at(client) + duration) { Toybaco::Security::ApplicationMfaSession.valid?(user.reload, client) }
   end
 
-  # Store administrators enroll optionally (owner decision, 2026-10-06).
+  # Required enrollment remains off until the reviewed rollout date is chosen.
   it 'lets an unenrolled store administrator sign in without MFA proof' do
     login
     expect(response).to have_http_status(:ok)
@@ -70,6 +74,54 @@ RSpec.describe 'Application administrator MFA', type: :request do
     expect(response).to have_http_status(:ok)
     get '/api/v1/profile', headers: headers
     expect(response).to have_http_status(:ok)
+  end
+
+  context 'when store administrator enrollment is required' do
+    around do |example|
+      with_modified_env(TOYBACO_ADMIN_MFA_REQUIRED: 'true') { example.run }
+    end
+
+    it 'requires the existing enrollment flow before issuing a dashboard device' do
+      login
+      expect(response).to have_http_status(:partial_content)
+      expect(response.parsed_body).to include('mfa_enrollment_required' => true, 'enrollment_path' => '/toybaco/mfa-enrollment')
+      expect(user.reload.tokens).to be_empty
+      get '/toybaco/mfa-enrollment'
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('2段階認証を設定してください')
+    end
+
+    it 'also requires enrollment after an SSO primary authentication' do
+      login(password: nil, sso_auth_token: user.generate_sso_auth_token)
+      expect(response).to have_http_status(:partial_content)
+      expect(response.parsed_body['mfa_enrollment_required']).to be(true)
+      expect(user.reload.tokens).to be_empty
+    end
+
+    it 'allows the enrolled administrator to retrieve the profile with the newly verified device' do
+      login
+      post '/toybaco/mfa-enrollment', headers: headers.merge('X-CSRF-Token' => csrf)
+      post '/toybaco/mfa-enrollment/verify', params: { otp_code: user.reload.current_otp }, headers: headers.merge('X-CSRF-Token' => csrf)
+      expect(response).to have_http_status(:ok)
+      expect(user.reload.mfa_enabled?).to be(true)
+      get '/api/v1/profile', headers: headers
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'rejects a previously issued unverified device after promotion to administrator' do
+      user.account_users.each { |membership| membership.update!(role: :agent) }
+      credentials = user.create_new_auth_token
+      user.account_users.each { |membership| membership.update!(role: :administrator) }
+      expect(user.reload.valid_token?(credentials['access-token'], credentials['client'])).to be(false)
+      expect(Toybaco::Oidc::SessionReader.record_digest(user, credentials['client'])).to be_nil
+    end
+
+    it 'still allows an ordinary agent without enrollment' do
+      user.account_users.each { |membership| membership.update!(role: :agent) }
+      login
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['mfa_enrollment_required']).to be_nil
+    end
   end
 
   it 'binds a successful MFA login to its live device and preserves proof during normal token rotation' do
@@ -293,6 +345,83 @@ RSpec.describe 'Application administrator MFA', type: :request do
 
   context 'when the user is an unenrolled super admin' do
     let(:user) { create(:super_admin) }
+
+    after { Redis::Alfred.delete(Toybaco::Security::MfaLoginAttempts.key(user)) }
+
+    def prepare_enrollment
+      login
+      post '/toybaco/mfa-enrollment', headers: headers.merge('X-CSRF-Token' => csrf)
+      expect(response).to have_http_status(:ok)
+    end
+
+    def expect_no_enrollment_code_verification
+      allow(Mfa::AuthenticationService).to receive(:new).and_wrap_original do |original, **options|
+        service = original.call(**options)
+        expect(service).not_to receive(:authenticate_with_otp)
+        expect(service).not_to receive(:authenticate_with_backup_code)
+        service
+      end
+    end
+
+    %w[allow log].product(%i[profile enrollment], %i[incorrect correct]).each do |mode, route, validity|
+      it "rejects #{validity} #{route} codes in #{mode} mode when reads work but reservation writes fail" do
+        with_modified_env(TOYBACO_PERSONAL_API_ACCESS_MODE: mode) do
+          allow(Chatwoot).to receive(:mfa_enabled?).and_return(true)
+          prepare_enrollment
+          code = validity == :correct ? user.reload.current_otp : 'not-an-otp'
+          original = user.reload.attributes.slice('otp_secret', 'otp_required_for_login', 'otp_backup_codes', 'consumed_timestep', 'tokens')
+          allow(Redis::Alfred).to receive(:zcount).and_call_original
+          expect(Redis::Alfred).to receive(:zadd).and_raise(Redis::BaseError)
+          expect_no_enrollment_code_verification
+
+          if route == :profile
+            post '/api/v1/profile/mfa/verify', params: { otp_code: code }, headers: { 'api_access_token' => user.access_token.token }, as: :json
+          else
+            post '/toybaco/mfa-enrollment/verify', params: { otp_code: code }, headers: headers.merge('X-CSRF-Token' => csrf)
+          end
+
+          expect(response).to have_http_status(:service_unavailable)
+          expect(response.body).not_to include('backup_codes', 'バックアップコード')
+          expect(user.reload.attributes.slice(*original.keys)).to eq(original)
+          expect(cookies['cw_d_session_info']).to be_blank
+          expect(Redis::Alfred).to have_received(:zcount).at_least(:once)
+          get '/api/v1/profile', headers: headers
+          expect(response).to have_http_status(:unauthorized)
+        end
+      end
+    end
+
+    %i[profile enrollment].each do |source|
+      it "shares #{source} verification failures with the other enrollment endpoint" do
+        with_modified_env(TOYBACO_PERSONAL_API_ACCESS_MODE: 'allow') do
+          login
+          post '/toybaco/mfa-enrollment', headers: headers.merge('X-CSRF-Token' => csrf)
+          expect(response).to have_http_status(:ok)
+          api_headers = { 'api_access_token' => user.access_token.token }
+          enrollment_headers = headers.merge('X-CSRF-Token' => csrf)
+
+          10.times do
+            if source == :profile
+              post '/api/v1/profile/mfa/verify', params: { otp_code: 'not-an-otp' }, headers: api_headers, as: :json
+            else
+              post '/toybaco/mfa-enrollment/verify', params: { otp_code: 'not-an-otp' }, headers: enrollment_headers
+            end
+            expect(response).to have_http_status(:unprocessable_entity)
+          end
+
+          if source == :profile
+            post '/toybaco/mfa-enrollment/verify', params: { otp_code: user.reload.current_otp }, headers: enrollment_headers
+          else
+            post '/api/v1/profile/mfa/verify', params: { otp_code: user.reload.current_otp }, headers: api_headers, as: :json
+          end
+          expect(response).to have_http_status(:too_many_requests)
+          expect(user.reload.mfa_enabled?).to be(false)
+          expect(user.consumed_timestep).to be_nil
+          expect(user.otp_backup_codes).to be_blank
+          expect(user.tokens).to be_empty
+        end
+      end
+    end
 
     it 'does not issue a full login before enrollment' do
       login

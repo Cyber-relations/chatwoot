@@ -176,6 +176,9 @@ locals {
     # version IDは非機密であり、secret本文をtask definitionへ埋め込まない。
     { name = "TOYBACO_APP_SECRET_VERSION", value = aws_secretsmanager_secret_version.app.version_id },
     { name = "TOYBACO_POSTIZ_SECRET_VERSION", value = aws_secretsmanager_secret_version.postiz.version_id },
+    # widget の HTTP session の security epoch の下限(統合の commit の時刻、UTC)。web・Cable・worker・migration・runner・
+    # ops-rake の全部の Rails へ同じ値を渡し、下げない・起動の時刻から作らない(#623 の widget-http-session-migration)。
+    { name = "TOYBACO_WIDGET_SESSION_SECURITY_EPOCH", value = "2026-11-05T01:45:17Z" },
   ]
 
   # staging だけ、Rails の開通照合(Growth::OpeningTerms)へ Lambda(provision.tf)と同じ fixture 名簿を渡す。

@@ -49,14 +49,18 @@ class Avatar::AvatarFromUrlJob < ApplicationJob
   def attach_avatar(avatarable, avatar_file)
     raise SafeFetch::FetchError, 'Invalid file' unless valid_file?(avatar_file)
 
+    type = Toybaco::Security::AvatarPolicy.identify!(avatar_file.tempfile)
     avatarable.avatar.attach(
       io: avatar_file.tempfile,
       filename: avatar_file.original_filename,
-      content_type: avatar_file.content_type
+      content_type: type,
+      identify: false
     )
+  rescue Toybaco::Security::AttachmentPolicy::Rejected
+    raise SafeFetch::FetchError, 'Invalid avatar content'
   end
 
-  def log_http_error(avatar_url, error)
+  def log_http_error(_avatar_url, error)
     if error.message.start_with?('404')
       Rails.logger.info 'AvatarFromUrlJob: avatar not found'
     else

@@ -22,7 +22,7 @@ class Toybaco::MfaEnrollmentController < ActionController::Base # rubocop:disabl
   def verify
     @user.with_lock do
       return expired unless Toybaco::Security::MfaEnrollment.user(session)&.id == @user.id
-      return invalid_code unless @user.otp_secret.present? && @user.validate_and_consume_otp!(params[:otp_code].to_s)
+      return invalid_code unless Mfa::AuthenticationService.new(user: @user, otp_code: params[:otp_code].to_s).authenticate
 
       @backup_codes = @user.mfa_service.verify_and_activate!
       payload = @user.create_new_auth_token
@@ -32,6 +32,10 @@ class Toybaco::MfaEnrollmentController < ActionController::Base # rubocop:disabl
       reset_session
     end
     render :complete
+  rescue Toybaco::Security::MfaLoginAttempts::LimitExceeded
+    head :too_many_requests
+  rescue Redis::BaseError, ConnectionPool::TimeoutError
+    head :service_unavailable
   end
 
   def cancel

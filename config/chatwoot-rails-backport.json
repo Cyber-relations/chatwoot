@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "rails_version": "7.2.3.2",
+  "gems": [
+    {
+      "name": "activesupport",
+      "version": "7.2.3.2",
+      "archive_sha256": "ddc90d11dd88086d78ace03407fe3c2a3f5c8853c3c3046313db5ed823ef3312",
+      "archive_url": "https://rubygems.org/downloads/activesupport-7.2.3.2.gem"
+    },
+    {
+      "name": "actionpack",
+      "version": "7.2.3.2",
+      "archive_sha256": "c1fbb1c4df0f2473ee064ab1412fc2a44c2c2ef337924c5ba3c7998c8529652b",
+      "archive_url": "https://rubygems.org/downloads/actionpack-7.2.3.2.gem"
+    },
+    {
+      "name": "activestorage",
+      "version": "7.2.3.2",
+      "archive_sha256": "863cb4b21b83505555be2addb939fefb856ab05f6c6d24bab00d6f1a7e4edbfc",
+      "archive_url": "https://rubygems.org/downloads/activestorage-7.2.3.2.gem"
+    }
+  ],
+  "upstream": {
+    "repository": "https://github.com/rails/rails",
+    "compare": "v8.0.5.1...v8.0.5.2",
+    "license": "MIT"
+  },
+  "advisories": [
+    {
+      "id": "GHSA-8474-xrp6-wh69",
+      "severity": "HIGH",
+      "gem": "activesupport",
+      "fix_commit": "210ac22d446c8e2625b091e79256806b836eee20",
+      "fix_url": "https://github.com/rails/rails/commit/210ac22d446c8e2625b091e79256806b836eee20",
+      "upstream_diff_sha256": "c60d5d14796ef4fc47d5f459dc7a9001f35640b01d91cccfebb55c60bb3b84b8",
+      "files": [
+        {
+          "path": "lib/active_support/inflector/methods.rb",
+          "original_sha256": "3b8028113ff51eac58aec28315a0acf95772decfd3f06f220b9431dcad911831",
+          "patched_sha256": "9c6fa7ae3d2d0941426e83afa5ec58013cbaa04e85d3cdbfdf25bfecbd54e875",
+          "method": "ActiveSupport::Inflector#safe_constantize",
+          "source_line": 315
+        }
+      ],
+      "adaptation": "None. Both upstream hunks apply to the 7.2.3.2 source unchanged (same lines)."
+    },
+    {
+      "id": "GHSA-wm3x-v3qw-4jh3",
+      "severity": "HIGH",
+      "gem": "actionpack",
+      "fix_commit": "2fc8838300133931e19eed3ea6cee76a7e83f19c",
+      "fix_url": "https://github.com/rails/rails/commit/2fc8838300133931e19eed3ea6cee76a7e83f19c",
+      "upstream_diff_sha256": "69d97d6e01fc24a192373485b30e1f40bf5b374939e0bb51a9e7b9b382ef3ace",
+      "files": [
+        {
+          "path": "lib/action_controller/metal/strong_parameters.rb",
+          "original_sha256": "87e0530c1f4b561be2fbc69b44fb042c628290fc8da7c96622d7fe59dcb7f747",
+          "patched_sha256": "53a14505d11c5a95c11e3ae7b51a2677d12dd83add6adec3fd925f772f77adb9",
+          "method": "ActionController::Parameters#each_key",
+          "source_line": 425
+        }
+      ],
+      "adaptation": "None. The three upstream hunks apply to the 7.2.3.2 source unchanged at offsets -13, -13 and +1."
+    },
+    {
+      "id": "GHSA-f3w6-w445-fwh9",
+      "severity": "CRITICAL",
+      "gem": "activestorage",
+      "fix_commit": "ea8c40121ce53a3d0255cd4eb6d13bfe3bc01776",
+      "fix_url": "https://github.com/rails/rails/commit/ea8c40121ce53a3d0255cd4eb6d13bfe3bc01776",
+      "upstream_diff_sha256": "4a76c7d5562b551b159f6ab1a424be301987b7cc67f515c5adfa0e2534f54344",
+      "files": [
+        {
+          "path": "lib/active_storage/analyzer/image_analyzer/image_magick.rb",
+          "original_sha256": "360f2cf57308080046184ce8d69a1939deead4bfd73cf1fc257477a518de8e44",
+          "patched_sha256": "2f4c8572aeb3e064c42afb3e87603eb9bea1f60c4698455e19a043f6996f2df9",
+          "method": "ActiveStorage::Analyzer::ImageAnalyzer::ImageMagick#read_image",
+          "source_line": 14
+        },
+        {
+          "path": "lib/active_storage/engine.rb",
+          "original_sha256": "bd1fbb5b5e723344aea215430b5b1ecc71bb9f744c26e3301084152dad70c2b7",
+          "patched_sha256": "5657972cc72f6bbde00ced2c70e121b82f0ed3c621b81fecb6830442dac6c177",
+          "method": "ActiveStorage::Engine initializer active_storage.configs",
+          "source_line": 86
+        },
+        {
+          "path": "lib/active_storage/image_magick.rb",
+          "original_sha256": null,
+          "patched_sha256": "1fde15abe80204c2ceda3c0c188e8639c37420ba1134856e093a99d90e16809d",
+          "method": "ActiveStorage::ImageMagick.apply_policy",
+          "source_line": 30
+        },
+        {
+          "path": "lib/active_storage/image_magick/policy.xml",
+          "original_sha256": null,
+          "patched_sha256": "d28aeb38b20a802ba961a413d22bf6bb606584431761e3b333a8969fcc439fff",
+          "method": "ActiveStorage::ImageMagick::POLICY_DIRECTORY",
+          "source_line": null
+        }
+      ],
+      "adaptation": "None. The analyzer and engine hunks apply at offsets 0 and -1, and the two new files are upstream's. With the bundled mini_magick 4.12.0 (no MiniMagick.cli_env=) upstream's own guard leaves the policy unapplied and makes a :mini_magick application fail at boot; Chatwoot processes images with :vips."
+    },
+    {
+      "id": "GHSA-v924-7rp8-4mxh",
+      "severity": "HIGH",
+      "gem": "activestorage",
+      "fix_commit": "8106938fb0a595f11006dd1497cd409e27d7d636",
+      "fix_url": "https://github.com/rails/rails/commit/8106938fb0a595f11006dd1497cd409e27d7d636",
+      "upstream_diff_sha256": "0f3ad906c07130e5d3df0a30b57ed79af5a6e1edc1523562bfb0875aade29830",
+      "files": [
+        {
+          "path": "app/models/active_storage/blob.rb",
+          "original_sha256": "1c7f0a0c435ef43554a79bddcbc42066bb2e6ad6730dd6c0b81822c0236385f2",
+          "patched_sha256": "1d6a0765b758546984c8cda7f6377aaf24d55f84937a0c90ec4385ae104e3d4b",
+          "method": "ActiveStorage::Blob#tempfile_extension",
+          "source_line": 359
+        }
+      ],
+      "adaptation": "None. The three upstream hunks apply to the 7.2.3.2 source unchanged at offset +1."
+    }
+  ],
+  "unchanged_files": [
+    {
+      "gem": "activesupport",
+      "path": "lib/active_support.rb",
+      "sha256": "3c9a43dc77858fc0c96b1cec632b51445e815aa935d17f939dc6ae784a063ebc"
+    },
+    {
+      "gem": "activesupport",
+      "path": "lib/active_support/gem_version.rb",
+      "sha256": "c4301f65e54604976fe877536efbd482a3ae664960949f7a92128980a38d949d"
+    },
+    {
+      "gem": "activesupport",
+      "path": "MIT-LICENSE",
+      "sha256": "717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2"
+    },
+    {
+      "gem": "actionpack",
+      "path": "lib/action_pack.rb",
+      "sha256": "37602496a4e468cc4a15db5d32b96d565e05007a9b40f15cb7fb1c97e772a62f"
+    },
+    {
+      "gem": "actionpack",
+      "path": "lib/action_pack/gem_version.rb",
+      "sha256": "fe4127b8d3363daa04470057d72c0f7c573e74e2b549795bf2364326e1d40de4"
+    },
+    {
+      "gem": "actionpack",
+      "path": "lib/action_controller.rb",
+      "sha256": "260bd46e861522f8a8642c5d5934145d45f35058beeb087942b0c8ef38424011"
+    },
+    {
+      "gem": "actionpack",
+      "path": "MIT-LICENSE",
+      "sha256": "1abcf1f3e09902d5357287d17d7d83e72376916771ec48a812e34ae4ff2ba041"
+    },
+    {
+      "gem": "activestorage",
+      "path": "lib/active_storage.rb",
+      "sha256": "da15f05b5323b9f404feb7b1dbd2ad46ba1f822f0da3595f34244ea074c8edb1"
+    },
+    {
+      "gem": "activestorage",
+      "path": "lib/active_storage/gem_version.rb",
+      "sha256": "b8cf8ab8e63b85ab8b32d72c5cda68490305f09412915f214fa45a34235acd87"
+    },
+    {
+      "gem": "activestorage",
+      "path": "MIT-LICENSE",
+      "sha256": "70590234a6e1a83f038fc86f24b5a5144ab77eb142bda7b8c17a6d2ae325fc9d"
+    }
+  ],
+  "source_inventory": {
+    "activesupport": {
+      "original": {
+        "count": 285,
+        "sha256": "aa7f9d44edf21e97575908d69ac88fe2a236c0462defbed67125a72d6b1d6fb9"
+      },
+      "patched": {
+        "count": 285,
+        "sha256": "4fb16b1233c021db55069a316c8756d51409cd4bd1d95386107560c930d7d1ff"
+      }
+    },
+    "actionpack": {
+      "original": {
+        "count": 187,
+        "sha256": "b2f213e464a031ec5c40f93db0a66fcba3be83deb1f7c6d7190d311a1370fbee"
+      },
+      "patched": {
+        "count": 187,
+        "sha256": "229652a37030cc4c2c8abb3361317867570478583c98e7d32de8142ebeca5611"
+      }
+    },
+    "activestorage": {
+      "original": {
+        "count": 100,
+        "sha256": "056322c2b2ad6bdf8a4a12de76eafe73f29c6a2f4bfc13c106c64001f232254a"
+      },
+      "patched": {
+        "count": 102,
+        "sha256": "25a92a5ade148fc09bf1062d50deed3ce0faf88511c17b8839cc8f685f4469bd"
+      }
+    }
+  }
+}

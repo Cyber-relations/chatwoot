@@ -60,7 +60,7 @@ RSpec.describe Toybaco::Security::LogScrub do
   end
 
   it 'どの式も線形時間で照合する(長い行でも後戻りが膨らまない)' do
-    patterns = %i[EMAIL TOKEN_VALUE WIDGET_TOKEN JWT SEALED].index_with { |name| described_class.const_get(name) }
+    patterns = %i[EMAIL TOKEN_VALUE WIDGET_TOKEN TELEGRAM_TOKEN TELEGRAM_PATH JWT SEALED].index_with { |name| described_class.const_get(name) }
     expect(patterns.reject { |_name, pattern| Regexp.linear_time?(pattern) }.keys).to eq([])
   end
 
@@ -88,5 +88,32 @@ RSpec.describe Toybaco::Security::LogScrub do
       expect(masked).not_to include(token)
       expect(masked).to include('[FILTERED]', 'account_id', ':7')
     end
+  end
+
+  it 'masks Telegram bot credentials in request paths, API URLs and arbitrary log messages' do
+    bot_token = "123456789:#{'aB_-' * 8}xyz"
+    forms = [bot_token, bot_token.sub(':', '%3A'), bot_token.sub(':') { '\\u003a' }]
+    forms.each do |form|
+      lines = [%(Started POST "/webhooks/telegram/#{form}" for 127.0.0.1),
+               "POST https://api.telegram.org/bot#{form}/getMe status=200", "discarded credential=#{form} status=404"]
+      lines.each do |line|
+        masked = described_class.mask(line)
+        expect(masked).not_to include(form, 'aB_-')
+        expect(masked).to include('[FILTERED]')
+      end
+    end
+  end
+
+  it 'masks even malformed or fully URL-encoded Telegram path credentials and retains the rest of the line' do
+    ['unknown-credential', '%31%32%33%3Asecret'].each do |token_path|
+      line = %(Started POST "/webhooks/telegram/#{token_path}?request_id=42" status=200)
+      expect(described_class.mask(line)).to eq('Started POST "/webhooks/telegram/[FILTERED]?request_id=42" status=200')
+    end
+  end
+
+  it 'preserves unrelated IDs, timestamps and token-free Telegram diagnostics' do
+    lines = ['Telegram event discarded: Channel not found', 'channel=123456789 status=200',
+             '2026-11-04T12:34:56Z messages_count=2', 'POST /webhooks/whatsapp/123456789 status=401']
+    expect(lines.map { |line| described_class.mask(line) }).to eq(lines)
   end
 end

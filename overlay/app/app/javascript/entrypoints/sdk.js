@@ -123,12 +123,14 @@ const runSDK = ({ baseUrl, websiteToken }) => {
       const userCookieName = getUserCookieName();
       const existingCookieValue = Cookies.get(userCookieName);
       const hashToBeStored = computeHashForUserData({ identifier, user });
+      // Keep the current call even when its legacy deduplication cookie
+      // matches. Bootstrap may replace that identity with an anonymous one.
+      window.$chatwoot.identifier = identifier;
+      window.$chatwoot.user = user;
       if (hashToBeStored === existingCookieValue) {
         return;
       }
 
-      window.$chatwoot.identifier = identifier;
-      window.$chatwoot.user = user;
       IFrameHelper.sendMessage('set-user', { identifier, user });
 
       setCookieWithDomain(userCookieName, hashToBeStored, {

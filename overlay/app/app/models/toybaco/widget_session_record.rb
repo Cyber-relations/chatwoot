@@ -4,8 +4,13 @@ class Toybaco::WidgetSessionRecord < ApplicationRecord
   self.table_name = 'toybaco_widget_session_records'
   belongs_to :contact_inbox
 
+  def retired?
+    created_at < Toybaco::Security::WidgetSessionSecurityEpoch.effective
+  end
+
   def current?
     state = self.class.where(id: id, revoked_at: nil).where('expires_at > ?', Time.current)
+                .where('created_at >= ?', Toybaco::Security::WidgetSessionSecurityEpoch.effective)
                 .pick(:contact_inbox_id, :inbox_id, :link_digest)
     return false unless state == [contact_inbox_id, inbox_id, link_digest]
 

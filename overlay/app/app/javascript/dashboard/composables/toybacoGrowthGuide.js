@@ -348,7 +348,7 @@ export function growthTourCard(state, readiness, accountId) {
         id: 'open:widget_preview',
         label: 'プレビューで送る',
         kind: 'primary',
-        href: `/widget?website_token=${encodeURIComponent(inbox.website_token)}`,
+        href: `/toybaco/widget_preview?website_token=${encodeURIComponent(inbox.website_token)}`,
       });
     card.actions.push(skip());
   } else if (state.phase === 'reply') {

@@ -113,10 +113,15 @@ control_file_list() {
     'scripts/harden-chatwoot-ruby-llm.rb' \
     'tests/verify_chatwoot_ruby_llm_backport.rb' \
     'tests/chatwoot_ruby_llm_backport_test.rb' \
+    'config/chatwoot-rails-backport.json' \
+    'scripts/harden-chatwoot-rails.rb' \
+    'tests/verify_chatwoot_rails_backport.rb' \
+    'tests/chatwoot_rails_backport_test.rb' \
     'scripts/verify-chatwoot-ruby-llm-classification.mjs' \
     'tests/chatwoot-ruby-llm-classification.test.mjs' \
     'tests/chatwoot-managed-publisher.test.mjs' \
     'docs/chatwoot-ruby-llm-backport-policy.md' \
+    'docs/chatwoot-rails-backport-policy.md' \
     'scripts/generate-plan-catalog.py' \
     'tests/toybaco_plan_catalog_test.rb' \
     'tests/toybaco_billing_subscription_test.rb' \
@@ -191,6 +196,9 @@ control_file_list() {
     'tests/toybaco_widget_http_session_runtime_test.rb' \
     'tests/toybaco_smtp_delivery_runtime_test.rb' \
     'tests/chatwoot-widget-http-session.test.mjs' \
+    'tests/chatwoot_widget_session_epoch_test.rb' \
+    'tests/chatwoot_widget_session_cutover_test.rb' \
+    'tests/chatwoot_widget_session_gate_test.rb' \
     'tests/toybaco_growth_allowance_test.rb' \
     'tests/toybaco_growth_ledger_runtime_test.rb' \
     'tests/toybaco_growth_billing_runtime_test.rb' \
@@ -250,10 +258,12 @@ control_file_list() {
     'docs/chatwoot-runtime-os-policy.md' \
     'tests/chatwoot-ee-view-twins.test.mjs' \
     'tests/chatwoot-password-policy-ui.test.mjs' \
+    'tests/chatwoot-profile-email-change.test.mjs' \
     'tests/chatwoot-customer-brand.test.mjs' \
     'tests/chatwoot-cache-upgrade.test.mjs' \
     'tests/chatwoot-logout-cleanup.test.mjs' \
     'tests/chatwoot-browser-session.test.mjs' \
+    'tests/chatwoot-channel-availability.test.mjs' \
     'tests/chatwoot-widget-cookie.test.mjs' \
     'tests/chatwoot-widget-message-origin.test.mjs' \
     'tests/verify_chatwoot_sdk_artifacts.mjs' \
@@ -264,6 +274,7 @@ control_file_list() {
     'tests/chatwoot_quality_secret_paths_test.rb' \
     'docs/rds-client-trust-rollout.md' \
     'tests/chatwoot_widget_parameter_logging_test.rb' \
+    'tests/chatwoot_attachment_transfer_cors_test.rb' \
     'tests/chatwoot_locale_generator_test.rb' \
     'tests/chatwoot-ai-draft.test.mjs' \
     'tests/chatwoot_billing_cancel_test.rb' \
@@ -326,7 +337,9 @@ integration_ruby_file_list() {
       find overlay/app/app/controllers/toybaco -type f -name '*.rb' -print
       find overlay/app/lib/toybaco/security -type f -name '*.rb' -print
       printf '%s\n' overlay/app/app/controllers/api/v1/widget/sessions_controller.rb overlay/app/config/initializers/toybaco_widget_sessions.rb overlay/app/app/controllers/api/v1/widget/http_sessions_controller.rb overlay/app/config/initializers/toybaco_widget_http_identity.rb overlay/app/db/migrate/20261015000000_create_toybaco_widget_http_sessions.rb
+      printf '%s\n' overlay/app/db/migrate/20261104000000_add_widget_verified_identifier_to_contacts.rb
       printf '%s\n' overlay/app/app/services/mfa/token_service.rb overlay/app/config/initializers/toybaco_application_mfa.rb
+      printf '%s\n' overlay/app/config/initializers/toybaco_account_security.rb overlay/app/spec/support/toybaco_platform_api.rb
       printf '%s\n' overlay/app/app/controllers/concerns/auth_helper.rb overlay/app/config/initializers/toybaco_browser_authentication.rb overlay/app/app/channels/room_channel.rb
       printf '%s\n' overlay/app/app/controllers/super_admin/devise/sessions_controller.rb overlay/app/config/initializers/toybaco_admin_mfa.rb overlay/app/spec/support/toybaco_admin_mfa.rb
       printf '%s\n' overlay/app/app/controllers/super_admin/support_reports_controller.rb overlay/app/db/migrate/20260920000000_create_toybaco_support_reports.rb
@@ -431,7 +444,7 @@ assert_node_heap_precompile_block() {
   ruby - "$dockerfile" <<'RUBY'
 lines = File.readlines(ARGV.fetch(0), chomp: true)
 expected = [
-  '    && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \\',
+  '    && RAILS_ENV=production SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \\',
   '      NODE_OPTIONS=--max-old-space-size=4096 \\',
   '      bundle exec rake assets:precompile \\'
 ]
@@ -511,7 +524,8 @@ assert_control_contract() {
     'runtime packageの一覧・CVEの下限の表・持ち主の無いfileの許可の一覧の形が不正です'
   ruby "$CONTROL_ROOT/tests/chatwoot_runtime_apk_test.rb" || fail 'runtime package検証scriptの単体試験が失敗しました'
   for script in scripts/harden-chatwoot-runtime-gems.rb tests/verify_chatwoot_runtime_gems.rb \
-    scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
+    scripts/harden-chatwoot-ruby-llm.rb tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb \
+    scripts/harden-chatwoot-rails.rb tests/verify_chatwoot_rails_backport.rb tests/chatwoot_rails_backport_test.rb; do
     ruby -c "$CONTROL_ROOT/$script" >/dev/null || fail "runtime Gem検証scriptのRuby syntaxが不正です: $script"
   done
   assert_node_heap_precompile_block "$CONTROL_ROOT/Dockerfile" || fail \
@@ -595,6 +609,7 @@ assert_control_contract() {
   ruby "$ROOT/tests/chatwoot_agent_login_test.rb"
   ruby "$CONTROL_ROOT/tests/chatwoot_postgres_health_test.rb"
   ruby "$ROOT/tests/chatwoot_postgres_health_test.rb"
+  ruby "$CONTROL_ROOT/tests/chatwoot_widget_session_gate_test.rb"
   ruby "$CONTROL_ROOT/tests/verify_chatwoot_rspec_result_test.rb"
   ruby "$ROOT/tests/verify_chatwoot_rspec_result_test.rb"
 }
@@ -912,8 +927,10 @@ verify_toybaco_database_prepare() {
 }
 
 test_env_args() {
+  # Synthetic CI lower bound only; never use this as a deployed cutover.
   printf '%s\n' \
     '--env' 'RAILS_ENV=test' \
+    '--env' 'TOYBACO_WIDGET_SESSION_SECURITY_EPOCH=2000-01-01T00:00:00Z' \
     '--env' 'NODE_ENV=test' \
     '--env' 'ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=toybaco-isolated-test-primary-key' \
     '--env' 'ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=toybaco-isolated-test-deterministic-key' \
@@ -962,8 +979,10 @@ run_test_container() {
 }
 
 production_env_args() {
+  # Synthetic CI lower bound only; never use this as a deployed cutover.
   printf '%s\n' \
     '--env' 'RAILS_ENV=production' \
+    '--env' 'TOYBACO_WIDGET_SESSION_SECURITY_EPOCH=2000-01-01T00:00:00Z' \
     '--env' 'DISABLE_ENTERPRISE=true' \
     '--env' 'SECRET_KEY_BASE=1111111111111111111111111111111111111111111111111111111111111111' \
     '--env' 'POSTGRES_HOST=postgres' \
@@ -1110,7 +1129,9 @@ verify_base_and_frame_contract() {
   node "$CONTROL_ROOT/tests/chatwoot-post-entry.test.mjs"
   TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-ee-view-twins.test.mjs"
   TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-password-policy-ui.test.mjs"
+  TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-profile-email-change.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-browser-session.test.mjs"
+  TOYBACO_CONTROL_ROOT="$CONTROL_ROOT" node --test "$CONTROL_ROOT/tests/chatwoot-channel-availability.test.mjs"
   node "$CONTROL_ROOT/tests/chatwoot-sdk-artifacts.test.mjs"
   docker run --rm --platform linux/amd64 --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,noexec,size=2m \
@@ -1184,7 +1205,9 @@ build_test_image() {
   done < <(control_file_list "$CONTROL_ROOT" | grep '^overlay/app/')
 
   for relative_path in config/chatwoot-ruby-llm-backport.json scripts/harden-chatwoot-ruby-llm.rb \
-    tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb; do
+    tests/verify_chatwoot_ruby_llm_backport.rb tests/chatwoot_ruby_llm_backport_test.rb \
+    config/chatwoot-rails-backport.json scripts/harden-chatwoot-rails.rb \
+    tests/verify_chatwoot_rails_backport.rb tests/chatwoot_rails_backport_test.rb; do
     [[ ! -e "$TEST_CONTEXT/$relative_path" ]] || fail "upstreamとのbackport control衝突: $relative_path"
     mkdir -p "$TEST_CONTEXT/$(dirname "$relative_path")"
     cp -p "$CONTROL_ROOT/$relative_path" "$TEST_CONTEXT/$relative_path"
@@ -1217,6 +1240,13 @@ build_test_image() {
   docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
     --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     "$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb
+  # The Rails backport proof and fixture test need only a writable /tmp (tempfiles, the Disk service, gem copies).
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+    "$TEST_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+    "$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_rails_backport_test.rb
 }
 
 run_ruby_quality() {
@@ -1286,12 +1316,22 @@ run_ruby_quality() {
     /results/confirmation-rspec.json /contract/tests/chatwoot-confirmation-rspec-manifest.json
 
   STAGE='全Toybaco RSpec'
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/chatwoot_widget_session_epoch_test.rb
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/chatwoot_widget_session_cutover_test.rb
   node "$CONTROL_ROOT/tests/chatwoot-widget-cookie.test.mjs" "$CONTROL_ROOT"
-  node "$CONTROL_ROOT/tests/chatwoot-widget-message-origin.test.mjs" "$CONTROL_ROOT"
+  node "$CONTROL_ROOT/tests/chatwoot-widget-message-origin.test.mjs" "$CONTROL_ROOT" "$CLEAN_SOURCE"
   node "$CONTROL_ROOT/tests/chatwoot-widget-http-session.test.mjs" "$CONTROL_ROOT" "$PATCHED_SOURCE"
   run_test_container \
     --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
     "$TEST_IMAGE" bundle exec ruby -r./config/environment /contract/tests/chatwoot_widget_parameter_logging_test.rb
+  # Real Rack 3.2.8 from the test image's bundle; the overlay RSpec covers reservations and storage.
+  run_test_container \
+    --mount "type=bind,src=$CONTROL_ROOT,dst=/contract,readonly" \
+    "$TEST_IMAGE" bundle exec ruby /contract/tests/chatwoot_attachment_transfer_cors_test.rb
   run_test_container \
     --mount "type=bind,src=$results,dst=/results" \
     "$TEST_IMAGE" bundle exec rspec \
@@ -1690,6 +1730,10 @@ smoke_production_image() {
     "$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+    "$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges \
     "$PRODUCTION_IMAGE" ruby -r /app/lib/toybaco_rds_trust.rb -e 'ToybacoRdsTrust.verify!'
   docker run --rm --network none --read-only --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -1788,6 +1832,9 @@ smoke_production_image() {
     abort "expected production CE setting" unless ENV.fetch("DISABLE_ENTERPRISE") == "true"
     abort "Enterprise was unexpectedly enabled" if ChatwootApp.enterprise?
     abort "CE Captain task service missing" unless Captain::RewriteService < Captain::BaseTaskService
+    # The Rails backport proof runs a minimal application configured like this one (docs/chatwoot-rails-backport-policy.md).
+    abort "Active Storage is not configured as the Rails backport proof assumes" unless
+      ActiveStorage.variant_processor == :vips && ActiveStorage.previewers.empty? && ActiveStorage::MINIMAGICK_UNSECURABLE
     load "/opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb"
   '
 

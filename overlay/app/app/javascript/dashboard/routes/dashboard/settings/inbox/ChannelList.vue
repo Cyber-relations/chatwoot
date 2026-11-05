@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { useMapGetter } from 'dashboard/composables/store';
 
 import { useAccount } from 'dashboard/composables/useAccount';
+import { isToybacoChannelAvailable } from 'dashboard/helper/channelAvailability';
 
 import ChannelItem from 'dashboard/components/widgets/ChannelItem.vue';
 
@@ -107,10 +108,11 @@ const channelList = computed(() => {
     icon: 'i-woot-whatsapp',
   });
 
-  return channels;
+  return channels.filter(channel => isToybacoChannelAvailable(channel.key));
 });
 
 const initChannelAuth = channel => {
+  if (!isToybacoChannelAvailable(channel)) return;
   const params = {
     sub_page: channel,
     accountId: accountId.value,

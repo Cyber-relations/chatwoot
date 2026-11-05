@@ -4,7 +4,9 @@ module Toybaco::WidgetPrivacyResponse
   extend ActiveSupport::Concern
 
   included do
-    before_action :protect_widget_privacy_response
+    # Run before the inherited widget/session callbacks, so early refusals
+    # (for example a missing session proof answered with 404) stay uncached too.
+    prepend_before_action :protect_widget_privacy_response
   end
 
   private

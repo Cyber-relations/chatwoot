@@ -259,7 +259,13 @@ class ToybacoInboundEmailTest < Minitest::Test
     assert_includes initializer, 'toybaco-inbound-hooks-loaded'
     assert_includes initializer, 'after_initialize'
     assert_includes initializer, 'mount Engine =>'
-    assert_includes initializer, 'unshift'
+    # Unused mail paths are rejected inside both CSP policies, before the SES token reader touches the body.
+    assert_includes initializer,
+                    'insert_after Toybaco::ContentSecurityPolicyReportOnly, Toybaco::InboundEmail::IngressBoundary'
+    assert_includes initializer,
+                    'insert_after Toybaco::InboundEmail::IngressBoundary, Toybaco::InboundEmail::SesInboundRouteMiddleware'
+    refute_includes initializer, 'unshift Toybaco::InboundEmail::SesInboundRouteMiddleware'
+    refute_includes initializer, 'unshift Toybaco::InboundEmail::IngressBoundary'
     refute_includes initializer, 'insert_before 0'
     refute_includes initializer, 'Rails.application.routes.append'
     refute_includes initializer, 'module: Toybaco::InboundEmail::INGRESS_MODULE'

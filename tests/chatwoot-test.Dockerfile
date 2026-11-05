@@ -6,17 +6,24 @@ ARG CHATWOOT_SOURCE_COMMIT=9f920b549c14491a4e587687a3eed5d21c6ccc7d
 # gateはCHATWOOT_IMAGEに直前のproduction image(出荷するAlpine 3.22のruntime)を渡す。既定値の公式imageは
 # 手元の再現用。production imageにはtest/development gemが無い。固定sourceへoverlayを
 # 適用したGemfile/lockを先に渡し、本番と同じRails修正版でtest groupを追加する。
+# Synthetic gate/CI lower bound, confined to this test image.
 ENV BUNDLE_WITHOUT="" \
-    RAILS_ENV=test
+    RAILS_ENV=test \
+    TOYBACO_WIDGET_SESSION_SECURITY_EPOCH=2000-01-01T00:00:00Z
 
 COPY Gemfile Gemfile.lock /app/
 COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
 COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
 COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
+COPY config/chatwoot-rails-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-rails.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_rails_backport.rb /opt/toybaco/tests/
 RUN bundle config unset without \
     && bundle install --jobs 4 --retry 3 \
     && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
-    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-rails.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb
 
 # build contextは固定commitの隔離cloneへoverlayを適用したものだけ。
 ARG TOYBACO_CONTROL_SHA256

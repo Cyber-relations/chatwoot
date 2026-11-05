@@ -774,16 +774,34 @@ class ToybacoGrowthOnboardingRuntimeTest < ActionDispatch::IntegrationTest
     account.inboxes.create!(channel: channel, name: 'テスト店舗 Instagram')
   end
 
-  # 実際のウィジェットと同じ経路(設定の取得 → 最初のメッセージで会話を作る)で、お客さまから 1 件送る。
+  # 実際のウィジェットと同じ経路(HttpOnly の session と proof で設定の取得 → 最初のメッセージで会話を作る)で、お客さまから 1 件送る。
+  # 古い widget の JWT は権限にならない(旧 widget の打ち切り)。session は https だけで読むので、widget の要求の間だけ https にする。
   def send_from_widget(inbox, content = '営業時間を教えてください')
     token = inbox.channel.website_token
-    post '/api/v1/widget/config', params: { website_token: token }, as: :json
+    previous_https = https?
+    https!
+    headers = widget_session_headers(inbox)
+    post '/api/v1/widget/config', params: { website_token: token }, headers: headers, as: :json
     assert_response :success
-    auth = response.parsed_body.dig('website_channel_config', 'auth_token')
     post "/api/v1/widget/conversations?website_token=#{token}", params: { message: { content: content, timestamp: Time.now.utc.to_s } },
-                                                                headers: { 'X-Auth-Token' => auth }, as: :json
+                                                                headers: headers, as: :json
     assert_response :success
     inbox.messages.incoming.order(:id).last
+  ensure
+    https!(previous_https)
+  end
+
+  def widget_session_headers(inbox)
+    link = ContactInbox.create!(contact: Contact.create!(account: inbox.account, name: 'Widget visitor'), inbox: inbox,
+                                source_id: SecureRandom.uuid)
+    secret = SecureRandom.hex(32)
+    row = Toybaco::WidgetSessionRecord.create!(contact_inbox: link, inbox_id: inbox.id,
+      secret_digest: Toybaco::Security::WidgetHttpSession.digest(secret), link_digest: Toybaco::Security::WidgetHttpSession.link_digest(link),
+      bootstrap_digest: SecureRandom.hex(32), bootstrap_expires_at: 1.minute.from_now,
+      rotated_at: Time.current, expires_at: 180.days.from_now)
+    cookies[Toybaco::Security::WidgetHttpSession.cookie_name(inbox.channel)] = "#{row.id}.#{secret}"
+    { 'X-Auth-Token' => Toybaco::Security::WidgetHttpSession.new(row).proof, 'Origin' => "https://#{host}",
+      'Sec-Fetch-Site' => 'same-origin', 'X-Toybaco-Widget' => '1' }
   end
 
   def reply_from_dashboard(incoming)

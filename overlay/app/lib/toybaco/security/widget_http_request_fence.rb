@@ -46,9 +46,7 @@ module Toybaco::Security::WidgetHttpRequestFence
     elsif token.start_with?('tbwp1.')
       @toybaco_http_session.valid_proof?(token)
     else
-      claims = ::Widget::TokenService.new(token: token).decode_token
-      expected = @toybaco_http_session.claims
-      claims[:inbox_id] == expected[:inbox_id] && claims[:source_id] == expected[:source_id]
+      false
     end
   end
 end

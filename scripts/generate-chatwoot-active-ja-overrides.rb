@@ -1143,7 +1143,14 @@ REPLACEMENTS = {
     replacement(':alt="`Light themed image for ${hotKey.title}`"',
                 ':alt="`${$t(hotKey.titleKey)}のキー操作例`"'),
     replacement(':alt="`Dark themed image for ${hotKey.title}`"',
-                ':alt="`${$t(hotKey.titleKey)}のキー操作例`"')
+                ':alt="`${$t(hotKey.titleKey)}のキー操作例`"'),
+    # CASA 2.4.1: e-mail changes send the current password; the token section is shown only when the API returns one.
+    replacement("      const { name, email, displayName } = userAttributes;\n      const hasEmailChanged = this.currentUser.email !== email;\n      this.name = name || this.name;\n      this.email = email || this.email;\n      this.displayName = displayName || this.displayName;\n",
+                "      const { name, email, displayName, currentPassword } = userAttributes;\n      const hasEmailChanged =\n        typeof email === 'string' &&\n        this.currentUser.email.trim().toLowerCase() !== email.trim().toLowerCase();\n      this.name = name || this.name;\n      this.displayName = displayName || this.displayName;\n"),
+    replacement("        name: this.name,\n        email: this.email,\n        displayName: this.displayName,\n",
+                "        name: this.name,\n        email: email || this.email,\n        current_password: hasEmailChanged ? currentPassword : undefined,\n        displayName: this.displayName,\n"),
+    replacement("    <SectionLayout\n      with-border\n      :title=\"$t('PROFILE_SETTINGS.FORM.ACCESS_TOKEN.TITLE')\"",
+                "    <SectionLayout\n      v-if=\"currentUser.access_token\"\n      with-border\n      :title=\"$t('PROFILE_SETTINGS.FORM.ACCESS_TOKEN.TITLE')\"")
   ],
   'public/assets/images/dashboard/profile/hot-key-enter.svg' => [
     replacement('</g>', "</g>\n<rect x=\"224\" y=\"56\" width=\"78\" height=\"28\" rx=\"6\" fill=\"#4B7DFB\"/>\n<text x=\"263\" y=\"70\" fill=\"white\" font-family=\"sans-serif\" font-size=\"12\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"middle\">送信（↵）</text>")
@@ -1256,6 +1263,10 @@ REPLACEMENTS = {
                 "  } catch {\n    useAlert(t('ONBOARDING_INBOX_SETUP.ERROR'));")
   ],
   'app/javascript/dashboard/routes/dashboard/onboarding/inbox-setup/useChannelConnect.js' => [
+    replacement("import { useI18n } from 'vue-i18n';\n",
+                "import { useI18n } from 'vue-i18n';\nimport { isToybacoChannelAvailable } from 'dashboard/helper/channelAvailability';\n"),
+    replacement("  const connectWhatsapp = async () => {\n",
+                "  const connectWhatsapp = async () => {\n    if (!isToybacoChannelAvailable('whatsapp')) return;\n"),
     replacement("import { parseAPIErrorResponse } from 'dashboard/store/utils/api';\n", ''),
     replacement("    } catch (error) {\n      useAlert(\n        parseAPIErrorResponse(error) || t('ONBOARDING_INBOX_SETUP.ERROR')\n      );",
                 "    } catch {\n      useAlert(t('ONBOARDING_INBOX_SETUP.ERROR'));")

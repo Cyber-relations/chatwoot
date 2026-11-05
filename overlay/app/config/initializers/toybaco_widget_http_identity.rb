@@ -1,6 +1,15 @@
 # frozen_string_literal: true
 
 Rails.application.config.to_prepare do
+  {
+    Api::V1::Widget::ContactsController => Toybaco::Security::WidgetContactIdentification,
+    Public::Api::V1::Inboxes::ContactsController => Toybaco::Security::PublicContactIdentification,
+    Api::V1::Widget::ConversationsController => Toybaco::Security::WidgetPrechatIdentification,
+    Api::V1::Widget::MessagesController => Toybaco::Security::WidgetEmailIdentification,
+    Api::V1::Widget::Integrations::DyteController => Toybaco::Security::WidgetDyteScope
+  }.each do |controller, extension|
+    controller.prepend(extension) unless controller < extension
+  end
   ContactMergeAction.prepend(Toybaco::Security::WidgetContactMergeLock) unless ContactMergeAction < Toybaco::Security::WidgetContactMergeLock
   [Api::V1::Widget::BaseController, Api::V1::Widget::DirectUploadsController].each do |controller|
     controller.include(Toybaco::Security::WidgetHttpRequestFence) unless controller < Toybaco::Security::WidgetHttpRequestFence

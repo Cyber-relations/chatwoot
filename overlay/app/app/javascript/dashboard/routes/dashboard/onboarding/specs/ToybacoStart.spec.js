@@ -93,6 +93,23 @@ describe('ToybacoStart を直接開いたとき', () => {
     wrapper.unmount();
   });
 
+  it('Webチャットの受信確認は SDK を埋め込むプレビューを別タブで開く', async () => {
+    const wrapper = mountStart();
+    guideReads()[0].resolve(response(200, {
+      ...growthState,
+      phase: 'receive',
+      inbox_id: 3,
+      inboxes: [{ id: 3, provider: 'web_widget', website_token: 'tok en/1' }],
+    }));
+    await flushPromises();
+
+    const link = wrapper.get('[data-toybaco-receive="web_widget"] a');
+    expect(link.text()).toBe('プレビューで送る');
+    expect(link.attributes('href')).toBe('/toybaco/widget_preview?website_token=tok%20en%2F1');
+    expect(link.attributes('target')).toBe('_blank');
+    expect(link.attributes('rel')).toBe('noopener noreferrer');
+  });
+
   it('404(案内の対象でない店舗)では対象外の文とホームへのリンクを出し、再読み込みは出さない', async () => {
     const wrapper = mountStart();
     guideReads()[0].resolve(response(404));

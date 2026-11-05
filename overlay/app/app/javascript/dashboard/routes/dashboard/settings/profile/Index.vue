@@ -144,15 +144,17 @@ export default {
       }
     },
     async updateProfile(userAttributes) {
-      const { name, email, displayName } = userAttributes;
-      const hasEmailChanged = this.currentUser.email !== email;
+      const { name, email, displayName, currentPassword } = userAttributes;
+      const hasEmailChanged =
+        typeof email === 'string' &&
+        this.currentUser.email.trim().toLowerCase() !== email.trim().toLowerCase();
       this.name = name || this.name;
-      this.email = email || this.email;
       this.displayName = displayName || this.displayName;
 
       const updatePayload = {
         name: this.name,
-        email: this.email,
+        email: email || this.email,
+        current_password: hasEmailChanged ? currentPassword : undefined,
         displayName: this.displayName,
         avatar: this.avatarFile,
       };
@@ -350,6 +352,7 @@ export default {
       </SectionLayout>
     </Policy>
     <SectionLayout
+      v-if="currentUser.access_token"
       with-border
       :title="$t('PROFILE_SETTINGS.FORM.ACCESS_TOKEN.TITLE')"
       :description="accessTokenDescription"

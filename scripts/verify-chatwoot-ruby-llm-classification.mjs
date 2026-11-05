@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Pure, fail-closed classification policy. This does not replace Trivy scanning.
+// Pure, fail-closed classification policy. This does not replace Trivy scanning. It classifies exactly two reviewed source
+// backports: ruby_llm 1.15.0 (docs/chatwoot-ruby-llm-backport-policy.md) and Rails 7.2.3.2 (docs/chatwoot-rails-backport-policy.md).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
@@ -23,6 +24,33 @@ export const TRIVY = 'docker.io/aquasec/trivy:0.67.2@sha256:ac2f9d0197456a8ce460
 export const ALPINE_RELEASE = '3.22.0';
 const GEM_ROOT = '/gems/ruby/3.4.0/gems/ruby_llm-1.15.0';
 const SPEC_PATH = '/gems/ruby/3.4.0/specifications/ruby_llm-1.15.0.gemspec';
+// The reviewed Rails advisories of 2026-11-04 in activesupport, actionpack and activestorage 7.2.3.2, their upstream fixes
+// (rails/rails v8.0.5.1...v8.0.5.2) and the gem and severity the raw scanner reports for each, in the reviewed order.
+export const RAILS_VERSION = '7.2.3.2';
+export const RAILS_FIXED_RANGE = '~> 8.0.5, >= 8.0.5.2, >= 8.1.4.1';
+export const RAILS_FIXES = Object.freeze({
+  'GHSA-8474-xrp6-wh69': '210ac22d446c8e2625b091e79256806b836eee20',
+  'GHSA-wm3x-v3qw-4jh3': '2fc8838300133931e19eed3ea6cee76a7e83f19c',
+  'GHSA-f3w6-w445-fwh9': 'ea8c40121ce53a3d0255cd4eb6d13bfe3bc01776',
+  'GHSA-v924-7rp8-4mxh': '8106938fb0a595f11006dd1497cd409e27d7d636',
+});
+export const RAILS_ADVISORIES = Object.freeze(Object.keys(RAILS_FIXES));
+export const RAILS_GEMS = Object.freeze(['activesupport', 'actionpack', 'activestorage']);
+const RAILS_GEM_OF = Object.freeze({ 'GHSA-8474-xrp6-wh69': 'activesupport', 'GHSA-wm3x-v3qw-4jh3': 'actionpack',
+  'GHSA-f3w6-w445-fwh9': 'activestorage', 'GHSA-v924-7rp8-4mxh': 'activestorage' });
+const RAILS_SEVERITY = Object.freeze({ 'GHSA-8474-xrp6-wh69': 'HIGH', 'GHSA-wm3x-v3qw-4jh3': 'HIGH',
+  'GHSA-f3w6-w445-fwh9': 'CRITICAL', 'GHSA-v924-7rp8-4mxh': 'HIGH' });
+export const railsPurl = gem => 'pkg:gem/' + gem + '@' + RAILS_VERSION;
+const railsRoot = gem => '/gems/ruby/3.4.0/gems/' + gem + '-' + RAILS_VERSION;
+const railsSpec = gem => '/gems/ruby/3.4.0/specifications/' + gem + '-' + RAILS_VERSION + '.gemspec';
+// Every finding the raw scanner must report, once each: the three ruby_llm advisories, then the four Rails advisories.
+const EXPECTED_FINDINGS = Object.freeze([
+  ...Object.keys(FIXES).map(id => Object.freeze({ id, name: 'ruby_llm', version: '1.15.0', severity: 'HIGH',
+    fixed: '>= 2.0.0.rc1', purl: GEM_PURL, spec: SPEC_PATH, fix: FIXES[id] })),
+  ...RAILS_ADVISORIES.map(id => Object.freeze({ id, name: RAILS_GEM_OF[id], version: RAILS_VERSION, severity: RAILS_SEVERITY[id],
+    fixed: RAILS_FIXED_RANGE, purl: railsPurl(RAILS_GEM_OF[id]), spec: railsSpec(RAILS_GEM_OF[id]), fix: RAILS_FIXES[id] })),
+]);
+export const ADVISORIES = Object.freeze(EXPECTED_FINDINGS.map(finding => finding.id));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => JSON.stringify(sort(value));
 function sort(value) {
@@ -62,6 +90,38 @@ const PATCHED_MARKERS = Object.freeze({
   vulnerable_voxtral_occurrences: 0, fixed_voxtral_occurrences: 1,
 });
 const timed = (value, label) => assert.ok(Number.isFinite(value) && value >= 0 && value < 2, label);
+// Each Rails advisory's patched or added 7.2.3.2 files and the loaded binding that proves the patched source is in use.
+const RAILS_SITES = Object.freeze({
+  'GHSA-8474-xrp6-wh69': [['lib/active_support/inflector/methods.rb', 'ActiveSupport::Inflector#safe_constantize', 315]],
+  'GHSA-wm3x-v3qw-4jh3': [['lib/action_controller/metal/strong_parameters.rb', 'ActionController::Parameters#each_key', 425]],
+  'GHSA-f3w6-w445-fwh9': [
+    ['lib/active_storage/analyzer/image_analyzer/image_magick.rb', 'ActiveStorage::Analyzer::ImageAnalyzer::ImageMagick#read_image', 14],
+    ['lib/active_storage/engine.rb', 'ActiveStorage::Engine initializer active_storage.configs', 86],
+    ['lib/active_storage/image_magick.rb', 'ActiveStorage::ImageMagick.apply_policy', 30],
+    ['lib/active_storage/image_magick/policy.xml', 'ActiveStorage::ImageMagick::POLICY_DIRECTORY', null],
+  ],
+  'GHSA-v924-7rp8-4mxh': [['app/models/active_storage/blob.rb', 'ActiveStorage::Blob#tempfile_extension', 359]],
+});
+const RAILS_ADDED_FILES = Object.freeze(['lib/active_storage/image_magick.rb', 'lib/active_storage/image_magick/policy.xml']);
+// Every regular file of each installed gem after the backport, and the vulnerable/fixed expression counts over its *.rb.
+const RAILS_PATCHED_INVENTORY = Object.freeze({
+  activesupport: { count: 285, vulnerable_const_regexp_occurrences: 0, fixed_literal_constant_match_occurrences: 1 },
+  actionpack: { count: 187, vulnerable_each_key_delegation_occurrences: 0, fixed_each_key_returns_self_occurrences: 1 },
+  activestorage: { count: 102, fixed_securable_mini_magick_occurrences: 2, fixed_policy_application_occurrences: 2,
+    vulnerable_tempfile_extension_occurrences: 0, fixed_tempfile_extension_occurrences: 1 },
+});
+// The counts tests/verify_chatwoot_rails_backport.rb prints for its official, vulnerable, ordinary and adversarial cases.
+const RAILS_TESTS = Object.freeze({
+  'GHSA-8474-xrp6-wh69': { official_examples: 3, vulnerable_examples_rejected: 2, ordinary_cases: 140091, ordinary_constants: 8,
+    adversarial_regexp_names: 5 },
+  'GHSA-wm3x-v3qw-4jh3': { official_examples: 3, vulnerable_examples_rejected: 1, ordinary_examples: 4, ordinary_cases: 1000 },
+  'GHSA-f3w6-w445-fwh9': { official_examples: 5, denied_coders: 31, variant_processor: 'vips', previewers: 0,
+    mini_magick_version: '4.12.0', mini_magick_unsecurable: true, policy_applied: false, imagemagick_processes: 0 },
+  'GHSA-v924-7rp8-4mxh': { official_examples: 6, vulnerable_examples_rejected: 4, ordinary_open: 30, ordinary_extensions_kept: 25,
+    analyzed: 3, variants: 3, custom_tmpdir: true },
+  negative_controls: { wrong_source_hash: true, wrong_catalog_hash: true, database_refused: true, imagemagick_spawn_refused: true },
+  passed: true,
+});
 
 export function validateProof(proof, config, configSha, context) {
   assert.equal(config.schema_version, 2);
@@ -135,6 +195,48 @@ export function validateProof(proof, config, configSha, context) {
   timed(voxtral.adversarial.capabilities_seconds, 'CVE-2026-67989 capabilities_seconds');
 }
 
+export function validateRailsProof(proof, config, configSha, context) {
+  assert.equal(config.schema_version, 1);
+  assert.equal(config.rails_version, RAILS_VERSION);
+  equal(config.gems.map(gem => [gem.name, gem.version]), RAILS_GEMS.map(gem => [gem, RAILS_VERSION]), 'exactly the three Rails gems');
+  equal(config.advisories.map(a => a.id), RAILS_ADVISORIES, 'exactly the four reviewed Rails advisories');
+  for (const advisory of config.advisories) {
+    assert.equal(advisory.gem, RAILS_GEM_OF[advisory.id]);
+    assert.equal(advisory.severity, RAILS_SEVERITY[advisory.id]);
+    assert.equal(advisory.fix_commit, RAILS_FIXES[advisory.id]);
+    assert.equal(advisory.fix_url, 'https://github.com/rails/rails/commit/' + RAILS_FIXES[advisory.id]);
+    hash(advisory.upstream_diff_sha256);
+    equal(advisory.files.map(f => [f.path, f.method, f.source_line]), RAILS_SITES[advisory.id], 'exact upstream call sites');
+    // A backport must change every listed file: a patched hash equal to the official source is not a fix.
+    for (const f of advisory.files) {
+      if (f.original_sha256 !== null) assert.notEqual(hash(f.patched_sha256), hash(f.original_sha256), 'patched file differs from official source');
+    }
+  }
+  equal(config.advisories.flatMap(a => a.files.filter(f => f.original_sha256 === null).map(f => f.path)), RAILS_ADDED_FILES,
+    'only the upstream files are added');
+  for (const gem of RAILS_GEMS) {
+    assert.notEqual(config.source_inventory[gem].patched.sha256, config.source_inventory[gem].original.sha256,
+      'patched inventory differs from the official gem');
+  }
+  const files = config.advisories.flatMap(a => a.files.map(f => ({ advisory: a.id, gem: a.gem, ...f })));
+  assert.equal(proof.schema_version, 1);
+  assert.equal(proof.result, 'PASS');
+  equal(proof.advisories, RAILS_ADVISORIES, 'proof covers exactly the four Rails advisories');
+  assert.equal(proof.public_revision, context.source_commit);
+  assert.equal(proof.patch_config_sha256, hash(configSha));
+  equal(proof.upstream_fix_commits, RAILS_FIXES, 'upstream Rails fixes');
+  equal(proof.gems, RAILS_GEMS.map(gem => ({ name: gem, version: RAILS_VERSION, installed_spec_count: 1,
+    gem_root: railsRoot(gem), spec_path: railsSpec(gem) })), 'unique exact installed Rails gems');
+  equal(proof.ruby, { version: '3.4.4', platform: 'x86_64-linux-musl' }, 'actual target interpreter');
+  equal(proof.files, files.map(f => ({ advisory: f.advisory, gem: f.gem, path: f.path, sha256: hash(f.patched_sha256),
+    method: f.method, source_path: railsRoot(f.gem) + '/' + f.path, source_line: f.source_line })),
+  'loaded Rails bindings and complete source file hashes');
+  equal(proof.unchanged_files, config.unchanged_files, 'Rails entrypoints, versions and licenses unchanged');
+  equal(proof.source_inventory, Object.fromEntries(RAILS_GEMS.map(gem => [gem,
+    { ...config.source_inventory[gem].patched, ...RAILS_PATCHED_INVENTORY[gem] }])), 'complete installed Rails inventories');
+  equal(proof.tests, RAILS_TESTS, 'Rails official, ordinary and negative evidence');
+}
+
 export function validateBinding(sbom, context, imageInspect) {
   assert.equal(context.schema_version, 1);
   assert.equal(context.image, IMAGE);
@@ -184,7 +286,16 @@ export function validateBinding(sbom, context, imageInspect) {
     reachable.add(id); queue.push(...(graph.get(id) || []));
   }
   assert.ok(reachable.has(ruby.SPDXID), 'image-to-gem relationship is required');
-  return { root_purl: rootPurl, root_spdx_id: rootId, gem_purl: GEM_PURL, gem_spdx_id: ruby.SPDXID };
+  const rails = Object.fromEntries(RAILS_GEMS.map(gem => {
+    const pkg = one(packages.filter(p => p.name === gem || (p.externalRefs || []).some(r => r.referenceType === 'purl' &&
+      (r.referenceLocator === 'pkg:gem/' + gem || String(r.referenceLocator).startsWith('pkg:gem/' + gem + '@')))),
+    'unique ' + gem + ' SBOM occurrence');
+    assert.equal(pkg.name, gem); assert.equal(pkg.versionInfo, RAILS_VERSION);
+    assert.equal(purl(pkg), railsPurl(gem));
+    assert.ok(reachable.has(pkg.SPDXID), 'image-to-' + gem + ' relationship is required');
+    return [gem, { purl: railsPurl(gem), spdx_id: pkg.SPDXID }];
+  }));
+  return { root_purl: rootPurl, root_spdx_id: rootId, gem_purl: GEM_PURL, gem_spdx_id: ruby.SPDXID, rails_gems: rails };
 }
 
 export function validateDatabase(db, context) {
@@ -199,7 +310,7 @@ export function validateDatabase(db, context) {
 }
 
 export function validateRawReport(report, exitStatus) {
-  assert.equal(exitStatus, 1, 'raw scanner must have the three expected HIGH findings and exit 1');
+  assert.equal(exitStatus, 1, 'raw scanner must have the seven expected HIGH/CRITICAL findings and exit 1');
   assert.equal(report.SchemaVersion, 2);
   assert.equal(report.Metadata.OS.Family, 'alpine');
   assert.equal(report.Metadata.OS.Name, ALPINE_RELEASE);
@@ -210,43 +321,55 @@ export function validateRawReport(report, exitStatus) {
   }
   assert.equal(results.flatMap(r => r.ExperimentalModifiedFindings || []).length, 0, 'no prefiltered findings');
   const rows = results.flatMap(r => (r.Vulnerabilities || []).map(f => ({ result: r, finding: f })));
-  assert.equal(rows.length, CVES.length, 'exactly three raw HIGH/CRITICAL findings');
-  equal(rows.map(row => row.finding.VulnerabilityID).sort(), CVES, 'exactly the reviewed advisories, once each');
-  const instances = results.flatMap(r => (r.Packages || []).filter(p => p.Name === 'ruby_llm'));
-  const pkg = one(instances, 'one scanned ruby_llm instance');
-  assert.equal(pkg.Version, '1.15.0'); assert.equal(pkg.Identifier?.PURL, GEM_PURL);
-  if (pkg.FilePath) assert.equal(pkg.FilePath.replace(/^\//, ''), SPEC_PATH.slice(1));
-  return CVES.map(id => {
-    const { result, finding } = one(rows.filter(row => row.finding.VulnerabilityID === id), 'one raw finding for ' + id);
+  assert.equal(rows.length, EXPECTED_FINDINGS.length, 'exactly seven raw HIGH/CRITICAL findings');
+  equal(rows.map(row => row.finding.VulnerabilityID).sort(), [...ADVISORIES].sort(), 'exactly the reviewed advisories, once each');
+  const scanned = {};
+  for (const expected of EXPECTED_FINDINGS) {
+    if (scanned[expected.name]) continue;
+    const instances = results.flatMap(r => (r.Packages || []).filter(p => p.Name === expected.name));
+    const pkg = one(instances, 'one scanned ' + expected.name + ' instance');
+    assert.equal(pkg.Version, expected.version); assert.equal(pkg.Identifier?.PURL, expected.purl);
+    if (pkg.FilePath) assert.equal(pkg.FilePath.replace(/^\//, ''), expected.spec.slice(1));
+    scanned[expected.name] = pkg;
+  }
+  return EXPECTED_FINDINGS.map(expected => {
+    const { result, finding } = one(rows.filter(row => row.finding.VulnerabilityID === expected.id), 'one raw finding for ' + expected.id);
+    const pkg = scanned[expected.name];
     assert.equal(result.Class, 'lang-pkgs');
-    assert.equal(finding.Severity, 'HIGH');
-    assert.equal(finding.PkgName, 'ruby_llm'); assert.equal(finding.InstalledVersion, '1.15.0');
-    assert.equal(finding.FixedVersion, '>= 2.0.0.rc1');
-    assert.equal(finding.PkgIdentifier?.PURL, GEM_PURL);
+    assert.equal(finding.Severity, expected.severity);
+    assert.equal(finding.PkgName, expected.name); assert.equal(finding.InstalledVersion, expected.version);
+    assert.equal(finding.FixedVersion, expected.fixed);
+    assert.equal(finding.PkgIdentifier?.PURL, expected.purl);
     // Syft's no-file-metadata SPDX can omit PkgPath. If present it must be the verified installed spec.
     assert.ok(finding.PkgPath === undefined || finding.PkgPath === '' ||
-      finding.PkgPath.replace(/^\//, '') === SPEC_PATH.slice(1), 'unexpected affected package path');
+      finding.PkgPath.replace(/^\//, '') === expected.spec.slice(1), 'unexpected affected package path');
     assert.ok(pkg.Identifier.UID && pkg.Identifier.UID === finding.PkgIdentifier.UID, 'finding refers to inventoried gem');
     return { target: result.Target, type: result.Type, finding };
   });
 }
 
-export function makeVex(binding, context, preparedSha) {
+export function makeVex(binding, context, preparedSha, railsPreparedSha) {
+  const statement = (id, subcomponent, notes) => ({
+    vulnerability: { name: id },
+    products: [{ '@id': binding.root_purl,
+      hashes: { 'sha-256': context.image_digest.slice(7) },
+      subcomponents: [{ '@id': subcomponent }] }],
+    status: 'fixed',
+    status_notes: notes,
+  });
   return { '@context': VEX_TYPE,
-    '@id': 'https://toybaco.jp/security/vex/' + context.image_digest.slice(7) + '/ruby_llm-1.15.0',
+    '@id': 'https://toybaco.jp/security/vex/' + context.image_digest.slice(7) + '/chatwoot-source-backports',
     author: 'https://github.com/Cyber-relations', role: 'Product Security',
-    timestamp: context.issued_at, version: 1, statements: CVES.map(id => ({
-      vulnerability: { name: id },
-      products: [{ '@id': binding.root_purl,
-        hashes: { 'sha-256': context.image_digest.slice(7) },
-        subcomponents: [{ '@id': GEM_PURL }] }],
-      status: 'fixed',
-      status_notes: 'Official fix backport ' + FIXES[id] + '; exact-image proof SHA256 ' + hash(preparedSha) +
-        '. ruby_llm remains 1.15.0; raw scanner still reports the version-based finding.',
-    })) };
+    timestamp: context.issued_at, version: 1, statements: [
+      ...CVES.map(id => statement(id, GEM_PURL, 'Official fix backport ' + FIXES[id] + '; exact-image proof SHA256 ' + hash(preparedSha) +
+        '. ruby_llm remains 1.15.0; raw scanner still reports the version-based finding.')),
+      ...RAILS_ADVISORIES.map(id => statement(id, railsPurl(RAILS_GEM_OF[id]), 'Official fix backport ' + RAILS_FIXES[id] +
+        '; exact-image proof SHA256 ' + hash(railsPreparedSha) + '. ' + RAILS_GEM_OF[id] + ' remains ' + RAILS_VERSION +
+        '; raw scanner still reports the version-based finding.')),
+    ] };
 }
-export function validateVex(vex, binding, context, preparedSha) {
-  equal(vex, makeVex(binding, context, preparedSha), 'only generated exact-artifact fixed VEX accepted');
+export function validateVex(vex, binding, context, preparedSha, railsPreparedSha) {
+  equal(vex, makeVex(binding, context, preparedSha, railsPreparedSha), 'only generated exact-artifact fixed VEX accepted');
 }
 
 function regular(path) {
@@ -300,33 +423,39 @@ export function snapshotDatabase(directory) {
 }
 
 export function evaluate(input) {
-  const { config, configSha, context, imageInspect, proof, sbom, raw, rawExit, before, after, hashes } = input;
+  const { config, configSha, railsConfig, railsConfigSha, context, imageInspect, proof, railsProof, sbom, raw, rawExit,
+    before, after, hashes } = input;
   validateProof(proof, config, configSha, context);
+  validateRailsProof(railsProof, railsConfig, railsConfigSha, context);
   const binding = validateBinding(sbom, context, imageInspect);
   validateDatabase(before, context);
   equal(before, after, 'frozen database unchanged through raw scan');
   const findings = validateRawReport(raw, rawExit);
   for (const value of Object.values(hashes)) hash(value);
-  const vex = makeVex(binding, context, hashes.installed_proof);
+  const vex = makeVex(binding, context, hashes.installed_proof, hashes.installed_rails_proof);
+  const severities = findings.map(row => row.finding.Severity);
   const classification = {
-    schema_version: 1, result: 'PASS',
-    policy: 'toybaco-ruby-llm-1.15.0-source-backport-v2',
+    schema_version: 2, result: 'PASS',
+    policy: 'toybaco-chatwoot-source-backport-v3',
     evaluator: 'scripts/verify-chatwoot-ruby-llm-classification.mjs',
     evaluation_kind: 'independent_source_backport_classification',
     scanner_vex_filtering: false,
     image: { name: IMAGE, digest: context.image_digest },
     source: { commit: context.source_commit, ref: context.source_ref, control_sha256: context.control_sha256 },
     timestamp: context.issued_at,
-    counts: { raw_critical: 0, raw_high: 3, source_verified_fixed: 3, unresolved_critical: 0, unresolved_high: 0 },
-    bindings: { ...binding, ...hashes, patch_config: configSha },
+    counts: { raw_critical: severities.filter(value => value === 'CRITICAL').length,
+      raw_high: severities.filter(value => value === 'HIGH').length, source_verified_fixed: findings.length,
+      unresolved_critical: 0, unresolved_high: 0 },
+    bindings: { ...binding, ...hashes, patch_config: configSha, rails_patch_config: railsConfigSha },
     scanner: { image: TRIVY, exit_status: rawExit, arguments: [
       '--config', '/dev/null', 'sbom', '--scanners', 'vuln', '--pkg-types', 'os,library',
       '--distro', `alpine/${ALPINE_RELEASE}`, '--severity', 'CRITICAL,HIGH', '--ignore-unfixed=false',
       '--exit-code', '1', '--list-all-pkgs', '--skip-db-update', '--skip-java-db-update', '--offline-scan',
     ], database: before },
     installed_source_proof: proof,
-    evaluated_findings: findings.map(finding => ({ status: 'fixed', basis: 'verified_official_fix_backport',
-      upstream_fix_commit: FIXES[finding.finding.VulnerabilityID], ...finding })),
+    installed_rails_source_proof: railsProof,
+    evaluated_findings: findings.map((finding, index) => ({ status: 'fixed', basis: 'verified_official_fix_backport',
+      upstream_fix_commit: EXPECTED_FINDINGS[index].fix, ...finding })),
     unresolved_findings: [],
     raw_report: raw,
     openvex: vex,
@@ -348,26 +477,29 @@ export function verifyAttestations(rows, predicateType, expected, context) {
 }
 
 function main() {
-  const [mode, directory, configPath] = process.argv.slice(2);
+  const [mode, directory, configPath, railsConfigPath] = process.argv.slice(2);
   assert.ok(directory && configPath);
   const dir = resolve(directory), configBytes = regular(resolve(configPath)), config = JSON.parse(configBytes);
   if (mode === 'snapshot-before' || mode === 'snapshot-after') {
     writeExclusive(join(dir, mode === 'snapshot-before' ? 'db-before.json' : 'db-after.json'), snapshotDatabase(dir));
     return;
   }
+  assert.ok(railsConfigPath, 'the Rails backport catalog is required');
+  const railsConfigBytes = regular(resolve(railsConfigPath)), railsConfig = JSON.parse(railsConfigBytes);
   const read = name => json(join(dir, name));
   const context = read('context.json');
   const recompute = () => {
     const names = { sbom: 'sbom.spdx.json', raw_report: 'raw-report.json',
-      installed_proof: 'installed-proof.json', image_inspect: 'image-inspect.json',
-      evaluator: null };
+      installed_proof: 'installed-proof.json', installed_rails_proof: 'installed-rails-proof.json',
+      image_inspect: 'image-inspect.json', evaluator: null };
     const hashes = Object.fromEntries(Object.entries(names).map(([key, name]) => [
       key, sha(regular(name ? join(dir, name) : process.argv[1])),
     ]));
     const before = read('db-before.json'), after = read('db-after.json');
     equal(snapshotDatabase(dir), after, 'current frozen DB equals final snapshot');
-    return evaluate({ config, configSha: sha(configBytes), context,
+    return evaluate({ config, configSha: sha(configBytes), railsConfig, railsConfigSha: sha(railsConfigBytes), context,
       imageInspect: read('image-inspect.json'), proof: read('installed-proof.json'),
+      railsProof: read('installed-rails-proof.json'),
       sbom: read('sbom.spdx.json'), raw: read('raw-report.json'),
       rawExit: Number(regular(join(dir, 'raw-exit.txt')).toString().trim()),
       before, after, hashes });
@@ -376,7 +508,7 @@ function main() {
     const result = recompute();
     writeExclusive(join(dir, 'openvex.json'), result.vex);
     writeExclusive(join(dir, 'source-backport-classification.json'), result.classification);
-    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=0 RAW_HIGH=3 SOURCE_VERIFIED_FIXED=3 UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
+    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=1 RAW_HIGH=6 SOURCE_VERIFIED_FIXED=7 UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
     return;
   }
   if (mode === 'verify-attestations') {
@@ -384,7 +516,8 @@ function main() {
     const expected = recompute();
     equal(classification, expected.classification, 'classification inputs or evidence changed');
     equal(vex, expected.vex, 'VEX inputs or evidence changed');
-    validateVex(vex, classification.bindings, context, classification.bindings.installed_proof);
+    validateVex(vex, classification.bindings, context, classification.bindings.installed_proof,
+      classification.bindings.installed_rails_proof);
     equal(classification.openvex, vex);
     verifyAttestations(read('verified-openvex.json'), VEX_TYPE, vex, context);
     verifyAttestations(read('verified-source-backport.json'), PROOF_TYPE, classification, context);
