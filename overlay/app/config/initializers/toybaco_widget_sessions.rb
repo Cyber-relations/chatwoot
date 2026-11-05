@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 Rails.application.routes.append do
+  get '/toybaco/widget_preview', to: 'toybaco/widget_previews#show'
   delete '/api/v1/widget/session', to: 'api/v1/widget/sessions#destroy'
   post '/api/v1/widget/http_session', to: 'api/v1/widget/http_sessions#create'
   get '/api/v1/widget/http_session', to: 'api/v1/widget/http_sessions#show'

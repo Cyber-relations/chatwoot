@@ -40,7 +40,7 @@
     <%= vite_javascript_tag 'widget', nonce: content_security_policy_nonce %>
   </head>
   <body>
-    <div id="app" class="h-full"></div>
+    <div id="app" class="h-full"><% if legacy_widget_document? %>チャットを開くには、元のページを再読み込みしてください。<% end %></div>
     <%= yield %>
   </body>
 </html>

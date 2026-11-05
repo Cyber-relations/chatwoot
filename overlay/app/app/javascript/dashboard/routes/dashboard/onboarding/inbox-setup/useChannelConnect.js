@@ -1,4 +1,5 @@
 import { useI18n } from 'vue-i18n';
+import { isToybacoChannelAvailable } from 'dashboard/helper/channelAvailability';
 import { useAlert } from 'dashboard/composables';
 import { useStore } from 'dashboard/composables/store';
 import { useAccount } from 'dashboard/composables/useAccount';
@@ -49,6 +50,7 @@ export function useChannelConnect() {
   // inbox, and surface the result inline — then refetch so the connected state
   // reflects the freshly created inbox (and renders its real channel icon).
   const connectWhatsapp = async () => {
+    if (!isToybacoChannelAvailable('whatsapp')) return;
     if (isMetaInboxCreationDisabled.value) {
       useAlert(t('ONBOARDING_INBOX_SETUP.META_RESTRICTION.MESSAGE'));
       return;

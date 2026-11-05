@@ -106,7 +106,7 @@ class ChatwootScriptNonceRuntimeTest < ActionDispatch::IntegrationTest
     end
     assert_response :success
     nonce = nonce_from(Nokogiri::HTML(response.body))
-    assert_includes response.headers['Content-Security-Policy'], 'frame-ancestors https://shop.example.test'
+    assert_includes response.headers['Content-Security-Policy'], "frame-ancestors 'self' https://shop.example.test"
     assert_includes response.headers['Content-Security-Policy'], Toybaco::ScriptPolicy.policy(nonce)
   end
 

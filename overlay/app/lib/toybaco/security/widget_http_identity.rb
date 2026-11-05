@@ -3,6 +3,10 @@
 module Toybaco::Security::WidgetHttpIdentity
   private
 
+  def build_contact_inbox_with_token(web_widget, additional_attributes = {})
+    [web_widget.create_contact_inbox(additional_attributes), nil]
+  end
+
   def identify_contact(contact)
     return super unless @toybaco_http_session
 
@@ -13,7 +17,7 @@ module Toybaco::Security::WidgetHttpIdentity
         previous_binding = @toybaco_http_session.record.link_digest
         super(contact)
         secret = @toybaco_http_session.rebind!(@contact_inbox)
-        @toybaco_http_session.issue_cookie(request, @web_widget, secret)
+        @toybaco_http_session.issue_cookie(request, @web_widget, secret) unless request.headers['X-Auth-Token'].to_s.start_with?('tbwr1.')
         if @toybaco_http_authenticated
           @widget_http_identity_changed = previous_binding != @toybaco_http_session.record.link_digest
           @widget_auth_token = next_widget_proof

@@ -1,6 +1,7 @@
 // This module has no store/router imports. The Widget is mounted only after
 // its original identity has been selected and the storage outcome is known.
 const PREFIX = 'chatwoot-widget:';
+export const WIDGET_RELOAD_MESSAGE = 'チャットを開くには、元のページを再読み込みしてください。';
 const randomIntent = () => Array.from(crypto.getRandomValues(new Uint8Array(32)),
   value => value.toString(16).padStart(2, '0')).join('');
 
@@ -26,15 +27,39 @@ const post = (target, origin, message) => target.postMessage(`${PREFIX}${JSON.st
 
 export const notifyHttpSessionProblem = () => {
   const target = window.parent !== window ? window.parent : window.opener;
-  if (!target || !window.toybacoWidgetParentOrigin) return;
-  post(target, window.toybacoWidgetParentOrigin, { event: 'http-session-problem',
+  if (!target) return;
+  // The parent may still be silent. This notification contains only public
+  // appearance, so the current SDK can reveal the inert timeout notice.
+  post(target, window.toybacoWidgetParentOrigin || '*', { event: 'http-session-problem',
     widgetColor: window.chatwootWebChannel.widgetColor });
 };
 
-const legacyFromParent = () => new Promise((resolve, reject) => {
+export const notifyLegacyReload = () => {
+  if (window.parent === window) return;
+  const params = new URL(window.location.href).searchParams;
+  if (params.get('toybaco_sdk') === '2' || params.get('toybaco_popout') === '2') return;
+  let origin;
+  try { origin = new URL(document.referrer).origin; } catch { origin = '*'; }
+  // The cached SDK hides its iframe until loaded. Reveal only the reload
+  // document; its ready/setUser callbacks have no mounted chat to receive them.
+  post(window.parent, origin === 'null' ? '*' : origin, { event: 'loaded', config: {
+    authToken: '', httpSession: false, channelConfig: { widgetColor: window.chatwootWebChannel.widgetColor },
+  } });
+};
+
+const sessionInputFromParent = () => new Promise((resolve, reject) => {
   const requestId = randomIntent();
   const target = window.opener || (window.parent !== window ? window.parent : null);
-  if (!target) { resolve({ token: null }); return; }
+  const params = new URL(window.location.href).searchParams;
+  const popout = params.get('toybaco_popout') === '2';
+  if ((window.opener || window.parent === window || popout) && (!popout || !target)) {
+    reject(new Error(WIDGET_RELOAD_MESSAGE));
+    return;
+  }
+  if (!popout && params.get('toybaco_sdk') !== '2') {
+    reject(new Error(WIDGET_RELOAD_MESSAGE));
+    return;
+  }
   let origin;
   const listener = event => {
     if (event.source !== target || event.origin === 'null' || typeof event.data !== 'string' || !event.data.startsWith(PREFIX)) return;
@@ -43,19 +68,20 @@ const legacyFromParent = () => new Promise((resolve, reject) => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     if (data.event !== 'http-session-input' || data.requestId !== requestId) return;
     if (origin && origin !== event.origin) return;
-    origin = event.origin;
     if (data.token !== null && typeof data.token !== 'string') return;
     if (data.handoffCode !== undefined && !/^[a-f0-9]{64}$/.test(data.handoffCode)) return;
+    if (popout && !data.handoffCode) return;
+    origin = event.origin;
     clearTimeout(timeout);
     clearInterval(timer);
     window.removeEventListener('message', listener);
-    resolve({ token: data.token, handoffCode: data.handoffCode, target, origin });
+    resolve({ token: null, handoffCode: data.handoffCode, target, origin });
   };
   window.addEventListener('message', listener);
   // Only a public challenge is sent without a known parent origin. No proof,
   // token, contact information or conversation is included.
   const announce = () => post(target, '*', { event: 'http-session-inert', requestId,
-    popout: new URL(window.location.href).searchParams.get('toybaco_popout') === '2' });
+    popout });
   const timer = setInterval(announce, 1500);
   const timeout = setTimeout(() => {
     clearInterval(timer);
@@ -85,9 +111,20 @@ const showConflict = async retry => new Promise((resolve, reject) => {
 
 export const bootstrapHttpSession = async () => {
   if (!window.toybacoHttpSessionRequested) return;
-  const input = await legacyFromParent();
-  window.toybacoWidgetParentOrigin = input.origin || window.location.origin;
+  const input = await sessionInputFromParent();
+  window.toybacoWidgetParentOrigin = input.target ? input.origin : window.location.origin;
   const consumeIntent = randomIntent();
+  const outcome = await bootstrapPersistent(input, consumeIntent);
+  window.toybacoHttpSession = true;
+  window.toybacoHttpSessionPersisted = outcome.persisted === true;
+  window.authToken = outcome.proof;
+  window.chatwootPubsubToken = 'http-session';
+  if (input.target && input.origin) post(input.target, input.origin, {
+    event: 'http-session-ready', persisted: outcome.persisted === true,
+  });
+};
+
+const bootstrapPersistent = async (input, consumeIntent) => {
   const issueOnce = () => input.handoffCode
     ? sessionRequest('/consume', { body: { handoff_code: input.handoffCode, consume_intent: consumeIntent } })
     : sessionRequest('', { body: { legacy_token: input.token, consume_intent: consumeIntent } });
@@ -102,7 +139,7 @@ export const bootstrapHttpSession = async () => {
   try { issued = await issue(); }
   catch (error) {
     if (error.message !== 'widget_session_conflict') throw error;
-    if (input.target) post(input.target, input.origin, { event: 'http-session-conflict',
+    if (input.target && input.origin) post(input.target, input.origin, { event: 'http-session-conflict',
       widgetColor: window.chatwootWebChannel.widgetColor });
     issued = await showConflict(issue);
   }
@@ -113,23 +150,13 @@ export const bootstrapHttpSession = async () => {
     if (outcome.persisted !== true || typeof outcome.proof !== 'string') throw new Error('Widget cookie readback failed');
   } catch {
     // Cookie denial has an explicit, bounded, revocable in-memory fallback.
-    // The parent retains the legacy history proof; persistence is never claimed.
+    // Persistence is never claimed when the cookie cannot be read back.
     outcome = await sessionRequest('/recover', { body: {
       handoff_code: issued.recovery_code, consume_intent: consumeIntent,
     } });
     if (outcome.persisted !== false || !outcome.proof?.startsWith('tbwr1.')) throw new Error('Widget recovery failed');
   }
-  window.toybacoHttpSession = true;
-  window.toybacoHttpSessionPersisted = outcome.persisted === true;
-  window.toybacoWidgetParentOrigin = input.origin || window.location.origin;
-  window.authToken = outcome.proof;
-  window.chatwootPubsubToken = 'http-session';
-  if (input.target) post(input.target, input.origin, {
-    event: 'http-session-ready', persisted: outcome.persisted === true,
-  });
-  // The reusable visitor proof is not put in history, URLs, window.name or storage.
-  input.token = null;
-  input.handoffCode = undefined;
+  return outcome;
 };
 
 // The original Widget owns its authenticated handoff request. The SDK parent

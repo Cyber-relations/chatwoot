@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../lib/toybaco/inbound_email'
+require_relative '../../lib/toybaco/inbound_email/ingress_boundary'
 
 # Chatwoot 公式イメージの aws-actionmailbox-ses 0.1.0 は
 # routes.append { mount Engine => '/' } し、Engine の config/routes.rb が
@@ -11,7 +12,10 @@ require_relative '../../lib/toybaco/inbound_email'
 # 起動時に toybaco-inbound-hooks-loaded=<sha> を1行出す。
 # middleware は token を RequestStore / Thread.current に残すだけ（puts なし）。
 # 受信 ENV が無ければルート自体を作らない。
-Rails.application.config.middleware.unshift Toybaco::InboundEmail::SesInboundRouteMiddleware
+# Keep early 404s inside both CSP policies, and reject unused mail paths before
+# the SES token reader or Rails reads the body.
+Rails.application.config.middleware.insert_after Toybaco::ContentSecurityPolicyReportOnly, Toybaco::InboundEmail::IngressBoundary
+Rails.application.config.middleware.insert_after Toybaco::InboundEmail::IngressBoundary, Toybaco::InboundEmail::SesInboundRouteMiddleware
 Toybaco::InboundEmail.register_ses_ingress_route_block!
 Toybaco::InboundEmail.install_ses_ingress_reload_hooks!
 

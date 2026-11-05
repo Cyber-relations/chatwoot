@@ -34,13 +34,7 @@ import {
   initOnEvents,
 } from 'shared/helpers/AudioNotificationHelper';
 import { isFlatWidgetStyle } from './settingsHelper';
-import { popoutChatWindow } from '../widget/helpers/popoutHelper';
 import { openHttpPopout } from '../widget/helpers/httpPopout';
-
-const updateAuthCookie = (cookieContent, baseDomain = '') =>
-  setCookieWithDomain('cw_conversation', cookieContent, {
-    baseDomain,
-  });
 
 const updateCampaignReadStatus = baseDomain => {
   const expireBy = new Date(Date.now() + 60 * 60 * 1000);
@@ -276,21 +270,21 @@ export const IFrameHelper = {
       IFrameHelper.httpSessionSupported = true;
       IFrameHelper.backendIncompatible = false;
       IFrameHelper.sendMessage('http-session-input', {
-        requestId: message.requestId, token: Cookies.get('cw_conversation') || null,
+        requestId: message.requestId, token: null,
       });
     },
     'http-session-ready': message => {
-      // Keep the pre-existing bridge while cached legacy SDKs can still run.
-      // New proofs are never written here. Retire it only on an explicit reset
-      // or after a proved identity change makes this old bridge stale.
+      IFrameHelper.events['http-session-identity-changed']();
       if (message.persisted !== true) {
         dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_not_persisted' } });
       }
     },
     'http-session-identity-changed': () => {
       const domain = window.$chatwoot.baseDomain;
-      Cookies.remove('cw_conversation', { path: '/', domain });
-      if (domain) Cookies.remove('cw_conversation', { path: '/' });
+      for (const name of ['cw_conversation', getUserCookieName()]) {
+        Cookies.remove(name, { path: '/', domain });
+        if (domain) Cookies.remove(name, { path: '/' });
+      }
     },
     'http-session-conflict': message => {
       IFrameHelper.showSessionProblem(message);
@@ -328,33 +322,15 @@ export const IFrameHelper = {
         return;
       }
       if (!message.config.httpSession) {
-        // One rollback-only fallback preserves the old visitor when a new SDK
-        // meets an older server. No third attempt or silent anonymous history.
-        const legacy = Cookies.get('cw_conversation');
-        if (legacy && !IFrameHelper.httpSessionSupported && !IFrameHelper.legacyFallbackUsed) {
-          IFrameHelper.legacyFallbackUsed = true;
-          const frame = IFrameHelper.getAppFrame();
-          const url = new URL(frame.src);
-          url.searchParams.delete('toybaco_sdk');
-          url.searchParams.set('cw_conversation', legacy);
-          frame.src = url.toString();
-          return;
-        }
-        if (!legacy || IFrameHelper.httpSessionSupported) {
-          // An older server cannot see the new HttpOnly identity. Do not show
-          // its anonymous replacement as a returning visitor's empty history.
-          const frame = IFrameHelper.getAppFrame();
-          frame.style.visibility = 'hidden';
-          IFrameHelper.backendIncompatible = true;
-          window.$chatwoot.hasLoaded = false;
-          dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_backend_incompatible' } });
-          return;
-        }
-        updateAuthCookie(message.config.authToken, window.$chatwoot.baseDomain);
-      } else {
-        IFrameHelper.httpSessionSupported = true;
-        IFrameHelper.backendIncompatible = false;
+        const frame = IFrameHelper.getAppFrame();
+        frame.style.visibility = 'hidden';
+        IFrameHelper.backendIncompatible = true;
+        window.$chatwoot.hasLoaded = false;
+        dispatchWindowEvent({ eventName: CHATWOOT_ERROR, data: { errorType: 'session_backend_incompatible' } });
+        return;
       }
+      IFrameHelper.httpSessionSupported = true;
+      IFrameHelper.backendIncompatible = false;
       window.$chatwoot.hasLoaded = true;
       const campaignsSnoozedTill = Cookies.get('cw_snooze_campaigns_till');
       IFrameHelper.sendMessage('config-set', {
@@ -410,12 +386,6 @@ export const IFrameHelper = {
       setBubbleText(window.$chatwoot.launcherTitle || message.label);
     },
 
-    setAuthCookie({ data: { widgetAuthToken } }) {
-      if (IFrameHelper.pendingReset || IFrameHelper.resetFailed) return;
-      if (IFrameHelper.httpSessionSupported || /^tbw[pr]1\./.test(widgetAuthToken || '')) return;
-      updateAuthCookie(widgetAuthToken, window.$chatwoot.baseDomain);
-    },
-
     setCampaignReadOn() {
       updateCampaignReadStatus(window.$chatwoot.baseDomain);
     },
@@ -454,9 +424,6 @@ export const IFrameHelper = {
           });
         });
       }
-      const cwCookie = Cookies.get('cw_conversation');
-      window.$chatwoot.toggle('close');
-      popoutChatWindow(baseUrl, websiteToken, locale, cwCookie);
     },
 
     closeWindow: () => {

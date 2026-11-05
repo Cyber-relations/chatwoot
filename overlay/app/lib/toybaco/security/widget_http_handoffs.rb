@@ -3,7 +3,7 @@
 module Toybaco::Security::WidgetHttpHandoffs
   def consume(request, widget, code:, intent:)
     validate_handoff_request(request, code, intent)
-    Toybaco::WidgetHandoff.transaction do
+    Toybaco::Security::WidgetSessionSecurityEpoch.with_creation_lock do
       grant = Toybaco::WidgetHandoff.find_by!(code_digest: digest(code), kind: 'popout')
       scope = lock_consume_sessions(request, widget, grant, intent)
       with_current_grant_session(grant, widget) do |parent|
@@ -69,8 +69,8 @@ module Toybaco::Security::WidgetHttpHandoffs
 
   def bootstrap_from_parent(request, widget, parent, intent, scope)
     link = parent.contact_inbox
-    legacy = ::Widget::TokenService.new(payload: { source_id: link.source_id, inbox_id: link.inbox_id }).generate_token
-    bootstrap(request, widget, legacy_token: legacy, intent: intent, lock_scope: scope)
+    binding = "handoff:#{parent.id}:#{parent.link_digest}"
+    bootstrap_session(request, widget, link: link, binding: binding, intent: intent, lock_scope: scope)
   end
 
   def reconcile_handoff(request, widget, grant, intent)
@@ -106,7 +106,7 @@ module Toybaco::Security::WidgetHttpHandoffs
 
   def recover(request, widget, code:, intent:)
     validate_handoff_request(request, code, intent)
-    Toybaco::WidgetHandoff.transaction do
+    Toybaco::Security::WidgetSessionSecurityEpoch.with_creation_lock do
       grant = Toybaco::WidgetHandoff.find_by!(code_digest: digest(code), kind: 'recovery')
       with_current_grant_session(grant, widget) do |row|
         raise ActiveRecord::RecordNotFound if grant.consumed_at && grant.consume_intent_digest != digest(intent)

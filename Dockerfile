@@ -22,10 +22,15 @@ COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile
 COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
 COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
 COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
+COPY config/chatwoot-rails-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-rails.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_rails_backport.rb /opt/toybaco/tests/
 RUN BUNDLE_FROZEN=true bundle install --jobs 4 --retry 3 \
     && bundle clean --force \
     && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-rails.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb \
     && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
 
 FROM bundled-gems AS localized-assets
@@ -37,6 +42,11 @@ ENV HUSKY=0 \
 COPY --from=overlay-normalizer /toybaco-overlay/app/javascript/ /app/app/javascript/
 COPY --from=overlay-normalizer /toybaco-overlay/app/assets/javascripts/ /app/app/assets/javascripts/
 COPY --from=overlay-normalizer /toybaco-overlay/vite.config.ts /app/vite.config.ts
+# CASA 6.1.1: the dashboard JS dependencies use the overlay's package.json overrides and the lockfile made from them.
+COPY --from=overlay-normalizer /toybaco-overlay/package.json /toybaco-overlay/pnpm-lock.yaml /app/
+# Exercise the production boot guard during the build, without baking a runtime epoch into the image.
+COPY --from=overlay-normalizer /toybaco-overlay/lib/toybaco/security/widget_session_security_epoch.rb /app/lib/toybaco/security/
+COPY --from=overlay-normalizer /toybaco-overlay/config/initializers/toybaco_widget_session_epoch.rb /app/config/initializers/
 COPY tests/chatwoot-csp-build.test.mjs /opt/toybaco/tests/csp-build.test.mjs
 COPY tests/chatwoot-cache-upgrade.test.mjs /opt/toybaco/tests/cache-upgrade.test.mjs
 COPY tests/chatwoot-logout-cleanup.test.mjs /opt/toybaco/tests/logout-cleanup.test.mjs
@@ -54,7 +64,7 @@ RUN node --version \
     && node /opt/toybaco/tests/logout-cleanup.test.mjs /app /app /app \
     && node /opt/toybaco/tests/browser-session.test.mjs /app \
     && rm -rf /app/public/vite \
-    && SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
+    && RAILS_ENV=production SECRET_KEY_BASE=precompile_placeholder RAILS_LOG_TO_STDOUT=enabled \
       NODE_OPTIONS=--max-old-space-size=4096 \
       bundle exec rake assets:precompile \
     && node /opt/toybaco/tests/verify_chatwoot_sprockets_artifacts.mjs --verify-build /app/public/assets /opt/toybaco/legacy-admin-asset.js \
@@ -149,6 +159,9 @@ COPY --from=overlay-normalizer /toybaco-overlay/Gemfile /toybaco-overlay/Gemfile
 COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/
 COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/
 COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/
+COPY config/chatwoot-rails-backport.json /opt/toybaco/config/
+COPY scripts/harden-chatwoot-rails.rb /opt/toybaco/scripts/
+COPY tests/verify_chatwoot_rails_backport.rb /opt/toybaco/tests/
 # Every gem, native extensions included, is compiled here against the shipped Alpine 3.22 libraries
 # (BUNDLE_FORCE_RUBY_PLATFORM=1 as upstream). The headers are the upstream pre-builder's and stay in this stage; only
 # /gems and /opt/toybaco are copied out. Bundler follows the lock's BUNDLED WITH (2.5.16).
@@ -160,6 +173,8 @@ RUN apk add --no-cache --virtual .toybaco-gem-native postgresql-dev openssl-dev 
     && find /gems/ruby/3.4.0/gems/ \( -name '*.c' -o -name '*.o' \) -delete \
     && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-ruby-llm.rb apply \
     && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
+    && bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-rails.rb apply \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb \
     && bundle exec ruby -rrails -e 'abort unless Rails.version == "7.2.3.2"'
 
 FROM runtime-base AS runtime-app
@@ -205,7 +220,8 @@ RUN if [ -n "$TOYBACO_PUBLIC_REVISION" ]; then \
       && ! printf '%s' "$TOYBACO_PUBLIC_REVISION" | grep -q '[^0-9a-f]'; \
     fi \
     && printf '%s\n' "$TOYBACO_PUBLIC_REVISION" > /app/TOYBACO_PUBLIC_REVISION \
-    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb \
+    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb
 # Node is not shipped (docs/chatwoot-runtime-os-policy.md). These two checks borrow the upstream binary for their own
 # RUN only, read-only through a BuildKit bind mount; the next RUN proves that neither Node nor a mount stub is left.
 RUN --mount=type=bind,from=upstream,source=/usr/local/bin/node,target=/usr/local/bin/node /usr/local/bin/node /opt/toybaco/tests/verify_chatwoot_sdk_artifacts.mjs /app/public/packs/js

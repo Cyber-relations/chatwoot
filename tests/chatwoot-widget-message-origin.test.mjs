@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { createHmac } from 'node:crypto';
 
 const root = path.resolve(process.argv[2] || path.join(import.meta.dirname, '..'));
 const source = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/sdk/IFrameHelper.js'), 'utf8');
@@ -72,7 +73,7 @@ assert.equal(sent[1][1], 'https://other-app.example.invalid');
 
 // (a) createFrame の経路: http の baseUrl は https にしてから iframe.src に入れる(本番の ALB は http→https に
 // リダイレクトし、iframe.src は書き換わらないため)。開発ホストの http はそのまま。origin/source の照合は変えない。
-const createFrameFixture = ({ baseUrl, cookie }) => {
+const createFrameFixture = ({ baseUrl, cookie, baseDomain }) => {
   const frameWindow = { postMessage: (...args) => frameSent.push(args) };
   const frameSent = [];
   const removedCookies = [];
@@ -81,7 +82,9 @@ const createFrameFixture = ({ baseUrl, cookie }) => {
   const ctx = {
     URL,
     Cookies: { get: name => (name === 'cw_conversation' ? cookie : undefined), remove: (...args) => removedCookies.push(args) },
+    getUserCookieName: () => 'cw_user_public-fixture',
     loadCSS: () => {},
+    dispatchWindowEvent: () => {}, CHATWOOT_ERROR: 'error',
     addClasses: () => {},
     isFlatWidgetStyle: () => false,
     widgetHolder: { dataset: {}, appendChild: element => { appended = element; }, addEventListener: () => {} },
@@ -92,7 +95,7 @@ const createFrameFixture = ({ baseUrl, cookie }) => {
     },
     window: {
       location: { href: 'https://shop.example.invalid/path' },
-      $chatwoot: { position: 'right' },
+      $chatwoot: { position: 'right', baseDomain },
       addEventListener: (event, handler) => { if (event === 'message') frameListeners.add(handler); },
       removeEventListener: (event, handler) => { if (event === 'message') frameListeners.delete(handler); },
     },
@@ -107,9 +110,9 @@ const createFrameFixture = ({ baseUrl, cookie }) => {
 };
 const redirected = createFrameFixture({ baseUrl: 'http://app.example.invalid' });
 redirected.helper.events['http-session-ready']({ persisted: true });
-assert.equal(redirected.removedCookies.length, 0, 'Verified cookie storage retains the existing bridge for cached legacy pages');
+assert.deepEqual(redirected.removedCookies.map(args => args[0]), ['cw_conversation', 'cw_user_public-fixture'], 'Persisted HTTP sessions retire the legacy cookie and identity deduplication marker');
 redirected.helper.events['http-session-identity-changed']();
-assert.deepEqual(redirected.removedCookies.map(args => args[0]), ['cw_conversation'], 'Only a proved identity change removes its stale parent bridge');
+assert.deepEqual(redirected.removedCookies.map(args => args[0]), ['cw_conversation', 'cw_user_public-fixture', 'cw_conversation', 'cw_user_public-fixture'], 'Identity changes also remove any stale parent bridge and deduplication marker');
 const problemAppearance = []; const problemOpen = [];
 const originalOnLoad = redirected.helper.onLoad;
 const originalToggle = redirected.helper.events.toggleBubble;
@@ -408,3 +411,272 @@ for (const url of ['/widget?website_token=public-fixture&toybaco_sdk=2', '/widge
   assert.equal(interceptor({ url }).url, url, 'Unrelated URLs retain exact bytes');
 }
 console.log('Widget actual Axios transport: direct upstream query copies and structured params stripped, headers/body preserved PASS');
+
+// An old-server loaded event cannot put a bearer in a URL or cookie even when
+// a stale legacy cookie exists. The old setAuthCookie event has no handler.
+const rollback = createFrameFixture({ baseUrl: 'https://app.example.invalid', cookie: 'old-private-fixture' });
+const rollbackUrl = rollback.iframe.src;
+rollback.helper.events.loaded({ config: { authToken: 'old-private-fixture' } });
+assert.equal(rollback.helper.backendIncompatible, true);
+assert.equal(rollback.iframe.src, rollbackUrl, 'A cached legacy cookie cannot trigger the removed URL rollback');
+const domainCookie = createFrameFixture({ baseUrl: 'https://app.example.invalid', baseDomain: 'example.invalid' });
+domainCookie.helper.events['http-session-ready']({ persisted: false });
+assert.equal(domainCookie.removedCookies.length, 4, 'Recovery bootstrap also retires stale identity cookies');
+domainCookie.helper.events['http-session-ready']({ persisted: true });
+assert.equal(domainCookie.removedCookies.length, 8);
+assert.equal(domainCookie.removedCookies[0][1].domain, 'example.invalid');
+assert.equal(domainCookie.removedCookies[1][1].domain, undefined);
+assert.equal(domainCookie.removedCookies[2][0], 'cw_user_public-fixture');
+assert.equal(domainCookie.removedCookies[2][1].domain, 'example.invalid');
+assert.equal(domainCookie.removedCookies[3][1].domain, undefined);
+assert.ok(domainCookie.removedCookies.every(([, options]) => options.path === '/'));
+rollback.helper.events['http-session-inert']({ requestId: 'a'.repeat(64) });
+assert.equal(JSON.parse(rollback.frameSent.at(-1)[0].slice('chatwoot-widget:'.length)).token, null);
+assert.equal(rollback.helper.events.setAuthCookie, undefined);
+assert.equal(rollback.iframe.src, rollbackUrl);
+assert.equal(rollback.iframe.src.includes('cw_conversation'), false);
+
+const utilsSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/utils.js'), 'utf8')
+  .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
+const legacyMessages = [];
+const legacyParent = { postMessage: (...args) => legacyMessages.push(args) };
+const legacyContext = { WOOT_PREFIX: 'chatwoot-widget:', window: { parent: legacyParent, toybacoHttpSession: true } };
+vm.runInNewContext(`${utilsSource}\nthis.helper = IFrameHelper;`, legacyContext);
+legacyContext.helper.sendMessage({ event: 'loaded', config: { httpSession: true } });
+assert.equal(legacyMessages[0][1], '*', 'Only public loaded config can discover a referrer-less old parent');
+legacyContext.helper.sendMessage({ event: 'onEvent', data: 'private' });
+assert.equal(legacyMessages.length, 1);
+const parentConfig = { source: legacyParent, origin: 'https://shop.example.test', data: 'chatwoot-widget:{"event":"config-set"}' };
+assert.equal(legacyContext.helper.isAValidEvent({ ...parentConfig, source: {} }), false);
+assert.equal(legacyContext.helper.isAValidEvent({ ...parentConfig, origin: 'null' }), false);
+assert.equal(legacyContext.helper.isAValidEvent(parentConfig), true);
+assert.equal(legacyContext.window.toybacoWidgetParentOrigin, parentConfig.origin);
+assert.equal(legacyContext.helper.isAValidEvent({ ...parentConfig, origin: 'https://other.example.test' }), false);
+legacyContext.helper.sendMessage({ event: 'onEvent', data: 'private' });
+assert.equal(legacyMessages.at(-1)[1], parentConfig.origin);
+console.log('Stage 3 cached parent: no legacy authority, public startup only, exact parent origin pinned PASS');
+
+// Run the real SDK entrypoint, hash helper and frame receiver together. The
+// profile starts with legacy cookies only, including an unchanged signed user.
+const sdkSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/entrypoints/sdk.js'), 'utf8')
+  .replace(/^import [\s\S]*? from '[^']+';\n/gm, '');
+const cookieSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/sdk/cookieHelpers.js'), 'utf8')
+  .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
+for (const baseDomain of [undefined, '.example.invalid']) {
+  for (const { persisted, callBeforeBootstrap } of [
+    { persisted: true, callBeforeBootstrap: false },
+    { persisted: true, callBeforeBootstrap: true },
+    { persisted: false, callBeforeBootstrap: false },
+    { persisted: false, callBeforeBootstrap: true },
+  ]) {
+    const jar = new Map(); const identityMessages = [];
+    const scopes = baseDomain ? [baseDomain, 'host'] : ['host'];
+    const key = (name, domain) => `${domain || 'host'}:${name}`;
+    const signedIdentifier = 'signed-returning-visitor';
+    const user = { name: 'Returning visitor', email: 'returning@example.test',
+      identifier_hash: createHmac('sha256', 'synthetic-widget-hmac-key').update(signedIdentifier).digest('hex') };
+    const widgetWindow = { postMessage: data => identityMessages.push(JSON.parse(data.slice('chatwoot-widget:'.length))) };
+    const widgetFrame = { src: 'https://app.example.invalid/widget?website_token=public-fixture&toybaco_sdk=2', contentWindow: widgetWindow };
+    const ctx = {
+      URL, TextEncoder, initOnEvents: [], CHATWOOT_READY: 'chatwoot:ready', CHATWOOT_ERROR: 'chatwoot:error',
+      Cookies: {
+        get: name => scopes.map(scope => jar.get(key(name, scope))).find(value => value !== undefined),
+        set: (name, value, options) => jar.set(key(name, options.domain), value),
+        remove: (name, options) => jar.delete(key(name, options.domain)),
+      },
+      getBubbleView: () => 'standard', getWidgetStyle: () => 'standard', getDarkMode: () => 'light',
+      dispatchWindowEvent: () => {},
+      document: { addEventListener: () => {}, getElementById: () => widgetFrame },
+      window: { location: { href: 'https://shop.example.invalid/', protocol: 'https:' },
+        chatwootSettings: { baseDomain }, addEventListener: () => {}, removeEventListener: () => {} },
+    };
+    vm.runInNewContext(`${cookieSource}\n${moduleBody}\n${sdkSource}\nthis.helper = IFrameHelper; this.hash = computeHashForUserData;`, ctx);
+    ctx.helper.createFrame = () => {};
+    ctx.helper.onLoad = () => {};
+    ctx.helper.toggleCloseButton = () => {};
+    ctx.window.chatwootSDK.run({ baseUrl: 'https://app.example.invalid', websiteToken: 'public-fixture' });
+    ctx.helper.initPostMessageCommunication();
+    const hash = ctx.hash({ identifier: signedIdentifier, user });
+    for (const scope of scopes) {
+      jar.set(key('cw_conversation', scope), 'legacy-only-profile');
+      jar.set(key('cw_user_public-fixture', scope), hash);
+      jar.set(key('cw_user_other-widget', scope), 'unrelated-marker');
+    }
+    if (callBeforeBootstrap) {
+      ctx.window.$chatwoot.setUser(signedIdentifier, user);
+      assert.equal(identityMessages.filter(message => message.event === 'set-user').length, 0, 'An unchanged legacy marker still deduplicates before bootstrap');
+      assert.equal(ctx.window.$chatwoot.identifier, signedIdentifier, 'A deduplicated call retains the current signed identifier for bootstrap replay');
+      assert.equal(ctx.window.$chatwoot.user, user, 'A deduplicated call retains its current user data');
+    }
+    const receive = data => ctx.helper.messageListener({ source: widgetWindow, origin: 'https://app.example.invalid',
+      data: `chatwoot-widget:${JSON.stringify(data)}` });
+    receive({ event: 'http-session-inert', requestId: 'a'.repeat(64) });
+    receive({ event: 'http-session-ready', persisted });
+    for (const scope of scopes) {
+      assert.equal(jar.has(key('cw_conversation', scope)), false);
+      assert.equal(jar.has(key('cw_user_public-fixture', scope)), false, 'Bootstrap invalidates both host and domain identity deduplication markers');
+      assert.equal(jar.get(key('cw_user_other-widget', scope)), 'unrelated-marker');
+    }
+    receive({ event: 'loaded', config: { httpSession: true, channelConfig: { widgetColor: '#0055aa' } } });
+    let sentUsers = identityMessages.filter(message => message.event === 'set-user');
+    assert.equal(sentUsers.length, callBeforeBootstrap ? 1 : 0, 'Loaded replays the retained setUser data after bootstrap');
+    if (callBeforeBootstrap) assert.deepEqual(sentUsers[0], { event: 'set-user', identifier: signedIdentifier, user });
+    ctx.window.$chatwoot.setUser(signedIdentifier, user);
+    sentUsers = identityMessages.filter(message => message.event === 'set-user');
+    assert.equal(sentUsers.length, callBeforeBootstrap ? 2 : 1, 'The next unchanged signed setUser is sent after cutover');
+    assert.deepEqual(sentUsers.at(-1), { event: 'set-user', identifier: signedIdentifier, user });
+    ctx.window.$chatwoot.setUser(signedIdentifier, user);
+    assert.equal(identityMessages.filter(message => message.event === 'set-user').length, sentUsers.length, 'Normal deduplication resumes for this identity');
+  }
+}
+console.log('Persisted/recovery SDK bootstrap: identity marker invalidated, unchanged signed setUser sent after loaded, host/domain scope preserved PASS');
+
+// Use the pinned, unpatched SDK's actual receiver, setUser and hash helper.
+// The gate supplies its verified clean tree separately from our overlay.
+assert.ok(process.argv[3], 'Pass the pinned clean upstream tree to exercise the cached legacy SDK');
+const legacyRoot = path.resolve(process.argv[3]);
+const readLegacy = name => fs.readFileSync(path.join(legacyRoot, 'app/javascript', name), 'utf8')
+  .replace(/^import [\s\S]*? from '[^']+';\n/gm, '').replaceAll('export const ', 'const ');
+const legacySDK = ['widget/constants/errorTypes.js', 'sdk/cookieHelpers.js', 'sdk/IFrameHelper.js', 'entrypoints/sdk.js']
+  .map(readLegacy).join('\n');
+const bootstrapSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/httpSession.js'), 'utf8')
+  .replaceAll('export const ', 'const ');
+const widgetEntrySource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/entrypoints/widget.js'), 'utf8')
+  .replace(/^import [\s\S]*? from '[^']+';\n/gm, '');
+const widgetResetSource = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/sessionReset.js'), 'utf8')
+  .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
+const sdkPage = ({ legacy, baseDomain, jar, signedIdentifier, user }) => {
+  const identityMessages = []; const frameListeners = new Set();
+  const readyEvents = []; const bubbleMounts = [];
+  let iframe;
+  const key = (name, domain) => `${domain || 'host'}:${name}`;
+  const widgetWindow = { postMessage: data => identityMessages.push(JSON.parse(data.slice('chatwoot-widget:'.length))) };
+  const ctx = {
+    URL, TextEncoder, initOnEvents: [], CHATWOOT_READY: 'chatwoot:ready', CHATWOOT_ERROR: 'chatwoot:error',
+    Cookies: {
+      get: name => jar.get(key(name)) ?? jar.get(key(name, baseDomain)),
+      set: (name, value, options = {}) => jar.set(key(name, options.domain), value),
+      remove: (name, options = {}) => jar.delete(key(name, options.domain)),
+    },
+    getBubbleView: () => 'standard', getWidgetStyle: () => 'standard', getDarkMode: () => 'light',
+    loadCSS: () => {}, addClasses: () => {}, isFlatWidgetStyle: () => false,
+    onLocationChangeListener: () => {}, isWidgetColorLighter: () => false,
+    createBubbleHolder: () => bubbleMounts.push('launcher'), createBubbleIcon: () => ({ style: {} }),
+    bubbleSVG: '', chatBubble: {}, closeBubble: { style: {} }, bubbleHolder: { appendChild: () => {} },
+    onClickChatBubble: () => {},
+    widgetHolder: { dataset: {}, appendChild: element => { iframe = element; }, addEventListener: () => {} },
+    body: { appendChild: () => {} },
+    dispatchWindowEvent: ({ eventName }) => {
+      if (eventName === 'chatwoot:ready') {
+        readyEvents.push(eventName);
+        ctx.window.$chatwoot.setUser(signedIdentifier, user);
+      }
+    },
+    document: { addEventListener: () => {}, getElementById: () => iframe, getElementsByClassName: () => [],
+      createElement: () => ({ style: {}, contentWindow: widgetWindow, setAttribute: () => {} }) },
+    window: { chatwootSettings: { baseDomain }, location: { href: 'https://shop.example.invalid/', protocol: 'https:' },
+      matchMedia: () => ({ matches: false }),
+      addEventListener: (event, fn) => { if (event === 'message') frameListeners.add(fn); },
+      removeEventListener: (event, fn) => frameListeners.delete(fn) },
+  };
+  vm.runInNewContext(`${legacy ? legacySDK : `${cookieSource}\n${moduleBody}\n${sdkSource}`}\nthis.helper = IFrameHelper; this.hash = computeHashForUserData;`, ctx);
+  ctx.window.chatwootSDK.run({ baseUrl: 'https://app.example.invalid', websiteToken: 'public-fixture' });
+  const receive = data => {
+    const event = { data, source: widgetWindow, origin: 'https://app.example.invalid' };
+    if (legacy) ctx.window.onmessage(event);
+    else for (const fn of frameListeners) fn(event);
+  };
+  return { ctx, iframe, key, receive, identityMessages, readyEvents, bubbleMounts };
+};
+
+const loadFrame = async ({ page, browser, referrer, persisted, legacy = false }) => {
+  const calls = []; const listeners = new Set();
+  const rootElement = { textContent: '' }; const mounts = [];
+  const parent = { postMessage: data => {
+    page.receive(data);
+    const reply = page.identityMessages.at(-1);
+    if (reply?.event === 'http-session-input') for (const fn of listeners) fn({ source: parent,
+      origin: 'https://shop.example.invalid', data: `chatwoot-widget:${JSON.stringify(reply)}` });
+  } };
+  const ctx = {
+    URL, Uint8Array, crypto: { getRandomValues: bytes => bytes.fill(7) },
+    setTimeout: () => 1, clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
+    document: { referrer, readyState: 'loading', getElementById: () => rootElement },
+    createApp: () => ({ use: () => {}, directive: () => {}, mount: () => mounts.push('chat') }),
+    createI18n: () => ({}), defaultConfig: () => ({}), runIdentityReset: action => action(),
+    API: { delete: async () => { calls.push({ method: 'DELETE' }); return { data: { session_revoked: true } }; } },
+    window: { parent, location: { origin: 'https://app.example.invalid', href: page.iframe.src },
+      toybacoHttpSessionRequested: true, chatwootWebChannel: { websiteToken: 'public-fixture' },
+      addEventListener: (type, fn) => { if (type === 'message') listeners.add(fn); },
+      removeEventListener: (_, fn) => listeners.delete(fn) },
+    fetch: async (url, options) => {
+      calls.push({ path: url.pathname, ...options });
+      assert.equal(legacy, false, 'No HTTP session, conversation or message request is allowed on a legacy page');
+      if (options.method === 'GET') return { ok: persisted, json: async () => ({ persisted, proof: 'tbwp1.current' }) };
+      if (url.pathname.endsWith('/recover')) return { ok: true, json: async () => ({ persisted: false, proof: 'tbwr1.current' }) };
+      browser.visitor ||= 'current';
+      return { ok: true, json: async () => ({ issued: true, proof: `tbwp1.${browser.visitor}`, recovery_code: 'c'.repeat(64) }) };
+    },
+  };
+  for (const name of ['App', 'store', 'router', 'i18nMessages', 'VueDOMPurifyHTML', 'domPurifyConfig',
+    'onClickaway', 'plugin', 'startsWithPlus', 'isPhoneNumberValidWithDialCode']) ctx[name] = {};
+  vm.runInNewContext(`${bootstrapSource}\n${widgetResetSource}\n${widgetEntrySource}\nthis.bootstrap = bootstrapHttpSession; this.mount = mountWidget;`, ctx);
+  if (legacy) await ctx.mount();
+  else await ctx.bootstrap();
+  return { ctx, calls, mounts, rootElement, listeners };
+};
+
+for (const baseDomain of [undefined, '.example.invalid']) {
+  for (const persisted of [true, false]) {
+    for (const referrer of ['https://shop.example.invalid/', '']) {
+      const jar = new Map(); const browser = { visitor: 'previous-private-visitor', next: 0 };
+      const signedIdentifier = 'signed-returning-visitor';
+      const user = { name: 'Returning visitor', identifier_hash: createHmac('sha256', 'synthetic-widget-hmac-key')
+        .update(signedIdentifier).digest('hex') };
+      const options = { baseDomain, jar, signedIdentifier, user };
+      const oldPage = sdkPage({ ...options, legacy: true });
+      const marker = oldPage.ctx.hash({ identifier: signedIdentifier, user });
+      jar.set(oldPage.key('cw_user_public-fixture', baseDomain), marker);
+      jar.set(oldPage.key('cw_conversation', baseDomain), 'embedded-visitor-A');
+      jar.set(oldPage.key('cw_user_other-widget'), 'unrelated-marker');
+      // Execute the real cached reset, then abandon its iframe before any JS
+      // bootstrap/timer. The next cached page uses actual createFrame/getUrl.
+      oldPage.ctx.window.$chatwoot.reset();
+      assert.equal(new URL(oldPage.iframe.src).searchParams.has('cw_conversation'), false);
+      const nextPage = sdkPage({ ...options, legacy: true });
+      assert.equal(new URL(nextPage.iframe.src).searchParams.has('cw_conversation'), Boolean(baseDomain));
+      const degraded = await loadFrame({ page: nextPage, browser, referrer, persisted, legacy: true });
+      assert.equal(degraded.rootElement.textContent, 'チャットを開くには、元のページを再読み込みしてください。');
+      assert.equal(degraded.ctx.window.authToken, undefined);
+      assert.equal(degraded.ctx.window.toybacoHttpSession, undefined);
+      // The real entrypoint's public loaded notice reveals the frame through
+      // the same cached SDK, including its onLoad and ready/setUser callback.
+      assert.equal(nextPage.readyEvents.length, 1);
+      assert.equal(nextPage.iframe.style.visibility, '');
+      assert.deepEqual(nextPage.bubbleMounts, ['launcher']);
+      nextPage.ctx.window.$chatwoot.setUser(signedIdentifier, user);
+      for (const data of nextPage.identityMessages) for (const listener of degraded.listeners) {
+        listener({ source: degraded.ctx.window.parent, origin: 'https://shop.example.invalid',
+          data: 'chatwoot-widget:' + JSON.stringify(data) });
+      }
+      assert.deepEqual(degraded.mounts, []);
+      assert.deepEqual(degraded.calls, [], 'The cached page never creates a disposable conversation or sends a message');
+      assert.equal(degraded.listeners.size, 0);
+      // Cache retirement upgrades the next page. Test actual current SDK
+      // handshake/marker cleanup/loaded/ready, with the surviving old markers.
+      const current = sdkPage({ ...options, legacy: false });
+      current.ctx.window.$chatwoot.setUser(signedIdentifier, user);
+      const upgraded = await loadFrame({ page: current, browser, referrer, persisted });
+      assert.equal(upgraded.ctx.window.authToken, persisted ? 'tbwp1.current' : 'tbwr1.current');
+      assert.equal(upgraded.ctx.window.toybacoHttpSessionPersisted, persisted);
+      current.receive('chatwoot-widget:' + JSON.stringify({ event: 'loaded',
+        config: { httpSession: true, channelConfig: { widgetColor: '#0055aa' } } }));
+      const sentUsers = current.identityMessages.filter(message => message.event === 'set-user');
+      assert.ok(sentUsers.length > 0, 'Both host and domain marker upgrades must deliver signed identification');
+      assert.deepEqual(sentUsers.at(-1), { event: 'set-user', identifier: signedIdentifier, user });
+      assert.equal(jar.get(oldPage.key('cw_user_other-widget')), 'unrelated-marker');
+      assert.ok(!JSON.stringify(current.identityMessages).includes('tbwp1.'), 'No proof is sent to the parent');
+    }
+  }
+}
+console.log('Pinned cached SDK through loaded/ready: reload message, no mount/session/message; separate current SDK reload delivers signed setUser PASS');

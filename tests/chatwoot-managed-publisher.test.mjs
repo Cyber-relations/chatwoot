@@ -57,6 +57,17 @@ const PUBLISH_CONDITION = Object.freeze({
 });
 const CLASSIFIER_STEP = '      - name: 実image backport分類の否定契約を検証\n' +
   '        run: node tests/chatwoot-ruby-llm-classification.test.mjs .\n';
+// The Rails 7.2.3.2 installed proof on the exact digest (docs/chatwoot-rails-backport-policy.md): network off, read-only, Bundler
+// preloaded, the contract mounted read-only and a private /tmp for its tempfiles and Disk-service blobs.
+const RAILS_PROOF_RUN = '          docker run --rm --platform linux/amd64 --network none --read-only \\\n' +
+  '            --cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby \\\n' +
+  '            --tmpfs /tmp:rw,noexec,nosuid,size=16m \\\n' +
+  '            --mount "type=bind,src=$GITHUB_WORKSPACE/config,dst=/contract/config,readonly" \\\n' +
+  '            --mount "type=bind,src=$GITHUB_WORKSPACE/scripts,dst=/contract/scripts,readonly" \\\n' +
+  '            --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/contract/tests,readonly" \\\n' +
+  '            "$ECR_REPOSITORY@$IMAGE_DIGEST" \\\n' +
+  '            -rbundler/setup /contract/tests/verify_chatwoot_rails_backport.rb /contract/config/chatwoot-rails-backport.json \\\n' +
+  '            > "$security/installed-rails-proof.json"\n';
 // Push path filters only the private repository's workflow has (its private-only tests), and where they sit.
 const PRIVATE_ONLY_PATHS = Object.freeze(['config/toybaco-plans.json', 'scripts/generate-plan-catalog.py',
   'tests/toybaco_plan_catalog_test.rb', 'tests/toybaco_billing_subscription_test.rb',
@@ -540,6 +551,11 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
     '--cap-drop ALL --security-opt no-new-privileges --workdir /app --entrypoint ruby',
     '-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json',
     '> "$security/installed-proof.json"',
+    RAILS_PROOF_RUN,
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \\\n' +
+      '            "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json',
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs verify-attestations \\\n' +
+      '            "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json',
     'predicate-type: https://openvex.dev/ns/v0.2.0',
     'predicate-type: https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1',
     'predicate-path: ${{ runner.temp }}/chatwoot-source-backport/openvex.json',
@@ -570,6 +586,12 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-before/g), 2, 'snapshot original and scanned copy before scan');
   assert.equal(count(publish, /scripts\/verify-chatwoot-ruby-llm-classification\.mjs snapshot-after/g), 2, 'snapshot original and scanned copy after scan');
   assert.equal(count(publish, /--config \/dev\/null sbom/g), 1, 'one raw pinned scanner invocation');
+  // Both installed proofs run on the exact digest before the classification; only the Rails proof gets a private /tmp.
+  assert.equal(publish.split(RAILS_PROOF_RUN).length - 1, 1, 'one Rails installed proof on the exact image');
+  assert.equal(count(publish, /--tmpfs /g), 1, 'only the Rails proof gets a writable /tmp');
+  assert.ok(publish.indexOf('> "$security/installed-proof.json"') < publish.indexOf(RAILS_PROOF_RUN) &&
+    publish.indexOf(RAILS_PROOF_RUN) < publish.indexOf('scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate'),
+  'the Rails proof follows the RubyLLM proof and precedes the classification');
   // The raw scan reads the supplemented copy, made once right after the binding copy and before the scanner runs.
   assert.equal(count(workflowSource, /spdx-os-source\.py/g), 2, 'the OS source script: one push path and one call');
   assert.equal(publish.split(OS_SOURCE_LINE).length - 1, 1, 'the raw scan input must be supplemented exactly once');
@@ -585,7 +607,8 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.equal(count(publish, /--cert-oidc-issuer 'https:\/\/token\.actions\.githubusercontent\.com'/g), 4);
   assert.doesNotMatch(publish, /--ignore-unfixed=true|--ignorefile|--ignore-policy|--vex|--skip-files|--skip-dirs|--ignore-status/);
   for (const name of ['config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb',
-    'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md']) {
+    'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md',
+    'config/chatwoot-rails-backport.json', 'scripts/harden-chatwoot-rails.rb', 'docs/chatwoot-rails-backport-policy.md']) {
     assert.ok(workflowSource.includes("      - '" + name + "'"), 'backport push path missing: ' + name);
   }
   assert.ok(quality.includes('node tests/chatwoot-ruby-llm-classification.test.mjs .'));
@@ -623,7 +646,7 @@ function validate(workflowSource, gateSource, { repository = process.env.GITHUB_
   assert.doesNotMatch(publish, /--signer-workflow|--signer-repo/);
 
   const controlFiles = functionBlock(gateSource, 'control_file_list', 'control_manifest');
-  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs', 'scripts/chatwoot-alpine-status.py', OS_SOURCE_SCRIPT]) {
+  for (const required of ['config/chatwoot-runtime-gems.json', 'scripts/harden-chatwoot-runtime-gems.rb', 'tests/verify_chatwoot_runtime_gems.rb', 'config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb', 'tests/verify_chatwoot_ruby_llm_backport.rb', 'tests/chatwoot_ruby_llm_backport_test.rb', 'scripts/verify-chatwoot-ruby-llm-classification.mjs', 'tests/chatwoot-ruby-llm-classification.test.mjs', 'docs/chatwoot-ruby-llm-backport-policy.md', 'tests/chatwoot-managed-publisher.test.mjs', 'scripts/chatwoot-alpine-status.py', OS_SOURCE_SCRIPT, 'config/chatwoot-rails-backport.json', 'scripts/harden-chatwoot-rails.rb', 'tests/verify_chatwoot_rails_backport.rb', 'tests/chatwoot_rails_backport_test.rb', 'docs/chatwoot-rails-backport-policy.md']) {
     assert.ok(controlFiles.includes(`'${required}'`), `runtime input missing from quality/export control: ${required}`);
   }
   const baseContract = functionBlock(gateSource, 'verify_base_and_frame_contract', 'build_test_image');
@@ -910,6 +933,9 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
     'COPY config/chatwoot-ruby-llm-backport.json /opt/toybaco/config/',
     'COPY scripts/harden-chatwoot-ruby-llm.rb /opt/toybaco/scripts/',
     'COPY tests/verify_chatwoot_ruby_llm_backport.rb /opt/toybaco/tests/',
+    'COPY config/chatwoot-rails-backport.json /opt/toybaco/config/',
+    'COPY scripts/harden-chatwoot-rails.rb /opt/toybaco/scripts/',
+    'COPY tests/verify_chatwoot_rails_backport.rb /opt/toybaco/tests/',
   ];
   for (const text of copies) {
     assert.equal(dockerfile.split(text).length - 1, 2, 'build-only and shipped backport inputs: ' + text);
@@ -929,13 +955,31 @@ function validateBackportBuild(dockerfile, testDockerfile, ignore, gateSource) {
     dockerfile.lastIndexOf(apply) < dockerfile.indexOf('\nFROM runtime-base AS runtime-app\n'),
   'the shipped gems are cleaned and patched in the Alpine 3.22 gems stage');
   assert.ok(dockerfile.lastIndexOf(verify) > dockerfile.indexOf('/app/TOYBACO_PUBLIC_REVISION'));
+  // The Rails 7.2.3.2 backport follows each RubyLLM one: the same two gem stages, the final filesystem and the test image.
+  const railsApply = 'bundle exec ruby /opt/toybaco/scripts/harden-chatwoot-rails.rb apply';
+  const railsVerify = 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb';
+  assert.equal(dockerfile.split(verify + ' \\\n    && ' + railsApply + ' \\\n    && ' + railsVerify + ' \\\n').length - 1, 2,
+    'build-only and shipped Rails gem patch applications right after the RubyLLM proof');
+  assert.equal(dockerfile.split(railsApply).length - 1, 2, 'build-only and shipped Rails gem patch applications');
+  assert.equal(dockerfile.split(railsVerify).length - 1, 3, 'build-only, shipped and final production Rails proofs');
+  assert.ok(dockerfile.includes(verify + ' \\\n    && ' + railsVerify + '\n'), 'final production Rails proof');
+  assert.ok(dockerfile.lastIndexOf(railsApply) < dockerfile.indexOf('\nFROM runtime-base AS runtime-app\n') &&
+    dockerfile.lastIndexOf(railsApply) > dockerfile.indexOf('\nFROM runtime-base AS gems\n'), 'the shipped Rails gems are patched');
+  assert.ok(dockerfile.lastIndexOf(railsVerify) > dockerfile.indexOf('/app/TOYBACO_PUBLIC_REVISION'));
+  assert.equal(testDockerfile.split(railsApply).length - 1, 1, 'one test Rails gem patch application');
+  assert.equal(testDockerfile.split(railsVerify).length - 1, 1, 'test Rails gem proof');
   for (const path of ['config/chatwoot-ruby-llm-backport.json', 'scripts/harden-chatwoot-ruby-llm.rb',
-    'tests/verify_chatwoot_ruby_llm_backport.rb']) {
+    'tests/verify_chatwoot_ruby_llm_backport.rb', 'config/chatwoot-rails-backport.json', 'scripts/harden-chatwoot-rails.rb',
+    'tests/verify_chatwoot_rails_backport.rb']) {
     assert.ok(ignore.split('\n').includes('!' + path), 'Docker context backport path missing');
   }
   for (const text of [
     '"$TEST_IMAGE" ' + verify, '"$PRODUCTION_IMAGE" ' + verify,
     '"$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb',
+    '    --tmpfs /tmp:rw,noexec,nosuid,size=16m \\\n    "$TEST_IMAGE" ' + railsVerify,
+    '    --tmpfs /tmp:rw,noexec,nosuid,size=16m \\\n    "$PRODUCTION_IMAGE" ' + railsVerify,
+    '    --tmpfs /tmp:rw,noexec,nosuid,size=64m \\\n    "$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_rails_backport_test.rb',
+    'ActiveStorage.variant_processor == :vips && ActiveStorage.previewers.empty? && ActiveStorage::MINIMAGICK_UNSECURABLE',
     'abort "expected production CE setting" unless ENV.fetch("DISABLE_ENTERPRISE") == "true"',
     'abort "CE Captain task service missing" unless Captain::RewriteService < Captain::BaseTaskService',
     'load "/opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb"',
@@ -988,7 +1032,7 @@ console.log(`Chatwoot parked SBOM verifiers: PASS (${sbomVerifierNegatives} omis
 // COPY after the checks, a parent stage's ONBUILD, `test -f\` + newline), so the pin is what binds. The Dockerfile is
 // a control file: the private CW gate, the PZ gate's control snapshot and the public repository read the same bytes.
 // Changing the Dockerfile means reviewing the whole diff and then updating DOCKERFILE_SHA256.
-const DOCKERFILE_SHA256 = 'd3673c1fb047be179121fd39a40be78c0615782600bf551b32137a5e7928a814';
+const DOCKERFILE_SHA256 = '4a86555c15e217b980b6d7345074b1b245d1aed661cdd13cb8ccda29765cb718';
 const dockerfileBytes = readFileSync(join(root, 'Dockerfile'));
 assert.ok(Buffer.from(buildInputs[0], 'utf8').equals(dockerfileBytes), 'Dockerfile must be UTF-8 text');
 function validateDockerfileBytes(bytes) {
@@ -1410,6 +1454,16 @@ for (const [index, text] of [
   [3, '"$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_ruby_llm_backport.rb'],
   [3, '"$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_ruby_llm_backport_test.rb'],
   [3, 'abort "CE Captain task service missing"'],
+  [0, 'COPY config/chatwoot-rails-backport.json'], [1, 'COPY scripts/harden-chatwoot-rails.rb'],
+  [0, 'harden-chatwoot-rails.rb apply'], [1, 'harden-chatwoot-rails.rb apply'],
+  [0, '    && bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb\n'],
+  [1, 'bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb'],
+  [2, '!config/chatwoot-rails-backport.json'], [2, '!tests/verify_chatwoot_rails_backport.rb'],
+  [3, '"$TEST_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb'],
+  [3, '"$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb'],
+  [3, '"$TEST_IMAGE" bundle exec ruby /app/tests/chatwoot_rails_backport_test.rb'],
+  [3, '    --tmpfs /tmp:rw,noexec,nosuid,size=16m \\\n    "$PRODUCTION_IMAGE" bundle exec ruby /opt/toybaco/tests/verify_chatwoot_rails_backport.rb'],
+  [3, 'ActiveStorage.variant_processor == :vips'],
 ]) {
   const modified = [...buildInputs, gate];
   assert.ok(modified[index].includes(text));
@@ -1461,6 +1515,15 @@ const mutations = [
     'cmp -- "$frozen/db-after.json" "$security/db-after.json"',
   ].map(contract => [workflow.replace(contract, ': # omitted copy proof'), gate]),
   [workflow.replace('/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/not-run.rb'), gate],
+  [workflow.replace('/contract/tests/verify_chatwoot_rails_backport.rb /contract/config/chatwoot-rails-backport.json', '/contract/tests/not-run.rb'), gate],
+  [workflow.replace('-rbundler/setup /contract/tests/verify_chatwoot_rails_backport.rb', '/contract/tests/verify_chatwoot_rails_backport.rb'), gate],
+  [workflow.replace('            --tmpfs /tmp:rw,noexec,nosuid,size=16m \\\n', '            --tmpfs /tmp:rw,exec,size=16m \\\n'), gate],
+  [workflow.replace('> "$security/installed-rails-proof.json"', '> /dev/null'), gate],
+  [workflow.replace('"$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json\n\n',
+    '"$security" config/chatwoot-ruby-llm-backport.json\n\n'), gate],
+  [workflow.replace('"$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json\n          printf',
+    '"$security" config/chatwoot-ruby-llm-backport.json\n          printf'), gate],
+  [workflow.replace("      - 'config/chatwoot-rails-backport.json'\n", ''), gate],
   [workflow.replace('-rbundler/setup ', ''), gate],
   [workflow.replace('-rbundler/setup /contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json', '/contract/tests/verify_chatwoot_ruby_llm_backport.rb /contract/config/chatwoot-ruby-llm-backport.json -rbundler/setup'), gate],
   [workflow.replace('--exit-code 1 --list-all-pkgs', '--exit-code 1'), gate],
@@ -1802,7 +1865,7 @@ function executePolicy(label, change, expected) {
     Object.assign(sbom.packages[2], { name: 'ssl_client', versionInfo: '1.37.0-r19', sourceInfo: SOURCE_SYFT_INFO,
       externalRefs: [{ referenceCategory: 'PACKAGE-MANAGER', referenceType: 'purl', referenceLocator: SOURCE_PURL }] });
     const settings = { scannerExit: 1, changedDatabase: false, changedOriginal: false, changedMetadata: false, proofStartup: null,
-      scanInput: null, sourceStop: false };
+      railsProofStartup: null, scanInput: null, sourceStop: false };
     change(sbom, report, settings, fixture);
     const bin = join(directory, 'bin'); mkdirSync(bin);
     writeFileSync(join(bin, 'stat'), `#!/bin/sh\nexec '${process.execPath}' -e 'console.log(require("node:fs").statSync(process.argv[1]).size)' "$3"\n`, { mode: 0o755 });
@@ -1841,6 +1904,15 @@ if (a.includes('sbom')) {
  if (process.env.TOYBACO_TEST_DB_CHANGE === 'true') fs.appendFileSync(path.join(security, 'db/trivy.db'), 'changed');
  process.exit(Number(process.env.TOYBACO_TEST_SCANNER_EXIT));
 }
+if (a.includes('/contract/tests/verify_chatwoot_rails_backport.rb')) {
+ const imageIndex = a.indexOf(process.env.ECR_REPOSITORY + '@' + process.env.IMAGE_DIGEST);
+ const expected = ['-rbundler/setup', '/contract/tests/verify_chatwoot_rails_backport.rb', '/contract/config/chatwoot-rails-backport.json'];
+ if (imageIndex < 0 || JSON.stringify(a.slice(imageIndex + 1)) !== JSON.stringify(expected)) {
+  process.stderr.write('RAILS_BUNDLER_PRELOAD_REQUIRED'); process.exit(89);
+ }
+ if (!a.includes('--read-only') || !a.includes('/tmp:rw,noexec,nosuid,size=16m')) { process.stderr.write('RAILS_PROOF_TMP_REQUIRED'); process.exit(90); }
+ process.stdout.write(fs.readFileSync(path.join(dir, 'fixture-rails-proof.json'))); process.exit(0);
+}
 if (a.includes('/contract/tests/verify_chatwoot_ruby_llm_backport.rb')) {
  const imageIndex = a.indexOf(process.env.ECR_REPOSITORY + '@' + process.env.IMAGE_DIGEST);
  const expected = ['-rbundler/setup', '/contract/tests/verify_chatwoot_ruby_llm_backport.rb', '/contract/config/chatwoot-ruby-llm-backport.json'];
@@ -1853,7 +1925,7 @@ process.exit(98);
 `, { mode: 0o755 });
     for (const [name, data] of Object.entries({
       'toybaco-chatwoot.spdx.json': sbom, 'fixture-report.json': report,
-      'fixture-image.json': fixture.imageInspect, 'fixture-proof.json': fixture.proof,
+      'fixture-image.json': fixture.imageInspect, 'fixture-proof.json': fixture.proof, 'fixture-rails-proof.json': fixture.railsProof,
       'fixture-db.json': fixture.before.metadata,
     })) writeFileSync(join(directory, name), JSON.stringify(data));
     let executedScan = scanRun;
@@ -1868,6 +1940,12 @@ process.exit(98);
       executedScan = scanRun.replace(invocation, settings.proofStartup === 'missing'
         ? scriptArgs : scriptArgs + ' -rbundler/setup');
     }
+    if (settings.railsProofStartup) {
+      const invocation = '-rbundler/setup /contract/tests/verify_chatwoot_rails_backport.rb /contract/config/chatwoot-rails-backport.json';
+      assert.equal(executedScan.split(invocation).length - 1, 1);
+      executedScan = executedScan.replace(invocation, settings.railsProofStartup === 'missing'
+        ? invocation.slice('-rbundler/setup '.length) : invocation.slice('-rbundler/setup '.length) + ' -rbundler/setup');
+    }
     const result = spawnSync('bash', ['-c', `${bindingRun}\n${executedScan}`], {
       cwd: root, encoding: 'utf8', timeout: 15000,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: directory,
@@ -1881,6 +1959,7 @@ process.exit(98);
     assert.equal(result.error, undefined, `${label}: ${result.error}`);
     assert.equal(result.status === 0, expected, `${label}: ${result.stdout}${result.stderr}`);
     if (settings.proofStartup) assert.match(result.stderr, /BUNDLER_PRELOAD_REQUIRED/, 'startup regression fails at the actual Ruby invocation');
+    if (settings.railsProofStartup) assert.match(result.stderr, /RAILS_BUNDLER_PRELOAD_REQUIRED/, 'Rails startup regression fails at the actual Ruby invocation');
     if (settings.scanInput) assert.match(result.stderr, /UNSUPPLEMENTED_SCAN/, 'an unsupplemented copy fails at the actual scanner');
     if (settings.sourceStop) {
       assert.match(result.stdout, /^::error::TOYBACO_SPDX_OS_SOURCE=STOP /m, `${label}: the supplement must stop the step`);
@@ -1898,8 +1977,12 @@ process.exit(98);
       assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
       assert.equal(proof.bindings.sbom, createHash('sha256').update(attested).digest('hex'), 'the classification binds the attested SBOM');
       assert.equal(proof.scanner_vex_filtering, false);
-      assert.equal(proof.counts.raw_high, 3);
-      assert.equal(proof.counts.source_verified_fixed, 3);
+      assert.equal(proof.counts.raw_critical, 1);
+      assert.equal(proof.counts.raw_high, 6);
+      assert.equal(proof.counts.source_verified_fixed, 7);
+      assert.deepEqual(proof.installed_rails_source_proof, fixture.railsProof, 'the classification carries the exact Rails proof');
+      assert.equal(proof.bindings.installed_rails_proof,
+        createHash('sha256').update(readFileSync(join(directory, 'chatwoot-source-backport/installed-rails-proof.json'))).digest('hex'));
       const security = join(directory, 'chatwoot-source-backport');
       const originalBefore = readFileSync(join(security, 'frozen-source/db-before.json'));
       assert.deepEqual(readFileSync(join(security, 'frozen-source/db-after.json')), originalBefore);
@@ -1917,13 +2000,21 @@ process.exit(98);
       writeFileSync(join(security, 'verified-source-backport.json'),
         JSON.stringify(verified('https://toybaco.jp/attestations/chatwoot-ruby-llm-backport/v1', proof)));
       const args = [join(root, 'scripts/verify-chatwoot-ruby-llm-classification.mjs'),
-        'verify-attestations', security, join(root, 'config/chatwoot-ruby-llm-backport.json')];
+        'verify-attestations', security, join(root, 'config/chatwoot-ruby-llm-backport.json'),
+        join(root, 'config/chatwoot-rails-backport.json')];
       const verifiedResult = spawnSync(process.execPath, args, { encoding: 'utf8' });
       assert.equal(verifiedResult.status, 0, verifiedResult.stderr);
       const changed = structuredClone(report); changed.CreatedAt = 'tampered after classification';
       writeFileSync(join(security, 'raw-report.json'), JSON.stringify(changed));
       const changedResult = spawnSync(process.execPath, args, { encoding: 'utf8' });
       assert.notEqual(changedResult.status, 0, 'signed predicates cannot accept changed raw evidence');
+      writeFileSync(join(security, 'raw-report.json'), JSON.stringify(report));
+      assert.equal(spawnSync(process.execPath, args, { encoding: 'utf8' }).status, 0, 'restored raw evidence verifies again');
+      const railsChanged = structuredClone(fixture.railsProof); railsChanged.tests['GHSA-8474-xrp6-wh69'].official_examples = 2;
+      writeFileSync(join(security, 'installed-rails-proof.json'), JSON.stringify(railsChanged));
+      assert.notEqual(spawnSync(process.execPath, args, { encoding: 'utf8' }).status, 0, 'signed predicates cannot accept a changed Rails proof');
+      const withoutRails = spawnSync(process.execPath, args.slice(0, -1), { encoding: 'utf8' });
+      assert.notEqual(withoutRails.status, 0, 'verification without the Rails catalog fails');
     }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
@@ -1951,6 +2042,14 @@ for (const [label, change] of [
   ['Bundler preload missing before proof script', (_sbom, _report, settings) => { settings.proofStartup = 'missing'; }],
   ['Bundler preload after script is only an argument', (_sbom, _report, settings) => { settings.proofStartup = 'late'; }],
   ['source proof failure', (_sbom, _report, _settings, fixture) => { fixture.proof.files[0].sha256 = 'f'.repeat(64); }],
+  ['Bundler preload missing before the Rails proof script', (_sbom, _report, settings) => { settings.railsProofStartup = 'missing'; }],
+  ['Bundler preload after the Rails proof script', (_sbom, _report, settings) => { settings.railsProofStartup = 'late'; }],
+  ['Rails source proof failure', (_sbom, _report, _settings, fixture) => { fixture.railsProof.files[0].sha256 = 'f'.repeat(64); }],
+  ['Rails official examples missing', (_sbom, _report, _settings, fixture) => { delete fixture.railsProof.tests['GHSA-f3w6-w445-fwh9']; }],
+  ['Rails advisory missing from the raw scan', (_sbom, report) => { report.Results[1].Vulnerabilities.splice(5, 1); }],
+  ['extra HIGH on a backported Rails gem', (_sbom, report) => {
+    report.Results[1].Vulnerabilities.push({ ...report.Results[1].Vulnerabilities[3], VulnerabilityID: 'GHSA-xxxx-xxxx-xxxx' });
+  }],
   ['actual scanned copy DB changed during raw scan', (_sbom, _report, settings) => { settings.changedDatabase = true; }],
   ['original DB changed during raw scan', (_sbom, _report, settings) => { settings.changedOriginal = true; }],
   ['actual scanned copy metadata changed during raw scan', (_sbom, _report, settings) => { settings.changedMetadata = true; }],
@@ -1966,7 +2065,7 @@ for (const [label, change] of [
     sbom.packages[2].sourceInfo = 'built package from: openssl 1.37.0-r19'; settings.sourceStop = true;
   }],
 ]) executePolicy(label, change, false);
-console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 27 negative controls; Docker stand-in, no external calls)');
+console.log('Chatwoot exact SBOM/raw-scan/proof shell: PASS (1 positive / 33 negative controls; Docker stand-in, no external calls)');
 
 // Execute the exact runner CLI check with stand-in gh, aws and docker (and tee) as the only commands on PATH, so the
 // runner's real tools are never reached. Only the expected majors and overlay2 pass; anything else stops with one

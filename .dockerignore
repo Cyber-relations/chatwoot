@@ -17,6 +17,9 @@ overlay/app/spec/**
 !config/chatwoot-ruby-llm-backport.json
 !scripts/harden-chatwoot-ruby-llm.rb
 !tests/verify_chatwoot_ruby_llm_backport.rb
+!config/chatwoot-rails-backport.json
+!scripts/harden-chatwoot-rails.rb
+!tests/verify_chatwoot_rails_backport.rb
 !tests/chatwoot-cache-upgrade.test.mjs
 !tests/verify_chatwoot_sdk_artifacts.mjs
 !scripts/verify-chatwoot-ee-view-twins.sh

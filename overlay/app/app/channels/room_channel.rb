@@ -94,6 +94,8 @@ class RoomChannel < ApplicationCable::Channel
                       http_widget_contact
                     else
                       link = ContactInbox.find_by!(pubsub_token: pubsub_token)
+                      raise ActiveRecord::RecordNotFound if link.inbox.channel_type == 'Channel::WebWidget'
+
                       @toybaco_session = Toybaco::Security::WidgetSession.new(link)
                       link
                     end

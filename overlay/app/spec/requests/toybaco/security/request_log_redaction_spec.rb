@@ -128,9 +128,10 @@ RSpec.describe 'Toybaco request log redaction', type: :request do
   it 'LINE webhook の events[].message.text は Parameters 行と lograge params に出さず、処理には元の本文を渡す' do
     second_body = "別の利用者のメッセージ #{SecureRandom.hex(4)}"
     events = [body, second_body].map { |text| { type: 'message', message: { type: 'text', text: text } } }
+    post_body = { events: events, text: 'unrelated-text' }.to_json
     allow(Webhooks::LineEventsJob).to receive(:perform_later)
     log, params = request_log(nil) do
-      post '/webhooks/line/fixture-channel', params: { events: events, text: 'unrelated-text' }, as: :json
+      post '/webhooks/line/fixture-channel', params: post_body, headers: { 'CONTENT_TYPE' => 'application/json' }
     end
     expect(response).to have_http_status(:ok)
     expect(log).to include('Parameters:', 'Webhooks::LineController#process_payload', '200')
@@ -140,8 +141,8 @@ RSpec.describe 'Toybaco request log redaction', type: :request do
       .to eq(['[FILTERED]', '[FILTERED]'])
     expect([body, second_body].select { |value| log.include?(value) || lograge_params.to_s.include?(value) }).to eq([])
     expect(Webhooks::LineEventsJob).to have_received(:perform_later).with(
-      params: hash_including('events' => events.as_json), signature: nil, post_body: kind_of(String)
-    )
+      params: { line_channel_id: 'fixture-channel' }, signature: nil, post_body: post_body.b
+    ).once
     filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
     expect(filter.filter('text' => 'ordinary', 'message' => { 'text' => 'unrelated' }))
       .to eq('text' => 'ordinary', 'message' => { 'text' => 'unrelated' })

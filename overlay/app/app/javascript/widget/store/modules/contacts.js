@@ -89,9 +89,11 @@ export const actions = {
       // Ignore error
     }
   },
-  update: async ({ dispatch }, { user }) => {
+  update: async ({ dispatch, widgetIdentityOperation: operation }, { user }) => {
     try {
-      await ContactsAPI.update(user);
+      const { data } = await ContactsAPI.update(user);
+      if (window.toybacoHttpSession && operation !== window.toybacoWidgetOperationGeneration) return;
+      updateWidgetAuthToken(data.widget_auth_token, data.widget_http_identity_changed === true);
       dispatch('get');
     } catch (error) {
       // Ignore error

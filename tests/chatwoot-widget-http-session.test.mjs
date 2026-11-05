@@ -9,37 +9,65 @@ const actualRoot = path.resolve(process.argv[3]);
 const readActual = name => fs.readFileSync(path.join(actualRoot, name), 'utf8');
 const source = fs.readFileSync(path.join(root, 'overlay/app/app/javascript/widget/helpers/httpSession.js'), 'utf8')
   .replaceAll('export const ', 'const ');
+const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const entry = read('overlay/app/app/javascript/entrypoints/widget.js');
+const entryReset = read('overlay/app/app/javascript/widget/helpers/sessionReset.js')
+  .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
 
-const fixture = ({ persisted = true, wrongReadback = false, fail = false, standalone = false } = {}) => {
+const fixture = ({ persisted = true, wrongReadback = false, fail = false, standalone = false, popout = false, opener = false,
+  referrer = 'https://shop.example.test/', legacyQuery = 'toybaco_sdk=2', frameURL, transport, mount = false } = {}) => {
   const listeners = new Set(); const timers = new Map(); const intervals = new Map();
   const sent = []; const calls = []; let nextId = 0;
+  const mounts = []; const connections = [];
+  const rootElement = { content: '', children: [],
+    get textContent() { return this.content; },
+    set textContent(value) { this.content = value; this.children = []; },
+    appendChild(element) { this.children.push(element); } };
   const parent = { postMessage: (data, origin) => sent.push({ data: JSON.parse(data.slice('chatwoot-widget:'.length)), origin }) };
-  const state = { location: { origin: 'https://app.example.test', href: 'https://app.example.test/widget?website_token=public&toybaco_sdk=2' },
+  const state = { location: { origin: 'https://app.example.test', href: frameURL || `https://app.example.test/widget?website_token=public&${popout ? 'toybaco_popout=2' : legacyQuery}` },
     chatwootWebChannel: { websiteToken: 'public' }, toybacoHttpSessionRequested: true,
-    addEventListener: (type, fn) => { assert.equal(type, 'message'); listeners.add(fn); },
+    addEventListener: (type, fn) => { if (type === 'message') listeners.add(fn); },
     removeEventListener: (type, fn) => listeners.delete(fn) };
-  state.parent = standalone ? state : parent;
+  state.parent = standalone || opener ? state : parent;
+  if (opener) state.opener = parent;
   const context = { window: state, crypto: { getRandomValues: bytes => bytes.fill(7) }, Uint8Array, URL,
-    setTimeout: fn => { const id = ++nextId; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
+    setTimeout: (fn, delay) => { const id = ++nextId; timers.set(id, { fn, delay }); return id; }, clearTimeout: id => timers.delete(id),
     setInterval: fn => { const id = ++nextId; intervals.set(id, fn); return id; }, clearInterval: id => intervals.delete(id),
-    document: { getElementById: () => ({ textContent: '' }) },
+    document: { referrer, readyState: 'loading', getElementById: () => rootElement, addEventListener() {},
+      createElement: tag => {
+        assert.equal(tag, 'button');
+        return { addEventListener(type, callback) { assert.equal(type, 'click'); this.click = callback; } };
+      } },
     fetch: async (url, options) => {
       calls.push({ url: url.toString(), ...options });
       if (fail) throw new Error('Synthetic unavailable transport');
+      if (transport) return transport(url, options);
+      if (options.method === 'DELETE') return { ok: true, json: async () => ({ cookie_session_revoked: true }) };
       if (options.method === 'GET') return { ok: persisted, json: async () => ({ persisted: !wrongReadback, proof: 'tbwp1.new' }) };
       if (new URL(url).pathname.endsWith('/recover')) return { ok: true, json: async () => ({ persisted: false, proof: 'tbwr1.synthetic' }) };
       return { ok: true, json: async () => ({ issued: true, proof: 'tbwp1.initial', recovery_code: 'c'.repeat(64) }) };
     },
   };
-  vm.runInNewContext(`${source}\nthis.bootstrap = bootstrapHttpSession; this.install = installHttpHandoffReceiver;`, context);
-  const start = context.bootstrap();
+  let mountingSource = '';
+  if (mount) {
+    Object.assign(context, {
+      createApp: () => ({ use() {}, directive() {}, mount: selector => { mounts.push(selector); return {}; } }),
+      createI18n: () => ({}), defaultConfig: () => ({}), setHeader() {},
+      ActionCableConnector: class { constructor(_app, proof) { connections.push(proof); } },
+    });
+    for (const name of ['App', 'store', 'router', 'i18nMessages', 'VueDOMPurifyHTML', 'domPurifyConfig',
+      'onClickaway', 'plugin', 'startsWithPlus', 'isPhoneNumberValidWithDialCode']) context[name] = {};
+    mountingSource = `${entryReset}\n${entry.replace(/^import [\s\S]*? from '[^']+';\n/gm, '')}\nthis.mount = mountWidget;`;
+  }
+  vm.runInNewContext(`${source}\n${mountingSource}\nthis.bootstrap = bootstrapHttpSession; this.install = installHttpHandoffReceiver;`, context);
+  const start = mount ? context.mount() : context.bootstrap();
   const respond = overrides => {
     const challenge = sent.find(item => item.data.event === 'http-session-inert')?.data;
     const event = { source: parent, origin: 'https://shop.example.test',
       data: `chatwoot-widget:${JSON.stringify({ event: 'http-session-input', requestId: challenge?.requestId, token: 'old-synthetic-proof' })}`, ...overrides };
     for (const fn of [...listeners]) fn(event);
   };
-  return { context, start, respond, state, calls, sent, timers, listeners, intervals, parent };
+  return { context, start, respond, state, calls, sent, timers, listeners, intervals, parent, rootElement, mounts, connections };
 };
 
 const saved = fixture();
@@ -54,7 +82,7 @@ saved.respond();
 await saved.start;
 assert.equal(saved.calls.length, 2);
 assert.ok(saved.calls.every(call => !call.url.includes('old-synthetic-proof') && !call.url.includes('cw_conversation')));
-assert.equal(JSON.parse(saved.calls[0].body).legacy_token, 'old-synthetic-proof');
+assert.equal(JSON.parse(saved.calls[0].body).legacy_token, null, 'Even an old parent response supplies no legacy authority');
 assert.equal(saved.calls[0].credentials, 'same-origin');
 assert.equal(saved.calls[1].headers['X-Toybaco-Widget'], '1');
 assert.equal(saved.calls[1].headers['X-Auth-Token'], 'tbwp1.initial');
@@ -66,6 +94,43 @@ assert.equal(saved.listeners.size, 0);
 assert.equal(saved.intervals.size, 0);
 assert.equal(saved.timers.size, 0);
 assert.ok(!JSON.stringify(saved.sent).includes('old-synthetic-proof'), 'No reusable visitor proof sent back to parent');
+
+// The HTTP request regressions cover cookie retirement and empty history. Run
+// its successful response contract through the real helper and entrypoint too.
+const retiredCookie = fixture({ mount: true, transport: async (_url, options) => ({ ok: true,
+  json: async () => options.method === 'GET' ? { persisted: true, proof: 'tbwp1.fresh-anonymous' }
+    : { issued: true, proof: 'tbwp1.fresh-anonymous', recovery_code: 'c'.repeat(64) } }) });
+retiredCookie.respond();
+await retiredCookie.start;
+assert.deepEqual(retiredCookie.mounts, ['#app'], 'A replacement anonymous session mounts normally');
+assert.deepEqual(retiredCookie.connections, ['tbwhttp1.public.tbwp1.fresh-anonymous']);
+assert.deepEqual(retiredCookie.calls.map(call => call.method), ['POST', 'GET'], 'No visitor reset click or DELETE is needed');
+assert.equal(retiredCookie.rootElement.textContent, '');
+assert.equal(retiredCookie.rootElement.children.length, 0);
+assert.equal(retiredCookie.sent.some(item => item.data.event === 'http-session-conflict'), false);
+
+let conflictCleared = false;
+const conflict = fixture({ mount: true, transport: async (_url, options) => {
+  if (options.method === 'DELETE') {
+    conflictCleared = true;
+    return { ok: true, json: async () => ({ cookie_session_revoked: true }) };
+  }
+  if (!conflictCleared) return { ok: false, json: async () => ({ error: 'widget_session_conflict' }) };
+  return { ok: true, json: async () => options.method === 'GET'
+    ? { persisted: true, proof: 'tbwp1.explicit-switch' } : { issued: true, proof: 'tbwp1.explicit-switch' } };
+} });
+conflict.respond();
+for (let tick = 0; tick < 12; tick++) await Promise.resolve();
+assert.match(conflict.rootElement.textContent, /別の訪問者の認証が保存されています/);
+assert.equal(conflict.rootElement.children[0]?.textContent, 'このブラウザの認証を解除して切り替える');
+assert.equal(conflict.sent.some(item => item.data.event === 'http-session-conflict'), true);
+assert.equal(conflict.mounts.length, 0, 'A genuine identity conflict remains inert until explicitly cleared');
+assert.equal(conflict.connections.length, 0);
+await conflict.rootElement.children[0].click();
+await conflict.start;
+assert.deepEqual(conflict.calls.map(call => call.method), ['POST', 'DELETE', 'POST', 'GET']);
+assert.deepEqual(conflict.mounts, ['#app']);
+assert.deepEqual(conflict.connections, ['tbwhttp1.public.tbwp1.explicit-switch']);
 
 for (const mode of [{ persisted: false }, { wrongReadback: true }]) {
   const denied = fixture(mode); denied.respond(); await denied.start;
@@ -80,31 +145,223 @@ await assert.rejects(unavailable.start, /unavailable/);
 assert.equal(unavailable.state.toybacoHttpSession, undefined);
 assert.equal(unavailable.sent.some(item => item.data.event === 'http-session-ready'), false);
 
+const existingConversation = { id: 71, messages: ['Existing private conversation'] };
+const existingBrowser = { cookie: 'existing-cookie', proof: 'tbwp1.existing', conversation: existingConversation };
+const delayed = fixture({ transport: async (_url, options) => {
+  assert.notEqual(options.method, 'DELETE', 'Delayed handshake must not revoke the existing visitor');
+  assert.notEqual(options.body && JSON.parse(options.body).ephemeral, true);
+  return { ok: true, json: async () => options.method === 'GET'
+    ? { persisted: true, proof: existingBrowser.proof }
+    : { issued: true, proof: existingBrowser.proof } };
+} });
+assert.equal([...delayed.timers.values()][0].delay, 15000);
+// Three retries at 1.5-second intervals cross the old destructive 3-second timeout.
+for (let retry = 0; retry < 3; retry++) for (const announce of delayed.intervals.values()) announce();
+assert.equal(delayed.sent.length, 4);
+assert.equal(delayed.calls.length, 0);
+assert.equal(delayed.state.toybacoHttpSession, undefined, 'The chat stays inert while waiting');
+delayed.respond();
+await delayed.start;
+assert.equal(delayed.state.authToken, existingBrowser.proof);
+assert.equal(existingBrowser.cookie, 'existing-cookie');
+assert.equal(existingBrowser.conversation, existingConversation);
+assert.deepEqual(existingBrowser.conversation.messages, ['Existing private conversation']);
+assert.equal(delayed.sent.at(-1).data.persisted, true);
+assert.equal(delayed.intervals.size, 0);
+assert.equal(delayed.timers.size, 0);
+
 const timeout = fixture();
-for (const fn of [...timeout.timers.values()]) fn();
+for (const { fn } of [...timeout.timers.values()]) fn();
 await assert.rejects(timeout.start, /timed out/);
-assert.equal(timeout.calls.length, 0);
+timeout.respond();
+assert.equal(timeout.calls.length, 0, 'A bounded current-protocol timeout and a late reply cannot mutate the session');
+assert.equal(timeout.state.toybacoHttpSession, undefined);
 assert.equal(timeout.listeners.size, 0);
 assert.equal(timeout.intervals.size, 0);
 
-const alone = fixture({ standalone: true }); await alone.start;
-assert.equal(JSON.parse(alone.calls[0].body).legacy_token, null);
-assert.equal(alone.state.toybacoWidgetParentOrigin, 'https://app.example.test');
+for (const query of ['', 'cw_conversation=random', 'cw_conversation=forged.jwt.signature']) {
+  const legacy = fixture({ legacyQuery: query });
+  await assert.rejects(legacy.start, /元のページを再読み込み/);
+  assert.equal(legacy.state.authToken, undefined);
+  assert.equal(legacy.state.toybacoHttpSession, undefined);
+  legacy.respond();
+  assert.equal(legacy.calls.length, 0, 'Legacy documents never create an anonymous session or fetch history');
+  assert.equal(legacy.listeners.size, 0);
+  assert.equal(legacy.intervals.size, 0);
+}
+const noReferrer = fixture({ legacyQuery: '', referrer: '' });
+await assert.rejects(noReferrer.start, /元のページを再読み込み/);
+assert.equal(noReferrer.calls.length, 0);
+assert.equal(noReferrer.state.toybacoHttpSession, undefined);
+
+for (const options of [{ opener: true, legacyQuery: 'cw_conversation=embedded-A' },
+  { opener: true }, { standalone: true, legacyQuery: '' }, { standalone: true, popout: true }]) {
+  const legacyPopup = fixture({ ...options, transport: async () => { throw new Error('Would resume top-level visitor B'); } });
+  await assert.rejects(legacyPopup.start, /元のページを再読み込み/);
+  assert.equal(legacyPopup.calls.length, 0, 'Legacy popouts cannot bootstrap or fetch any conversation');
+  assert.equal(legacyPopup.state.toybacoHttpSession, undefined);
+}
+const popupTimeout = fixture({ popout: true, opener: true });
+assert.equal([...popupTimeout.timers.values()][0].delay, 15000);
+for (const { fn } of [...popupTimeout.timers.values()]) fn();
+await assert.rejects(popupTimeout.start, /timed out/);
+assert.equal(popupTimeout.calls.length, 0, 'A missing modern handoff must not silently open another identity');
+const modernPopup = fixture({ popout: true, opener: true });
+modernPopup.respond();
+assert.equal(modernPopup.calls.length, 0, 'A modern modernPopup cannot bootstrap without a handoff');
+const requestId = modernPopup.sent[0].data.requestId;
+modernPopup.respond({ data: `chatwoot-widget:${JSON.stringify({ event: 'http-session-input', requestId, token: null, handoffCode: 'a'.repeat(64) })}` });
+await modernPopup.start;
+assert.ok(modernPopup.calls[0].url.includes('/consume'));
+assert.equal(JSON.parse(modernPopup.calls[0].body).handoff_code, 'a'.repeat(64));
+assert.equal(modernPopup.state.authToken, 'tbwp1.new');
 
 // Pin the actual browser entrypoints and transport callers, rather than treating
 // helper-only tests as the whole product's acceptance.
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
-const entry = read('overlay/app/app/javascript/entrypoints/widget.js');
 assert.ok(entry.indexOf('await bootstrapHttpSession()') < entry.indexOf("app.mount('#app')"));
+// Execute the actual entrypoint's failure path, including its Japanese UI.
+// The unmounted App is the boundary before conversation reads and Cable setup.
+for (const mode of ['standalone', 'popout', 'legacy-frame', 'current-timeout']) {
+  const rootElement = { textContent: '' }; const accesses = []; const notices = []; const deadlines = [];
+  const messageListeners = new Set();
+  const popupWindow = { opener: mode === 'popout' ? { embeddedVisitor: 'visitor-A' } : null, location: { origin: 'https://app.example.test',
+    href: `https://app.example.test/widget?website_token=public&${mode === 'current-timeout' ? 'toybaco_sdk=2' : 'cw_conversation=visitor-A'}` },
+    toybacoHttpSessionRequested: true, chatwootWebChannel: { websiteToken: 'public' },
+    addEventListener: (type, fn) => { if (type === 'message') messageListeners.add(fn); },
+    removeEventListener: (type, fn) => { if (type === 'message') messageListeners.delete(fn); } };
+  popupWindow.parent = mode.endsWith('frame') || mode === 'current-timeout'
+    ? { postMessage: (data, origin) => notices.push({ data: JSON.parse(data.slice('chatwoot-widget:'.length)), origin }) } : popupWindow;
+  const entryContext = { window: popupWindow, URL, Uint8Array, crypto: { getRandomValues: bytes => bytes.fill(7) },
+    setTimeout: fn => { deadlines.push(fn); return 1; }, clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
+    document: { readyState: 'loading', getElementById: () => rootElement },
+    createApp: () => ({ use: () => {}, directive: () => {}, mount: () => accesses.push('conversations') }),
+    createI18n: () => ({}), defaultConfig: () => ({}), runIdentityReset: action => action(),
+    API: { delete: async () => { accesses.push('reset'); return { data: { session_revoked: true } }; } },
+    fetch: async () => { accesses.push('top-level-visitor-B'); throw new Error('Unexpected identity access'); } };
+  for (const name of ['App', 'store', 'router', 'i18nMessages', 'VueDOMPurifyHTML', 'domPurifyConfig',
+    'onClickaway', 'plugin', 'startsWithPlus', 'isPhoneNumberValidWithDialCode']) entryContext[name] = {};
+  const entryBody = entry.replace(/^import [\s\S]*? from '[^']+';\n/gm, '');
+  vm.runInNewContext(`${source}\n${entryReset}\n${entryBody}\nthis.mount = mountWidget;`, entryContext);
+  const resetWhileInert = async () => {
+    for (const listener of messageListeners) await listener({ source: popupWindow.parent, origin: 'https://shop.example.test',
+      data: `chatwoot-widget:${JSON.stringify({ event: 'revoke-session', requestId: 'a'.repeat(32) })}` });
+  };
+  const mounting = entryContext.mount();
+  await resetWhileInert();
+  for (const deadline of deadlines) deadline();
+  await mounting;
+  await resetWhileInert();
+  if (mode === 'current-timeout') {
+    assert.equal(rootElement.textContent, 'チャットの認証を確認できませんでした。履歴は削除していません。ページを再読み込みしてください。');
+    assert.equal(notices.at(-1).data.event, 'http-session-problem');
+    assert.equal(notices.at(-1).origin, '*', 'A public error notification can reveal the inert frame before the parent replies');
+    assert.equal(notices.some(notice => notice.data.event === 'loaded'), false);
+  } else assert.equal(rootElement.textContent, 'チャットを開くには、元のページを再読み込みしてください。');
+  assert.deepEqual(accesses, [], 'An inert legacy or timed-out frame cannot fetch an identity or mount the chat');
+  assert.equal(messageListeners.size, 0, 'An inert frame must not install reset or chat receivers');
+}
 assert.ok(entry.includes('tbwhttp1.${window.chatwootWebChannel.websiteToken}.${window.authToken}'));
 assert.ok(read('overlay/app/app/javascript/widget/components/ChatAttachment.vue').includes("xhr.setRequestHeader('X-Toybaco-Widget', '1')"));
 assert.ok(read('overlay/app/app/javascript/widget/store/modules/contacts.js').includes("sendMessage({ event: 'http-session-identity-changed' })"));
 assert.ok(read('overlay/app/app/javascript/widget/helpers/IframeEventHelper.js').includes('window.toybacoHttpSession ? undefined : window.authToken'));
 assert.ok(read('overlay/app/app/javascript/widget/helpers/utils.js').includes('window.toybacoWidgetParentOrigin'));
-console.log('Widget HTTP session actual bootstrap: no early identity, exact parent/challenge, body-only legacy proof, cookie readback, bounded nonpersistent recovery and timeout PASS');
+console.log('Widget HTTP session actual bootstrap: no early identity, exact parent/challenge, legacy credentials ignored, cookie readback, bounded nonpersistent recovery and timeout PASS');
 
 const axiosSource = read('overlay/app/app/javascript/widget/helpers/axios.js')
   .replace(/^import [^\n]+\n/gm, '').replaceAll('export const ', 'const ');
+
+// Follow the actual preview template -> SDK entrypoint -> iframe helper ->
+// widget handshake -> conversation action/API/transport. Only DOM and network
+// I/O are fixtures; no test constructs the parent's http-session-input reply.
+{
+  const previewOrigin = 'https://app.example.test';
+  const previewURL = `${previewOrigin}/toybaco/widget_preview?website_token=public`;
+  const template = read('overlay/app/app/views/toybaco/widget_previews/show.html.erb');
+  const bootstrap = template.match(/<script nonce="<%= content_security_policy_nonce %>">([\s\S]*?)<\/script>/)?.[1]
+    .replace('<%= j request.base_url %>', previewOrigin)
+    .replace('<%= j @web_widget.website_token %>', 'public');
+  assert.ok(bootstrap && !bootstrap.includes('<%'), 'Execute the preview template bootstrap with its public render inputs');
+  const stripImports = code => code.replace(/^import [\s\S]*? from '[^']+';\n/gm, '');
+  let frame; let sdkScript; let child;
+  const parentListeners = new Set(); const parentReplies = [];
+  const parentContext = {
+    URL, Cookies: { remove() {} }, getUserCookieName: () => 'cw_user_public',
+    loadCSS() {}, addClasses() {}, isFlatWidgetStyle: () => false,
+    getBubbleView: () => 'standard', getWidgetStyle: () => 'standard', getDarkMode: () => 'light',
+    widgetHolder: { dataset: {}, appendChild: element => { frame = element; }, addEventListener() {} },
+    body: { appendChild() {} },
+    window: { location: new URL(previewURL),
+      addEventListener: (type, fn) => { if (type === 'message') parentListeners.add(fn); },
+      removeEventListener: (_type, fn) => parentListeners.delete(fn) },
+    document: { addEventListener() {}, getElementById: () => frame,
+      head: { appendChild: element => { sdkScript = element; } },
+      createElement: tag => {
+        if (tag === 'script') return {};
+        assert.equal(tag, 'iframe');
+        return { style: {}, contentWindow: { postMessage: (data, origin) => {
+          parentReplies.push({ data, origin });
+          assert.equal(origin, previewOrigin);
+          child.respond({ data, origin: previewOrigin });
+        } } };
+      } },
+  };
+  vm.createContext(parentContext);
+  vm.runInContext(bootstrap, parentContext);
+  assert.equal(sdkScript.src, `${previewOrigin}/packs/js/sdk.js`);
+  vm.runInContext(stripImports(read('overlay/app/app/javascript/sdk/IFrameHelper.js'))
+    .replace('export const IFrameHelper', 'const IFrameHelper'), parentContext);
+  vm.runInContext(stripImports(read('overlay/app/app/javascript/entrypoints/sdk.js')), parentContext);
+  sdkScript.onload();
+  assert.equal(new URL(frame.src).searchParams.get('toybaco_sdk'), '2');
+  assert.equal(new URL(frame.src).searchParams.get('website_token'), 'public');
+  child = fixture({ frameURL: frame.src, referrer: previewURL, mount: true });
+  assert.equal(child.calls.length, 0, 'Preview remains inert until the real SDK answers');
+  const deliverToParent = item => {
+    for (const listener of parentListeners) listener({ source: frame.contentWindow, origin: previewOrigin,
+      data: `chatwoot-widget:${JSON.stringify(item.data)}` });
+  };
+  deliverToParent(child.sent[0]);
+  await child.start;
+  deliverToParent(child.sent.at(-1));
+  assert.equal(JSON.parse(parentReplies[0].data.slice('chatwoot-widget:'.length)).event, 'http-session-input');
+  assert.equal(child.state.toybacoWidgetParentOrigin, previewOrigin);
+  assert.deepEqual(child.calls.map(call => call.method), ['POST', 'GET']);
+  assert.deepEqual(child.mounts, ['#app']);
+  assert.deepEqual(child.connections, ['tbwhttp1.public.tbwp1.new']);
+
+  let prepare; let accept;
+  const sentMessages = []; const messageCommits = [];
+  const client = { defaults: { headers: { common: {} } },
+    interceptors: { request: { use: fn => { prepare = fn; } }, response: { use: fn => { accept = fn; } } },
+    post: async (url, data) => {
+      const config = prepare({ url, data, method: 'post', headers: { ...client.defaults.headers.common } });
+      sentMessages.push(config);
+      return accept({ config, data: { messages: [{ id: 91, content: data.message.content }] } });
+    } };
+  child.state.location = new URL(frame.src);
+  child.state.WOOT_WIDGET = { $root: { $i18n: { locale: 'ja' } } };
+  const sendContext = { window: child.state, URLSearchParams, axios: { create: () => client }, APP_BASE_URL: '',
+    ON_CONVERSATION_CREATED: 'created', emitter: { emit() {} } };
+  vm.createContext(sendContext);
+  vm.runInContext(read('overlay/app/app/javascript/widget/helpers/urlParamsHelper.js').replaceAll('export const ', 'const '), sendContext);
+  vm.runInContext(`${axiosSource}\nsetHeader(window.authToken);`, sendContext);
+  vm.runInContext(stripImports(readActual('app/javascript/widget/api/endPoints.js')).replace('export default ', 'const endPoints = '), sendContext);
+  vm.runInContext(stripImports(readActual('app/javascript/widget/api/conversation.js')).replace(/export \{[\s\S]*?\};?/g, ''), sendContext);
+  vm.runInContext(read('overlay/app/app/javascript/widget/helpers/identityOperations.js').replaceAll('export const ', 'const '), sendContext);
+  vm.runInContext(stripImports(read('overlay/app/app/javascript/widget/helpers/identityStoreFence.js')).replaceAll('export const ', 'const '), sendContext);
+  vm.runInContext(`${stripImports(readActual('app/javascript/widget/store/modules/conversation/actions.js'))
+    .replace('export const actions =', 'const actions =')}\nthis.conversation = guardWidgetModules({ conversation: { actions } }).conversation;`, sendContext);
+  await sendContext.conversation.actions.createConversation({ commit: (...args) => messageCommits.push(args), dispatch: async () => {} },
+    { message: 'プレビューからのテストです' });
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].url, '/api/v1/widget/conversations?website_token=public&toybaco_sdk=2&locale=ja');
+  assert.equal(sentMessages[0].headers['X-Auth-Token'], child.state.authToken);
+  assert.equal(sentMessages[0].headers['X-Toybaco-Widget'], '1');
+  assert.equal(sentMessages[0].data.message.content, 'プレビューからのテストです');
+  assert.ok(messageCommits.some(([name, value]) => name === 'pushMessageToConversation' && value.id === 91));
+  console.log('Preview template -> actual SDK iframe handshake -> first conversation send PASS (mock DOM/network)');
+}
+
 let acceptResponse; let rejectResponse; let prepareRequest;
 const refreshes = []; const retries = []; const proofEvents = [];
 const actualClient = { defaults: { headers: { common: {} } },
@@ -169,7 +426,7 @@ actualClient.patch = async (url, data, options) => {
   identityCalls.push({ identifier: data.identifier, proof: config.headers['X-Auth-Token'] });
   const result = data.identifier === 'A'
     ? await new Promise(resolve => { releaseFirstUser = resolve; })
-    : { widget_auth_token: 'tbwp1.B', widget_http_identity_changed: true };
+    : data.identifier ? { widget_auth_token: 'tbwp1.B', widget_http_identity_changed: true } : {};
   return acceptResponse({ data: result, config });
 };
 const contactsApiSource = read('overlay/app/app/javascript/widget/api/contacts.js')
@@ -197,6 +454,10 @@ await Promise.all([firstUser, secondUser]);
 assert.equal(identityCalls[1].proof, 'tbwp1.A-confirmed', 'The queued identity request starts only with the confirmed first proof');
 assert.equal(axiosContext.window.authToken, 'tbwp1.B');
 assert.equal(retries.length, retryCountBeforeLateSetUser, 'The old request body cannot be retried after identification starts');
+axiosContext.transportSetHeader('tbwp1.before-contact-update');
+await guarded.contacts.actions.update(contactContext, { user: { identifier: 'B', identifier_hash: 'synthetic-signed-hash' } });
+assert.equal(identityCalls.at(-1).proof, 'tbwp1.before-contact-update');
+assert.equal(axiosContext.window.authToken, 'tbwp1.B', 'Signed /contact updates install their rebound proof before fetching the profile');
 let deliverContact; const commits = [];
 contactsContext.ContactsAPI.get = async () => new Promise(resolve => { deliverContact = resolve; });
 const pendingContact = guarded.contacts.actions.get({ commit: (...args) => commits.push(args), dispatch: () => {} });

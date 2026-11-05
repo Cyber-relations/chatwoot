@@ -9,9 +9,34 @@ import { pathToFileURL } from 'node:url';
 import { syncBuiltinESMExports } from 'node:module';
 const root = resolve(process.argv[2] || '.');
 const policy = await import(pathToFileURL(join(root, 'scripts/verify-chatwoot-ruby-llm-classification.mjs')));
-const { IMAGE, CVES, FIXES, GEM_PURL, TRIVY, VEX_TYPE, PROOF_TYPE, evaluate, validateVex, verifyAttestations } = policy;
+const { IMAGE, CVES, FIXES, GEM_PURL, TRIVY, VEX_TYPE, PROOF_TYPE, ADVISORIES, RAILS_ADVISORIES, RAILS_FIXES, RAILS_GEMS,
+  RAILS_FIXED_RANGE, railsPurl, evaluate, validateVex, verifyAttestations } = policy;
 const configBytes = readFileSync(join(root, 'config/chatwoot-ruby-llm-backport.json'));
 const config = JSON.parse(configBytes);
+const railsConfigBytes = readFileSync(join(root, 'config/chatwoot-rails-backport.json'));
+const railsConfig = JSON.parse(railsConfigBytes);
+const ALL_FIXES = { ...FIXES, ...RAILS_FIXES };
+const railsRoot = gem => '/gems/ruby/3.4.0/gems/' + gem + '-7.2.3.2';
+const railsSpec = gem => '/gems/ruby/3.4.0/specifications/' + gem + '-7.2.3.2.gemspec';
+const RAILS_GEM_OF = Object.fromEntries(railsConfig.advisories.map(a => [a.id, a.gem]));
+// The marker counts and test sections tests/verify_chatwoot_rails_backport.rb prints on the patched installed gems.
+const RAILS_MARKERS = {
+  activesupport: { vulnerable_const_regexp_occurrences: 0, fixed_literal_constant_match_occurrences: 1 },
+  actionpack: { vulnerable_each_key_delegation_occurrences: 0, fixed_each_key_returns_self_occurrences: 1 },
+  activestorage: { fixed_securable_mini_magick_occurrences: 2, fixed_policy_application_occurrences: 2,
+    vulnerable_tempfile_extension_occurrences: 0, fixed_tempfile_extension_occurrences: 1 },
+};
+const railsTests = () => ({
+  'GHSA-8474-xrp6-wh69': { official_examples: 3, vulnerable_examples_rejected: 2, ordinary_cases: 140091, ordinary_constants: 8,
+    adversarial_regexp_names: 5 },
+  'GHSA-wm3x-v3qw-4jh3': { official_examples: 3, vulnerable_examples_rejected: 1, ordinary_examples: 4, ordinary_cases: 1000 },
+  'GHSA-f3w6-w445-fwh9': { official_examples: 5, denied_coders: 31, variant_processor: 'vips', previewers: 0,
+    mini_magick_version: '4.12.0', mini_magick_unsecurable: true, policy_applied: false, imagemagick_processes: 0 },
+  'GHSA-v924-7rp8-4mxh': { official_examples: 6, vulnerable_examples_rejected: 4, ordinary_open: 30, ordinary_extensions_kept: 25,
+    analyzed: 3, variants: 3, custom_tmpdir: true },
+  passed: true,
+  negative_controls: { wrong_source_hash: true, wrong_catalog_hash: true, database_refused: true, imagemagick_spawn_refused: true },
+});
 const hash = value => createHash('sha256').update(value).digest('hex');
 const clone = value => structuredClone(value);
 const hex = 'a'.repeat(64), imageDigest = 'sha256:' + hex;
@@ -44,6 +69,18 @@ function fixture() {
       'CVE-2026-67991': { ordinary_cases: 20020, ordinary_method_comparisons: 40040,
         official_examples: 4, tool_suffix_examples: 4,
         adversarial: { length: 100000, timeout_seconds: 2, tool_seconds: 0.08, agent_seconds: 0.04 } } } };
+  // The shape the in-image Rails proof (tests/verify_chatwoot_rails_backport.rb) prints.
+  const railsProof = { schema_version: 1, result: 'PASS', advisories: [...RAILS_ADVISORIES], public_revision: context.source_commit,
+    patch_config_sha256: hash(railsConfigBytes), upstream_fix_commits: { ...RAILS_FIXES },
+    gems: RAILS_GEMS.map(gem => ({ name: gem, version: '7.2.3.2', installed_spec_count: 1, gem_root: railsRoot(gem),
+      spec_path: railsSpec(gem) })),
+    ruby: { version: '3.4.4', platform: 'x86_64-linux-musl' },
+    files: railsConfig.advisories.flatMap(a => a.files.map(f => ({ advisory: a.id, gem: a.gem, path: f.path,
+      sha256: f.patched_sha256, method: f.method, source_path: railsRoot(a.gem) + '/' + f.path, source_line: f.source_line }))),
+    unchanged_files: clone(railsConfig.unchanged_files),
+    source_inventory: Object.fromEntries(RAILS_GEMS.map(gem => [gem, { ...railsConfig.source_inventory[gem].patched,
+      ...RAILS_MARKERS[gem] }])),
+    tests: railsTests() };
   const sbom = { spdxVersion: 'SPDX-2.3', SPDXID: 'SPDXRef-DOCUMENT',
     packages: [
       { SPDXID: 'SPDXRef-image', name: IMAGE, versionInfo: imageDigest, primaryPackagePurpose: 'CONTAINER',
@@ -52,40 +89,55 @@ function fixture() {
       { SPDXID: 'SPDXRef-ruby', name: 'ruby_llm', versionInfo: '1.15.0', externalRefs: ref(GEM_PURL) },
       { SPDXID: 'SPDXRef-alpine', name: 'alpine-baselayout', versionInfo: '3.7.0-r0',
         externalRefs: ref('pkg:apk/alpine/alpine-baselayout@3.7.0-r0?arch=x86_64&distro=alpine-3.22.0') },
+      ...RAILS_GEMS.map(gem => ({ SPDXID: 'SPDXRef-' + gem, name: gem, versionInfo: '7.2.3.2', externalRefs: ref(railsPurl(gem)) })),
     ], relationships: [
       { spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-image' },
       { spdxElementId: 'SPDXRef-image', relationshipType: 'CONTAINS', relatedSpdxElement: 'SPDXRef-ruby' },
+      ...RAILS_GEMS.map(gem => ({ spdxElementId: 'SPDXRef-image', relationshipType: 'CONTAINS', relatedSpdxElement: 'SPDXRef-' + gem })),
     ] };
   const finding = id => ({ VulnerabilityID: id, Severity: 'HIGH', PkgName: 'ruby_llm', InstalledVersion: '1.15.0',
     FixedVersion: '>= 2.0.0.rc1', PkgPath: specPath.slice(1), PkgIdentifier: { PURL: GEM_PURL, UID: 'gem-id' } });
+  // As pinned Trivy 0.67.2 reported them on the 2026-11-04 DB (advisory watch issue #611): GHSA ids, one CRITICAL.
+  const railsFinding = id => ({ VulnerabilityID: id, Severity: id === 'GHSA-f3w6-w445-fwh9' ? 'CRITICAL' : 'HIGH',
+    PkgName: RAILS_GEM_OF[id], InstalledVersion: '7.2.3.2', FixedVersion: RAILS_FIXED_RANGE,
+    PkgPath: railsSpec(RAILS_GEM_OF[id]).slice(1), PkgIdentifier: { PURL: railsPurl(RAILS_GEM_OF[id]), UID: RAILS_GEM_OF[id] + '-id' } });
   const raw = { SchemaVersion: 2, ArtifactType: 'spdx', Metadata: { OS: { Family: 'alpine', Name: '3.22.0' } },
     Results: [
       { Target: 'alpine', Type: 'alpine', Class: 'os-pkgs', Packages: [{ Name: 'openjpeg', Version: '2.5.4-r1' }] },
       { Target: 'Ruby', Type: 'gemspec', Class: 'lang-pkgs',
-        Packages: [{ Name: 'ruby_llm', Version: '1.15.0', Identifier: { PURL: GEM_PURL, UID: 'gem-id' } }],
-        Vulnerabilities: CVES.map(finding) },
+        Packages: [{ Name: 'ruby_llm', Version: '1.15.0', Identifier: { PURL: GEM_PURL, UID: 'gem-id' } },
+          ...RAILS_GEMS.map(gem => ({ Name: gem, Version: '7.2.3.2', Identifier: { PURL: railsPurl(gem), UID: gem + '-id' } }))],
+        Vulnerabilities: [...CVES.map(finding), ...RAILS_ADVISORIES.map(railsFinding)] },
     ] };
   const before = { database_sha256: 'd'.repeat(64), metadata_sha256: 'e'.repeat(64),
     metadata: { Version: 2, DownloadedAt: '2026-09-17T07:00:05Z',
       UpdatedAt: '2026-09-17T06:10:00Z', NextUpdate: '2026-09-17T12:10:00Z' } };
-  return { config: clone(config), configSha: hash(configBytes), context, proof, sbom, raw, rawExit: 1,
+  return { config: clone(config), configSha: hash(configBytes), railsConfig: clone(railsConfig),
+    railsConfigSha: hash(railsConfigBytes), context, proof, railsProof, sbom, raw, rawExit: 1,
     before, after: clone(before), imageInspect: [{ Os: 'linux', Architecture: 'amd64',
       RepoDigests: [IMAGE + '@' + imageDigest], Config: { Labels: {
         'jp.toybaco.gate.control-sha256': context.control_sha256,
         'org.opencontainers.image.revision': '9f920b549c14491a4e587687a3eed5d21c6ccc7d' } } }],
     hashes: { sbom: '1'.repeat(64), raw_report: '2'.repeat(64), installed_proof: '3'.repeat(64),
-      image_inspect: '4'.repeat(64), evaluator: '5'.repeat(64) } };
+      installed_rails_proof: '6'.repeat(64), image_inspect: '4'.repeat(64), evaluator: '5'.repeat(64) } };
 }
 const valid = fixture(), originalRaw = clone(valid.raw), result = evaluate(valid);
 assert.deepEqual(valid.raw, originalRaw, 'classification must not mutate the raw scanner report');
 assert.deepEqual(result.classification.raw_report, originalRaw);
 assert.equal(result.classification.scanner_vex_filtering, false);
 assert.equal(result.classification.evaluation_kind, 'independent_source_backport_classification');
-assert.deepEqual(result.classification.counts, { raw_critical: 0, raw_high: 3, source_verified_fixed: 3,
+assert.deepEqual(result.classification.counts, { raw_critical: 1, raw_high: 6, source_verified_fixed: 7,
   unresolved_critical: 0, unresolved_high: 0 });
-assert.deepEqual(result.vex.statements.map(s => [s.vulnerability.name, s.status]), CVES.map(id => [id, 'fixed']));
+assert.deepEqual(result.vex.statements.map(s => [s.vulnerability.name, s.status]), ADVISORIES.map(id => [id, 'fixed']));
 assert.deepEqual(result.classification.evaluated_findings.map(f => [f.finding.VulnerabilityID, f.upstream_fix_commit]),
-  CVES.map(id => [id, FIXES[id]]));
+  ADVISORIES.map(id => [id, ALL_FIXES[id]]));
+// The ruby_llm statements are unchanged; each Rails statement names its own gem and the Rails proof.
+assert.deepEqual(result.vex.statements.map(s => s.products[0].subcomponents),
+  [...CVES.map(() => [{ '@id': GEM_PURL }]), ...RAILS_ADVISORIES.map(id => [{ '@id': railsPurl(RAILS_GEM_OF[id]) }])]);
+assert.ok(result.vex.statements.slice(0, 3).every(s => s.status_notes.includes(valid.hashes.installed_proof)));
+assert.ok(result.vex.statements.slice(3).every(s => s.status_notes.includes(valid.hashes.installed_rails_proof)));
+assert.deepEqual(result.classification.installed_rails_source_proof, valid.railsProof);
+assert.deepEqual(Object.keys(result.classification.bindings.rails_gems), RAILS_GEMS);
 // The scanner's finding order is not reviewed evidence; the classification is the same in any order.
 const reordered = fixture(); reordered.raw.Results[1].Vulnerabilities.reverse();
 assert.deepEqual(evaluate(reordered).classification.counts, result.classification.counts);
@@ -204,6 +256,84 @@ const negatives = [
   ['ambiguous affected UID', x => { x.raw.Results[1].Vulnerabilities[0].PkgIdentifier.UID = 'other'; }],
   ['duplicate raw package', x => { x.raw.Results[1].Packages.push(clone(x.raw.Results[1].Packages[0])); }],
   ['prefiltered finding', x => { x.raw.Results[1].ExperimentalModifiedFindings = [{ Status: 'fixed' }]; }],
+  // Rails 7.2.3.2 (config/chatwoot-rails-backport.json): the proof, the catalog, the SBOM and the raw findings.
+  ['missing Rails proof', x => { x.railsProof = null; }],
+  ['Rails proof from another source commit', x => { x.railsProof.public_revision = '0'.repeat(40); }],
+  ['wrong Rails config digest', x => { x.railsProof.patch_config_sha256 = '0'.repeat(64); }],
+  ['Rails config digest from the ruby_llm catalog', x => { x.railsProof.patch_config_sha256 = x.configSha; }],
+  ...RAILS_ADVISORIES.map(id => [`${id} patched hash reverted to the official source`, x => {
+    const index = x.railsProof.files.findIndex(f => f.advisory === id && x.railsConfig.advisories.find(a => a.id === id)
+      .files.find(c => c.path === f.path).original_sha256 !== null);
+    const file = x.railsConfig.advisories.find(a => a.id === id).files.find(c => c.path === x.railsProof.files[index].path);
+    x.railsProof.files[index].sha256 = file.original_sha256;
+  }]),
+  ['reviewed Rails hash reverted to the official source', x => {
+    const file = x.railsConfig.advisories[0].files[0];
+    file.patched_sha256 = file.original_sha256; x.railsProof.files[0].sha256 = file.original_sha256;
+  }],
+  ['shipped ImageMagick policy missing from the proof', x => { x.railsProof.files.splice(5, 1); }],
+  ['shipped ImageMagick policy declared as an existing file', x => {
+    x.railsConfig.advisories[2].files[3].original_sha256 = 'f'.repeat(64);
+  }],
+  ['Rails file hash changed', x => { x.railsProof.files[6].sha256 = '0'.repeat(64); }],
+  ['moved safe_constantize method', x => { x.railsProof.files[0].source_line++; }],
+  ['moved each_key method', x => { x.railsProof.files[1].source_path = '/tmp/strong_parameters.rb'; }],
+  ['policy outside the gem', x => { x.railsProof.files[5].source_path = '/etc/ImageMagick-7/policy.xml'; }],
+  ['Rails proof without one advisory', x => { x.railsProof.advisories.pop(); }],
+  ['Rails proof missing a patched file', x => { x.railsProof.files.splice(2, 1); }],
+  ['Rails proof with a misattributed file', x => { x.railsProof.files[6].advisory = 'GHSA-f3w6-w445-fwh9'; }],
+  ['Rails file in another gem', x => { x.railsProof.files[1].gem = 'actionview'; }],
+  ['wrong Rails upstream fix', x => { x.railsProof.upstream_fix_commits['GHSA-v924-7rp8-4mxh'] = RAILS_FIXES['GHSA-f3w6-w445-fwh9']; }],
+  ['Rails config without one advisory', x => { x.railsConfig.advisories.splice(1, 1); }],
+  ['Rails config with a fifth advisory', x => { x.railsConfig.advisories.push({ ...clone(x.railsConfig.advisories[3]), id: 'GHSA-3f4q-8x5m-76v8' }); }],
+  ['Rails config with reordered advisories', x => { x.railsConfig.advisories.reverse(); }],
+  ['Rails config with another severity', x => { x.railsConfig.advisories[2].severity = 'HIGH'; }],
+  ['Rails config with another gem', x => { x.railsConfig.advisories[0].gem = 'activestorage'; }],
+  ['Rails config with another version', x => { x.railsConfig.rails_version = '7.2.3.1'; }],
+  ['Rails config with a moved call site', x => { x.railsConfig.advisories[3].files[0].source_line = 358; }],
+  ['duplicate installed Rails spec', x => { x.railsProof.gems[0].installed_spec_count = 2; }],
+  ['other installed Rails version', x => { x.railsProof.gems[2].version = '7.2.3.1'; }],
+  ['wrong Rails spec path', x => { x.railsProof.gems[1].spec_path = '/usr/local/bundle/specifications/actionpack-7.2.3.2.gemspec'; }],
+  ['Rails proof on another runtime', x => { x.railsProof.ruby.platform = 'aarch64-linux-musl'; }],
+  ['changed Rails entrypoint hash', x => { x.railsProof.unchanged_files[0].sha256 = '0'.repeat(64); }],
+  ['changed Rails source inventory hash', x => { x.railsProof.source_inventory.actionpack.sha256 = '0'.repeat(64); }],
+  ['unexpected Rails source file', x => { x.railsProof.source_inventory.activestorage.count++; }],
+  ['remaining safe_constantize regexp', x => { x.railsProof.source_inventory.activesupport.vulnerable_const_regexp_occurrences = 1; }],
+  ['remaining each_key delegation', x => { x.railsProof.source_inventory.actionpack.vulnerable_each_key_delegation_occurrences = 1; }],
+  ['missing tempfile extension fix', x => { x.railsProof.source_inventory.activestorage.fixed_tempfile_extension_occurrences = 0; }],
+  ['missing ImageMagick guard', x => { x.railsProof.source_inventory.activestorage.fixed_securable_mini_magick_occurrences = 1; }],
+  ['missing Rails advisory test section', x => { delete x.railsProof.tests['GHSA-v924-7rp8-4mxh']; }],
+  ['fewer official safe_constantize examples', x => { x.railsProof.tests['GHSA-8474-xrp6-wh69'].official_examples = 2; }],
+  ['official examples do not reject the vulnerable each_key', x => { x.railsProof.tests['GHSA-wm3x-v3qw-4jh3'].vulnerable_examples_rejected = 0; }],
+  ['fewer ordinary safe_constantize cases', x => { x.railsProof.tests['GHSA-8474-xrp6-wh69'].ordinary_cases = 7; }],
+  ['ImageMagick policy claimed applied', x => { x.railsProof.tests['GHSA-f3w6-w445-fwh9'].policy_applied = true; }],
+  ['securable mini_magick without review', x => { x.railsProof.tests['GHSA-f3w6-w445-fwh9'].mini_magick_version = '5.1.2'; }],
+  ['ImageMagick variant processor', x => { x.railsProof.tests['GHSA-f3w6-w445-fwh9'].variant_processor = 'mini_magick'; }],
+  ['ImageMagick process during the proof', x => { x.railsProof.tests['GHSA-f3w6-w445-fwh9'].imagemagick_processes = 1; }],
+  ['ordinary Blob#open cases dropped', x => { x.railsProof.tests['GHSA-v924-7rp8-4mxh'].ordinary_open = 29; }],
+  ['missing vips variants', x => { x.railsProof.tests['GHSA-v924-7rp8-4mxh'].variants = 0; }],
+  ['extra Rails test claim', x => { x.railsProof.tests['GHSA-v924-7rp8-4mxh'].preview = true; }],
+  ['missing Rails negative control', x => { x.railsProof.tests.negative_controls.database_refused = false; }],
+  ['Rails proof not passed', x => { x.railsProof.tests.passed = false; }],
+  ['missing activestorage SBOM package', x => { x.sbom.packages.splice(5, 1); x.sbom.relationships.splice(4, 1); }],
+  ['duplicate actionpack SBOM package', x => { x.sbom.packages.push({ ...clone(x.sbom.packages[4]), SPDXID: 'SPDXRef-extra-actionpack' }); }],
+  ['wrong activesupport SBOM version', x => { x.sbom.packages[3].versionInfo = '7.2.3.1'; }],
+  ['wrong activesupport SBOM purl', x => { x.sbom.packages[3].externalRefs[0].referenceLocator = 'pkg:gem/activesupport@8.0.5.2'; }],
+  ['activestorage outside the image', x => { x.sbom.relationships.pop(); }],
+  ...RAILS_ADVISORIES.map((id, index) => [`raw ${id} missing`, x => { x.raw.Results[1].Vulnerabilities.splice(3 + index, 1); }]),
+  ['extra Rails finding on a reviewed gem', x => { x.raw.Results[1].Vulnerabilities.push({ ...clone(x.raw.Results[1].Vulnerabilities[3]), VulnerabilityID: 'GHSA-xxxx-xxxx-xxxx' }); }],
+  ['extra HIGH on another Rails gem', x => { x.raw.Results[1].Vulnerabilities.push({ ...clone(x.raw.Results[1].Vulnerabilities[3]), VulnerabilityID: 'GHSA-9999-9999-9999', PkgName: 'actionview' }); }],
+  ['duplicate Rails finding', x => { x.raw.Results[1].Vulnerabilities.push(clone(x.raw.Results[1].Vulnerabilities[5])); }],
+  ['Rails finding on another version', x => { x.raw.Results[1].Vulnerabilities[3].InstalledVersion = '7.2.3.1'; }],
+  ['Rails finding on another package', x => { x.raw.Results[1].Vulnerabilities[4].PkgName = 'actionview'; }],
+  ['Rails finding with another fixed range', x => { x.raw.Results[1].Vulnerabilities[6].FixedVersion = '>= 7.2.3.3'; }],
+  ['Rails CRITICAL reported as HIGH', x => { x.raw.Results[1].Vulnerabilities[5].Severity = 'HIGH'; }],
+  ['Rails HIGH reported as CRITICAL', x => { x.raw.Results[1].Vulnerabilities[6].Severity = 'CRITICAL'; }],
+  ['Rails finding with another purl', x => { x.raw.Results[1].Vulnerabilities[3].PkgIdentifier.PURL = 'pkg:gem/activesupport'; }],
+  ['Rails finding on an uninventoried instance', x => { x.raw.Results[1].Vulnerabilities[4].PkgIdentifier.UID = 'other'; }],
+  ['Rails finding on another path', x => { x.raw.Results[1].Vulnerabilities[5].PkgPath = 'usr/local/bundle/specifications/activestorage-7.2.3.2.gemspec'; }],
+  ['duplicate scanned activestorage', x => { x.raw.Results[1].Packages.push(clone(x.raw.Results[1].Packages[3])); }],
+  ['missing scanned actionpack', x => { x.raw.Results[1].Packages.splice(2, 1); }],
 ];
 for (const [label, mutate] of negatives) { const x = fixture(); mutate(x); assert.throws(() => evaluate(x), label); }
 const vexNegatives = [
@@ -218,8 +348,17 @@ const vexNegatives = [
   ['wrong proof hash', v => { v.statements[0].status_notes = 'trust me'; }],
   ['extra author field', v => { v.other = 'unreviewed'; }],
 ];
+vexNegatives.push(
+  ['Rails statement with the ruby_llm subcomponent', v => { v.statements[3].products[0].subcomponents = [{ '@id': GEM_PURL }]; }],
+  ['Rails statement with another gem', v => { v.statements[4].products[0].subcomponents = [{ '@id': railsPurl('actionview') }]; }],
+  ['Rails statement citing the ruby_llm proof', v => {
+    v.statements[6].status_notes = v.statements[6].status_notes.replace(valid.hashes.installed_rails_proof, valid.hashes.installed_proof);
+  }],
+  ['missing Rails statement', v => { v.statements.splice(5, 1); }],
+);
 for (const [label, mutate] of vexNegatives) { const v = clone(result.vex); mutate(v);
-  assert.throws(() => validateVex(v, result.classification.bindings, valid.context, valid.hashes.installed_proof), label); }
+  assert.throws(() => validateVex(v, result.classification.bindings, valid.context, valid.hashes.installed_proof,
+    valid.hashes.installed_rails_proof), label); }
 function attestation(predicateType, predicate) {
   return [{ verificationResult: { signature: { certificate: {} }, verifiedTimestamps: [{ type: 'tlog' }],
     statement: { _type: 'https://in-toto.io/Statement/v1', subject: [{ name: IMAGE, digest: { sha256: hex } }],

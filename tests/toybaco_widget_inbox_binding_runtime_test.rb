@@ -36,6 +36,15 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
       contact = Contact.create!(account: widget.account, name: 'Synthetic visitor')
       ContactInbox.create!(contact: contact, inbox: widget.inbox, source_id: source_id)
     end
+    @proofs = @links.map do |link|
+      secret = SecureRandom.hex(32)
+      row = Toybaco::WidgetSessionRecord.create!(contact_inbox: link, inbox_id: link.inbox_id,
+        secret_digest: Toybaco::Security::WidgetHttpSession.digest(secret), link_digest: Toybaco::Security::WidgetHttpSession.link_digest(link),
+        bootstrap_digest: SecureRandom.hex(32), bootstrap_expires_at: 1.minute.from_now,
+        rotated_at: Time.current, expires_at: 180.days.from_now)
+      cookies[Toybaco::Security::WidgetHttpSession.cookie_name(link.inbox.channel)] = "#{row.id}.#{secret}"
+      Toybaco::Security::WidgetHttpSession.new(row).proof
+    end
     @tokens = @links.map do |link|
       Widget::TokenService.new(payload: { inbox_id: link.inbox_id, source_id: link.source_id }).generate_token
     end
@@ -45,30 +54,30 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     ActiveJob::Base.queue_adapter = @previous_adapter
   end
 
-  def test_same_widget_contact_read_and_update_preserve_existing_token
-    get_contact(@widgets[0], @tokens[0])
+  def test_same_widget_contact_read_and_update_with_cookie_and_proof
+    get_contact(@widgets[0], @proofs[0])
     assert_response :success
     assert_equal @links[0].contact_id, response.parsed_body.fetch('id')
 
     patch '/api/v1/widget/contact', params: { website_token: @widgets[0].website_token, name: 'Own visitor update' },
-                                    headers: { 'X-Auth-Token' => @tokens[0] }, as: :json
+                                    headers: headers_for(@proofs[0]), as: :json
     assert_response :success
     assert_equal 'Own visitor update', @links[0].contact.reload.name
   end
 
-  def test_signed_token_cannot_read_another_inbox_with_colliding_source_id
+  def test_http_proof_cannot_read_another_inbox_with_colliding_source_id
     [@widgets[1], @widgets[2]].each do |widget|
-      get_contact(widget, @tokens[0])
+      get_contact(widget, @proofs[0])
       assert_response :not_found
     end
-    get_contact(@widgets[0], @tokens[2])
+    get_contact(@widgets[0], @proofs[2])
     assert_response :not_found
   end
 
-  def test_signed_token_cannot_update_another_account_with_colliding_source_id
+  def test_http_proof_cannot_update_another_account_with_colliding_source_id
     previous = @links[2].contact.name
     patch '/api/v1/widget/contact', params: { website_token: @widgets[2].website_token, name: 'Foreign visitor update' },
-                                    headers: { 'X-Auth-Token' => @tokens[0] }, as: :json
+                                    headers: headers_for(@proofs[0]), as: :json
     assert_response :not_found
     assert_equal previous, @links[2].contact.reload.name
   end
@@ -79,19 +88,20 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  def test_widget_render_preserves_own_token_and_contact
-    get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: @tokens[0] }
-    assert_response :success
-    assert_equal @tokens[0], rendered_token
-    assert_credential_response_protected
+  def test_widget_render_ignores_own_legacy_token
+    assert_no_difference ['Contact.count', 'ContactInbox.count'] do
+      get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: @tokens[0] }
+      assert_response :success
+      assert_equal '', rendered_token
+      assert_credential_response_protected
+    end
   end
 
   def test_new_widget_visitor_response_is_not_cacheable_or_a_referrer
     get '/widget', params: { website_token: @widgets[0].website_token }
     assert_response :success
     assert_credential_response_protected
-    claims = Widget::TokenService.new(token: rendered_token).decode_token
-    assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
+    assert_equal '', rendered_token
   end
 
   def test_widget_frame_ancestor_policy_is_preserved
@@ -101,64 +111,55 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     assert_credential_response_protected
     policies = response.headers.fetch('Content-Security-Policy').split(', ')
     assert_equal 2, policies.length
-    assert_equal 'frame-ancestors https://customer.example.test', policies.first
+    assert_equal "frame-ancestors 'self' https://customer.example.test", policies.first
     assert_match(/\Ascript-src 'nonce-[A-Za-z0-9+\/]{24}' 'strict-dynamic' 'self' https:\/\/hcaptcha\.com https:\/\/\*\.hcaptcha\.com; script-src-attr 'none'; object-src 'none'; base-uri 'self'\z/, policies.last)
-    assert_equal @tokens[0], rendered_token
+    assert_equal '', rendered_token
   end
 
-  def test_widget_render_starts_separate_visitor_for_foreign_inbox_token
-    [@widgets[1], @widgets[2]].each do |widget|
-      get '/widget', params: { website_token: widget.website_token, cw_conversation: @tokens[0] }
-      assert_response :success
-      token = rendered_token
-      refute_equal @tokens[0], token
-      claims = Widget::TokenService.new(token: token).decode_token
-      assert_equal widget.inbox.id, claims.fetch(:inbox_id)
-      refute_equal @links[0].source_id, claims.fetch(:source_id)
-      get_contact(widget, token)
-      assert_response :success
-      refute_equal @links[@widgets.index(widget)].contact_id, response.parsed_body.fetch('id')
+  def test_widget_render_is_inert_for_foreign_inbox_tokens
+    assert_no_difference ['Contact.count', 'ContactInbox.count'] do
+      [@widgets[1], @widgets[2]].each do |widget|
+        get '/widget', params: { website_token: widget.website_token, cw_conversation: @tokens[0] }
+        assert_response :success
+        assert_equal '', rendered_token
+        assert_includes response.body, 'window.toybacoHttpSessionRequested = true'
+      end
     end
   end
 
-  def test_widget_config_renewal_preserves_own_contact
-    post_config(@widgets[0], @tokens[0])
+  def test_widget_config_renewal_preserves_own_contact_with_http_proof
+    post_config(@widgets[0], @proofs[0])
     assert_response :success
     assert_equal @links[0].contact_id, response.parsed_body.dig('contact', 'id')
-    claims = Widget::TokenService.new(token: config_token).decode_token
-    assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
-    assert_equal @links[0].source_id, claims.fetch(:source_id)
+    assert_match(/\Atbwp1\./, config_token)
     assert_credential_response_protected
   end
 
-  def test_widget_config_foreign_inbox_token_starts_separate_visitor
-    [@widgets[1], @widgets[2]].each do |widget|
-      post_config(widget, @tokens[0])
-      assert_response :success
-      refute_equal @links[@widgets.index(widget)].contact_id, response.parsed_body.dig('contact', 'id')
-      claims = Widget::TokenService.new(token: config_token).decode_token
-      assert_equal widget.inbox.id, claims.fetch(:inbox_id)
-      refute_equal @links[0].source_id, claims.fetch(:source_id)
+  def test_widget_config_rejects_foreign_inbox_proofs_without_creating_contacts
+    assert_no_difference 'ContactInbox.count' do
+      [@widgets[1], @widgets[2]].each do |widget|
+        post_config(widget, @proofs[0])
+        assert_response :not_found
+      end
     end
   end
 
-  def test_widget_config_without_inbox_claim_starts_separate_visitor
+  def test_widget_config_rejects_all_legacy_tokens
     token = Widget::TokenService.new(payload: { source_id: @links[0].source_id }).generate_token
-    post_config(@widgets[0], token)
-    assert_response :success
-    refute_equal @links[0].contact_id, response.parsed_body.dig('contact', 'id')
-    claims = Widget::TokenService.new(token: config_token).decode_token
-    assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
-    refute_equal @links[0].source_id, claims.fetch(:source_id)
+    assert_no_difference 'ContactInbox.count' do
+      [token, *@tokens].each do |legacy|
+        post_config(@widgets[0], legacy)
+        assert_response :not_found
+      end
+    end
   end
 
-  def test_widget_config_without_token_starts_separate_visitor
-    post_config(@widgets[0], nil)
-    assert_response :success
-    refute_equal @links[0].contact_id, response.parsed_body.dig('contact', 'id')
-    claims = Widget::TokenService.new(token: config_token).decode_token
-    assert_equal @widgets[0].inbox.id, claims.fetch(:inbox_id)
-    refute_equal @links[0].source_id, claims.fetch(:source_id)
+  def test_widget_config_without_proof_cannot_create_a_visitor_or_issue_a_token
+    assert_no_difference 'ContactInbox.count' do
+      post_config(@widgets[0], nil)
+      assert_response :not_found
+      assert_nil config_token
+    end
     assert_credential_response_protected
   end
 
@@ -170,7 +171,7 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     session = Toybaco::Security::WidgetSession.new(link)
     foreign = @links.drop(1).map { |other| other.attributes.slice('source_id', 'pubsub_token') }
 
-    delete_session(@widgets[0], @tokens[0])
+    delete_session(@widgets[0], @proofs[0])
     assert_response :success
     assert_equal true, response.parsed_body.fetch('session_revoked')
     assert_credential_response_protected
@@ -182,32 +183,30 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal link.id, history.reload.contact_inbox_id
     assert_equal link.contact_id, history.contact_id
     assert_equal foreign, @links.drop(1).map { |other| other.reload.attributes.slice('source_id', 'pubsub_token') }
-    get_contact(@widgets[0], @tokens[0])
+    get_contact(@widgets[0], @proofs[0])
     assert_response :not_found
 
     rotated = link.attributes.slice('source_id', 'pubsub_token')
-    delete_session(@widgets[0], @tokens[0])
-    assert_response :success
-    assert_equal true, response.parsed_body.fetch('session_revoked')
+    delete_session(@widgets[0], @proofs[0])
+    assert_response :not_found
     assert_equal rotated, link.reload.attributes.slice('source_id', 'pubsub_token'), 'Stale retry must not rotate another session'
   end
 
   def test_reset_rejects_another_inbox_or_account_even_with_colliding_source
     before = @links.map { |link| link.attributes.slice('source_id', 'pubsub_token') }
     [@widgets[1], @widgets[2]].each do |widget|
-      delete_session(widget, @tokens[0])
+      delete_session(widget, @proofs[0])
       assert_response :not_found
     end
     assert_equal before, @links.map { |link| link.reload.attributes.slice('source_id', 'pubsub_token') }
   end
 
-  def test_invalid_or_expired_reset_is_an_idempotent_noop
+  def test_invalid_or_expired_reset_is_rejected_without_mutation
     before = @links.map { |link| link.attributes.slice('source_id', 'pubsub_token') }
     expired = JWT.encode({ inbox_id: @links[0].inbox_id, source_id: @links[0].source_id, exp: 1 }, Rails.application.secret_key_base, 'HS256')
     [nil, 'synthetic-invalid-token', expired].each do |token|
       delete_session(@widgets[0], token)
-      assert_response :success
-      assert_equal true, response.parsed_body.fetch('session_revoked')
+      assert_response :not_found
     end
     assert_equal before, @links.map { |link| link.reload.attributes.slice('source_id', 'pubsub_token') }
   end
@@ -221,10 +220,10 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal target.id, link.reload.contact_id
     assert_equal link.id, history.reload.contact_inbox_id
     assert session.current?, 'A preserved ContactInbox is the identity boundary across a legitimate merge'
-    get_contact(@widgets[0], @tokens[0])
+    get_contact(@widgets[0], @proofs[0])
     assert_response :success
     assert_equal target.id, response.parsed_body.fetch('id')
-    delete_session(@widgets[0], @tokens[0])
+    delete_session(@widgets[0], @proofs[0])
     assert_response :success
     refute session.current?
     assert_equal target.id, history.reload.contact_id
@@ -232,8 +231,12 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
 
   private
 
+  def headers_for(token)
+    { 'X-Auth-Token' => token, 'Origin' => 'https://www.example.com', 'Sec-Fetch-Site' => 'same-origin', 'X-Toybaco-Widget' => '1' }
+  end
+
   def delete_session(widget, token)
-    headers = token ? { 'X-Auth-Token' => token } : {}
+    headers = headers_for(token)
     delete '/api/v1/widget/session', params: { website_token: widget.website_token }, headers: headers, as: :json
   end
 
@@ -245,15 +248,15 @@ class ToybacoWidgetInboxBindingRuntimeTest < ActionDispatch::IntegrationTest
 
   def get_contact(widget, token)
     get '/api/v1/widget/contact', params: { website_token: widget.website_token },
-                                  headers: { 'X-Auth-Token' => token }, as: :json
+                                  headers: headers_for(token), as: :json
   end
 
   def rendered_token
-    response.body.match(/window\.authToken = '([^']+)'/).captures.first
+    response.body.match(/window\.authToken = '([^']*)'/).captures.first
   end
 
   def post_config(widget, token)
-    headers = token ? { 'X-Auth-Token' => token } : {}
+    headers = headers_for(token)
     post '/api/v1/widget/config', params: { website_token: widget.website_token }, headers: headers, as: :json
   end
 

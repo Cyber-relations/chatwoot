@@ -36,6 +36,7 @@
     <%= csrf_meta_tags %>
     <script nonce="<%= content_security_policy_nonce %>">
       window.chatwootConfig = {
+        toybacoChannels: <%= Toybaco::ChannelAvailability.for_dashboard.to_json.html_safe %>,
         hostURL: '<%= ENV.fetch('FRONTEND_URL', '') %>',
         helpCenterURL: '<%= ENV.fetch('HELPCENTER_URL', '') %>',
         fbAppId: '<%= @global_config['FB_APP_ID'] %>',

@@ -551,7 +551,7 @@ test('the receive step speaks to each kind of window', () => {
   assert(receive.includes('接続したInstagramのDMを受け取ります。テスト用に1件送ってください。'));
   // The preview is the store's own widget on this origin, opened with its public website token.
   const receiving = (inbox) => startScript({ ...connectState({ phase: 'receive', inbox_id: 3, inboxes: [inbox] }) }, (value) => value).page;
-  assert.equal(receiving({ id: 3, provider: 'web_widget', website_token: 'tok en/1' }).widgetPreviewUrl.value, '/widget?website_token=tok%20en%2F1');
+  assert.equal(receiving({ id: 3, provider: 'web_widget', website_token: 'tok en/1' }).widgetPreviewUrl.value, '/toybaco/widget_preview?website_token=tok%20en%2F1');
   assert.equal(receiving({ id: 3, provider: 'gmail', email: 'shop@example.test' }).widgetPreviewUrl.value, '');
 });
 
@@ -1009,7 +1009,7 @@ test('each tour card says what its step does and offers only what the member can
   assert.deepEqual(web.body, ['サイトに設置コードを貼ると問い合わせが届きます。今すぐ試すなら、プレビューから1件送ってください。',
     '店 · Webチャット', '届いたら、自動で次の案内に進みます。']);
   assert.deepEqual(web.actions, [
-    { id: 'open:widget_preview', label: 'プレビューで送る', kind: 'primary', href: '/widget?website_token=tok%20en%2F1' },
+    { id: 'open:widget_preview', label: 'プレビューで送る', kind: 'primary', href: '/toybaco/widget_preview?website_token=tok%20en%2F1' },
     { id: 'skip:receive', label: 'あとで設定する', kind: 'secondary' }]);
   const screen = block(`<template v-else-if="state?.phase === 'receive'">`);
   const mail = '別のメールアドレスから、次の窓口にテストメールを送ってください。';

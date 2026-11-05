@@ -503,6 +503,20 @@ class ToybacoGrowthRetentionRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The inbox 409 reaches ApplicationController after the API base classes are
+  # loaded; a rescue_from on one of them would copy the list and lose it.
+  def test_api_controllers_keep_the_application_rescue_handlers
+    expected = ApplicationController.rescue_handlers.map(&:first)
+    assert_includes expected, Toybaco::Growth::InboxRetention::Busy.name
+    assert_includes expected, Toybaco::ChannelAvailability::Unavailable.name
+    [Api::BaseController, Api::V1::Accounts::BaseController, Api::V1::Accounts::AgentsController,
+     Api::V1::Accounts::Conversations::MessagesController].each do |controller|
+      assert_equal expected, controller.rescue_handlers.map(&:first), controller.name
+    end
+    error = Toybaco::ChannelAvailability::Unavailable.new
+    assert_raises(Toybaco::ChannelAvailability::Unavailable) { Twitter::CallbacksController.new.rescue_with_handler(error) }
+  end
+
   private
 
   def managed_organization

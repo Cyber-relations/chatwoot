@@ -15,6 +15,8 @@ module Toybaco::Security::ApplicationMfaLogin
     # The duplicate that lost may answer after the winner's 200 in the same browser: leave its login cookies alone.
     request.env[Toybaco::Security::BrowserAuthentication::KEEP_COOKIES] = true
     render_create_error_bad_credentials
+  rescue Toybaco::Security::MfaLoginAttempts::LimitExceeded
+    render_mfa_error('errors.mfa.toybaco_attempt_limit', :too_many_requests)
   rescue Redis::BaseError, ConnectionPool::TimeoutError
     render json: { error: 'authentication_temporarily_unavailable' }, status: :service_unavailable
   end
@@ -90,13 +92,17 @@ module Toybaco::Security::ApplicationMfaLogin
 
     user.with_lock do
       return render_mfa_error('errors.mfa.invalid_token', :unauthorized) unless challenge.verify_token&.id == user.id
+      return render_mfa_error('errors.mfa.toybaco_attempt_limit', :too_many_requests) if Toybaco::Security::MfaLoginAttempts.limited?(user)
 
-      authenticated = Mfa::AuthenticationService.new(user: user, otp_code: params[:otp_code], backup_code: params[:backup_code]).authenticate
-      return render_mfa_error('errors.mfa.invalid_code') unless authenticated
+      return render_mfa_error('errors.mfa.invalid_code') unless authenticate_mfa_code(user)
       return render_mfa_error('errors.mfa.invalid_token', :unauthorized) unless challenge.consume!
 
       sign_in_mfa_user(user)
     end
+  end
+
+  def authenticate_mfa_code(user)
+    Mfa::AuthenticationService.new(user: user, otp_code: params[:otp_code], backup_code: params[:backup_code]).authenticate
   end
 
   def sign_in_mfa_user(user)

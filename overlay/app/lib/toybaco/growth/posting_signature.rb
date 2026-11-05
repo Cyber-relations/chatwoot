@@ -39,6 +39,8 @@ module Toybaco # rubocop:disable Style/ClassAndModuleChildren
 
       def signing_key(environment)
         secret = environment['TOYBACO_OIDC_CLIENT_SECRET'].to_s
+        raise Unconfigured if secret.match?(/\A[[:space:]]*\z/)
+
         raise Unconfigured unless secret.bytesize >= 32 && environment['FRONTEND_URL'].to_s.start_with?('http://', 'https://')
 
         OpenSSL::HMAC.digest('SHA256', secret, PURPOSE)

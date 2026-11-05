@@ -1,5 +1,5 @@
 import { installSessionReset } from '../widget/helpers/sessionReset';
-import { bootstrapHttpSession, installHttpHandoffReceiver, notifyHttpSessionProblem } from '../widget/helpers/httpSession';
+import { bootstrapHttpSession, installHttpHandoffReceiver, notifyHttpSessionProblem, notifyLegacyReload, WIDGET_RELOAD_MESSAGE } from '../widget/helpers/httpSession';
 import { installHttpProofRenewal } from '../widget/helpers/httpSession';
 import { setHeader } from '../widget/helpers/axios';
 import { createApp } from 'vue';
@@ -49,16 +49,17 @@ app.use(
 
 // Vue.config.productionTip = false;
 
-installSessionReset();
-
 const mountWidget = async () => {
   try {
     await bootstrapHttpSession();
-  } catch {
-    document.getElementById('app').textContent = 'チャットの認証を確認できませんでした。履歴は削除していません。ページを再読み込みしてください。';
-    notifyHttpSessionProblem();
+  } catch (error) {
+    document.getElementById('app').textContent = error.message === WIDGET_RELOAD_MESSAGE ? WIDGET_RELOAD_MESSAGE
+      : 'チャットの認証を確認できませんでした。履歴は削除していません。ページを再読み込みしてください。';
+    if (error.message === WIDGET_RELOAD_MESSAGE) notifyLegacyReload();
+    else notifyHttpSessionProblem();
     return;
   }
+  installSessionReset();
   installHttpHandoffReceiver();
   window.WOOT_WIDGET = app.mount('#app');
   const connect = () => {

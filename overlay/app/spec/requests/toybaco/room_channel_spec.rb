@@ -33,18 +33,20 @@ RSpec.describe RoomChannel, type: :channel do
     expect(subscription.send(:streams)).to be_empty
   end
 
-  it 'keeps the public contact widget on its separate contact-inbox boundary' do
-    widget = Channel::WebWidget.create!(account: account, website_url: 'https://customer.example.test')
-    inbox = Inbox.create!(account: account, channel: widget, name: 'Synthetic widget')
-    contact_inbox = create(:contact_inbox, inbox: inbox, contact: create(:contact, account: account))
+  it 'rejects plain pubsub tokens for web-widget contacts' do
+    widget = create(:channel_widget, account: account)
+    contact_inbox = create(:contact_inbox, inbox: widget.inbox, contact: create(:contact, account: account))
+    subscribe(pubsub_token: contact_inbox.pubsub_token)
+    expect(subscription).to be_rejected
+    expect(subscription.send(:streams)).to be_empty
+  end
+
+  it 'preserves plain pubsub subscriptions for API channel contacts' do
+    channel = create(:channel_api, account: account)
+    contact_inbox = create(:contact_inbox, inbox: channel.inbox, contact: create(:contact, account: account))
     subscribe(pubsub_token: contact_inbox.pubsub_token)
     expect(subscription).to be_confirmed
     expect(subscription).to have_stream_from(contact_inbox.pubsub_token)
-    expect(subscription.send(:verify_toybaco_session)).to be(true)
-    Toybaco::Security::WidgetSession.revoke(contact_inbox, source_id: contact_inbox.source_id)
-    expect(connection).to receive(:close).with(reconnect: false)
-    expect(subscription.send(:verify_toybaco_session)).to be(false)
-    expect(subscription.send(:streams)).to be_empty
   end
 
   # 上の例の stub_connection(ActionCable の ConnectionStub、Rails 7.2.3.2 channel/test_case.rb 50-61 行)は渡した識別子を

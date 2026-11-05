@@ -2,7 +2,7 @@
 
 # MFA proof belongs to a revocable DTA device record, not to a browser flag or
 # merely to the user's enrollment state. The requirement is checked on every use.
-# Store administrators enroll optionally (owner decision, 2026-10-06); SuperAdmin users must enroll.
+# Store administrator enrollment can be required after the external review (owner decision, 2026-11-04).
 module Toybaco::Security::ApplicationMfaSession
   # A verified dashboard device stays verified for 30 days (owner decision, 2026-10-05).
   # TOYBACO_APPLICATION_MFA_MAX_AGE_HOURS (whole hours 1-720, surrounding whitespace ignored) can shorten it;
@@ -13,7 +13,11 @@ module Toybaco::Security::ApplicationMfaSession
   module_function
 
   def required?(user)
-    user.is_a?(SuperAdmin) || user.mfa_enabled?
+    user.is_a?(SuperAdmin) || user.mfa_enabled? || administrator_required?(user)
+  end
+
+  def administrator_required?(user)
+    ENV.fetch('TOYBACO_ADMIN_MFA_REQUIRED', 'false') == 'true' && user.account_users.exists?(role: :administrator)
   end
 
   def fingerprint(user)
@@ -83,7 +87,7 @@ module Toybaco::Security::ApplicationMfaSession
     def authenticate
       return false unless user
 
-      user.with_lock { super }
+      Toybaco::Security::MfaLoginAttempts.verify(user) { super }
     end
   end
 end

@@ -631,6 +631,20 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   InboxHold = Toybaco::Growth::InboxRetention
 
+  # A legacy widget JWT grants no authority; widget requests use the HttpOnly
+  # session cookie and its proof, minted at the frozen clock of the request.
+  def widget_http_headers(session, contact_inbox)
+    secret = SecureRandom.hex(32)
+    row = Toybaco::WidgetSessionRecord.create!(contact_inbox: contact_inbox, inbox_id: contact_inbox.inbox_id,
+      secret_digest: Toybaco::Security::WidgetHttpSession.digest(secret),
+      link_digest: Toybaco::Security::WidgetHttpSession.link_digest(contact_inbox),
+      bootstrap_digest: SecureRandom.hex(32), bootstrap_expires_at: 1.minute.from_now,
+      rotated_at: Time.current, expires_at: 180.days.from_now)
+    session.cookies[Toybaco::Security::WidgetHttpSession.cookie_name(contact_inbox.inbox.channel)] = "#{row.id}.#{secret}"
+    { 'X-Auth-Token' => Toybaco::Security::WidgetHttpSession.new(row).proof, 'Origin' => 'https://app.example.com',
+      'Sec-Fetch-Site' => 'same-origin', 'X-Toybaco-Widget' => '1' }
+  end
+
   def inbox_hold(clock: -> { NOW }, environment: bridge_environment.merge('TOYBACO_INBOX_RETENTION_ENABLED' => 'true'))
     InboxHold.new(@account, environment: environment, clock: clock).call
   end
@@ -865,18 +879,19 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   def test_widget_http_rejects_held_reply_before_creating_an_empty_conversation_and_keeps_read_access
     contact = ContactInboxWithContactBuilder.new(inbox: @inboxes.last, contact_attributes: { name: 'existing fixture' }).perform
-    token = Widget::TokenService.new(payload: { source_id: contact.source_id, inbox_id: @inboxes.last.id }).generate_token
     prepare_inbox_hold
     inbox_hold
     session = ActionDispatch::Integration::Session.new(Rails.application)
     session.host! 'app.example.com'
+    session.https!
     count = @account.conversations.count
     travel_to NOW do
+      headers = widget_http_headers(session, contact)
       session.post '/api/v1/widget/messages', params: { website_token: @inboxes.last.channel.website_token,
-        message: { content: 'not accepted', referer_url: 'https://example.com' } }, headers: { 'X-Auth-Token' => token }, as: :json
+        message: { content: 'not accepted', referer_url: 'https://example.com' } }, headers: headers, as: :json
       assert_equal 409, session.response.status, session.response.body
       assert_equal InboxHold::Held.new.message, JSON.parse(session.response.body)['error']
-      session.get '/api/v1/widget/messages', params: { website_token: @inboxes.last.channel.website_token }, headers: { 'X-Auth-Token' => token }
+      session.get '/api/v1/widget/messages', params: { website_token: @inboxes.last.channel.website_token }, headers: headers
       assert_equal 200, session.response.status, session.response.body
     end
     assert_equal count, @account.conversations.count
@@ -901,14 +916,15 @@ class ToybacoGrowthRenewalTransitionRuntimeTest < ActiveSupport::TestCase
 
   def test_retained_widget_can_still_create_a_message_after_other_inboxes_are_held
     contact = ContactInboxWithContactBuilder.new(inbox: @inboxes.first, contact_attributes: { name: 'retained fixture' }).perform
-    token = Widget::TokenService.new(payload: { source_id: contact.source_id, inbox_id: @inboxes.first.id }).generate_token
     prepare_inbox_hold
     inbox_hold
     session = ActionDispatch::Integration::Session.new(Rails.application)
     session.host! 'app.example.com'
+    session.https!
     travel_to NOW do
       session.post '/api/v1/widget/messages', params: { website_token: @inboxes.first.channel.website_token,
-        message: { content: 'accepted fixture', referer_url: 'https://example.com' } }, headers: { 'X-Auth-Token' => token }, as: :json
+        message: { content: 'accepted fixture', referer_url: 'https://example.com' } },
+                                              headers: widget_http_headers(session, contact), as: :json
       assert_equal 200, session.response.status, session.response.body
     end
     assert_equal 1, @account.messages.where(content: 'accepted fixture', inbox_id: @inboxes.first.id).count
@@ -1974,6 +1990,8 @@ class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::Integratio
   self.use_transactional_tests = false
 
   def setup
+    @previous_platform_api_enabled = ENV['TOYBACO_PLATFORM_API_ENABLED']
+    ENV['TOYBACO_PLATFORM_API_ENABLED'] = 'true'
     @account = FactoryBot.create(:account, status: 'suspended')
     @administrator = FactoryBot.create(:super_admin)
     @account.update!(internal_attributes: { 'toybaco_billing_suspended' => true,
@@ -1986,6 +2004,8 @@ class ToybacoBillingAdministrativeStatusRuntimeTest < ActionDispatch::Integratio
     @account.destroy!
     @administrator.destroy!
     Current.reset
+  ensure
+    ENV['TOYBACO_PLATFORM_API_ENABLED'] = @previous_platform_api_enabled
   end
 
   def update_status(**attributes)

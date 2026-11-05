@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 # CASA 6.5.1: Action Cable は既定(application の logger)で、購読の stream 名(pubsub token)と購読解除の identifier を INFO に出す。
-# web widget の訪問者は pubsub token だけで購読できる(room_channel.rb)ので、ログに残ると購読の資格になる。
+# web widget の訪問者は HTTP session の cookie と proof で購読する。資格情報も内部の pubsub token もログに残さない。
 # Action Cable 専用の logger(toybaco_log_redaction.rb)は WARN 以上だけを、token を伏せて application の logger へ書く。
 # 残る ERROR の行は、生の frame・identifier・例外の文を出さず、class と command・channel・action の名前だけを出す(CableSafeLog)。
 RSpec.describe Toybaco::Security::CableLog do
@@ -12,6 +12,25 @@ RSpec.describe Toybaco::Security::CableLog do
     widget = Channel::WebWidget.create!(account: account, website_url: 'https://customer.example.test')
     inbox = Inbox.create!(account: account, channel: widget, name: 'Synthetic cable log')
     create(:contact_inbox, inbox: inbox, contact: create(:contact, account: account))
+  end
+  let(:http_session_secret) { SecureRandom.hex(32) }
+  let(:http_session_record) do
+    Toybaco::WidgetSessionRecord.create!(
+      contact_inbox: contact_inbox, inbox_id: contact_inbox.inbox_id,
+      secret_digest: Toybaco::Security::WidgetHttpSession.digest(http_session_secret),
+      link_digest: Toybaco::Security::WidgetHttpSession.link_digest(contact_inbox), bootstrap_digest: SecureRandom.hex(32),
+      bootstrap_expires_at: 1.minute.from_now, rotated_at: Time.current, expires_at: 30.days.from_now
+    )
+  end
+  let(:http_session_proof) { Toybaco::Security::WidgetHttpSession.new(http_session_record).proof }
+
+  def http_pubsub_token
+    "tbwhttp1.#{contact_inbox.inbox.channel.website_token}.#{http_session_proof}"
+  end
+
+  def http_session_cookie
+    name = Toybaco::Security::WidgetHttpSession.cookie_name(contact_inbox.inbox.channel)
+    "#{name}=#{http_session_record.id}.#{http_session_secret}"
   end
 
   # application の logger に production と同じ info の出力先を足して、その間に書かれた行を返す。
@@ -54,8 +73,9 @@ RSpec.describe Toybaco::Security::CableLog do
     expect(described_class.mask('RoomChannel#update_presence account_id=1')).to eq('RoomChannel#update_presence account_id=1')
   end
 
-  def stubbed_connection
+  def stubbed_connection(cookie: nil)
     env = Rack::MockRequest.env_for('https://app.example.test/cable', 'HTTP_ORIGIN' => 'https://app.example.test')
+    env['HTTP_COOKIE'] = cookie if cookie
     ApplicationCable::Connection.new(ActionCable.server, env).tap do |connection|
       transmitted = Queue.new
       connection.define_singleton_method(:transmitted) { transmitted }
@@ -83,16 +103,12 @@ RSpec.describe Toybaco::Security::CableLog do
 
   it '実 Connection で widget の購読・不正な command・購読解除を通しても、ログに pubsub token と INFO の stream の行を出さない' do
     token = contact_inbox.pubsub_token
-    identifier = { channel: 'RoomChannel', pubsub_token: token }.to_json
-    env = Rack::MockRequest.env_for('https://app.example.test/cable', 'HTTP_ORIGIN' => 'https://app.example.test')
-    connection = ApplicationCable::Connection.new(ActionCable.server, env)
-    transmitted = Queue.new
-    connection.define_singleton_method(:transmit) { |message| transmitted << message }
-    connection.define_singleton_method(:close) { |**_options| nil }
+    identifier = { channel: 'RoomChannel', pubsub_token: http_pubsub_token }.to_json
+    connection = stubbed_connection(cookie: http_session_cookie)
     confirmation = nil
     log = capture_application_log do
       connection.handle_channel_command('command' => 'subscribe', 'identifier' => identifier)
-      confirmation = message_type(transmitted)
+      confirmation = message_type(connection.transmitted)
       drain_event_loop
       connection.handle_channel_command('command' => 'fixture-unknown', 'identifier' => identifier)
     ensure
@@ -101,20 +117,37 @@ RSpec.describe Toybaco::Security::CableLog do
     expect(confirmation).to eq('confirm_subscription')
     expect(log).to include('Received unrecognized command (command=[unknown] channel=RoomChannel)')
     expect([token, 'streaming from', 'Unsubscribing from channel', 'Broadcasting to'].select { |fragment| log.include?(fragment) }).to eq([])
+    expect(log).not_to include(http_pubsub_token, http_session_proof, http_session_secret)
+  end
+
+  it '実 Connection で widget の旧 plain pubsub token を拒否し、ログに token を出さない' do
+    token = contact_inbox.pubsub_token
+    identifier = { channel: 'RoomChannel', pubsub_token: token }.to_json
+    connection = stubbed_connection
+    confirmation = nil
+    log = capture_application_log do
+      connection.handle_channel_command('command' => 'subscribe', 'identifier' => identifier)
+      confirmation = message_type(connection.transmitted)
+      drain_event_loop
+    ensure
+      connection.handle_channel_command('command' => 'unsubscribe', 'identifier' => identifier) if confirmation == 'confirm_subscription'
+    end
+    expect(confirmation).to eq('reject_subscription')
+    expect(log).not_to include(token)
   end
 
   it '失敗した command・処理できない action・worker の例外の行は、class と command・channel・action の名前だけを出す' do
     token = contact_inbox.pubsub_token
     note = "ログ確認のメモ #{SecureRandom.hex(4)}"
     secret = "fs#{SecureRandom.hex(4)}"
-    identifier = { channel: 'RoomChannel', pubsub_token: token }.to_json
+    identifier = { channel: 'RoomChannel', pubsub_token: http_pubsub_token }.to_json
     # 購読していない identifier の解除は、上流では identifier を含む例外の文(Unable to find subscription with identifier: …)と
     # data の inspect を ERROR に出す。
-    unknown = { channel: 'RoomChannel', pubsub_token: "#{token}x" }.to_json
+    unknown = { channel: 'RoomChannel', pubsub_token: "#{http_pubsub_token}x" }.to_json
     malformed = %({"command":"message" #{secret}})
     # 上流の Server::Worker#invoke は、この解析の失敗の文(frame の断片を含む)を ERROR に出す。
     expect { ActiveSupport::JSON.decode(malformed) }.to raise_error(JSON::ParserError, /#{secret}/)
-    connection = stubbed_connection
+    connection = stubbed_connection(cookie: http_session_cookie)
     confirmation = nil
     log = capture_application_log do
       connection.handle_channel_command('command' => 'unsubscribe', 'identifier' => unknown)
@@ -132,6 +165,7 @@ RSpec.describe Toybaco::Security::CableLog do
     expect(log).to include('Could not execute command (command=unsubscribe channel=RoomChannel) [RuntimeError]',
                            'Unable to process RoomChannel#fixture_action', 'There was an exception - JSON::ParserError')
     expect([token, note, secret, 'pubsub_token', 'Unable to find subscription'].select { |fragment| log.include?(fragment) }).to eq([])
+    expect(log).not_to include(http_pubsub_token, http_session_proof, http_session_secret)
   end
 
   it 'alive? が true の直後に切断しても再判定で生 frame の ERROR 行へ戻らない' do

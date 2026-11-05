@@ -21,6 +21,10 @@ class SuperAdmin::Devise::SessionsController < Devise::SessionsController
     sign_in(:super_admin, @super_admin)
     flash.discard
     redirect_to super_admin_root_path
+  rescue Toybaco::Security::MfaLoginAttempts::LimitExceeded
+    head :too_many_requests
+  rescue Redis::BaseError, ConnectionPool::TimeoutError
+    head :service_unavailable
   end
 
   def destroy

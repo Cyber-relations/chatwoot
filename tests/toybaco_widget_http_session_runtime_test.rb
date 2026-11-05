@@ -111,9 +111,32 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
       .merge(proof ? { 'X-Auth-Token' => proof } : {})
   end
 
-  def issue(legacy: @legacy[0], intent: @intent)
+  def identifier_signature(identifier)
+    OpenSSL::HMAC.hexdigest('sha256', @widgets[0].hmac_token, identifier)
+  end
+
+  # Model an already issued HttpOnly cookie explicitly; legacy JWTs no longer
+  # establish this fixture's returning visitor. Retries never reseed cookies.
+  def seed_cookie(link, intent)
+    @seeded_intents ||= []
+    return if !link || @seeded_intents.include?(intent)
+
+    @seeded_intents << intent
+    name = Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])
+    return if cookies[name].present?
+
+    secret = SecureRandom.hex(32)
+    row = Toybaco::WidgetSessionRecord.create!(contact_inbox: link, inbox_id: link.inbox_id,
+      secret_digest: Toybaco::Security::WidgetHttpSession.digest(secret), link_digest: Toybaco::Security::WidgetHttpSession.link_digest(link),
+      bootstrap_digest: SecureRandom.hex(32), bootstrap_expires_at: 1.minute.from_now,
+      rotated_at: Time.current, expires_at: 180.days.from_now)
+    cookies[name] = "#{row.id}.#{secret}"
+  end
+
+  def issue(link: @links[0], intent: @intent)
+    seed_cookie(link, intent)
     post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
-      legacy_token: legacy, consume_intent: intent }, headers: headers_for, as: :json
+      legacy_token: nil, consume_intent: intent }, headers: headers_for, as: :json
     assert_response :success
     @issued = response.parsed_body
     @proof = @issued.fetch('proof')
@@ -147,7 +170,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
   end
 
   def test_cookie_is_httponly_secure_partitioned_and_no_domain
-    issue
+    issue(link: nil)
     line = Array(response.headers['Set-Cookie']).join('\n')
     assert_includes line.downcase, 'httponly'
     assert_includes line.downcase, 'secure'
@@ -160,13 +183,13 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     refute_includes response.body, @links[0].pubsub_token
   end
 
-  def test_direct_bootstrap_selects_the_same_legacy_contact_before_http_serialization
+  def test_direct_bootstrap_ignores_the_legacy_contact_before_http_serialization
     env = Rack::MockRequest.env_for('https://www.example.com/api/v1/widget/http_session',
       'HTTP_ORIGIN' => 'https://www.example.com', 'HTTP_SEC_FETCH_SITE' => 'same-origin', 'HTTP_X_TOYBACO_WIDGET' => '1')
     session, secret = Toybaco::Security::WidgetHttpSession.bootstrap(
       ActionDispatch::Request.new(env), @widgets[0], legacy_token: @legacy[0], intent: @intent
     )
-    assert_equal @links[0].id, session.record.contact_inbox_id
+    refute_equal @links[0].id, session.record.contact_inbox_id
     assert_match(/\A[a-f0-9]{64}\z/, secret)
     assert session.valid_proof?(session.proof)
   end
@@ -220,7 +243,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  def test_cookie_and_different_valid_legacy_identity_are_rejected
+  def test_cookie_ignores_a_different_valid_legacy_identity
     issue
     other = ContactInbox.create!(inbox: @widgets[0].inbox,
       contact: Contact.create!(account: @widgets[0].account), source_id: SecureRandom.uuid)
@@ -228,44 +251,35 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     assert_response :not_found
     post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
       legacy_token: token_for(other), consume_intent: SecureRandom.hex(32) }, headers: headers_for, as: :json
-    assert_response :conflict
-    assert_equal 'widget_session_conflict', response.parsed_body['error']
-  end
-
-  def test_legacy_header_for_same_contact_remains_compatible
-    issue
-    contact(@legacy[0], headers: { 'X-Auth-Token' => @legacy[0] })
     assert_response :success
+    contact(response.parsed_body.fetch('proof'))
     assert_equal @links[0].contact_id, response.parsed_body['id']
   end
 
-  def test_legacy_config_and_set_user_keep_the_legacy_response_contract_with_a_cookie
+  def test_legacy_header_for_same_contact_is_rejected_even_with_a_cookie
     issue
-    legacy_headers = { 'X-Auth-Token' => @legacy[0] }
+    contact(@legacy[0], headers: headers_for(@legacy[0]))
+    assert_response :not_found
+  end
+
+  def test_legacy_config_and_set_user_are_rejected_even_with_a_cookie
+    issue
+    legacy_headers = headers_for(@legacy[0])
     post '/api/v1/widget/config', params: { website_token: @widgets[0].website_token }, headers: legacy_headers, as: :json
-    assert_response :success
-    body = response.parsed_body
-    token = body.fetch('website_channel_config').fetch('auth_token')
-    assert_equal @links[0].source_id, Widget::TokenService.new(token: token).decode_token[:source_id]
-    assert_equal @links[0].pubsub_token, body.fetch('contact').fetch('pubsub_token')
-    @links[0].contact.update!(identifier: 'old-synthetic-identity')
-    patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
-      identifier: 'new-synthetic-identity', name: 'Returning visitor' }, headers: legacy_headers, as: :json
-    assert_response :success
-    next_token = response.parsed_body.fetch('widget_auth_token')
-    refute response.parsed_body.key?('widget_http_identity_changed')
-    refute_match(/\Atbw[pr]1\./, next_token)
-    claims = Widget::TokenService.new(token: next_token).decode_token
-    assert_equal Toybaco::WidgetSessionRecord.last.contact_inbox.source_id, claims[:source_id]
-    contact(next_token, headers: { 'X-Auth-Token' => next_token })
-    assert_response :success
+    assert_response :not_found
+    assert_no_difference 'ContactInbox.count' do
+      patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
+        identifier: 'new-synthetic-identity', name: 'Returning visitor' }, headers: legacy_headers, as: :json
+      assert_response :not_found
+    end
   end
 
   def test_modern_identity_change_returns_a_new_bound_proof_and_explicit_bridge_retirement
     issue
     @links[0].contact.update!(identifier: 'old-synthetic-identity')
     patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
-      identifier: 'next-synthetic-identity', name: 'Next visitor' }, headers: headers_for(@proof), as: :json
+      identifier: 'next-synthetic-identity', identifier_hash: identifier_signature('next-synthetic-identity'),
+      name: 'Next visitor' }, headers: headers_for(@proof), as: :json
     assert_response :success
     assert_equal true, response.parsed_body['widget_http_identity_changed']
     next_proof = response.parsed_body.fetch('widget_auth_token')
@@ -287,7 +301,8 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     alias_cookie = cookies[name]
     @links[0].contact.update!(identifier: 'before-alias-switch')
     patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
-      identifier: 'after-alias-switch', name: 'New visitor' }, headers: headers_for(@proof), as: :json
+      identifier: 'after-alias-switch', identifier_hash: identifier_signature('after-alias-switch'),
+      name: 'New visitor' }, headers: headers_for(@proof), as: :json
     assert_response :success
     fresh_cookie = cookies[name]
     refute_equal alias_cookie, fresh_cookie
@@ -336,22 +351,25 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     assert_equal row_id, Toybaco::WidgetSessionRecord.last.id
   end
 
-  def test_legacy_bootstrap_intent_cannot_be_reconciled_without_its_original_legacy_proof
+  def test_bootstrap_intent_reconciles_without_any_legacy_proof
     issue
     clear_browser_cookies
     assert_no_difference ['Toybaco::WidgetSessionRecord.count', 'ContactInbox.count'] do
       post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
         consume_intent: @intent }, headers: headers_for, as: :json
-      assert_response :not_found
+      assert_response :success
     end
   end
 
-  def test_bootstrap_rejects_non_string_or_oversized_legacy_proofs_before_creating_identity
+  def test_bootstrap_ignores_legacy_input_of_any_shape
+    issue
     assert_no_difference ['Toybaco::WidgetSessionRecord.count', 'ContactInbox.count'] do
-      [{}, [], 123, '', ' ', 'x' * 8193].each do |invalid|
+      [{}, [], 123, '', ' ', 'x' * 8193].each do |ignored|
         post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
-          legacy_token: invalid, consume_intent: SecureRandom.hex(32) }, headers: headers_for, as: :json
-        assert_response :not_found
+          legacy_token: ignored, consume_intent: SecureRandom.hex(32) }, headers: headers_for, as: :json
+        assert_response :success
+        contact(response.parsed_body.fetch('proof'))
+        assert_equal @links[0].contact_id, response.parsed_body['id']
       end
     end
   end
@@ -365,7 +383,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     assert_no_difference ['Toybaco::WidgetSessionRecord.count', 'ContactInbox.count'] do
       post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
         legacy_token: token_for(other), consume_intent: @intent }, headers: headers_for, as: :json
-      assert_response :not_found
+      assert_response :success
     end
     assert_equal @links[0].id, original_row.reload.contact_inbox_id
     issue
@@ -382,7 +400,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     other = ContactInbox.create!(inbox: @widgets[0].inbox,
       contact: Contact.create!(account: @widgets[0].account), source_id: SecureRandom.uuid)
     clear_browser_cookies
-    issue(legacy: token_for(other), intent: SecureRandom.hex(32))
+    issue(link: other, intent: SecureRandom.hex(32))
     wrong_session = Toybaco::Security::WidgetHttpSession.new(Toybaco::WidgetSessionRecord.last)
     clear_browser_cookies
     # Fault injection at the child-selection boundary must not commit a grant
@@ -436,7 +454,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     proof_cookies = Array(response.headers['Set-Cookie'])
     @links[0].contact.update!(identifier: 'before-cookie-switch')
     patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
-      identifier: 'after-cookie-switch' }, headers: headers_for(@proof), as: :json
+      identifier: 'after-cookie-switch', identifier_hash: identifier_signature('after-cookie-switch') }, headers: headers_for(@proof), as: :json
     assert_response :success
     name = Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])
     assert Array(response.headers['Set-Cookie']).any? { |line| line.include?(name) }
@@ -484,7 +502,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     other = ContactInbox.create!(inbox: @widgets[0].inbox,
       contact: Contact.create!(account: @widgets[0].account), source_id: SecureRandom.uuid)
     clear_browser_cookies
-    issue(legacy: token_for(other), intent: SecureRandom.hex(32))
+    issue(link: other, intent: SecureRandom.hex(32))
     attacker = Toybaco::WidgetSessionRecord.last
     token = Toybaco::Security::WidgetHttpSession.recovery_token(attacker, expires_at: 2.hours.from_now)
     assert_raises(ActiveRecord::RecordNotFound) { victim.revoke!(token, @widgets[0]) }
@@ -499,7 +517,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     other = ContactInbox.create!(inbox: @widgets[0].inbox,
       contact: Contact.create!(account: @widgets[0].account), source_id: SecureRandom.uuid)
     clear_browser_cookies
-    issue(legacy: token_for(other), intent: SecureRandom.hex(32))
+    issue(link: other, intent: SecureRandom.hex(32))
     token = Toybaco::Security::WidgetHttpSession.recovery_token(Toybaco::WidgetSessionRecord.last, expires_at: 2.hours.from_now)
     cookies[name] = original_cookie
     contact(token)
@@ -613,7 +631,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     other = ContactInbox.create!(inbox: @widgets[0].inbox,
       contact: Contact.create!(account: @widgets[0].account), source_id: SecureRandom.uuid)
     clear_browser_cookies
-    issue(legacy: token_for(other), intent: SecureRandom.hex(32))
+    issue(link: other, intent: SecureRandom.hex(32))
     name = Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])
     current_cookie = cookies[name]
     post '/api/v1/widget/http_session/consume', params: { website_token: @widgets[0].website_token,
@@ -638,7 +656,7 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     @proof = response.parsed_body.fetch('proof')
     @links[0].contact.update!(identifier: 'before-child-switch')
     patch '/api/v1/widget/contact/set_user', params: { website_token: @widgets[0].website_token,
-      identifier: 'after-child-switch' }, headers: headers_for(@proof), as: :json
+      identifier: 'after-child-switch', identifier_hash: identifier_signature('after-child-switch') }, headers: headers_for(@proof), as: :json
     assert_response :success
     @proof = response.parsed_body.fetch('widget_auth_token')
     post '/api/v1/widget/http_session/consume', params: { website_token: @widgets[0].website_token,
@@ -718,18 +736,19 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
 
   def test_anonymous_bootstrap_retry_does_not_duplicate_contact
     assert_difference 'ContactInbox.count', 1 do
-      issue(legacy: nil)
+      issue(link: nil)
       clear_browser_cookies
-      issue(legacy: nil)
+      issue(link: nil)
     end
   end
 
-  def test_bootstrap_with_foreign_legacy_proof_never_creates_anonymous_contact
-    assert_no_difference 'ContactInbox.count' do
+  def test_bootstrap_with_foreign_legacy_proof_starts_an_unrelated_anonymous_contact
+    assert_difference 'ContactInbox.count', 1 do
       post '/api/v1/widget/http_session', params: { website_token: @widgets[0].website_token,
         legacy_token: @legacy[1], consume_intent: @intent }, headers: headers_for, as: :json
-      assert_response :not_found
+      assert_response :success
     end
+    refute_includes @links.map(&:id), Toybaco::WidgetSessionRecord.last.contact_inbox_id
   end
 
   def test_expired_record_or_suspended_account_cannot_authenticate
@@ -764,16 +783,59 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
-  def test_legacy_html_without_parent_token_continues_the_existing_http_cookie_identity
+  def test_legacy_html_remains_inert_even_with_an_existing_http_cookie_identity
     issue
     stub_widget_assets
     assert_no_difference ['Contact.count', 'ContactInbox.count'] do
       get '/widget', params: { website_token: @widgets[0].website_token }
       assert_response :success
-      assert_includes response.body, @links[0].pubsub_token
-      assert_includes response.body, 'window.toybacoHttpSessionRequested = false'
+      assert_includes response.body, 'チャットを開くには、元のページを再読み込みしてください。'
+      refute_includes response.body, @links[0].pubsub_token
+      assert_includes response.body, "window.authToken = ''"
+      assert_includes response.body, 'window.toybacoHttpSessionRequested = true'
     end
     assert_equal @links[0].id, Toybaco::WidgetSessionRecord.last.contact_inbox_id
+  end
+
+  def test_legacy_document_retires_cache_and_cookie_before_any_script_or_navigation
+    stub_widget_assets
+    [nil, 'surviving-domain-cookie'].each do |marker|
+      issue(link: nil, intent: SecureRandom.hex(32))
+      previous = Toybaco::WidgetSessionRecord.last
+      old_proof = @proof
+      assert_no_difference ['Contact.count', 'ContactInbox.count', 'Conversation.count', 'Message.count', 'Toybaco::WidgetSessionRecord.count'] do
+        get '/widget', params: { website_token: @widgets[0].website_token, cw_conversation: marker }
+      end
+      assert_response :success
+      assert_equal '"cache"', response.headers['Clear-Site-Data']
+      assert previous.reload.revoked_at.present?
+      refute cookies[Toybaco::Security::WidgetHttpSession.cookie_name(@widgets[0])].present?
+      # Abandon the legacy frame immediately; no JS timeout or DELETE runs.
+      issue(link: nil, intent: SecureRandom.hex(32))
+      refute_equal previous.contact_inbox_id, Toybaco::WidgetSessionRecord.last.contact_inbox_id
+      contact(old_proof)
+      assert_response :not_found
+      contact
+      assert_response :success
+    end
+  end
+
+  def test_current_documents_preserve_cache_and_session_continuity
+    stub_widget_assets
+    [{ toybaco_sdk: '2' }, { toybaco_popout: '2' }].each do |protocol|
+      issue(link: nil, intent: SecureRandom.hex(32))
+      previous = Toybaco::WidgetSessionRecord.last
+      get '/widget', params: { website_token: @widgets[0].website_token }.merge(protocol)
+      assert_response :success
+      assert_nil response.headers['Clear-Site-Data']
+      assert_nil previous.reload.revoked_at
+      issue(link: nil, intent: SecureRandom.hex(32))
+      assert_equal previous.id, Toybaco::WidgetSessionRecord.last.id
+      assert_nil response.headers['Clear-Site-Data']
+      readback
+      assert_equal true, response.parsed_body['persisted']
+      assert_nil response.headers['Clear-Site-Data']
+    end
   end
 
   def test_identity_rebinding_expires_old_proof_and_pending_handoff
@@ -992,10 +1054,10 @@ class ToybacoWidgetHttpSessionRuntimeTest < ActionDispatch::IntegrationTest
     end
   end
 
-  def test_secret_rotation_cookie_bootstrap_returns_a_new_key_proof_but_rejects_an_issued_legacy_token
+  def test_secret_rotation_cookie_bootstrap_ignores_legacy_tokens_under_both_keys
     expected = { bootstrap: 200, cookie_reissued: false, readback: 200, issued_legacy_bootstrap: 200 }
     assert_equal expected, cookie_bootstrap_across(rotate: false)
-    assert_equal expected.merge(issued_legacy_bootstrap: 404), cookie_bootstrap_across(rotate: true)
+    assert_equal expected, cookie_bootstrap_across(rotate: true)
   end
 
   def cookieless_bootstrap_retry_across(rotate:)
