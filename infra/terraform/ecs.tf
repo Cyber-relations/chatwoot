@@ -122,6 +122,9 @@ locals {
     { name = "DEFAULT_LOCALE", value = "ja" },
     { name = "TZ", value = "Asia/Tokyo" },
     { name = "ENABLE_ACCOUNT_SIGNUP", value = "false" },
+    # CASA: 個人API token は遮断し、device session と AgentBot の認証を維持する。
+    # 2026-11-10 にN+9配備後の監査0件と本番bot credentialのAgentBot所有を照合済み。
+    { name = "TOYBACO_PERSONAL_API_ACCESS_MODE", value = "block" },
     # CE-only 運用。EE の日次ジョブ(ReconcilePlanConfigService)が community プランの
     # ブランド設定を Chatwoot デフォルトへ強制リセットするため、EE コードを無効化する
     { name = "DISABLE_ENTERPRISE", value = "true" },

@@ -8,6 +8,10 @@ Rails.application.routes.append do
   post '/toybaco/checkout', to: 'toybaco/checkout#create'
 end
 
+# Checkout Session の URL(path の cs_… と fragment)は、その決済の page を開く鍵になる。Rails の "Redirected to" の行には
+# [FILTERED] と出す(CASA 6.5.1)。ほかの redirect の行は今のまま。
+Rails.application.config.filter_redirect << %r{\Ahttps://checkout\.stripe\.com/}
+
 Rails.application.config.to_prepare do
   next unless defined?(Rack::Attack)
 
