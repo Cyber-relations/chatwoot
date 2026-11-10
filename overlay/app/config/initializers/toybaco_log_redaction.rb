@@ -53,6 +53,12 @@ Rails.application.config.filter_parameters += [/\Acontent\z/i, /\A(?:to|cc|bcc)_
 # controller/action/status・本文以外の params は残す(全 webhook の params を落とす必要はない)。
 Rails.application.config.filter_parameters += [/\Aevents\.message\.text\z/i]
 
+# API 型の受信箱の client API の連絡先の identifier は、Started の行(LogScrub)と同じく Parameters の行にも出さない(CASA 2.1.1・6.5.1)。
+Rails.application.config.filter_parameters << Toybaco::Security::LogScrub::PUBLIC_CONTACT_PARAMETER
+# query の filter は controller を知らないので、Started の行と controller の通知の path(request.filtered_path)は、公開の連絡先の
+# path の identifier と query の source_id・contact_id を伏せてから出す。ActionDispatch の class なので読み込み時に 1 回入れる。
+ActionDispatch::Request.prepend(Toybaco::Security::LogScrub::FilteredPath)
+
 # Sidekiq の既定の error handler は job の args と生の payload を WARN に出す。args を出さない handler に置き換え、Sidekiq の
 # logger(JSON の 1 行)にも最後の網を入れる。
 Sidekiq.configure_server { |config| Toybaco::Security::SidekiqErrorLog.install(config) }
