@@ -24,8 +24,8 @@
     "run_time",
     "status"
   ],
-  "example_count": 3026,
-  "examples_sha256": "2d5a6799e3efd42ee6bd113bdcc2ee848e4ff082e8e6c5ffebfaadbd83457b46",
+  "example_count": 3027,
+  "examples_sha256": "f5b66d68063cade88da4063076a66fcc5cdd718b41f56e3e8cc422f832b694e8",
   "spec_inventory": "complete",
   "spec_files": [
     "spec/controllers/api/v1/profiles_controller_spec.rb",

@@ -1346,6 +1346,13 @@ REPLACEMENTS = {
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.IMAP.EDIT.ERROR_MESSAGE'));\n      }")
   ],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/SmtpSettings.vue' => [
+    replacement("      openSSLVerifyMode: 'none',\n", ''),
+    replacement("      openSSLVerifyModes: [\n        { key: 1, value: 'none' },\n        { key: 2, value: 'peer' },\n        { key: 3, value: 'client_once' },\n        { key: 4, value: 'fail_if_no_peer_cert' },\n      ],\n", ''),
+    replacement("        smtp_openssl_verify_mode,\n", ''),
+    replacement("      this.openSSLVerifyMode = smtp_openssl_verify_mode;\n", ''),
+    replacement("    handleSSLModeChange(mode) {\n      this.openSSLVerifyMode = mode;\n    },\n", ''),
+    replacement('smtp_openssl_verify_mode: this.openSSLVerifyMode', "smtp_openssl_verify_mode: 'peer'"),
+    replacement("        <SingleSelectDropdown\n          class=\"w-full\"\n          :label=\"$t('INBOX_MGMT.SMTP.OPEN_SSL_VERIFY_MODE')\"\n          :selected=\"openSSLVerifyMode\"\n          :options=\"openSSLVerifyModes\"\n          :action=\"handleSSLModeChange\"\n        />\n", ''),
     replacement("      } catch (error) {\n        useAlert(\n          error.message || this.$t('INBOX_MGMT.SMTP.EDIT.ERROR_MESSAGE')\n        );\n      }",
                 "      } catch {\n        useAlert(this.$t('INBOX_MGMT.SMTP.EDIT.ERROR_MESSAGE'));\n      }")
   ],
@@ -1533,7 +1540,7 @@ FORBIDDEN_VISIBLE = {
   'app/javascript/dashboard/routes/dashboard/settings/teams/Edit/EditAgents.vue' => ['useAlert(error.message)'],
   'app/javascript/dashboard/routes/dashboard/settings/labels/AddLabel.vue' => ['error.message ||'],
   'app/javascript/dashboard/routes/dashboard/settings/inbox/ImapSettings.vue' => ['useAlert(error.message)'],
-  'app/javascript/dashboard/routes/dashboard/settings/inbox/SmtpSettings.vue' => ['error.message ||'],
+  'app/javascript/dashboard/routes/dashboard/settings/inbox/SmtpSettings.vue' => ['error.message ||', 'openSSLVerifyMode', 'handleSSLModeChange'],
   'app/javascript/dashboard/routes/dashboard/settings/automation/Index.vue' =>
     ['error?.response?.data?.error'],
   'app/javascript/dashboard/routes/dashboard/settings/automation/operators.js' =>
