@@ -94,9 +94,10 @@ RSpec.describe Toybaco::Security::MailSocketGuard do
   end
 
   def smtp_client(name)
-    settings = { address: name, port: 465, open_timeout: 5, tls: true, openssl_verify_mode: 'peer', toybaco_public_destination: true }
+    settings = { address: name, port: 465, open_timeout: 5, tls: true, enable_starttls_auto: false,
+                 openssl_verify_mode: 'none', toybaco_public_destination: true }
     smtp = Mail::SMTP.new(settings).send(:build_smtp_session)
-    context = Net::SMTP.default_ssl_context
+    context = smtp.instance_variable_get(:@ssl_context_tls)
     context.cert_store = store
     smtp.enable_tls(context)
     smtp
@@ -149,6 +150,15 @@ RSpec.describe Toybaco::Security::MailSocketGuard do
       expect { smtp_client('wrong.example.test').start('fixture.test') }.to raise_error(OpenSSL::SSL::SSLError)
     end
     expect(server_names).to eq(['wrong.example.test'])
+  end
+
+  it 'rejects an untrusted SMTP certificate even when the stored verification mode is none' do
+    with_tls_server(:smtp) do
+      smtp = smtp_client(host)
+      smtp.instance_variable_get(:@ssl_context_tls).cert_store = OpenSSL::X509::Store.new
+      expect { smtp.start('fixture.test') }.to raise_error(OpenSSL::SSL::SSLError)
+    end
+    expect(server_names).to eq([host])
   end
 
   %i[imap smtp].each do |protocol|

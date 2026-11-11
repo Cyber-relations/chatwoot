@@ -1,21 +1,16 @@
 # frozen_string_literal: true
 
 module Toybaco::Security::SmtpVerifyMode
-  MODES = {
-    'none' => OpenSSL::SSL::VERIFY_NONE,
-    'peer' => OpenSSL::SSL::VERIFY_PEER,
-    'client_once' => OpenSSL::SSL::VERIFY_CLIENT_ONCE,
-    'fail_if_no_peer_cert' => OpenSSL::SSL::VERIFY_FAIL_IF_NO_PEER_CERT
-  }.freeze
-
-  def self.normalize(value)
-    name = value.to_s.downcase
-    MODES.key?(name) ? name : 'none'
+  # Older inboxes may store 'none'. Enforce peer verification when building
+  # the transport without rewriting mailbox settings or credentials.
+  def self.normalize(_value)
+    'peer'
   end
 
-  def self.context(value)
+  def self.context(_value)
     Net::SMTP.default_ssl_context.tap do |context|
-      context.verify_mode = MODES.fetch(normalize(value))
+      context.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      context.verify_hostname = true
     end
   end
 end

@@ -34,17 +34,10 @@ export default {
       domain: '',
       ssl: false,
       starttls: true,
-      openSSLVerifyMode: 'none',
       authMechanism: 'login',
       encryptionProtocols: [
         { id: 'ssl', title: 'SSL/TLS', checked: false },
         { id: 'starttls', title: 'STARTTLS', checked: true },
-      ],
-      openSSLVerifyModes: [
-        { key: 1, value: 'none' },
-        { key: 2, value: 'peer' },
-        { key: 3, value: 'client_once' },
-        { key: 4, value: 'fail_if_no_peer_cert' },
       ],
       authMechanisms: [
         { key: 1, value: 'plain' },
@@ -89,7 +82,6 @@ export default {
         smtp_domain,
         smtp_enable_starttls_auto,
         smtp_enable_ssl_tls,
-        smtp_openssl_verify_mode,
         smtp_authentication,
       } = this.inbox;
       this.isSMTPEnabled = smtp_enabled;
@@ -100,7 +92,6 @@ export default {
       this.domain = smtp_domain;
       this.starttls = smtp_enable_starttls_auto;
       this.ssl = smtp_enable_ssl_tls;
-      this.openSSLVerifyMode = smtp_openssl_verify_mode;
       this.authMechanism = smtp_authentication;
 
       this.encryptionProtocols = [
@@ -121,9 +112,6 @@ export default {
         this.starttls = true;
       }
     },
-    handleSSLModeChange(mode) {
-      this.openSSLVerifyMode = mode;
-    },
     handleAuthMechanismChange(mode) {
       this.authMechanism = mode;
     },
@@ -140,7 +128,7 @@ export default {
             smtp_domain: this.domain,
             smtp_enable_ssl_tls: this.ssl,
             smtp_enable_starttls_auto: this.starttls,
-            smtp_openssl_verify_mode: this.openSSLVerifyMode,
+            smtp_openssl_verify_mode: 'peer',
             smtp_authentication: this.authMechanism,
           },
         };
@@ -218,13 +206,6 @@ export default {
           :label="$t('INBOX_MGMT.SMTP.ENCRYPTION')"
           :items="encryptionProtocols"
           :action="handleEncryptionChange"
-        />
-        <SingleSelectDropdown
-          class="w-full"
-          :label="$t('INBOX_MGMT.SMTP.OPEN_SSL_VERIFY_MODE')"
-          :selected="openSSLVerifyMode"
-          :options="openSSLVerifyModes"
-          :action="handleSSLModeChange"
         />
         <SingleSelectDropdown
           class="w-full"
