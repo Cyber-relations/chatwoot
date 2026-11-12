@@ -184,6 +184,10 @@ locals {
     { name = "TOYBACO_WIDGET_SESSION_SECURITY_EPOCH", value = "2026-11-05T01:45:17Z" },
   ]
 
+  app_admin_mfa_environment = var.admin_mfa_required ? [
+    { name = "TOYBACO_ADMIN_MFA_REQUIRED", value = "true" },
+  ] : []
+
   # staging だけ、Rails の開通照合(Growth::OpeningTerms)へ Lambda(provision.tf)と同じ fixture 名簿を渡す。
   # 名簿が無いと staging の開通は必ず payment_mismatch になる。production のタスクにはこの変数を置かない。
   app_staging_environment = local.is_production ? [] : [
@@ -237,7 +241,7 @@ resource "aws_ecs_task_definition" "rails" {
     entryPoint       = ["docker/entrypoints/rails.sh"]
     command          = ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
     portMappings     = [{ containerPort = 3000, protocol = "tcp" }]
-    environment      = concat(local.app_environment, local.app_staging_environment)
+    environment      = concat(local.app_environment, local.app_staging_environment, local.app_admin_mfa_environment)
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])
@@ -279,7 +283,7 @@ resource "aws_ecs_task_definition" "sidekiq" {
     image            = local.chatwoot_image
     essential        = true
     command          = ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
-    environment      = concat(local.app_environment, local.app_staging_environment, [{ name = "TOYBACO_INSTAGRAM_TOKEN_REFRESH", value = var.instagram_token_refresh }])
+    environment      = concat(local.app_environment, local.app_staging_environment, local.app_admin_mfa_environment, [{ name = "TOYBACO_INSTAGRAM_TOKEN_REFRESH", value = var.instagram_token_refresh }])
     secrets          = local.app_secrets
     logConfiguration = local.log_config
   }])
@@ -339,7 +343,7 @@ resource "aws_ecs_task_definition" "migrate" {
     image     = local.chatwoot_image
     essential = true
     command   = ["bundle", "exec", "rails", "db:toybaco_prepare"]
-    environment = concat(local.app_environment, local.app_staging_environment, [
+    environment = concat(local.app_environment, local.app_staging_environment, local.app_admin_mfa_environment, [
       { name = "TOYBACO_CHATWOOT_BOOTSTRAP", value = "false" },
     ])
     secrets          = local.app_secrets

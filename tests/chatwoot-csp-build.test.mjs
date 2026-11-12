@@ -14,7 +14,6 @@ const viteRoot = path.dirname(require.resolve('vite/package.json'));
 const { build, loadConfigFromFile } = await import(pathToFileURL(path.join(viteRoot, 'dist/node/index.js')));
 const loaded = await loadConfigFromFile({ command: 'build', mode: 'production' }, path.join(root, 'vite.config.ts'));
 assert(loaded, 'actual Vite config must load');
-assert.equal(loaded.config.define.__INTLIFY_JIT_COMPILATION__, true);
 assert.equal(loaded.config.define.__INTLIFY_DROP_MESSAGE_COMPILER__, false);
 assert.equal(loaded.config.define.regeneratorRuntime, 'globalThis.regeneratorRuntime');
 assert.equal(loaded.config.resolve.alias.vue, 'vue/dist/vue.runtime.esm-bundler.js');
@@ -25,6 +24,8 @@ try {
     import { createI18n } from 'vue-i18n';
     const i18n = createI18n({legacy: false, locale: 'en', fallbackLocale: 'en',
       missingWarn: false, fallbackWarn: false,
+      messageCompiler: __TOYBACO_UNSAFE_I18N_COMPILER__
+        ? () => new Function('ctx', 'return ctx.named("name")') : undefined,
       messages: {en: {greeting: 'Hello {name}', apples: 'no apples | one apple | {count} apples'},
                  ja: {greeting: '\\u3053\\u3093\\u306b\\u3061\\u306f {name}'}}});
     const interpolate = i18n.global.t('greeting', {name: 'Ada'});
@@ -34,16 +35,23 @@ try {
     const fallback = i18n.global.t('apples', 2);
     i18n.global.mergeLocaleMessage('ja', {fromApi: 'Dynamic {value}'});
     const dynamic = i18n.global.t('fromApi', {value: 'message'});
-    globalThis.__CSP_RESULTS__ = {interpolate, plural, japanese, fallback, dynamic};
+    const survey = createI18n({locale: 'ja', messages: {ja: {feedback: '{inboxName} feedback'}}});
+    const legacySurvey = survey.global.t('feedback', {inboxName: 'Fixture inbox'});
+    const html = createI18n({legacy: false, locale: 'en', escapeParameter: true, warnHtmlMessage: false,
+      messages: {en: {named: '<iframe srcdoc="{payload}"></iframe>', list: '<iframe srcdoc="{0}"></iframe>'}}});
+    const payload = '<script>globalThis.__UNSAFE_TRANSLATION__=true</script>';
+    const namedHtml = html.global.t('named', {payload});
+    const listHtml = html.global.t('list', [payload]);
+    globalThis.__CSP_RESULTS__ = {interpolate, plural, japanese, fallback, dynamic, legacySurvey, namedHtml, listHtml};
   `);
-  const bundle = async jit => {
+  const bundle = async unsafeCompiler => {
     const output = await build({
       root, configFile: false, logLevel: 'error',
       // Library-mode probes retain process.env by default, unlike the browser
       // application build. Bind just its production literal; do not grant the
       // isolated V8 context a host process / environment object.
       define: {...loaded.config.define, 'process.env.NODE_ENV': JSON.stringify('production'),
-        __INTLIFY_JIT_COMPILATION__: jit},
+        __TOYBACO_UNSAFE_I18N_COMPILER__: unsafeCompiler},
       resolve: loaded.config.resolve,
       build: {write: false, minify: 'esbuild', target: 'es2022',
         lib: {entry, formats: ['iife'], name: 'ToybacoCspBuildProbe'},
@@ -62,15 +70,26 @@ try {
     return context.__CSP_RESULTS__;
   };
   assert.equal(run('globalThis.__CSP_RESULTS__ = typeof process'), 'undefined');
-  // Negative controls execute the real pre-JIT compiler, not a mocked Function.
+  // v11 always compiles messages to an AST; the old JIT=false flag no longer
+  // selects an unsafe compiler. Exercise its actual custom-compiler hook and
+  // V8's real Function instead, keeping the dynamic-code negative control.
   assert.throws(() => run('new Function("return 1")()'), /Code generation from strings disallowed/);
-  const nonJit = await bundle(false);
-  assert.throws(() => run(nonJit), /Code generation from strings disallowed/);
-  const result = run(await bundle(true));
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+  const unsafeCompiler = await bundle(true);
+  assert.throws(() => run(unsafeCompiler), /Code generation from strings disallowed/);
+  const result = JSON.parse(JSON.stringify(run(await bundle(false))));
+  const {namedHtml, listHtml, ...translations} = result;
+  assert.deepEqual(translations, {
     interpolate: 'Hello Ada', plural: '2 apples', japanese: '\u3053\u3093\u306b\u3061\u306f Ada',
-    fallback: '2 apples', dynamic: 'Dynamic message',
+    fallback: '2 apples', dynamic: 'Dynamic message', legacySurvey: 'Fixture inbox feedback',
   });
+  // GHSA-83rm-6c8r-g728: check what the HTML parser receives, including entity
+  // decoding, rather than accepting an apparently escaped srcdoc string.
+  for (const translatedHtml of [namedHtml, listHtml]) {
+    assert.equal(typeof translatedHtml, 'string');
+    const fragment = JSDOM.fragment(translatedHtml);
+    assert.equal(fragment.querySelectorAll('iframe').length, 1, 'HTML translation must actually render the fixture');
+    assert.equal(fragment.querySelector('script, [srcdoc]'), null, 'translation must not retain executable iframe content');
+  }
   const portal = fs.readFileSync(path.join(root, 'app/javascript/portal/portalHelpers.js'), 'utf8');
   assert.doesNotMatch(portal, /\btemplate\s*:/);
   for (const component of ['PublicArticleSearch', 'TableOfContents', 'SidebarThemeToggle']) {
@@ -241,7 +260,7 @@ try {
   console.log('TOYBACO_CSP_PORTAL=PASS actual_helper=true real_sfc_roots=3 mounted_search=2 toc=1 theme=1 network=0 negatives=1');
   console.log('TOYBACO_CSP_IMAGE_DIMENSIONS=PASS actual_formatter=true actual_dompurify=true positives=8 rejected_values=12 old_source_negative=1');
   console.log('TOYBACO_CSP_REGENERATOR=PASS actual_dependency=true global_registration=explicit no_vm_seed=true old_define_negative=1');
-  console.log('TOYBACO_CSP_BUILD=PASS real_i18n=5 render_roots=3 no_string_codegen=true negatives=2');
+  console.log('TOYBACO_CSP_BUILD=PASS real_i18n=8 render_roots=3 no_string_codegen=true negatives=2 srcdoc_paths=2');
   // Execute the actual administrative asset. Fixed buttons use DOM events;
   // no string handlers, host environment, clipboard, or customer values are used.
   const handlers = [];
