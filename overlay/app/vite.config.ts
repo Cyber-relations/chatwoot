@@ -9,10 +9,9 @@ export default defineConfig({
   // The gzip-size table compresses every chunk concurrently. Skip this
   // reporting-only work; assets, source maps and checks stay unchanged.
   build: { reportCompressedSize: false },
-  // Vue I18n 9.14.5: interpret message ASTs instead of new Function(). Keep
+  // Vue I18n 11 always interprets message ASTs without new Function(). Keep
   // the message parser so API-delivered and tenant-local messages still work.
   define: {
-    __INTLIFY_JIT_COMPILATION__: true,
     __INTLIFY_DROP_MESSAGE_COMPILER__: false,
     // @chatwoot/utils 0.0.57 embeds an older regenerator runtime whose
     // strict-mode global assignment falls back to Function(). Register the
