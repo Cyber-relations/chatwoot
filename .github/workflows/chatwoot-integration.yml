@@ -520,8 +520,8 @@ jobs:
               source_ref:"refs/heads/main",control_sha256:$control,trivy_image:$trivy,
               db_download_started_at:$started,issued_at:$issued}' > "$security/context.json"
           # This is an independent source-backport classification, not a Trivy-filtered scan.
-          # Exactly seven proved fixed findings are allowed: ruby_llm CVE-2026-67987 / 67989 / 67991 and Rails 7.2.3.2
-          # GHSA-8474-xrp6-wh69 / GHSA-wm3x-v3qw-4jh3 / GHSA-f3w6-w445-fwh9 / GHSA-v924-7rp8-4mxh; every other HIGH/CRITICAL still fails.
+          # All seven canonical findings remain required; the two reviewed Rails CVE aliases may additionally occur once.
+          # Exact package/version/severity/fix/proof checks apply to every raw row; any unreviewed HIGH/CRITICAL still fails.
           node scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \
             "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json
 

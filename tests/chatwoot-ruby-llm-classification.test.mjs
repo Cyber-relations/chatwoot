@@ -149,6 +149,64 @@ const emptyArchResult = evaluate(observedEmptyArch);
 assert.equal(emptyArchResult.classification.bindings.root_purl, emptyArchPurl);
 assert.ok(emptyArchResult.vex.statements.every(s => s.products[0]['@id'] === emptyArchPurl));
 assert.deepEqual(emptyArchResult.classification.counts, result.classification.counts);
+// The raw additions observed in publisher 43236553283; these literals are independent of the evaluator's alias map.
+const observedAliases = [
+  ['CVE-2026-126080', 'GHSA-8474-xrp6-wh69', 'activesupport', '210ac22d446c8e2625b091e79256806b836eee20'],
+  ['CVE-2026-126186', 'GHSA-v924-7rp8-4mxh', 'activestorage', '8106938fb0a595f11006dd1497cd409e27d7d636'],
+];
+export function addObservedRailsAliases(report, aliases = observedAliases) {
+  for (const [id, , gem] of aliases) report.Results[1].Vulnerabilities.push({
+    VulnerabilityID: id, Severity: 'HIGH', PkgName: gem, InstalledVersion: '7.2.3.2', FixedVersion: '8.1.4.1, 8.0.5.2',
+    PkgPath: railsSpec(gem).slice(1), PkgIdentifier: { PURL: railsPurl(gem), UID: gem + '-id' },
+  });
+}
+for (const aliases of [observedAliases, ...observedAliases.map(alias => [alias])]) {
+  const input = fixture(); addObservedRailsAliases(input.raw, aliases);
+  input.raw.Results[1].Vulnerabilities.reverse();
+  const original = clone(input.raw), output = evaluate(input), count = 7 + aliases.length;
+  assert.deepEqual(output.classification.counts, { raw_critical: 1, raw_high: count - 1, source_verified_fixed: count,
+    unresolved_critical: 0, unresolved_high: 0 });
+  assert.deepEqual(input.raw, original); assert.deepEqual(output.classification.raw_report, original);
+  assert.equal(output.classification.policy, 'toybaco-chatwoot-source-backport-v4');
+  assert.equal(output.vex.statements.length, count, 'every raw ID gets its own digest-bound VEX statement');
+  for (const [id, canonical, gem, fix] of aliases) {
+    const row = output.classification.evaluated_findings.find(row => row.finding.VulnerabilityID === id);
+    assert.equal(row.canonical_advisory, canonical); assert.equal(row.upstream_fix_commit, fix);
+    const statement = output.vex.statements.find(statement => statement.vulnerability.name === id);
+    assert.equal(statement.status, 'fixed');
+    assert.deepEqual(statement.products[0].subcomponents, [{ '@id': railsPurl(gem) }]);
+    assert.ok(statement.status_notes.includes(canonical)); assert.ok(statement.status_notes.includes(fix));
+    assert.ok(statement.status_notes.includes(input.hashes.installed_rails_proof));
+  }
+  const ids = output.classification.evaluated_findings.map(row => row.finding.VulnerabilityID);
+  const verify = vex => validateVex(vex, output.classification.bindings, input.context,
+    input.hashes.installed_proof, input.hashes.installed_rails_proof, ids);
+  verify(output.vex);
+  const missing = clone(output.vex); missing.statements.pop(); assert.throws(() => verify(missing));
+  const wrong = clone(output.vex); wrong.statements.at(-1).status_notes = 'unverified alias'; assert.throws(() => verify(wrong));
+}
+for (const alias of observedAliases) {
+  const [id, canonical] = alias;
+  for (const [label, mutate] of [
+    ['duplicate alias', (x, row) => x.raw.Results[1].Vulnerabilities.push(clone(row))],
+    ['unknown alias', (_x, row) => { row.VulnerabilityID = 'CVE-2026-999999'; }],
+    ['wrong package', (_x, row) => { row.PkgName = 'actionview'; }],
+    ['wrong version', (_x, row) => { row.InstalledVersion = '7.2.3.1'; }],
+    ['wrong fixed range', (_x, row) => { row.FixedVersion = '>= 7.2.3.3'; }],
+    ['wrong severity', (_x, row) => { row.Severity = 'CRITICAL'; }],
+    ['wrong purl', (_x, row) => { row.PkgIdentifier.PURL = 'pkg:gem/actionview@7.2.3.2'; }],
+    ['wrong instance', (_x, row) => { row.PkgIdentifier.UID = 'other'; }],
+    ['wrong path', (_x, row) => { row.PkgPath = '/other/spec.gemspec'; }],
+    ['alias replaces canonical', x => { x.raw.Results[1].Vulnerabilities = x.raw.Results[1].Vulnerabilities.filter(row => row.VulnerabilityID !== canonical); }],
+    ['alias without source proof', x => { x.railsProof.files.find(file => file.advisory === canonical).sha256 = '0'.repeat(64); }],
+    ['alias hides unknown finding', x => { x.raw.Results[0].Vulnerabilities = [{ VulnerabilityID: 'CVE-2099-1', Severity: 'HIGH' }]; }],
+  ]) {
+    const input = fixture(); addObservedRailsAliases(input.raw);
+    const row = input.raw.Results[1].Vulnerabilities.find(row => row.VulnerabilityID === id);
+    mutate(input, row); assert.throws(() => evaluate(input), id + ': ' + label);
+  }
+}
+console.log('Chatwoot Rails aliases: PASS (two observed aliases, 7/8/9 raw findings, VEX coverage, 24 negative cases)');
 const negatives = [
   ['missing proof', x => { x.proof = null; }],
   ['wrong source commit', x => { x.proof.public_revision = '0'.repeat(40); }],

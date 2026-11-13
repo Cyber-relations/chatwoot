@@ -51,6 +51,26 @@ const EXPECTED_FINDINGS = Object.freeze([
     fixed: RAILS_FIXED_RANGE, purl: railsPurl(RAILS_GEM_OF[id]), spec: railsSpec(RAILS_GEM_OF[id]), fix: RAILS_FIXES[id] })),
 ]);
 export const ADVISORIES = Object.freeze(EXPECTED_FINDINGS.map(finding => finding.id));
+// Rails' official advisories identify these two CVEs as aliases (reviewed 2026-11-12).
+// Trivy's newer DB emits them in addition to the GHSAs, with this exact fixed-version spelling.
+// They never substitute for a missing canonical finding or authorize another package/version.
+export const RAILS_ALIASES = Object.freeze({
+  'CVE-2026-126080': 'GHSA-8474-xrp6-wh69',
+  'CVE-2026-126186': 'GHSA-v924-7rp8-4mxh',
+});
+const REVIEWED_FINDINGS = Object.freeze([
+  ...EXPECTED_FINDINGS,
+  ...Object.entries(RAILS_ALIASES).map(([id, canonical_id]) => Object.freeze({
+    ...EXPECTED_FINDINGS.find(finding => finding.id === canonical_id),
+    id, canonical_id, fixed: '8.1.4.1, 8.0.5.2',
+  })),
+]);
+function reviewedFindings(ids) {
+  assert.equal(new Set(ids).size, ids.length, 'each raw advisory ID occurs once');
+  assert.ok(ids.every(id => REVIEWED_FINDINGS.some(finding => finding.id === id)), 'unreviewed advisory ID');
+  assert.ok(ADVISORIES.every(id => ids.includes(id)), 'all seven canonical advisories remain required');
+  return REVIEWED_FINDINGS.filter(finding => ids.includes(finding.id));
+}
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => JSON.stringify(sort(value));
 function sort(value) {
@@ -310,7 +330,7 @@ export function validateDatabase(db, context) {
 }
 
 export function validateRawReport(report, exitStatus) {
-  assert.equal(exitStatus, 1, 'raw scanner must have the seven expected HIGH/CRITICAL findings and exit 1');
+  assert.equal(exitStatus, 1, 'raw scanner must report the reviewed HIGH/CRITICAL findings and exit 1');
   assert.equal(report.SchemaVersion, 2);
   assert.equal(report.Metadata.OS.Family, 'alpine');
   assert.equal(report.Metadata.OS.Name, ALPINE_RELEASE);
@@ -321,8 +341,7 @@ export function validateRawReport(report, exitStatus) {
   }
   assert.equal(results.flatMap(r => r.ExperimentalModifiedFindings || []).length, 0, 'no prefiltered findings');
   const rows = results.flatMap(r => (r.Vulnerabilities || []).map(f => ({ result: r, finding: f })));
-  assert.equal(rows.length, EXPECTED_FINDINGS.length, 'exactly seven raw HIGH/CRITICAL findings');
-  equal(rows.map(row => row.finding.VulnerabilityID).sort(), [...ADVISORIES].sort(), 'exactly the reviewed advisories, once each');
+  const expectedFindings = reviewedFindings(rows.map(row => row.finding.VulnerabilityID));
   const scanned = {};
   for (const expected of EXPECTED_FINDINGS) {
     if (scanned[expected.name]) continue;
@@ -332,7 +351,7 @@ export function validateRawReport(report, exitStatus) {
     if (pkg.FilePath) assert.equal(pkg.FilePath.replace(/^\//, ''), expected.spec.slice(1));
     scanned[expected.name] = pkg;
   }
-  return EXPECTED_FINDINGS.map(expected => {
+  return expectedFindings.map(expected => {
     const { result, finding } = one(rows.filter(row => row.finding.VulnerabilityID === expected.id), 'one raw finding for ' + expected.id);
     const pkg = scanned[expected.name];
     assert.equal(result.Class, 'lang-pkgs');
@@ -344,11 +363,11 @@ export function validateRawReport(report, exitStatus) {
     assert.ok(finding.PkgPath === undefined || finding.PkgPath === '' ||
       finding.PkgPath.replace(/^\//, '') === expected.spec.slice(1), 'unexpected affected package path');
     assert.ok(pkg.Identifier.UID && pkg.Identifier.UID === finding.PkgIdentifier.UID, 'finding refers to inventoried gem');
-    return { target: result.Target, type: result.Type, finding };
+    return { target: result.Target, type: result.Type, finding, canonical_advisory: expected.canonical_id || expected.id };
   });
 }
 
-export function makeVex(binding, context, preparedSha, railsPreparedSha) {
+export function makeVex(binding, context, preparedSha, railsPreparedSha, findingIds = ADVISORIES) {
   const statement = (id, subcomponent, notes) => ({
     vulnerability: { name: id },
     products: [{ '@id': binding.root_purl,
@@ -360,16 +379,14 @@ export function makeVex(binding, context, preparedSha, railsPreparedSha) {
   return { '@context': VEX_TYPE,
     '@id': 'https://toybaco.jp/security/vex/' + context.image_digest.slice(7) + '/chatwoot-source-backports',
     author: 'https://github.com/Cyber-relations', role: 'Product Security',
-    timestamp: context.issued_at, version: 1, statements: [
-      ...CVES.map(id => statement(id, GEM_PURL, 'Official fix backport ' + FIXES[id] + '; exact-image proof SHA256 ' + hash(preparedSha) +
-        '. ruby_llm remains 1.15.0; raw scanner still reports the version-based finding.')),
-      ...RAILS_ADVISORIES.map(id => statement(id, railsPurl(RAILS_GEM_OF[id]), 'Official fix backport ' + RAILS_FIXES[id] +
-        '; exact-image proof SHA256 ' + hash(railsPreparedSha) + '. ' + RAILS_GEM_OF[id] + ' remains ' + RAILS_VERSION +
-        '; raw scanner still reports the version-based finding.')),
-    ] };
+    timestamp: context.issued_at, version: 1, statements: reviewedFindings(findingIds).map(finding =>
+      statement(finding.id, finding.purl, 'Official fix backport ' + finding.fix + '; exact-image proof SHA256 ' +
+        hash(finding.name === 'ruby_llm' ? preparedSha : railsPreparedSha) + '. ' + finding.name + ' remains ' + finding.version +
+        '; raw scanner still reports the version-based finding.' +
+        (finding.canonical_id ? ' Reviewed alias of ' + finding.canonical_id + '.' : ''))) };
 }
-export function validateVex(vex, binding, context, preparedSha, railsPreparedSha) {
-  equal(vex, makeVex(binding, context, preparedSha, railsPreparedSha), 'only generated exact-artifact fixed VEX accepted');
+export function validateVex(vex, binding, context, preparedSha, railsPreparedSha, findingIds = ADVISORIES) {
+  equal(vex, makeVex(binding, context, preparedSha, railsPreparedSha, findingIds), 'only generated exact-artifact fixed VEX accepted');
 }
 
 function regular(path) {
@@ -432,11 +449,12 @@ export function evaluate(input) {
   equal(before, after, 'frozen database unchanged through raw scan');
   const findings = validateRawReport(raw, rawExit);
   for (const value of Object.values(hashes)) hash(value);
-  const vex = makeVex(binding, context, hashes.installed_proof, hashes.installed_rails_proof);
+  const vex = makeVex(binding, context, hashes.installed_proof, hashes.installed_rails_proof,
+    findings.map(row => row.finding.VulnerabilityID));
   const severities = findings.map(row => row.finding.Severity);
   const classification = {
     schema_version: 2, result: 'PASS',
-    policy: 'toybaco-chatwoot-source-backport-v3',
+    policy: 'toybaco-chatwoot-source-backport-v4',
     evaluator: 'scripts/verify-chatwoot-ruby-llm-classification.mjs',
     evaluation_kind: 'independent_source_backport_classification',
     scanner_vex_filtering: false,
@@ -454,8 +472,8 @@ export function evaluate(input) {
     ], database: before },
     installed_source_proof: proof,
     installed_rails_source_proof: railsProof,
-    evaluated_findings: findings.map((finding, index) => ({ status: 'fixed', basis: 'verified_official_fix_backport',
-      upstream_fix_commit: EXPECTED_FINDINGS[index].fix, ...finding })),
+    evaluated_findings: findings.map(finding => ({ status: 'fixed', basis: 'verified_official_fix_backport',
+      upstream_fix_commit: EXPECTED_FINDINGS.find(expected => expected.id === finding.canonical_advisory).fix, ...finding })),
     unresolved_findings: [],
     raw_report: raw,
     openvex: vex,
@@ -508,7 +526,10 @@ function main() {
     const result = recompute();
     writeExclusive(join(dir, 'openvex.json'), result.vex);
     writeExclusive(join(dir, 'source-backport-classification.json'), result.classification);
-    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=1 RAW_HIGH=6 SOURCE_VERIFIED_FIXED=7 UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
+    const counts = result.classification.counts;
+    console.log('TOYBACO_CHATWOOT_BACKPORT_CLASSIFICATION=PASS RAW_CRITICAL=' + counts.raw_critical +
+      ' RAW_HIGH=' + counts.raw_high + ' SOURCE_VERIFIED_FIXED=' + counts.source_verified_fixed +
+      ' UNRESOLVED_CRITICAL=0 UNRESOLVED_HIGH=0');
     return;
   }
   if (mode === 'verify-attestations') {
@@ -517,7 +538,7 @@ function main() {
     equal(classification, expected.classification, 'classification inputs or evidence changed');
     equal(vex, expected.vex, 'VEX inputs or evidence changed');
     validateVex(vex, classification.bindings, context, classification.bindings.installed_proof,
-      classification.bindings.installed_rails_proof);
+      classification.bindings.installed_rails_proof, expected.classification.evaluated_findings.map(row => row.finding.VulnerabilityID));
     equal(classification.openvex, vex);
     verifyAttestations(read('verified-openvex.json'), VEX_TYPE, vex, context);
     verifyAttestations(read('verified-source-backport.json'), PROOF_TYPE, classification, context);

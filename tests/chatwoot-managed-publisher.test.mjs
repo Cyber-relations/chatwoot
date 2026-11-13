@@ -1852,7 +1852,7 @@ const scanRun = stepRun(workflow, '固定Trivyの生結果と実imageのRubyLLM 
 const imageName = '951034765053.dkr.ecr.ap-northeast-1.amazonaws.com/toybaco/chatwoot';
 const digest = 'sha256:' + 'a'.repeat(64);
 
-const { classificationFixture } = await import(join(root, 'tests/chatwoot-ruby-llm-classification.test.mjs'));
+const { classificationFixture, addObservedRailsAliases } = await import(join(root, 'tests/chatwoot-ruby-llm-classification.test.mjs'));
 // The fixture's OS package as pinned Syft writes a renamed Alpine package: the source only as purl upstream= and its own
 // provenance as sourceInfo. The supplement replaces that sourceInfo in the scanned copy only.
 const SOURCE_SYFT_INFO = 'acquired package info from APK DB: /lib/apk/db/installed';
@@ -1978,8 +1978,10 @@ process.exit(98);
       assert.equal(proof.bindings.sbom, createHash('sha256').update(attested).digest('hex'), 'the classification binds the attested SBOM');
       assert.equal(proof.scanner_vex_filtering, false);
       assert.equal(proof.counts.raw_critical, 1);
-      assert.equal(proof.counts.raw_high, 6);
-      assert.equal(proof.counts.source_verified_fixed, 7);
+      const rawCount = report.Results.flatMap(result => result.Vulnerabilities || []).length;
+      assert.equal(proof.counts.raw_high, rawCount - 1);
+      assert.equal(proof.counts.source_verified_fixed, rawCount);
+      assert.ok(result.stdout.includes('RAW_CRITICAL=1 RAW_HIGH=' + (rawCount - 1) + ' SOURCE_VERIFIED_FIXED=' + rawCount));
       assert.deepEqual(proof.installed_rails_source_proof, fixture.railsProof, 'the classification carries the exact Rails proof');
       assert.equal(proof.bindings.installed_rails_proof,
         createHash('sha256').update(readFileSync(join(directory, 'chatwoot-source-backport/installed-rails-proof.json'))).digest('hex'));
@@ -2019,6 +2021,16 @@ process.exit(98);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 executePolicy('exact image, raw HIGH and complete source proof authorize only the backport classification', () => {}, true);
+executePolicy('observed Rails CVE aliases retain raw evidence and verify both signed predicates',
+  (_sbom, report) => addObservedRailsAliases(report), true);
+executePolicy('alias cannot replace its required canonical finding', (_sbom, report) => {
+  addObservedRailsAliases(report);
+  report.Results[1].Vulnerabilities = report.Results[1].Vulnerabilities.filter(row => row.VulnerabilityID !== 'GHSA-8474-xrp6-wh69');
+}, false);
+executePolicy('alias cannot hide another HIGH finding', (_sbom, report) => {
+  addObservedRailsAliases(report);
+  report.Results[0].Vulnerabilities = [{ VulnerabilityID: 'CVE-2099-1', Severity: 'HIGH' }];
+}, false);
 for (const [label, change] of [
   ['wrong manifest checksum', sbom => { sbom.packages[0].checksums[0].checksumValue = 'c'.repeat(64); }],
   ['wrong requested digest', sbom => { sbom.packages[0].versionInfo = 'sha256:' + 'b'.repeat(64); }],
