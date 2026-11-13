@@ -70,6 +70,20 @@ review 済みの一覧は `config/chatwoot-runtime-apk.txt` に置く(`name=vers
 - **package の足し引き**: image を build して `apk info -v` から一覧を作り直し、review する。
 - **公開 repo**: 一覧・下限の表・許可の一覧・検証 script・その単体試験・この文書は control の名簿に入り、公開同期で届く。表の完全一致の試験(`tests/ops-chatwoot-alpine-status.test.mjs`)と advisory-watch の fixture は、private の repo の試験として残る(control に入らない)。`.github/workflows/chatwoot-integration.yml` は同期の対象外なので、公開同期の PR で同じ差分(push の paths に 2 つの表を足す行など)を手で当てる。
 
+### Bundlerで固定したgemの検査停止
+
+2026-11-13 の公開 publisher `43378184002` は、`msgpack 1.8.3` の
+`CVE-2026-126366` を新たに検出して停止した。[公式 advisory](https://github.com/msgpack/msgpack-ruby/security/advisories/GHSA-73v3-wf97-vpgj)
+の対象は JRuby の Java decoder で、出荷する CRuby とは異なる。修正版 `1.8.7` が公開済みのため、
+対象外の例外を追加せず、overlay の `Gemfile.lock` を `1.8.7` へ更新する。
+[RubyGems の metadata](https://rubygems.org/api/v2/rubygems/msgpack/versions/1.8.7.json)では
+runtime 依存は無く、既存の依存元の制約内である。overlay manifest も同じ lockfile の hash に更新し、
+通常の品質 gate で native 拡張の再構築とアプリの検証を行い、publisher の生結果・署名まで確認する。
+
+`unreviewed advisory ID` は既知の advisory の別名とは限らない。最初または最後の行だけで原因を確定せず、保存された raw report 全件の ID・package・severity と総数を列挙し、未解決 ID をすべて分類してから修正を公開する。新しい停止では package・version・
+platform と公式の修正版を照合し、別名の許可へ流用しない。新しい配布物が全 gate に合格するまで、
+失敗した run の image を配備しない。
+
 ## 期限
 
 | 期限 | 内容 |

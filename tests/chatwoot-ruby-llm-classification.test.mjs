@@ -149,22 +149,26 @@ const emptyArchResult = evaluate(observedEmptyArch);
 assert.equal(emptyArchResult.classification.bindings.root_purl, emptyArchPurl);
 assert.ok(emptyArchResult.vex.statements.every(s => s.products[0]['@id'] === emptyArchPurl));
 assert.deepEqual(emptyArchResult.classification.counts, result.classification.counts);
-// The raw additions observed in publisher 43236553283; these literals are independent of the evaluator's alias map.
+// The raw additions observed in publishers 43236553283 and 43378184002; these literals are independent of the evaluator's alias map.
 const observedAliases = [
-  ['CVE-2026-126080', 'GHSA-8474-xrp6-wh69', 'activesupport', '210ac22d446c8e2625b091e79256806b836eee20'],
-  ['CVE-2026-126186', 'GHSA-v924-7rp8-4mxh', 'activestorage', '8106938fb0a595f11006dd1497cd409e27d7d636'],
+  ['CVE-2026-126080', 'GHSA-8474-xrp6-wh69', 'activesupport', '210ac22d446c8e2625b091e79256806b836eee20', 'HIGH'],
+  ['CVE-2026-126186', 'GHSA-v924-7rp8-4mxh', 'activestorage', '8106938fb0a595f11006dd1497cd409e27d7d636', 'HIGH'],
+  ['CVE-2026-126081', 'GHSA-wm3x-v3qw-4jh3', 'actionpack', '2fc8838300133931e19eed3ea6cee76a7e83f19c', 'HIGH'],
+  ['CVE-2026-122006', 'GHSA-f3w6-w445-fwh9', 'activestorage', 'ea8c40121ce53a3d0255cd4eb6d13bfe3bc01776', 'CRITICAL'],
 ];
 export function addObservedRailsAliases(report, aliases = observedAliases) {
-  for (const [id, , gem] of aliases) report.Results[1].Vulnerabilities.push({
-    VulnerabilityID: id, Severity: 'HIGH', PkgName: gem, InstalledVersion: '7.2.3.2', FixedVersion: '8.1.4.1, 8.0.5.2',
+  for (const [id, , gem, , severity] of aliases) report.Results[1].Vulnerabilities.push({
+    VulnerabilityID: id, Severity: severity, PkgName: gem, InstalledVersion: '7.2.3.2', FixedVersion: '8.1.4.1, 8.0.5.2',
     PkgPath: railsSpec(gem).slice(1), PkgIdentifier: { PURL: railsPurl(gem), UID: gem + '-id' },
   });
 }
-for (const aliases of [observedAliases, ...observedAliases.map(alias => [alias])]) {
+for (let mask = 0; mask < 2 ** observedAliases.length; mask++) {
+  const aliases = observedAliases.filter((_alias, index) => mask & (1 << index));
   const input = fixture(); addObservedRailsAliases(input.raw, aliases);
   input.raw.Results[1].Vulnerabilities.reverse();
   const original = clone(input.raw), output = evaluate(input), count = 7 + aliases.length;
-  assert.deepEqual(output.classification.counts, { raw_critical: 1, raw_high: count - 1, source_verified_fixed: count,
+  const criticalCount = 1 + aliases.filter(alias => alias[4] === 'CRITICAL').length;
+  assert.deepEqual(output.classification.counts, { raw_critical: criticalCount, raw_high: count - criticalCount, source_verified_fixed: count,
     unresolved_critical: 0, unresolved_high: 0 });
   assert.deepEqual(input.raw, original); assert.deepEqual(output.classification.raw_report, original);
   assert.equal(output.classification.policy, 'toybaco-chatwoot-source-backport-v4');
@@ -193,7 +197,7 @@ for (const alias of observedAliases) {
     ['wrong package', (_x, row) => { row.PkgName = 'actionview'; }],
     ['wrong version', (_x, row) => { row.InstalledVersion = '7.2.3.1'; }],
     ['wrong fixed range', (_x, row) => { row.FixedVersion = '>= 7.2.3.3'; }],
-    ['wrong severity', (_x, row) => { row.Severity = 'CRITICAL'; }],
+    ['wrong severity', (_x, row) => { row.Severity = row.Severity === 'CRITICAL' ? 'HIGH' : 'CRITICAL'; }],
     ['wrong purl', (_x, row) => { row.PkgIdentifier.PURL = 'pkg:gem/actionview@7.2.3.2'; }],
     ['wrong instance', (_x, row) => { row.PkgIdentifier.UID = 'other'; }],
     ['wrong path', (_x, row) => { row.PkgPath = '/other/spec.gemspec'; }],
@@ -206,7 +210,17 @@ for (const alias of observedAliases) {
     mutate(input, row); assert.throws(() => evaluate(input), id + ': ' + label);
   }
 }
-console.log('Chatwoot Rails aliases: PASS (two observed aliases, 7/8/9 raw findings, VEX coverage, 24 negative cases)');
+console.log('Chatwoot Rails aliases: PASS (four observed aliases, all 16 subsets, 7..11 raw findings, VEX coverage, 48 negative cases)');
+// One failed scan can have several new IDs; report all of them, including an unrelated dependency finding.
+const unreviewed = fixture(); addObservedRailsAliases(unreviewed.raw);
+unreviewed.raw.Results[1].Vulnerabilities.push(
+  { VulnerabilityID: 'CVE-2026-126366', Severity: 'HIGH', PkgName: 'msgpack', InstalledVersion: '1.8.3' },
+  { VulnerabilityID: 'CVE-2099-1', Severity: 'CRITICAL' });
+assert.throws(() => evaluate(unreviewed), error => {
+  assert.match(error.message, /unreviewed advisory IDs/);
+  assert.deepEqual(error.actual, ['CVE-2026-126366', 'CVE-2099-1']);
+  return true;
+});
 const negatives = [
   ['missing proof', x => { x.proof = null; }],
   ['wrong source commit', x => { x.proof.public_revision = '0'.repeat(40); }],

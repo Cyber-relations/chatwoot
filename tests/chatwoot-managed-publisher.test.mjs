@@ -1977,11 +1977,13 @@ process.exit(98);
       assert.deepEqual(proof.raw_report, report, 'raw report is retained truthfully');
       assert.equal(proof.bindings.sbom, createHash('sha256').update(attested).digest('hex'), 'the classification binds the attested SBOM');
       assert.equal(proof.scanner_vex_filtering, false);
-      assert.equal(proof.counts.raw_critical, 1);
-      const rawCount = report.Results.flatMap(result => result.Vulnerabilities || []).length;
-      assert.equal(proof.counts.raw_high, rawCount - 1);
+      const rawRows = report.Results.flatMap(result => result.Vulnerabilities || []);
+      const rawCount = rawRows.length;
+      const criticalCount = rawRows.filter(row => row.Severity === 'CRITICAL').length;
+      assert.equal(proof.counts.raw_critical, criticalCount);
+      assert.equal(proof.counts.raw_high, rawCount - criticalCount);
       assert.equal(proof.counts.source_verified_fixed, rawCount);
-      assert.ok(result.stdout.includes('RAW_CRITICAL=1 RAW_HIGH=' + (rawCount - 1) + ' SOURCE_VERIFIED_FIXED=' + rawCount));
+      assert.ok(result.stdout.includes('RAW_CRITICAL=' + criticalCount + ' RAW_HIGH=' + (rawCount - criticalCount) + ' SOURCE_VERIFIED_FIXED=' + rawCount));
       assert.deepEqual(proof.installed_rails_source_proof, fixture.railsProof, 'the classification carries the exact Rails proof');
       assert.equal(proof.bindings.installed_rails_proof,
         createHash('sha256').update(readFileSync(join(directory, 'chatwoot-source-backport/installed-rails-proof.json'))).digest('hex'));
