@@ -51,12 +51,15 @@ const EXPECTED_FINDINGS = Object.freeze([
     fixed: RAILS_FIXED_RANGE, purl: railsPurl(RAILS_GEM_OF[id]), spec: railsSpec(RAILS_GEM_OF[id]), fix: RAILS_FIXES[id] })),
 ]);
 export const ADVISORIES = Object.freeze(EXPECTED_FINDINGS.map(finding => finding.id));
-// Rails' official advisories identify these two CVEs as aliases (reviewed 2026-11-12).
+// Rails and GitHub's reviewed advisory database identify these CVEs with the same four fixes (reviewed 2026-11-13).
+// CVE-2026-122006 is the global database's ID for GHSA-f3w6-w445-fwh9; the Rails repository still lists CVE-2026-126082.
 // Trivy's newer DB emits them in addition to the GHSAs, with this exact fixed-version spelling.
 // They never substitute for a missing canonical finding or authorize another package/version.
 export const RAILS_ALIASES = Object.freeze({
   'CVE-2026-126080': 'GHSA-8474-xrp6-wh69',
   'CVE-2026-126186': 'GHSA-v924-7rp8-4mxh',
+  'CVE-2026-126081': 'GHSA-wm3x-v3qw-4jh3',
+  'CVE-2026-122006': 'GHSA-f3w6-w445-fwh9',
 });
 const REVIEWED_FINDINGS = Object.freeze([
   ...EXPECTED_FINDINGS,
@@ -67,7 +70,7 @@ const REVIEWED_FINDINGS = Object.freeze([
 ]);
 function reviewedFindings(ids) {
   assert.equal(new Set(ids).size, ids.length, 'each raw advisory ID occurs once');
-  assert.ok(ids.every(id => REVIEWED_FINDINGS.some(finding => finding.id === id)), 'unreviewed advisory ID');
+  assert.deepEqual(ids.filter(id => !REVIEWED_FINDINGS.some(finding => finding.id === id)), [], 'unreviewed advisory IDs');
   assert.ok(ADVISORIES.every(id => ids.includes(id)), 'all seven canonical advisories remain required');
   return REVIEWED_FINDINGS.filter(finding => ids.includes(finding.id));
 }

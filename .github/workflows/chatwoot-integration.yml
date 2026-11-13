@@ -520,7 +520,7 @@ jobs:
               source_ref:"refs/heads/main",control_sha256:$control,trivy_image:$trivy,
               db_download_started_at:$started,issued_at:$issued}' > "$security/context.json"
           # This is an independent source-backport classification, not a Trivy-filtered scan.
-          # All seven canonical findings remain required; the two reviewed Rails CVE aliases may additionally occur once.
+          # All seven canonical findings remain required; the four reviewed Rails CVE aliases may additionally occur once.
           # Exact package/version/severity/fix/proof checks apply to every raw row; any unreviewed HIGH/CRITICAL still fails.
           node scripts/verify-chatwoot-ruby-llm-classification.mjs evaluate \
             "$security" config/chatwoot-ruby-llm-backport.json config/chatwoot-rails-backport.json
